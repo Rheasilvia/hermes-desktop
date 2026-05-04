@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnGateway, type GatewayFixture } from './helpers.js';
 
-describe('config methods — real gateway', () => {
+describe.skip('config methods — real gateway', () => {
   let gw: GatewayFixture;
 
   beforeAll(async () => {

@@ -6,6 +6,10 @@ import { ModuleErrorBoundary } from '@/components/ModuleErrorBoundary';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { initTheme } from '@/services/theme.js';
 import { loadDesktopSettings, applyDesktopSettings } from '@/services/desktop-settings.js';
+import { initializeStores } from '@/stores/context.js';
+import { createMockGateway } from '@/services/gateway/index.js';
+
+const isTauri = typeof window !== 'undefined' && !!(window as unknown as { __TAURI__?: unknown }).__TAURI__;
 
 const ChatPage = lazy(() => import('@/pages/ChatPage'));
 const SessionsPage = lazy(() => import('@/pages/SessionsPage'));
@@ -28,6 +32,11 @@ const ModuleSuspense: Component<{ moduleName: string; children: any }> = (props)
 
 const App: Component = () => {
   onMount(async () => {
+    if (!isTauri) {
+      const gateway = createMockGateway();
+      initializeStores(gateway);
+      await gateway.connect();
+    }
     await initTheme();
     try {
       const desktop = await loadDesktopSettings();

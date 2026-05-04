@@ -15,4 +15,9 @@ export default defineConfig({
     strictPort: true,
   },
   envPrefix: ["VITE_", "TAURI_"],
+  build: {
+    rollupOptions: {
+      external: ["net", "child_process"],
+    },
+  },
 });
