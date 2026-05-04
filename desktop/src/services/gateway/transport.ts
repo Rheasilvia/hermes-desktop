@@ -33,6 +33,5 @@ export class StdioTransportPlaceholder implements Transport {
 }
 
 export { BaseJsonRpcTransport, DEFAULT_REQUEST_TIMEOUT_MS } from './transport-base.js';
-export { StdioTransport } from './transport-stdio.js';
-export { UnixSocketTransport } from './transport-socket.js';
-export type { StdioTransportOptions as RealStdioTransportOptions } from './transport-stdio.js';
+// StdioTransport and UnixSocketTransport require Node.js (child_process, net).
+// Import directly from transport-stdio.ts / transport-socket.ts in Node contexts only.

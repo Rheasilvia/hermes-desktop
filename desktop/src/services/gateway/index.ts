@@ -6,9 +6,6 @@ export {
   type StdioTransportOptions,
   BaseJsonRpcTransport,
   DEFAULT_REQUEST_TIMEOUT_MS,
-  StdioTransport,
-  UnixSocketTransport,
-  type RealStdioTransportOptions,
 } from './transport.js';
 
 export { GatewayClient } from './client.js';
