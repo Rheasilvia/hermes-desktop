@@ -1,0 +1,45 @@
+@keyframes pixelGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 1px rgba(201, 100, 66, 0.15));
+  }
+  50% {
+    filter:
+      drop-shadow(0 0 4px rgba(201, 100, 66, 0.45))
+      drop-shadow(0 0 12px rgba(217, 119, 87, 0.15));
+  }
+}
+
+@keyframes spotlight {
+  0%   { transform: translateX(-80%); }
+  100% { transform: translateX(280%); }
+}
+
+.wrapper {
+  display: block;
+  width: 100%;
+  line-height: 0;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.wrapper::after {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
+  width: 25%;
+  background: radial-gradient(
+    ellipse 100% 60% at 50% 50%,
+    rgba(255, 230, 200, 0.45) 0%,
+    rgba(255, 200, 160, 0.2) 30%,
+    transparent 70%
+  );
+  animation: spotlight 3.5s ease-in-out infinite alternate;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.logo {
+  animation: pixelGlow 3s ease-in-out infinite;
+  will-change: filter;
+}

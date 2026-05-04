@@ -1,0 +1,221 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-4);
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-on-surface-dim);
+  cursor: pointer;
+  font-family: inherit;
+  transition: color var(--transition-fast);
+}
+
+.backLink:hover {
+  color: var(--color-on-surface);
+}
+
+.infoCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+}
+
+.infoGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.infoLabel {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-on-surface-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.infoValue {
+  font-size: var(--text-sm);
+  color: var(--color-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.infoValueMono {
+  font-size: var(--text-sm);
+  color: var(--color-on-surface);
+  font-family: var(--font-mono);
+}
+
+.apiKeyGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-on-surface-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.iconBtn:hover {
+  color: var(--color-on-surface);
+  background: var(--color-surface-raised);
+}
+
+.iconBtn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.infoActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.tableSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: var(--space-1);
+}
+
+.tableHeader {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 70px minmax(170px, 1fr) minmax(150px, 1fr) 56px;
+  gap: var(--space-3);
+  align-items: center;
+  height: 36px;
+  padding: 0 var(--space-4);
+  min-width: 660px;
+}
+
+.colLabel {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-on-surface-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.modelRow {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 70px minmax(170px, 1fr) minmax(150px, 1fr) 56px;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: 48px;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  min-width: 660px;
+}
+
+.modelRow > * {
+  align-self: center;
+}
+
+.modelRow:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.modelRow + .modelRow {
+  margin-top: var(--space-2);
+}
+
+.colModel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.colContext {
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.colPricing {
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.colCaps {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.colStatus {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.modelName {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.capPill {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-on-surface-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}

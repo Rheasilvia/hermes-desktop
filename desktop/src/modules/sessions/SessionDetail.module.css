@@ -1,0 +1,216 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border-light);
+  gap: var(--space-4);
+}
+
+.headerInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface);
+  margin: 0 0 var(--space-2) 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.timestamp {
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-muted);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.tabContent {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.overview {
+  padding: var(--space-4);
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+
+.statItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+}
+
+.statLabel {
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.statValue {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-on-surface);
+}
+
+.details {
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.messageItem {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.messageHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  cursor: default;
+  font-size: var(--text-xs);
+}
+
+.messageRole {
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface);
+}
+
+.messageTime {
+  color: var(--color-on-surface-muted);
+  margin-left: auto;
+}
+
+.expandHint {
+  color: var(--color-on-surface-dim);
+  cursor: pointer;
+}
+
+.messageContent {
+  padding: var(--space-2) var(--space-3);
+}
+
+.contentText {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-on-surface);
+  line-height: var(--leading-normal);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.emptyMsg {
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-dim);
+}
+
+.toolCallDetails {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border-light);
+  background: var(--color-background-alt);
+}
+
+.toolDetail {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-1);
+}
+
+.toolDetailLabel {
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface-muted);
+}
+
+.toolCallPre {
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-x: auto;
+  max-height: 200px;
+  color: var(--color-on-surface);
+}
+
+.branch {
+  padding: var(--space-4);
+}
+
+.branchTitle {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.branchList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.branchItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+}
+
+.branchName {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-on-surface);
+}
+
+.branchMeta {
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-muted);
+}

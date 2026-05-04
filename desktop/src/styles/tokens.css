@@ -1,0 +1,125 @@
+/* ============================================
+   HERMES DESKTOP — DESIGN TOKENS
+   Aligned with designs/*.pen warm parchment system
+   ============================================ */
+
+:root {
+  /* --- Colors: Brand --- */
+  --color-parchment: #f5f4ed;
+  --color-terracotta: #c96442;
+  --color-sage: #7A8B6F;
+  --color-charcoal: #141413;
+  --color-cream: #faf9f5;
+  --color-stone: #5e5d59;
+  --color-warm-gray: #e8e6dc;
+
+  /* --- Colors: Semantic --- */
+  --color-primary: var(--color-terracotta);
+  --color-primary-hover: #b5522d;
+  --color-primary-light: rgba(201, 100, 66, 0.1);
+  --color-secondary: var(--color-sage);
+  --color-secondary-hover: #6A7B5F;
+  --color-secondary-light: rgba(122, 139, 111, 0.1);
+
+  /* --- Colors: Surface --- */
+  --color-surface: #faf9f5;
+  --color-surface-raised: #ffffff;
+  --color-surface-overlay: rgba(20, 20, 19, 0.5);
+  --color-background: var(--color-parchment);
+  --color-background-alt: var(--color-cream);
+
+  /* --- Colors: Text --- */
+  --color-on-surface: var(--color-charcoal);
+  --color-on-surface-muted: var(--color-stone);
+  --color-on-surface-dim: #87867f;
+  --color-on-primary: #ffffff;
+  --color-on-secondary: #ffffff;
+
+  /* --- Colors: Border --- */
+  --color-border: var(--color-warm-gray);
+  --color-border-light: #f0eee6;
+  --color-border-focus: var(--color-terracotta);
+
+  /* --- Colors: Status --- */
+  --color-success: var(--color-sage);
+  --color-warning: #ffd60a;
+  --color-error: #b53333;
+  --color-info: #5B8FB9;
+
+  /* --- Typography: Font Families --- */
+  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+  /* --- Typography: Size Scale --- */
+  --text-xs: 0.75rem;    /* 12px */
+  --text-sm: 0.8125rem;  /* 13px — body */
+  --text-base: 0.9375rem;/* 15px — H3 */
+  --text-lg: 1.0625rem;  /* 17px — H2 */
+  --text-xl: 1.375rem;   /* 22px — H1 */
+  --text-2xl: 1.75rem;   /* 28px — Display */
+  --text-3xl: 2rem;      /* 32px */
+  --text-4xl: 2.5rem;    /* 40px */
+
+  /* --- Typography: Line Heights --- */
+  --leading-tight: 1.25;
+  --leading-normal: 1.6;
+  --leading-relaxed: 1.75;
+
+  /* --- Typography: Font Weights --- */
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* --- Typography: Letter Spacing --- */
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.025em;
+
+  /* --- Spacing Scale (4px base) --- */
+  --space-0: 0;
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-5: 1.25rem;   /* 20px */
+  --space-6: 1.5rem;    /* 24px */
+  --space-8: 2rem;      /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+  --space-12: 3rem;     /* 48px */
+
+  /* --- Border Radius --- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 9999px;
+  --radius-full: 50%;
+
+  /* --- Shadows --- */
+  --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.06), 0 1px 3px rgba(20, 20, 19, 0.08);
+  --shadow-md: 0 4px 6px rgba(20, 20, 19, 0.06), 0 2px 4px rgba(20, 20, 19, 0.08);
+  --shadow-lg: 0 10px 15px rgba(20, 20, 19, 0.08), 0 4px 6px rgba(20, 20, 19, 0.06);
+  --shadow-xl: 0 20px 25px rgba(20, 20, 19, 0.1), 0 8px 10px rgba(20, 20, 19, 0.06);
+  --shadow-inset: inset 0 2px 4px rgba(20, 20, 19, 0.06);
+
+  /* --- Transitions --- */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 350ms ease;
+
+  /* --- Z-Index Scale --- */
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+
+  /* --- Layout --- */
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 48px;
+  --statusbar-height: 28px;
+  --input-min-height: 48px;
+}

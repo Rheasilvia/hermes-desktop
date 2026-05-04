@@ -1,0 +1,133 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+.card:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.configButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  color: var(--color-on-surface-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.configButton:hover {
+  color: var(--color-on-surface);
+  background: var(--color-surface-raised);
+}
+
+.configButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.name {
+  font-size: var(--text-sm, 0.875rem);
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-on-surface);
+  text-transform: capitalize;
+}
+
+.url {
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-on-surface-muted);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: auto;
+}
+
+.count {
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-on-surface-dim);
+  margin: 0;
+}
+
+.apiKeyRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.apiKey {
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-primary);
+  font-family: var(--font-mono, monospace);
+}
+
+.eyeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  color: var(--color-on-surface-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.eyeButton:hover {
+  color: var(--color-on-surface);
+  background: var(--color-surface-raised);
+}
+
+.eyeButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}

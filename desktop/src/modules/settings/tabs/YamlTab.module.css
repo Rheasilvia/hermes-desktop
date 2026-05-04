@@ -1,0 +1,90 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: #1e1e1e;
+  border-bottom: 1px solid #333;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.title {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: #ccc;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.error {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: #f48771;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.valid {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: #6a9955;
+}
+
+.editor {
+  display: flex;
+  flex: 1;
+  background: #1e1e1e;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  overflow: hidden;
+  min-height: 400px;
+}
+
+.lineNumbers {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3) var(--space-2);
+  background: #1a1a1a;
+  border-right: 1px solid #333;
+  user-select: none;
+  text-align: right;
+}
+
+.lineNum {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: #555;
+  min-width: 2em;
+}
+
+.textarea {
+  flex: 1;
+  padding: var(--space-3);
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+}
+
+.textarea::placeholder {
+  color: #555;
+}

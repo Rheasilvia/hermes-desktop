@@ -1,0 +1,41 @@
+.cronView {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: 100%;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-shrink: 0;
+}
+
+.content {
+  display: flex;
+  gap: var(--space-4);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.loadingWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+}
+
+.listPanel {
+  flex: 1;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.detailPanel {
+  width: 380px;
+  flex-shrink: 0;
+  overflow-y: auto;
+}

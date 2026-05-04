@@ -1,0 +1,77 @@
+.hubGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+.skillCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.skillCard:hover {
+  border-color: var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.skillCardHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.skillIcon {
+  font-size: 24px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-surface-alt);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+.skillMeta {
+  flex: 1;
+  min-width: 0;
+}
+
+.skillName {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface);
+}
+
+.skillAuthor {
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-muted);
+  margin-top: var(--space-1);
+}
+
+.skillDescription {
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-muted);
+  line-height: var(--leading-relaxed);
+}
+
+.skillFooter {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+}
+
+.installedBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-success);
+  font-weight: var(--weight-medium);
+}

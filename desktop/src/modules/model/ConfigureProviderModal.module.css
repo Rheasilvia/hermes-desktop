@@ -1,0 +1,129 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.label {
+  font-size: var(--text-sm, 0.875rem);
+  font-weight: var(--weight-medium, 500);
+  color: var(--color-on-surface);
+}
+
+.readOnly {
+  padding: var(--space-3) var(--space-3);
+  background: var(--color-surface-lowered);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm, 0.875rem);
+  color: var(--color-on-surface-muted);
+}
+
+.passwordRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  transition: border-color var(--transition-fast);
+}
+
+.passwordRow:focus-within {
+  border-color: var(--color-primary);
+  outline: 2px solid var(--color-primary-light);
+  outline-offset: -1px;
+}
+
+.passwordInput {
+  flex: 1;
+  height: 40px;
+  border: none;
+  background: transparent;
+  font-size: var(--text-sm, 0.875rem);
+  color: var(--color-on-surface);
+  font-family: inherit;
+}
+
+.passwordInput:focus {
+  outline: none;
+}
+
+.passwordInput::placeholder {
+  color: var(--color-on-surface-dim);
+}
+
+.eyeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  color: var(--color-on-surface-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.eyeButton:hover {
+  color: var(--color-on-surface);
+  background: var(--color-surface-raised);
+}
+
+.eyeButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--space-2);
+}
+
+.toggle {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  padding: 0;
+  background: var(--color-border);
+  border: none;
+  border-radius: var(--radius-full, 9999px);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.toggleOn {
+  background: var(--color-primary);
+}
+
+.toggleThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: var(--color-surface);
+  border-radius: var(--radius-full, 9999px);
+  transition: transform var(--transition-fast);
+  box-shadow: var(--shadow-sm);
+}
+
+.toggleOn .toggleThumb {
+  transform: translateX(20px);
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

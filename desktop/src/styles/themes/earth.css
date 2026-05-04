@@ -1,0 +1,54 @@
+/* ============================================
+   HERMES DESKTOP — EARTH TONE THEME
+   ============================================ */
+
+[data-theme="earth"] {
+  /* --- Colors: Brand --- */
+  --color-parchment: #F5F0E8;
+  --color-terracotta: #c96442;
+  --color-sage: #6B7D5F;
+  --color-charcoal: #3D3529;
+  --color-cream: #FAF7F2;
+  --color-stone: #8B7E6A;
+  --color-warm-gray: #C9BFA8;
+
+  /* --- Colors: Semantic --- */
+  --color-primary: #c96442;
+  --color-primary-hover: #b5522d;
+  --color-primary-light: rgba(201, 100, 66, 0.12);
+  --color-secondary: var(--color-sage);
+  --color-secondary-hover: #5E6F53;
+  --color-secondary-light: rgba(107, 125, 95, 0.1);
+
+  /* --- Colors: Surface --- */
+  --color-surface: #F5F0E8;
+  --color-surface-raised: #FAF7F2;
+  --color-surface-overlay: rgba(61, 53, 41, 0.5);
+  --color-background: #EDE7DE;
+  --color-background-alt: #FAF7F2;
+
+  /* --- Colors: Text --- */
+  --color-on-surface: #3D3529;
+  --color-on-surface-muted: #8B7E6A;
+  --color-on-surface-dim: #A8997F;
+  --color-on-primary: #FFFFFF;
+  --color-on-secondary: #FFFFFF;
+
+  /* --- Colors: Border --- */
+  --color-border: #C9BFA8;
+  --color-border-light: #DDD5C5;
+  --color-border-focus: var(--color-terracotta);
+
+  /* --- Colors: Status --- */
+  --color-success: var(--color-sage);
+  --color-warning: #C9A84C;
+  --color-error: #c96442;
+  --color-info: #5B8FB9;
+
+  /* --- Shadows --- */
+  --shadow-sm: 0 1px 2px rgba(61, 53, 41, 0.08), 0 1px 3px rgba(61, 53, 41, 0.1);
+  --shadow-md: 0 4px 6px rgba(61, 53, 41, 0.08), 0 2px 4px rgba(61, 53, 41, 0.1);
+  --shadow-lg: 0 10px 15px rgba(61, 53, 41, 0.1), 0 4px 6px rgba(61, 53, 41, 0.08);
+  --shadow-xl: 0 20px 25px rgba(61, 53, 41, 0.12), 0 8px 10px rgba(61, 53, 41, 0.08);
+  --shadow-inset: inset 0 2px 4px rgba(61, 53, 41, 0.08);
+}

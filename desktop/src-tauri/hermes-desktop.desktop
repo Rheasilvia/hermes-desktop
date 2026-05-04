@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Hermes
+Comment=AI Agent Desktop Client
+Exec=hermes-desktop
+Icon=hermes
+Terminal=false
+Type=Application
+Categories=Development;Utility;Chat;
+Keywords=ai;agent;chat;assistant;
+StartupWMClass=Hermes
+MimeType=x-scheme-handler/hermes;
