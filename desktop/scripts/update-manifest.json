@@ -1,0 +1,19 @@
+{
+  "version": "0.1.0",
+  "notes": "Hermes Desktop App Release",
+  "pub_date": "2026-04-20T00:00:00Z",
+  "platforms": {
+    "linux-x86_64": {
+      "url": "https://github.com/nousresearch/hermes-agent/releases/download/v0.1.0/hermes_0.1.0_amd64.AppImage"
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/nousresearch/hermes-agent/releases/download/v0.1.0/hermes_0.1.0_x64.dmg"
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/nousresearch/hermes-agent/releases/download/v0.1.0/hermes_0.1.0_aarch64.dmg"
+    },
+    "windows-x86_64": {
+      "url": "https://github.com/nousresearch/hermes-agent/releases/download/v0.1.0/hermes_0.1.0_x64-setup.exe"
+    }
+  }
+}

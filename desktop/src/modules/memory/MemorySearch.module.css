@@ -1,0 +1,102 @@
+.memorySearch {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.searchBar {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-light);
+  background-color: var(--color-surface);
+  flex-shrink: 0;
+}
+
+.resultCount {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-variant);
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-light);
+  flex-shrink: 0;
+}
+
+.results {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+}
+
+.resultItem {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  cursor: default;
+  transition: border-color var(--transition-fast);
+}
+
+.resultItem:hover {
+  border-color: var(--color-primary);
+}
+
+.resultHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.resultSource {
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-variant);
+  font-family: var(--font-mono);
+}
+
+.resultDate {
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-variant);
+}
+
+.resultContent {
+  font-size: var(--text-sm);
+  color: var(--color-on-surface);
+  line-height: 1.6;
+}
+
+.resultTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.tag {
+  font-size: var(--text-xs);
+  padding: 2px var(--space-2);
+  background-color: var(--color-surface-alt);
+  color: var(--color-on-surface-variant);
+  border-radius: var(--radius-pill);
+}
+
+.highlight {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.emptyWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loadWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

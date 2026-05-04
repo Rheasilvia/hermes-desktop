@@ -1,0 +1,113 @@
+.memoryContent {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.markdownBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5);
+  line-height: 1.7;
+  color: var(--color-on-surface);
+}
+
+.markdownBody h1,
+.markdownBody h2,
+.markdownBody h3 {
+  color: var(--color-on-surface);
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-3);
+  font-weight: var(--weight-semibold);
+}
+
+.markdownBody h1 {
+  font-size: var(--text-2xl);
+  border-bottom: 1px solid var(--color-border-light);
+  padding-bottom: var(--space-2);
+}
+
+.markdownBody h2 {
+  font-size: var(--text-xl);
+}
+
+.markdownBody h3 {
+  font-size: var(--text-lg);
+}
+
+.markdownBody p {
+  margin-bottom: var(--space-3);
+}
+
+.markdownBody ul,
+.markdownBody ol {
+  margin-bottom: var(--space-3);
+  padding-left: var(--space-6);
+}
+
+.markdownBody li {
+  margin-bottom: var(--space-1);
+}
+
+.markdownBody code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background-color: var(--color-surface-alt);
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.markdownBody pre {
+  background-color: var(--color-surface-alt);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  overflow-x: auto;
+  margin-bottom: var(--space-4);
+}
+
+.markdownBody pre code {
+  background: none;
+  padding: 0;
+}
+
+.markdownBody blockquote {
+  border-left: 3px solid var(--color-primary);
+  padding-left: var(--space-4);
+  margin-left: 0;
+  margin-bottom: var(--space-3);
+  color: var(--color-on-surface-variant);
+}
+
+.markdownBody strong {
+  font-weight: var(--weight-semibold);
+}
+
+.markdownBody em {
+  font-style: italic;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--color-border-light);
+  background-color: var(--color-surface);
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-variant);
+  flex-shrink: 0;
+}
+
+.metaItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.loadWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

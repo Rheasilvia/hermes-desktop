@@ -1,0 +1,70 @@
+.container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-sans);
+}
+
+.searchIcon {
+  position: absolute;
+  left: var(--space-3);
+  font-size: var(--text-base);
+  color: var(--color-on-surface-muted);
+  pointer-events: none;
+}
+
+.input {
+  width: 100%;
+  padding: var(--space-2) var(--space-8);
+  padding-left: var(--space-8);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  color: var(--color-on-surface);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.input::placeholder {
+  color: var(--color-on-surface-dim);
+}
+
+.input:hover:not(:disabled) {
+  border-color: var(--color-border-focus);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(199, 91, 58, 0.1);
+}
+
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.clearBtn {
+  position: absolute;
+  right: var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: var(--color-border);
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--color-on-surface-muted);
+  line-height: 1;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.clearBtn:hover {
+  background: var(--color-on-surface-muted);
+  color: var(--color-surface);
+}

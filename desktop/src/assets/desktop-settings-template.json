@@ -1,0 +1,10 @@
+{
+  "theme": "earth",
+  "language": "en",
+  "fontSize": 100,
+  "reducedMotion": false,
+  "autoSave": true,
+  "confirmDestructive": true,
+  "startupBehavior": "restore",
+  "checkUpdates": true
+}

@@ -1,0 +1,99 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-12);
+  padding: var(--space-20) var(--space-4);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  max-width: 480px;
+  text-align: center;
+}
+
+.icon {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  font-size: 40px;
+  color: var(--color-primary);
+  font-family: Georgia, serif;
+  font-weight: 500;
+}
+
+.title {
+  font-family: Georgia, serif;
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--color-on-surface);
+  margin: 0;
+}
+
+.description {
+  font-size: var(--text-base);
+  color: var(--color-on-surface-muted);
+  margin: 0;
+}
+
+.recommended {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.recommendedLabel {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-on-surface-dim);
+}
+
+.recommendedCards {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.recommendedCard {
+  width: 170px;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.providerName {
+  font-family: Georgia, serif;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-on-surface);
+}
+
+.providerDesc {
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-muted);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  background: #c964421f;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--color-primary);
+  align-self: flex-start;
+}

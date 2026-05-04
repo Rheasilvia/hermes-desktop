@@ -1,0 +1,67 @@
+/* ============================================
+   HERMES DESKTOP — GLOBAL STYLES
+   ============================================ */
+
+@import "./tokens.css";
+@import "./reset.css";
+
+/* Theme imports — last so overrides take effect */
+@import "./themes/dark.css";
+@import "./themes/earth.css";
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-on-surface);
+  background-color: var(--color-background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-on-surface-muted);
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+/* Selection */
+::selection {
+  background: var(--color-primary-light);
+  color: var(--color-on-surface);
+}
+
+/* App root */
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Reduced motion — disables decorative transitions and animations */
+[data-reduced-motion="true"] *,
+[data-reduced-motion="true"] *::before,
+[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
