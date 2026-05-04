@@ -5,8 +5,10 @@
 
 import type { GatewayAdapter } from '@/services/gateway/types.js';
 import { ModelAdapter } from '@/services/model-adapter/index.js';
-import { TauriFsAdapter } from '@/services/model-adapter/fs-adapter.js';
+import { TauriFsAdapter, MemoryFsAdapter } from '@/services/model-adapter/fs-adapter.js';
 import { BUILT_IN_PROVIDERS } from './models.js';
+
+const isTauri = typeof window !== 'undefined' && !!(window as unknown as { __TAURI__?: unknown }).__TAURI__;
 
 let _gateway: GatewayAdapter | null = null;
 let _modelAdapter: ModelAdapter | null = null;
@@ -38,7 +40,7 @@ export function getModelAdapter(): ModelAdapter | null {
   if (!gw) return null;
   _modelAdapter = new ModelAdapter(
     gw,
-    new TauriFsAdapter(),
+    isTauri ? new TauriFsAdapter() : new MemoryFsAdapter(),
     BUILT_IN_PROVIDERS.map(p => p.name.toLowerCase()),
   );
   return _modelAdapter;
