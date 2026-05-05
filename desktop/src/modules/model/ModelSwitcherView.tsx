@@ -43,7 +43,7 @@ export const ModelSwitcherView: Component = () => {
 
   const filteredProviders = createMemo<ProviderEntry[]>(() => {
     const query = searchQuery().toLowerCase();
-    const allProviders = modelsStore.providers() as unknown as ProviderEntry[];
+    const allProviders = modelsStore.providers();
     if (!query) return allProviders;
     return allProviders.filter((p) => {
       const nameMatch = p.name.toLowerCase().includes(query);
@@ -63,7 +63,7 @@ export const ModelSwitcherView: Component = () => {
   });
 
   const totalModelCount = () =>
-    (modelsStore.providers() as unknown as ProviderEntry[]).reduce((sum, p) => sum + (p.models?.length ?? 0), 0);
+    modelsStore.providers().reduce((sum, p) => sum + (p.models?.length ?? 0), 0);
 
   const filteredModelCount = () =>
     filteredProviders().reduce((sum, p) => sum + (p.models?.length ?? 0), 0);

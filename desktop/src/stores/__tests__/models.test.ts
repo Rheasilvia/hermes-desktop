@@ -26,6 +26,11 @@ describe('models store', () => {
     const s = createModelsStore();
     await s.load();
     expect(s.providers().length).toBe(1);
-    expect(s.providers()[0].id).toBe('provider_test_anthropic');
+    expect(s.providers()[0].name).toBe('Anthropic');
+    expect(s.providers()[0].is_builtin).toBe(true);
+    expect(s.providers()[0].enabled).toBe(true);
+    expect(s.providers()[0].models?.length).toBe(1);
+    expect(s.providers()[0].models?.[0].name).toBe('claude-sonnet-4');
+    expect(s.providers()[0].models?.[0].context_length).toBe(200000);
   });
 });
