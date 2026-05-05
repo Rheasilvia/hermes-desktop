@@ -61,7 +61,11 @@ pub async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     update
         .download_and_install(
             |chunk_length, content_length| {
-                tracing::debug!("Downloaded {} bytes (total: {:?})", chunk_length, content_length);
+                tracing::debug!(
+                    "Downloaded {} bytes (total: {:?})",
+                    chunk_length,
+                    content_length
+                );
             },
             || {
                 tracing::info!("Download finished, installing...");

@@ -14,7 +14,10 @@ pub enum Platform {
 /// Returns the desktop app version from Cargo.toml
 #[tauri::command]
 pub fn get_app_version(app: tauri::AppHandle) -> String {
-    app.config().version.clone().unwrap_or_else(|| "0.1.0".to_string())
+    app.config()
+        .version
+        .clone()
+        .unwrap_or_else(|| "0.1.0".to_string())
 }
 
 /// Returns the HERMES_HOME directory path

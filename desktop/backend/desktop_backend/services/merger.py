@@ -21,6 +21,9 @@ def merge_cron_jobs(
                 prompt=job["prompt"],
                 enabled=bool(job.get("enabled", True)),
                 created_at=job.get("created_at", ""),
+                last_run_at=job.get("last_run_at"),
+                last_status=job.get("last_status"),
+                last_error=job.get("last_error"),
                 desktop=CronOverlay(**entry),
             )
         )
