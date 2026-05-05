@@ -1,0 +1,18 @@
+{
+  "jobs": [
+    {
+      "id": "job_test_001",
+      "schedule": "0 9 * * *",
+      "prompt": "morning briefing",
+      "enabled": true,
+      "created_at": "2026-05-05T09:00:00Z"
+    },
+    {
+      "id": "job_test_002",
+      "schedule": "*/5 * * * *",
+      "prompt": "poll",
+      "enabled": false,
+      "created_at": "2026-05-05T09:00:00Z"
+    }
+  ]
+}
