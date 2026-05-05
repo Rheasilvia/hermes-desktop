@@ -5,7 +5,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
@@ -127,4 +127,75 @@ pub async fn spawn_dev() -> Result<SidecarInfo> {
 
 pub async fn current_info() -> Option<SidecarInfo> {
     state().info.lock().await.clone()
+}
+
+pub async fn run_health_probe(handle: tauri::AppHandle) {
+    use tauri::Manager;
+    let mut consecutive_failures = 0u32;
+    loop {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let info = match current_info().await {
+            Some(i) => i,
+            None => continue,
+        };
+        let url = format!("{}/desktop/api/health", info.base_url);
+        let ok = match timeout(Duration::from_secs(1), reqwest::get(&url)).await {
+            Ok(Ok(resp)) => resp.status().is_success(),
+            _ => false,
+        };
+        if ok {
+            consecutive_failures = 0;
+            continue;
+        }
+        consecutive_failures += 1;
+        if consecutive_failures >= 3 {
+            let _ = handle.emit_all("sidecar://unhealthy", ());
+            consecutive_failures = 0;
+            if let Err(e) = restart_with_backoff(&handle).await {
+                let _ = handle.emit_all("sidecar://failed", format!("{e}"));
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct RestartLedger {
+    attempts: Mutex<Vec<Instant>>,
+}
+
+static LEDGER: OnceCell<Arc<RestartLedger>> = OnceCell::new();
+
+fn ledger() -> Arc<RestartLedger> {
+    LEDGER
+        .get_or_init(|| Arc::new(RestartLedger::default()))
+        .clone()
+}
+
+async fn restart_with_backoff(handle: &tauri::AppHandle) -> Result<()> {
+    use tauri::Manager;
+    // Hard cap: 5 restarts in 60 seconds.
+    {
+        let l = ledger();
+        let mut attempts = l.attempts.lock().await;
+        let cutoff = Instant::now() - Duration::from_secs(60);
+        attempts.retain(|t| *t > cutoff);
+        if attempts.len() >= 5 {
+            bail!("restart cap hit (5 in 60s)");
+        }
+        attempts.push(Instant::now());
+    }
+
+    if let Some(mut child) = state().child.lock().await.take() {
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+    }
+    *state().info.lock().await = None;
+
+    let attempt = ledger().attempts.lock().await.len() as u32;
+    let backoff = std::cmp::min(2u64.saturating_pow(attempt), 30);
+    tokio::time::sleep(Duration::from_secs(backoff)).await;
+
+    let info = spawn_dev().await?;
+    let _ = handle.emit_all("sidecar://restarted", info);
+    Ok(())
 }
