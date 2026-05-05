@@ -9,7 +9,7 @@ import {
   Switch,
   Match,
 } from 'solid-js';
-import { modelStore } from '@/stores/models.js';
+import { modelStore, modelsStore } from '@/stores/models.js';
 import { LoadingSpinner } from '@/components/LoadingSpinner.js';
 import { Tabs } from '@/components/Tabs.js';
 import { ProviderCard } from './ProviderCard.js';
@@ -32,6 +32,7 @@ export const ModelSwitcherView: Component = () => {
   onMount(() => {
     modelStore.loadModels();
     modelStore.loadActiveModel();
+    void modelsStore.load();
   });
 
   createEffect(() => {
@@ -42,7 +43,7 @@ export const ModelSwitcherView: Component = () => {
 
   const filteredProviders = createMemo<ProviderEntry[]>(() => {
     const query = searchQuery().toLowerCase();
-    const allProviders = modelStore.providers;
+    const allProviders = modelsStore.providers() as unknown as ProviderEntry[];
     if (!query) return allProviders;
     return allProviders.filter((p) => {
       const nameMatch = p.name.toLowerCase().includes(query);
@@ -62,7 +63,7 @@ export const ModelSwitcherView: Component = () => {
   });
 
   const totalModelCount = () =>
-    modelStore.providers.reduce((sum, p) => sum + (p.models?.length ?? 0), 0);
+    (modelsStore.providers() as unknown as ProviderEntry[]).reduce((sum, p) => sum + (p.models?.length ?? 0), 0);
 
   const filteredModelCount = () =>
     filteredProviders().reduce((sum, p) => sum + (p.models?.length ?? 0), 0);
@@ -97,19 +98,19 @@ export const ModelSwitcherView: Component = () => {
       </Match>
       <Match when={modelStore.currentView === 'hub'}>
         <div class={styles.container}>
-          <Show when={modelStore.isLoading && modelStore.providers.length === 0}>
+          <Show when={modelStore.isLoading && modelsStore.providers().length === 0}>
             <div class={styles.loading}>
               <LoadingSpinner size="lg" />
             </div>
           </Show>
 
           <Show
-            when={!modelStore.isLoading && modelStore.providers.length === 0}
+            when={!modelStore.isLoading && modelsStore.providers().length === 0}
           >
             <EmptyProviders />
           </Show>
 
-          <Show when={modelStore.providers.length > 0}>
+          <Show when={modelsStore.providers().length > 0}>
             <div class={styles.tabsRow}>
               <Tabs
                 tabs={[

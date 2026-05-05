@@ -234,3 +234,6 @@ export function createModelsStore() {
 
   return { providers, loading, error, load };
 }
+
+/** Singleton instance used by the model module views. */
+export const modelsStore = createModelsStore();
