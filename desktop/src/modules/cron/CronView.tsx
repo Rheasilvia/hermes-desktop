@@ -10,7 +10,7 @@ import { LoadingSpinner } from '@/components/LoadingSpinner.js';
 import { JobList } from './JobList.js';
 import { CreateJobForm } from './CreateJobForm.js';
 import { JobDetail } from './JobDetail.js';
-import { ExecutionHistory } from './ExecutionHistory.js';
+
 import styles from './CronView.module.css';
 
 const TABS = [
@@ -18,7 +18,7 @@ const TABS = [
   { id: 'active', label: 'Active' },
   { id: 'paused', label: 'Paused' },
   { id: 'delivery', label: 'Delivery' },
-  { id: 'history', label: 'History' },
+  // { id: 'history', label: 'History' },  // TODO: re-enable when execution history is tracked
 ];
 
 export const CronView: Component = () => {
@@ -43,8 +43,6 @@ export const CronView: Component = () => {
         return all.filter((j) => j.state === 'paused');
       case 'delivery':
         return all;
-      case 'history':
-        return [];
       default:
         return all;
     }
@@ -115,9 +113,6 @@ export const CronView: Component = () => {
           }
         >
           <Switch>
-            <Match when={activeTab() === 'history'}>
-              <ExecutionHistory />
-            </Match>
             <Match when={activeTab() === 'delivery'}>
               <div class={styles.listPanel}>
                 <JobList
