@@ -30,6 +30,7 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": ["../backend/dist/desktop_backend/desktop_backend"],
     "targets": ["deb", "rpm", "appimage", "dmg", "nsis", "app"],
     "icon": [
       "icons/icon_32x32.png",
@@ -52,7 +53,9 @@
     },
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "entitlements": "./entitlements.plist"
+      "entitlements": null,
+      "signingIdentity": "-",
+      "providerShortName": null
     },
     "linux": {
       "deb": {
