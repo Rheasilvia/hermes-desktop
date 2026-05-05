@@ -1,9 +1,17 @@
 mod commands;
+mod sidecar;
 mod updater;
 
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[tauri::command]
+async fn sidecar_info() -> Result<sidecar::SidecarInfo, String> {
+    sidecar::current_info()
+        .await
+        .ok_or_else(|| "sidecar not ready".into())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -31,10 +39,25 @@ pub fn run() {
             commands::open_external,
             commands::get_platform,
             commands::spawn_process,
+            sidecar_info,
             updater::check_for_updates,
             updater::install_update,
         ])
         .setup(|app| {
+            // Spawn the desktop_backend Python sidecar in the background
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                match sidecar::spawn_dev().await {
+                    Ok(info) => {
+                        let _ = handle.emit_all("sidecar://ready", info);
+                    }
+                    Err(e) => {
+                        eprintln!("sidecar failed to start: {e:?}");
+                        let _ = handle.emit_all("sidecar://failed", format!("{e}"));
+                    }
+                }
+            });
+
             // Create main window programmatically (matching OpenCode pattern)
             let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))?;
             let webview_url = tauri::WebviewUrl::App("index.html".into());
