@@ -5,6 +5,8 @@
 import { createSignal } from 'solid-js';
 import type { HermesConfig } from '@/types/index.js';
 import { getGateway } from './context.js';
+import { api } from '../services/api/router';
+import type { Settings } from '../services/api/types';
 
 const [config, setConfig] = createSignal<HermesConfig | null>(null);
 const [activeTab, setActiveTab] = createSignal<string>('general');
@@ -86,3 +88,39 @@ export const settingsStore = {
     setError(null);
   },
 };
+
+const DEFAULT: Settings = { schema_version: 1, ui: {} };
+
+export function createSettingsStore() {
+  const [settings, setSettings] = createSignal<Settings>(DEFAULT);
+  const [loading, setLoading] = createSignal(false);
+  const [error, setError] = createSignal<Error | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setSettings(await api.settings().get());
+    } catch (e) {
+      setError(e as Error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const save = async (next: Settings) => {
+    const prev = settings();
+    setSettings(next);
+    try {
+      const echoed = await api.settings().put(next);
+      setSettings(echoed);
+    } catch (e) {
+      setSettings(prev);
+      throw e;
+    }
+  };
+
+  return { settings, loading, error, load, save };
+}
+
+export const newSettingsStore = createSettingsStore();
