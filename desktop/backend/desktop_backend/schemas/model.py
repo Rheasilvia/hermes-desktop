@@ -10,6 +10,10 @@ class ProviderOverlay(BaseModel):
     display_order: Optional[int] = None
     note: Optional[str] = None
     updated_at: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    api_key_env: Optional[str] = None
+    display_name: Optional[str] = None
 
 
 class MergedProvider(BaseModel):

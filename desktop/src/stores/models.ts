@@ -57,21 +57,14 @@ export const modelStore = {
     return provider.models?.find(m => m.name === model) ?? null;
   },
 
+  /** Populate providers from external data (e.g., sidecar in standalone mode). */
+  hydrateProviders(entries: ProviderEntry[]): void {
+    setProviders(entries);
+  },
+
   async loadModels(): Promise<void> {
     const adapter = getModelAdapter();
-    if (!adapter) {
-      const gateway = getGateway();
-      if (!gateway) {
-        setProviders([]);
-        setError('Gateway not connected');
-        return;
-      }
-    }
-    if (!adapter) {
-      setProviders([]);
-      setError('Gateway not connected');
-      return;
-    }
+    if (!adapter) return;
     setIsLoading(true);
     setError(null);
     try {
@@ -124,9 +117,28 @@ export const modelStore = {
     display_name?: string;
   }): Promise<void> {
     const adapter = getModelAdapter();
-    if (!adapter) throw new Error('Gateway not connected');
-    await adapter.upsertProvider(input);
-    await this.loadModels();
+    // Always save to overlay API so standalone mode works even when
+    // a mock gateway is present (browser dev).
+    try {
+      const id = modelsStore.resolveId(input.name);
+      await api.overlays().patch('model', id, {
+        base_url: input.base_url ?? null,
+        api_key: input.api_key ?? null,
+        api_key_env: input.api_key_env ?? null,
+        display_name: input.display_name ?? null,
+      });
+    } catch {
+      void 0;
+    }
+    // Also try the gateway adapter if available.
+    if (adapter) {
+      try {
+        await adapter.upsertProvider(input);
+      } catch {
+        void 0;
+      }
+    }
+    await modelsStore.load();
   },
 
   async deleteProvider(name: string, isBuiltin: boolean): Promise<void> {
@@ -138,9 +150,20 @@ export const modelStore = {
 
   async setProviderEnabled(name: string, enabled: boolean): Promise<void> {
     const adapter = getModelAdapter();
-    if (!adapter) return;
-    await adapter.setProviderEnabled(name, enabled);
-    await this.loadModels();
+    try {
+      const id = modelsStore.resolveId(name);
+      await api.overlays().patch('model', id, { visible: enabled });
+    } catch {
+      void 0;
+    }
+    if (adapter) {
+      try {
+        await adapter.setProviderEnabled(name, enabled);
+      } catch {
+        void 0;
+      }
+    }
+    await modelsStore.load();
   },
 
   async setModelEnabled(provider: string, model: string, enabled: boolean): Promise<void> {
@@ -209,22 +232,73 @@ export const modelStore = {
   },
 };
 
+/** Per-1M-token pricing for well-known models (USD). */
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'claude-opus-4-7': { input: 15.0, output: 75.0 },
+  'claude-sonnet-4-6': { input: 3.0, output: 15.0 },
+  'claude-haiku-4-5': { input: 0.8, output: 4.0 },
+  'gpt-5': { input: 2.5, output: 10.0 },
+  'gpt-4o': { input: 2.5, output: 10.0 },
+  'deepseek-v3': { input: 0.27, output: 1.1 },
+  'deepseek-r1': { input: 0.55, output: 2.19 },
+};
+
+function mapModelOption(raw: Record<string, unknown>): ModelOption {
+  const id = (raw.id ?? raw.name ?? '') as string;
+  const pricing = MODEL_PRICING[id];
+  return {
+    name: id,
+    display_name: id,
+    context_length: (raw.context_window ?? raw.context_length) as number | undefined,
+    supports_vision: (raw.supports_vision ?? false) as boolean,
+    supports_function_calling: (raw.supports_function_calling ?? false) as boolean,
+    supports_streaming: (raw.supports_streaming ?? true) as boolean,
+    pricing_input: (raw.pricing_input as number) ?? pricing?.input,
+    pricing_output: (raw.pricing_output as number) ?? pricing?.output,
+    enabled: true,
+  };
+}
+
+function mapProvider(apiProvider: Provider): ProviderEntry {
+  const d = apiProvider.desktop;
+  return {
+    name: apiProvider.name,
+    display_name: d.display_name ?? apiProvider.name,
+    is_builtin: true,
+    enabled: d.visible !== false,
+    base_url: d.base_url ?? undefined,
+    api_key: d.api_key ?? undefined,
+    api_key_env: d.api_key_env ?? undefined,
+    models: (apiProvider.models ?? []).map(mapModelOption),
+  };
+}
+
 /**
  * Factory for creating a models store sourced from the services/api layer.
- * Provides an alternative data path through api.model() while the existing
- * module-level store continues to use getModelAdapter().
+ * Maps sidecar Provider → ProviderEntry so the UI components work without
+ * a connected gateway.
  */
 export function createModelsStore() {
-  const [providers, setProviders] = createSignal<Provider[]>([]);
+  const [rawProviders, setRawProviders] = createSignal<Provider[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<Error | null>(null);
+
+  const providers = () => rawProviders().map(mapProvider);
+
+  /** Resolve provider catalog ID from display name. */
+  const resolveId = (name: string): string => {
+    const raw = rawProviders();
+    const found = raw.find((p) => p.name === name);
+    return found?.id ?? name.toLowerCase();
+  };
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
       const resp = await api.model().listProviders();
-      setProviders(resp.items);
+      setRawProviders(resp.items);
+      modelStore.hydrateProviders(resp.items.map(mapProvider));
     } catch (e) {
       setError(e as Error);
     } finally {
@@ -232,7 +306,7 @@ export function createModelsStore() {
     }
   };
 
-  return { providers, loading, error, load };
+  return { providers, loading, error, load, resolveId };
 }
 
 /** Singleton instance used by the model module views. */

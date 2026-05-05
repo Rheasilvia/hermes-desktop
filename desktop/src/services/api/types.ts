@@ -22,6 +22,10 @@ export interface ProviderOverlay {
   display_order?: number | null;
   note?: string | null;
   updated_at?: string | null;
+  base_url?: string | null;
+  api_key?: string | null;
+  api_key_env?: string | null;
+  display_name?: string | null;
 }
 
 export interface Provider {
