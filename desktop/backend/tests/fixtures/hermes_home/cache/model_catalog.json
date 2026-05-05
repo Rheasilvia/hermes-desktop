@@ -1,0 +1,21 @@
+{
+  "providers": [
+    {
+      "id": "provider_test_anthropic",
+      "name": "Anthropic",
+      "models": [
+        {"id": "claude-sonnet-4", "context_window": 200000}
+      ],
+      "auth": "api_key"
+    },
+    {
+      "id": "provider_test_openai",
+      "name": "OpenAI",
+      "models": [
+        {"id": "gpt-5", "context_window": 128000}
+      ],
+      "auth": "api_key"
+    }
+  ],
+  "fetched_at": "2026-05-05T09:00:00Z"
+}
