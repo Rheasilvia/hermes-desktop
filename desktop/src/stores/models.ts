@@ -5,6 +5,8 @@
 import { createSignal } from 'solid-js';
 import type { ProviderEntry, ModelOption } from '@/types/index.js';
 import { getGateway, getModelAdapter } from './context.js';
+import { api } from '../services/api/router';
+import type { Provider } from '../services/api/types';
 
 const [providers, setProviders] = createSignal<ProviderEntry[]>([]);
 const [activeProvider, setActiveProvider] = createSignal<string | null>(null);
@@ -206,3 +208,29 @@ export const modelStore = {
     setError(null);
   },
 };
+
+/**
+ * Factory for creating a models store sourced from the services/api layer.
+ * Provides an alternative data path through api.model() while the existing
+ * module-level store continues to use getModelAdapter().
+ */
+export function createModelsStore() {
+  const [providers, setProviders] = createSignal<Provider[]>([]);
+  const [loading, setLoading] = createSignal(false);
+  const [error, setError] = createSignal<Error | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await api.model().listProviders();
+      setProviders(resp.items);
+    } catch (e) {
+      setError(e as Error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { providers, loading, error, load };
+}
