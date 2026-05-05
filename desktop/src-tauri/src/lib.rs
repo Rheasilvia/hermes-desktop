@@ -49,7 +49,7 @@ pub fn run() {
             // Spawn the desktop_backend Python sidecar in the background
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                match sidecar::spawn_dev().await {
+                match sidecar::spawn(handle.clone()).await {
                     Ok(info) => {
                         let _ = handle.emit_all("sidecar://ready", info);
                         let h2 = handle.clone();

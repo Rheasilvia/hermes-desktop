@@ -199,3 +199,56 @@ async fn restart_with_backoff(handle: &tauri::AppHandle) -> Result<()> {
     let _ = handle.emit_all("sidecar://restarted", info);
     Ok(())
 }
+
+#[cfg(not(debug_assertions))]
+fn release_binary(handle: &tauri::AppHandle) -> Result<PathBuf> {
+    use tauri::Manager;
+    let resolver = handle.path();
+    let res = resolver
+        .resolve(
+            "desktop_backend/desktop_backend",
+            tauri::path::BaseDirectory::Resource,
+        )
+        .context("resolve sidecar binary")?;
+    Ok(res)
+}
+
+pub async fn spawn(handle: tauri::AppHandle) -> Result<SidecarInfo> {
+    #[cfg(debug_assertions)]
+    {
+        let _ = handle;
+        spawn_dev().await
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        let bin = release_binary(&handle)?;
+        let token = write_token()?;
+        let mut cmd = Command::new(bin);
+        cmd.env("HERMES_HOME", hermes_home());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        let mut child = cmd.spawn().context("failed to spawn sidecar")?;
+        let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
+        let mut reader = BufReader::new(stdout).lines();
+        let port = timeout(Duration::from_secs(5), async {
+            while let Some(line) = reader.next_line().await? {
+                if let Some(rest) = line.strip_prefix("READY ") {
+                    return Ok::<u16, anyhow::Error>(rest.trim().parse()?);
+                }
+            }
+            bail!("sidecar exited before READY")
+        })
+        .await
+        .map_err(|_| anyhow!("sidecar startup timeout"))??;
+
+        let info = SidecarInfo {
+            base_url: format!("http://127.0.0.1:{port}"),
+            token,
+        };
+        let s = state();
+        *s.info.lock().await = Some(info.clone());
+        *s.child.lock().await = Some(child);
+        Ok(info)
+    }
+}
