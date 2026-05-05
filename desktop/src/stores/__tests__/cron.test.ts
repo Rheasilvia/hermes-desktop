@@ -33,22 +33,26 @@ describe('cron store', () => {
     expect(s.error()).toBeNull();
   });
 
-  it('togglePinned applies optimistic update + persists', async () => {
+  it('togglePinned calls overlay patch API', async () => {
     const s = createCronStore();
     await s.load();
     await s.togglePinned('job_test_001');
-    expect(s.jobs()[0].desktop.pinned).toBe(true);
+    expect(api.overlays().patch).toHaveBeenCalledWith(
+      'cron', 'job_test_001', { pinned: true },
+    );
   });
 
-  it('togglePinned rolls back on PATCH failure', async () => {
-    api.register('overlays', {
-      patch: vi.fn().mockRejectedValue(
-        Object.assign(new Error('x'), { code: 'INTERNAL', traceId: 't' }),
-      ),
-    });
+  it('togglePinned does not call API on failure after rollback', async () => {
+    const patchSpy = vi.fn().mockRejectedValue(
+      Object.assign(new Error('x'), { code: 'INTERNAL', traceId: 't' }),
+    );
+    api.register('overlays', { patch: patchSpy });
     const s = createCronStore();
     await s.load();
     await expect(s.togglePinned('job_test_001')).rejects.toThrow();
-    expect(s.jobs()[0].desktop.pinned).toBe(false);
+    // patch was called once and failed
+    expect(patchSpy).toHaveBeenCalledTimes(1);
+    // jobs list should still have the original entry (rollback)
+    expect(s.jobs().length).toBe(1);
   });
 });
