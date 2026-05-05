@@ -26,7 +26,7 @@ def build_app(cfg: Config) -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["tauri://localhost", "http://localhost:1420"],
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
         allow_credentials=False,
         allow_methods=["GET", "PATCH", "PUT"],
         allow_headers=["Authorization", "Content-Type"],
