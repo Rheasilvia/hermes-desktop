@@ -1,5 +1,7 @@
 mod commands;
 mod sidecar;
+#[cfg(test)]
+mod sidecar_tests;
 mod updater;
 
 use tauri::Manager;
@@ -50,6 +52,10 @@ pub fn run() {
                 match sidecar::spawn_dev().await {
                     Ok(info) => {
                         let _ = handle.emit_all("sidecar://ready", info);
+                        let h2 = handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            sidecar::run_health_probe(h2).await;
+                        });
                     }
                     Err(e) => {
                         eprintln!("sidecar failed to start: {e:?}");
