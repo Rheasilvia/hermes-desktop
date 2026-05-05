@@ -195,7 +195,7 @@ async fn restart_with_backoff(handle: &tauri::AppHandle) -> Result<()> {
     let backoff = std::cmp::min(2u64.saturating_pow(attempt), 30);
     tokio::time::sleep(Duration::from_secs(backoff)).await;
 
-    let info = spawn_dev().await?;
+    let info = spawn(handle.clone()).await?;
     let _ = handle.emit_all("sidecar://restarted", info);
     Ok(())
 }
