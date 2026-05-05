@@ -18,4 +18,7 @@ class MergedCronJob(BaseModel):
     prompt: str
     enabled: bool
     created_at: str
+    last_run_at: Optional[str] = None
+    last_status: Optional[str] = None
+    last_error: Optional[str] = None
     desktop: CronOverlay = Field(default_factory=CronOverlay)

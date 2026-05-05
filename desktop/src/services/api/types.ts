@@ -11,6 +11,9 @@ export interface CronJob {
   prompt: string;
   enabled: boolean;
   created_at: string;
+  last_run_at?: string | null;
+  last_status?: string | null;
+  last_error?: string | null;
   desktop: CronOverlay;
 }
 
