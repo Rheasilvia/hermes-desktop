@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import type { ApiError } from './types';
 
 interface SidecarInfo {
@@ -27,12 +26,44 @@ function makeApiError(
   return e;
 }
 
+function envSidecarInfo(): SidecarInfo | null {
+  const url = import.meta.env.VITE_SIDECAR_URL;
+  const token = import.meta.env.VITE_SIDECAR_TOKEN;
+  if (url && token) {
+    return { base_url: url, token };
+  }
+  return null;
+}
+
+async function tauriSidecarInfo(): Promise<SidecarInfo | null> {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return (await invoke('sidecar_info')) as SidecarInfo;
+  } catch {
+    return null;
+  }
+}
+
 export class HttpClient {
   private cached: SidecarInfo | null = null;
 
   private async info(force = false): Promise<SidecarInfo> {
     if (!this.cached || force) {
-      this.cached = (await invoke('sidecar_info')) as SidecarInfo;
+      // 优先使用 env vars（开发调试用）
+      const env = envSidecarInfo();
+      if (env) {
+        this.cached = env;
+        return this.cached;
+      }
+      // 其次尝试 Tauri sidecar_info
+      const tauri = await tauriSidecarInfo();
+      if (tauri) {
+        this.cached = tauri;
+        return this.cached;
+      }
+      throw new Error(
+        'No sidecar available. Set VITE_SIDECAR_URL and VITE_SIDECAR_TOKEN, or run inside Tauri.',
+      );
     }
     return this.cached;
   }

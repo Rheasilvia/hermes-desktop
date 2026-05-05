@@ -10,6 +10,12 @@ vi.mock('@tauri-apps/api/core', () => ({
   },
 }));
 
+// Clear env vars so tests use Tauri mock, not env fallback
+beforeEach(() => {
+  vi.stubEnv('VITE_SIDECAR_URL', '');
+  vi.stubEnv('VITE_SIDECAR_TOKEN', '');
+});
+
 describe('HttpClient', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -24,7 +30,7 @@ describe('HttpClient', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it('prepends base url + Authorization', async () => {
+  it('prepends base url + Authorization via Tauri', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     );
@@ -37,11 +43,26 @@ describe('HttpClient', () => {
     });
   });
 
+  it('prepends base url + Authorization via env vars', async () => {
+    vi.stubEnv('VITE_SIDECAR_URL', 'http://127.0.0.1:9999');
+    vi.stubEnv('VITE_SIDECAR_TOKEN', 'env-token');
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const c = new HttpClient();
+    await c.get('/desktop/api/health');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://127.0.0.1:9999/desktop/api/health');
+    expect((init as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer env-token',
+    });
+  });
+
   it('retries GET 3x on network error', async () => {
     fetchMock.mockRejectedValue(new TypeError('network'));
     const c = new HttpClient();
     await expect(c.get('/x')).rejects.toThrow();
-    expect(fetchMock).toHaveBeenCalledTimes(4); // 1 + 3 retries
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it('does NOT retry PATCH on network error', async () => {
