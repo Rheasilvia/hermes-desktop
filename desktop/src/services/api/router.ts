@@ -1,4 +1,4 @@
-import type { AnalyticsTransport } from './transports/http/analytics.js';
+import type { AnalyticsTransport } from './transports/http/analytics';
 import type { CronTransport } from './transports/http/cron';
 import type { ModelTransport } from './transports/http/model';
 import type { OverlayTransport } from './transports/http/overlays';
