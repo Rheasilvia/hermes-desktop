@@ -31,3 +31,25 @@ def test_providers_overlay_applied(client, auth, hermes_home):
         ]
     }
     assert items["provider_test_openai"]["desktop"]["visible"] is False
+
+
+def test_get_active_model_reads_config(client, auth, hermes_home):
+    import yaml as _yaml
+
+    (hermes_home / "config.yaml").write_text(
+        _yaml.dump({"model": {"provider": "kimi-coding", "default": "kimi-k2.6"}})
+    )
+    r = client.get("/desktop/api/model/active", headers=auth)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["provider"] == "kimi-coding"
+    assert body["model"] == "kimi-k2.6"
+
+
+def test_get_active_model_no_config(client, auth, hermes_home):
+    (hermes_home / "config.yaml").unlink(missing_ok=True)
+    r = client.get("/desktop/api/model/active", headers=auth)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["provider"] is None
+    assert body["model"] is None
