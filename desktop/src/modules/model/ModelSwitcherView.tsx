@@ -13,8 +13,7 @@ import { modelStore, modelsStore } from '@/stores/models.js';
 import { LoadingSpinner } from '@/components/LoadingSpinner.js';
 import { Tabs } from '@/components/Tabs.js';
 import { ProviderCard } from './ProviderCard.js';
-import { ModelComparison } from './ModelComparison.js';
-import { ModelSearch } from './ModelSearch.js';
+import { ModelUsageView } from './ModelUsageView.js';
 import { ConfigureProviderModal } from './ConfigureProviderModal.js';
 import { EmptyProviders } from './EmptyProviders.js';
 import { AddProviderView } from './AddProviderView.js';
@@ -26,7 +25,6 @@ import type { ProviderEntry } from '@/types/index.js';
 import styles from './ModelSwitcherView.module.css';
 
 export const ModelSwitcherView: Component = () => {
-  const [searchQuery, setSearchQuery] = createSignal('');
   const [selectedProvider, setSelectedProvider] = createSignal<string | null>(null);
   const [configuringProvider, setConfiguringProvider] = createSignal<ProviderEntry | null>(null);
   const [activeTab, setActiveTab] = createSignal('providers');
@@ -45,35 +43,9 @@ export const ModelSwitcherView: Component = () => {
   });
 
   const filteredProviders = createMemo<ProviderEntry[]>(() => {
-    const query = searchQuery().toLowerCase();
     const allProviders = modelsStore.providers();
-    if (!query) return allProviders;
-    return allProviders.filter((p) => {
-      const nameMatch = p.name.toLowerCase().includes(query);
-      const modelMatch = (p.models ?? []).some(
-        (m) =>
-          m.name.toLowerCase().includes(query) ||
-          (m.display_name ?? '').toLowerCase().includes(query),
-      );
-      return nameMatch || modelMatch;
-    });
+    return allProviders;
   });
-
-  const filteredProviderEntries = createMemo<ProviderEntry[]>(() => {
-    const selected = selectedProvider();
-    if (!selected) return filteredProviders();
-    return filteredProviders().filter((p) => p.name === selected);
-  });
-
-  const totalModelCount = () =>
-    modelsStore.providers().reduce((sum, p) => sum + (p.models?.length ?? 0), 0);
-
-  const filteredModelCount = () =>
-    filteredProviders().reduce((sum, p) => sum + (p.models?.length ?? 0), 0);
-
-  const handleSelectModel = async (providerName: string, modelName: string) => {
-    await modelStore.switchModel(providerName, modelName);
-  };
 
   const handleConfigureProvider = (provider: ProviderEntry) => {
     setConfiguringProvider(provider);
@@ -152,22 +124,8 @@ export const ModelSwitcherView: Component = () => {
             </Show>
 
             <Show when={activeTab() === 'models'}>
-              <section class={styles.searchSection}>
-                <ModelSearch
-                  value={searchQuery()}
-                  onChange={setSearchQuery}
-                  resultCount={filteredModelCount()}
-                  totalCount={totalModelCount()}
-                />
-              </section>
-
-              <section class={styles.comparison}>
-                <ModelComparison
-                  providers={filteredProviders()}
-                  activeProvider={modelStore.activeProvider}
-                  activeModel={modelStore.activeModel}
-                  onSelectModel={handleSelectModel}
-                />
+              <section class={styles.usageSection}>
+                <ModelUsageView />
               </section>
             </Show>
           </Show>
