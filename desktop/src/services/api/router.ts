@@ -1,3 +1,4 @@
+import type { AnalyticsTransport } from './transports/http/analytics.js';
 import type { CronTransport } from './transports/http/cron';
 import type { ModelTransport } from './transports/http/model';
 import type { OverlayTransport } from './transports/http/overlays';
@@ -5,6 +6,7 @@ import type { SettingsTransport } from './transports/http/settings';
 import type { StateTransport } from './transports/http/state';
 
 type Slot =
+  | { kind: 'analytics'; impl: AnalyticsTransport }
   | { kind: 'cron'; impl: CronTransport }
   | { kind: 'model'; impl: ModelTransport }
   | { kind: 'overlays'; impl: OverlayTransport }
@@ -27,6 +29,9 @@ export class ApiRegistry {
     return v as T;
   }
 
+  analytics(): AnalyticsTransport {
+    return this.resolve<AnalyticsTransport>('analytics');
+  }
   cron(): CronTransport {
     return this.resolve<CronTransport>('cron');
   }
