@@ -1,7 +1,6 @@
 use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
-use tauri::Manager;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
