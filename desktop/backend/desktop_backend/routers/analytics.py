@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 
 from ..schemas.analytics import (
     ModelAnalyticsResponse,
@@ -41,7 +41,8 @@ _QUERY = """
 
 @router.get("/analytics/models", response_model=ModelAnalyticsResponse)
 async def get_model_analytics(
-    request: Request, days: int = 30
+    request: Request,
+    days: int = Query(default=30, ge=1, le=365),
 ) -> ModelAnalyticsResponse:
     cfg = request.app.state.cfg
     db_path: Path = cfg.hermes_home / "state.db"
@@ -52,7 +53,7 @@ async def get_model_analytics(
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
         try:
-            rows = conn.execute(_QUERY, {"offset": f"-{days + 1} days"}).fetchall()
+            rows = conn.execute(_QUERY, {"offset": f"-{days} days"}).fetchall()
         finally:
             conn.close()
 
