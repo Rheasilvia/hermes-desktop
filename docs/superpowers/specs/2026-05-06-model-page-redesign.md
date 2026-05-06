@@ -112,13 +112,39 @@ interface Props {
 Renders the terracotta-accented card. When both props are null, shows a
 "No model configured" placeholder with a "Configure" button.
 
+#### 4. New component: `ModelPickerModal.tsx`
+
+Location: `src/modules/model/ModelPickerModal.tsx` + `ModelPickerModal.module.css`
+
+Props:
+```typescript
+interface Props {
+  open: boolean;
+  currentProvider: string | null;
+  currentModel: string | null;
+  providers: ProviderEntry[];
+  onApply: (provider: string, model: string) => void;
+  onClose: () => void;
+}
+```
+
+Two-column modal overlay (reference: `web/src/components/ModelPickerDialog.tsx`):
+- Full-screen dim overlay (`rgba(28,27,25,0.4)`)
+- Centered 600×400 modal with header ("Set Main Model" + current `provider · model`
+  subtitle), search bar, two-column body (180px provider list | fill model list),
+  and footer ("Persists to ~/.hermes/config.yaml" note + Cancel + Switch buttons)
+- Provider list: terracotta left-border + tinted bg on selected row
+- Model list: check icon + "current" badge on active model row
+- Switch button disabled unless a different model is selected; calls `onApply`
+
 **Wiring in `ModelSwitcherView.tsx`:**
 - On mount, call `api.model().getActiveModel()` to populate
   `modelStore.activeProvider` and `modelStore.activeModel`.
 - Render `<MainModelCard>` as the first element inside the hub `<Match>` block,
   above the tabs row.
-- "Change" button calls `modelStore.openProviderDetail(activeProvider)` if a
-  provider is set, otherwise `modelStore.navigateTo('hub')`.
+- "Change" button sets a local `pickerOpen` signal to `true`; renders
+  `<ModelPickerModal>` when open. On apply, calls `modelStore.switchModel()`
+  and closes the modal.
 
 ### State flow
 
@@ -127,6 +153,11 @@ Mount → api.model().getActiveModel() → modelStore.{activeProvider, activeMod
       → modelsStore.load()           → modelsStore.providers() (filtered list)
 
 MainModelCard reads: modelStore.activeProvider, modelStore.activeModel
+                     "Change" click → pickerOpen(true)
+
+ModelPickerModal reads: modelsStore.providers(), modelStore.{activeProvider, activeModel}
+                        "Switch" → modelStore.switchModel() → pickerOpen(false)
+
 ProviderCard reads:  modelsStore.providers(), modelStore.activeProvider
 ```
 
@@ -156,7 +187,9 @@ ProviderCard reads:  modelsStore.providers(), modelStore.activeProvider
 | `desktop/src/services/api/router.ts` | Wire `getActiveModel()` through router |
 | `desktop/src/modules/model/MainModelCard.tsx` | New component |
 | `desktop/src/modules/model/MainModelCard.module.css` | New styles |
-| `desktop/src/modules/model/ModelSwitcherView.tsx` | Mount `MainModelCard`; load active model on mount |
+| `desktop/src/modules/model/ModelPickerModal.tsx` | New two-column picker modal |
+| `desktop/src/modules/model/ModelPickerModal.module.css` | New styles |
+| `desktop/src/modules/model/ModelSwitcherView.tsx` | Mount `MainModelCard` + `ModelPickerModal`; load active model on mount |
 
 ---
 
@@ -166,7 +199,8 @@ ProviderCard reads:  modelsStore.providers(), modelStore.activeProvider
    those two providers — no unconfigured catalog providers appear.
 2. The Main Model card displays the active model (e.g. "kimi-coding · kimi-k2.6")
    immediately on page load.
-3. Clicking "Change" navigates to the provider/model selection view.
+3. Clicking "Change" opens the `ModelPickerModal` overlay; selecting a different
+   model and clicking "Switch" calls `switchModel()` and updates the card.
 4. When no model is configured, the card shows a "No model configured"
    placeholder state.
 5. All existing unit and integration tests pass; new tests cover the reader,
