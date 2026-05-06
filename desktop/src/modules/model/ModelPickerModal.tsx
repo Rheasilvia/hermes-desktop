@@ -37,7 +37,7 @@ export const ModelPickerModal: Component<ModelPickerModalProps> = (props) => {
 
   const selectedEntry = createMemo<ProviderEntry | null>(() => {
     const name = effectiveProvider();
-    return filteredProviders().find((p) => p.name === name) ?? null;
+    return filteredProviders().find((p) => p.name === name) ?? filteredProviders()[0] ?? null;
   });
 
   const models = createMemo<ModelOption[]>(() => {
@@ -87,6 +87,7 @@ export const ModelPickerModal: Component<ModelPickerModalProps> = (props) => {
         class={styles.overlay}
         data-testid="model-picker-overlay"
         onClick={handleOverlayClick}
+        onKeyDown={(e) => { if (e.key === 'Escape') props.onClose(); }}
         role="dialog"
         aria-modal="true"
         aria-label="Select model"
@@ -129,7 +130,7 @@ export const ModelPickerModal: Component<ModelPickerModalProps> = (props) => {
           {/* Two-column body */}
           <div class={styles.body}>
             {/* Provider column */}
-            <div class={styles.provCol} role="listbox" aria-label="Providers">
+            <div class={styles.provCol} aria-label="Providers">
               <For each={filteredProviders()}>
                 {(provider) => (
                   <button
@@ -137,8 +138,6 @@ export const ModelPickerModal: Component<ModelPickerModalProps> = (props) => {
                     class={`${styles.provRow}${effectiveProvider() === provider.name ? ` ${styles.provRowActive}` : ''}`}
                     onClick={() => handlePickProvider(provider.name)}
                     data-testid={`provider-row-${provider.name}`}
-                    aria-selected={effectiveProvider() === provider.name}
-                    role="option"
                   >
                     {provider.display_name ?? provider.name}
                   </button>
@@ -147,29 +146,28 @@ export const ModelPickerModal: Component<ModelPickerModalProps> = (props) => {
             </div>
 
             {/* Model column */}
-            <div class={styles.modelCol} role="listbox" aria-label="Models">
+            <div class={styles.modelCol} aria-label="Models">
               <For each={models()}>
                 {(model) => {
-                  const isSelected = () => effectiveModel() === model.name;
                   const isCurrent = () =>
-                    props.currentProvider === effectiveProvider() &&
-                    props.currentModel === model.name;
+                    selectedEntry()?.name === props.currentProvider &&
+                    model.name === props.currentModel;
+                  const isPicked = () => effectiveModel() === model.name;
+
                   return (
                     <button
                       type="button"
-                      class={`${styles.modelRow}${isSelected() ? ` ${styles.modelRowSelected}` : ''}`}
+                      class={`${styles.modelRow} ${isPicked() ? styles.modelRowSelected : ''}`}
                       onClick={() => setPickedModel(model.name)}
                       data-testid={`model-row-${model.name}`}
-                      aria-selected={isSelected()}
-                      role="option"
                     >
                       <Show
-                        when={isSelected()}
-                        fallback={<span class={styles.checkPlaceholder} aria-hidden="true" />}
+                        when={isCurrent()}
+                        fallback={<span class={styles.checkPlaceholder} />}
                       >
-                        <span class={styles.checkIcon} aria-hidden="true">✓</span>
+                        <span class={styles.checkIcon}>✓</span>
                       </Show>
-                      <span>{model.display_name ?? model.name}</span>
+                      {model.display_name ?? model.name}
                       <Show when={isCurrent()}>
                         <span class={styles.currentBadge}>current</span>
                       </Show>
