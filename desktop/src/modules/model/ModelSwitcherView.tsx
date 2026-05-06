@@ -20,6 +20,8 @@ import { EmptyProviders } from './EmptyProviders.js';
 import { AddProviderView } from './AddProviderView.js';
 import { ProviderModelsView } from './ProviderModelsView.js';
 import { ModelDetailView } from './ModelDetailView.js';
+import { MainModelCard } from './MainModelCard.js';
+import { ModelPickerModal } from './ModelPickerModal.js';
 import type { ProviderEntry } from '@/types/index.js';
 import styles from './ModelSwitcherView.module.css';
 
@@ -28,11 +30,13 @@ export const ModelSwitcherView: Component = () => {
   const [selectedProvider, setSelectedProvider] = createSignal<string | null>(null);
   const [configuringProvider, setConfiguringProvider] = createSignal<ProviderEntry | null>(null);
   const [activeTab, setActiveTab] = createSignal('providers');
+  const [pickerOpen, setPickerOpen] = createSignal(false);
 
   onMount(() => {
     modelStore.loadModels();
     modelStore.loadActiveModel();
     void modelsStore.load();
+    void modelsStore.loadActive();
   });
 
   createEffect(() => {
@@ -98,6 +102,12 @@ export const ModelSwitcherView: Component = () => {
       </Match>
       <Match when={modelStore.currentView === 'hub'}>
         <div class={styles.container}>
+          <MainModelCard
+            provider={modelStore.activeProvider}
+            model={modelStore.activeModel}
+            onChangeClick={() => setPickerOpen(true)}
+          />
+
           <Show when={modelStore.isLoading && modelsStore.providers().length === 0}>
             <div class={styles.loading}>
               <LoadingSpinner size="lg" />
@@ -172,6 +182,18 @@ export const ModelSwitcherView: Component = () => {
             provider={configuringProvider()}
             onClose={handleCloseModal}
             onSave={handleSaveProvider}
+          />
+
+          <ModelPickerModal
+            open={pickerOpen()}
+            currentProvider={modelStore.activeProvider}
+            currentModel={modelStore.activeModel}
+            providers={modelsStore.providers()}
+            onApply={async (provider, model) => {
+              await modelStore.switchModel(provider, model);
+              setPickerOpen(false);
+            }}
+            onClose={() => setPickerOpen(false)}
           />
         </div>
       </Match>
