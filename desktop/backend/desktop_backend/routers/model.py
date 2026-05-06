@@ -3,8 +3,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
+
+import yaml
 
 from ..overlays import loader as overlays_loader
 from ..readers import model_catalog
@@ -19,10 +23,44 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+class SetActiveModelRequest(BaseModel):
+    provider: str
+    model: str
+
+
 @router.get("/model/active")
 def get_active_model(request: Request):
     cfg = request.app.state.cfg
     return read_active_model(cfg.hermes_home)
+
+
+@router.put("/model/active")
+def set_active_model(request: Request, body: SetActiveModelRequest):
+    """Write provider + model to ~/.hermes/config.yaml model section."""
+    cfg = request.app.state.cfg
+    config_path = cfg.hermes_home / "config.yaml"
+    try:
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as fh:
+                data: Any = yaml.safe_load(fh) or {}
+        else:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        model_section = data.get("model", {})
+        if not isinstance(model_section, dict):
+            model_section = {}
+        model_section["provider"] = body.provider
+        model_section["default"] = body.model
+        # Clear stale overrides that belong to the previous model (mirrors dashboard logic)
+        model_section["base_url"] = ""
+        model_section.pop("context_length", None)
+        data["model"] = model_section
+        with open(config_path, "w", encoding="utf-8") as fh:
+            yaml.dump(data, fh, default_flow_style=False, allow_unicode=True)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"provider": body.provider, "model": body.model}
 
 
 @router.get("/model/catalog")
