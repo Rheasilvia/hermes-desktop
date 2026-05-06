@@ -1217,3 +1217,251 @@ Open `http://localhost:1420`, navigate to Model page. Check:
 3. Clicking "Change" opens the picker modal.
 4. Selecting a different model and clicking "Switch" closes the modal and updates the card.
 5. When no model is configured the card shows "No model configured" with a "Configure" button.
+
+---
+
+## Task 9 — E2E: Playwright tests for model page redesign
+
+**Files:**
+- Modify: `desktop/src/modules/model/MainModelCard.tsx` (add `data-testid`)
+- Modify: `desktop/src/modules/model/ModelPickerModal.tsx` (add `data-testid`)
+- Create: `desktop/tests/e2e/model-page-redesign.spec.ts`
+
+Tests use `page.route()` to intercept sidecar HTTP calls — no real sidecar needed. Two `data-testid` attributes are added to the components created in Tasks 5 and 6.
+
+- [ ] **Step 1: Add `data-testid` to `MainModelCard.tsx` and `ModelPickerModal.tsx`**
+
+In `desktop/src/modules/model/MainModelCard.tsx`, change the wrapper div opening tag:
+
+```tsx
+    <div class={styles.wrapper} data-testid="main-model-card">
+```
+
+In `desktop/src/modules/model/ModelPickerModal.tsx`, add two test IDs to the overlay and modal divs:
+
+```tsx
+      <div class={styles.overlay} data-testid="model-picker-overlay" onClick={handleOverlayClick}>
+        <div class={styles.modal} data-testid="model-picker-modal">
+```
+
+- [ ] **Step 2: Create the E2E spec file**
+
+```typescript
+// desktop/tests/e2e/model-page-redesign.spec.ts
+import { test, expect, type Page } from '@playwright/test';
+
+const MOCK_PROVIDERS = [
+  {
+    id: 'kimi-coding',
+    name: 'kimi-coding',
+    auth: 'api_key',
+    models: [
+      { id: 'kimi-k2.6', context_window: 200000 },
+      { id: 'kimi-k2-mini', context_window: 128000 },
+    ],
+    desktop: { visible: true },
+  },
+  {
+    id: 'minimax',
+    name: 'minimax',
+    auth: 'api_key',
+    models: [{ id: 'minimax-text-01', context_window: 256000 }],
+    desktop: { visible: true },
+  },
+];
+
+async function setupModelRoutes(
+  page: Page,
+  activeModel: { provider: string | null; model: string | null } = {
+    provider: null,
+    model: null,
+  },
+) {
+  await page.route('**/desktop/api/model/providers**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: MOCK_PROVIDERS,
+        generated_at: '2026-05-06T10:00:00Z',
+      }),
+    }),
+  );
+  await page.route('**/desktop/api/model/active', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(activeModel),
+    }),
+  );
+}
+
+test.describe('Model page — MainModelCard', () => {
+  test('shows "No model configured" placeholder when no active model', async ({ page }) => {
+    await setupModelRoutes(page, { provider: null, model: null });
+    await page.goto('/model');
+    await page.getByText('Main Model').waitFor({ state: 'visible' });
+
+    await expect(page.getByText('No model configured')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Configure' })).toBeVisible();
+  });
+
+  test('shows "provider · model" text when active model is set', async ({ page }) => {
+    await setupModelRoutes(page, { provider: 'kimi-coding', model: 'kimi-k2.6' });
+    await page.goto('/model');
+    await page.getByText('Main Model').waitFor({ state: 'visible' });
+
+    await expect(page.getByText('kimi-coding · kimi-k2.6')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Change' })).toBeVisible();
+  });
+
+  test('card bottom edge is above the Providers/Models tabs row', async ({ page }) => {
+    await setupModelRoutes(page);
+    await page.goto('/model');
+    await page.getByTestId('main-model-card').waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: 'Providers' }).waitFor({ state: 'visible' });
+
+    const cardBounds = await page.getByTestId('main-model-card').boundingBox();
+    const tabBounds = await page.getByRole('button', { name: 'Providers' }).boundingBox();
+
+    expect(cardBounds).not.toBeNull();
+    expect(tabBounds).not.toBeNull();
+    expect(cardBounds!.y + cardBounds!.height).toBeLessThan(tabBounds!.y);
+  });
+});
+
+test.describe('Model page — provider hub list', () => {
+  test('shows the two configured providers from sidecar response', async ({ page }) => {
+    await setupModelRoutes(page);
+    await page.goto('/model');
+    await page.getByText('kimi-coding').first().waitFor({ state: 'visible' });
+
+    await expect(page.getByText('kimi-coding').first()).toBeVisible();
+    await expect(page.getByText('minimax').first()).toBeVisible();
+  });
+});
+
+test.describe('Model page — ModelPickerModal', () => {
+  test('opens on Configure click and shows "Set Main Model" title', async ({ page }) => {
+    await setupModelRoutes(page);
+    await page.goto('/model');
+    await page.getByRole('button', { name: 'Configure' }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: 'Configure' }).click();
+
+    await expect(page.getByTestId('model-picker-modal')).toBeVisible();
+    await expect(page.getByText('Set Main Model')).toBeVisible();
+  });
+
+  test('opens on Change click and shows current model subtitle', async ({ page }) => {
+    await setupModelRoutes(page, { provider: 'kimi-coding', model: 'kimi-k2.6' });
+    await page.goto('/model');
+    await page.getByRole('button', { name: 'Change' }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: 'Change' }).click();
+
+    await expect(page.getByTestId('model-picker-modal')).toBeVisible();
+    await expect(page.getByText(/current:.*kimi-k2\.6/)).toBeVisible();
+  });
+
+  test('shows both providers in the left column', async ({ page }) => {
+    await setupModelRoutes(page);
+    await page.goto('/model');
+    await page.getByRole('button', { name: 'Configure' }).click();
+
+    const modal = page.getByTestId('model-picker-modal');
+    await expect(modal.getByRole('button', { name: 'kimi-coding' })).toBeVisible();
+    await expect(modal.getByRole('button', { name: 'minimax' })).toBeVisible();
+  });
+
+  test('clicking a provider updates the model list', async ({ page }) => {
+    await setupModelRoutes(page);
+    await page.goto('/model');
+    await page.getByRole('button', { name: 'Configure' }).click();
+
+    const modal = page.getByTestId('model-picker-modal');
+    await expect(modal.getByRole('button', { name: 'kimi-k2.6' })).toBeVisible();
+    await expect(modal.getByRole('button', { name: 'kimi-k2-mini' })).toBeVisible();
+
+    await modal.getByRole('button', { name: 'minimax' }).click();
+    await expect(modal.getByRole('button', { name: 'minimax-text-01' })).toBeVisible();
+    await expect(modal.getByRole('button', { name: 'kimi-k2.6' })).not.toBeVisible();
+  });
+
+  test('Switch button is disabled when the current model is pre-selected', async ({ page }) => {
+    await setupModelRoutes(page, { provider: 'kimi-coding', model: 'kimi-k2.6' });
+    await page.goto('/model');
+    await page.getByRole('button', { name: 'Change' }).click();
+
+    await expect(page.getByRole('button', { name: 'Switch' })).toBeDisabled();
+  });
+
+  test('Switch button enables after selecting a different model', async ({ page }) => {
+    await setupModelRoutes(page, { provider: 'kimi-coding', model: 'kimi-k2.6' });
+    await page.goto('/model');
+    await page.getByRole('button', { name: 'Change' }).click();
+
+    await page.getByTestId('model-picker-modal').getByRole('button', { name: 'kimi-k2-mini' }).click();
+    await expect(page.getByRole('button', { name: 'Switch' })).toBeEnabled();
+  });
+
+  test('Switch applies the selection, updates the card, and closes the modal', async ({ page }) => {
+    await setupModelRoutes(page, { provider: 'kimi-coding', model: 'kimi-k2.6' });
+    await page.goto('/model');
+    await page.getByRole('button', { name: 'Change' }).click();
+
+    await page.getByTestId('model-picker-modal').getByRole('button', { name: 'kimi-k2-mini' }).click();
+    await page.getByRole('button', { name: 'Switch' }).click();
+
+    await expect(page.getByTestId('model-picker-modal')).not.toBeAttached();
+    await expect(page.getByText('kimi-coding · kimi-k2-mini')).toBeVisible();
+  });
+
+  test('Cancel closes the modal without changing the active model', async ({ page }) => {
+    await setupModelRoutes(page, { provider: 'kimi-coding', model: 'kimi-k2.6' });
+    await page.goto('/model');
+    await page.getByRole('button', { name: 'Change' }).click();
+
+    await page.getByTestId('model-picker-modal').getByRole('button', { name: 'kimi-k2-mini' }).click();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    await expect(page.getByTestId('model-picker-modal')).not.toBeAttached();
+    await expect(page.getByText('kimi-coding · kimi-k2.6')).toBeVisible();
+  });
+
+  test('clicking the dim overlay closes the modal', async ({ page }) => {
+    await setupModelRoutes(page);
+    await page.goto('/model');
+    await page.getByRole('button', { name: 'Configure' }).click();
+    await page.getByTestId('model-picker-modal').waitFor({ state: 'visible' });
+
+    await page.getByTestId('model-picker-overlay').click({ position: { x: 10, y: 10 } });
+    await expect(page.getByTestId('model-picker-modal')).not.toBeAttached();
+  });
+});
+```
+
+- [ ] **Step 3: Run the spec to confirm all tests fail (components not yet created)**
+
+```bash
+cd desktop
+npm run test:e2e -- tests/e2e/model-page-redesign.spec.ts
+```
+
+Expected: all 11 tests fail — navigation to `/model` succeeds but selectors find nothing since the components don't exist yet.
+
+- [ ] **Step 4: After Tasks 1–8 are complete, run the spec again to verify all tests pass**
+
+```bash
+cd desktop
+npm run test:e2e -- tests/e2e/model-page-redesign.spec.ts
+```
+
+Expected: 11 passed, 0 failed.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add desktop/tests/e2e/model-page-redesign.spec.ts \
+        desktop/src/modules/model/MainModelCard.tsx \
+        desktop/src/modules/model/ModelPickerModal.tsx
+git commit -m "test(e2e): add Playwright tests for model page redesign"
+```
