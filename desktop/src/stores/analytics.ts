@@ -7,7 +7,9 @@ export interface AnalyticsStore {
   isLoading: () => boolean;
   error: () => string | null;
   period: () => AnalyticsPeriod;
-  load: (days?: number) => Promise<void>;
+  /** Fetch analytics data. Callers must call load() explicitly after setPeriod(). */
+  load: (days?: AnalyticsPeriod) => Promise<void>;
+  /** Updates the period signal. Does NOT trigger a reload — call load() separately. */
   setPeriod: (days: AnalyticsPeriod) => void;
 }
 
@@ -16,18 +18,22 @@ export function createAnalyticsStore(): AnalyticsStore {
   const [isLoading, setIsLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [period, setPeriodSignal] = createSignal<AnalyticsPeriod>(30);
+  let loadSeq = 0;
 
-  async function load(days?: number): Promise<void> {
+  async function load(days?: AnalyticsPeriod): Promise<void> {
+    const seq = ++loadSeq;
     const d = days ?? period();
     setIsLoading(true);
     setError(null);
     try {
       const result = await api.analytics().getModelAnalytics(d);
+      if (seq !== loadSeq) return;
       setData(result);
     } catch (e) {
+      if (seq !== loadSeq) return;
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setIsLoading(false);
+      if (seq === loadSeq) setIsLoading(false);
     }
   }
 
