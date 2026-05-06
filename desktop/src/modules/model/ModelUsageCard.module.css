@@ -81,6 +81,14 @@
   color: var(--text-secondary);
 }
 
+.tokenIn {
+  color: var(--text-tertiary);
+}
+
+.tokenOut {
+  color: var(--text-tertiary);
+}
+
 .lastUsed {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
