@@ -311,11 +311,16 @@ export function createModelsStore() {
     }
   };
 
+  // NOTE: modelStore.loadActiveModel() (gateway path) also writes to the same
+  // activeProvider/activeModel signals. loadActive() uses the sidecar HTTP
+  // transport instead. Both paths co-exist during the standalone refactor;
+  // the gateway path will be removed once standalone mode is fully wired.
   const loadActive = async () => {
     try {
       const active = await api.model().getActiveModel();
       modelStore.hydrateActiveModel(active.provider, active.model);
-    } catch {
+    } catch (err) {
+      console.error('[modelsStore] loadActive failed:', err);
       modelStore.hydrateActiveModel(null, null);
     }
   };
