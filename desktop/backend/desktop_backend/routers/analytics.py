@@ -24,17 +24,18 @@ _CAPABILITIES: dict[str, ModelCapabilities] = {
 
 _QUERY = """
     SELECT
-        provider,
+        billing_provider                                             AS provider,
         model,
-        COUNT(*) AS session_count,
-        COALESCE(SUM(input_tokens), 0)              AS input_tokens,
-        COALESCE(SUM(output_tokens), 0)             AS output_tokens,
-        COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
-        COALESCE(SUM(cost_usd), 0)                  AS cost_usd,
-        MAX(created_at)                             AS last_used_at
+        COUNT(*)                                                     AS session_count,
+        COALESCE(SUM(input_tokens), 0)                              AS input_tokens,
+        COALESCE(SUM(output_tokens), 0)                             AS output_tokens,
+        COALESCE(SUM(input_tokens + output_tokens), 0)              AS total_tokens,
+        COALESCE(SUM(COALESCE(actual_cost_usd, estimated_cost_usd, 0)), 0) AS cost_usd,
+        MAX(started_at)                                              AS last_used_at
     FROM sessions
-    WHERE created_at >= datetime('now', :offset)
-    GROUP BY provider, model
+    WHERE started_at >= CAST(strftime('%s', 'now', :offset) AS REAL)
+      AND billing_provider IS NOT NULL
+    GROUP BY model
     ORDER BY total_tokens DESC
 """
 
@@ -59,6 +60,12 @@ async def get_model_analytics(
 
         for row in rows:
             model_name = row["model"] or ""
+            raw_ts = row["last_used_at"]
+            last_used_iso = (
+                datetime.fromtimestamp(raw_ts, tz=timezone.utc).isoformat()
+                if raw_ts is not None
+                else None
+            )
             models.append(
                 ModelUsageStat(
                     provider=row["provider"] or "",
@@ -68,7 +75,7 @@ async def get_model_analytics(
                     output_tokens=row["output_tokens"],
                     total_tokens=row["total_tokens"],
                     cost_usd=round(row["cost_usd"], 6),
-                    last_used_at=row["last_used_at"],
+                    last_used_at=last_used_iso,
                     capabilities=_CAPABILITIES.get(model_name, ModelCapabilities()),
                 )
             )
