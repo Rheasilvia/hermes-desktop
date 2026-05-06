@@ -28,5 +28,6 @@ export function makeMockModelTransport(): ModelTransport {
       providers: SEED.map((p) => ({ ...p, desktop: { ...p.desktop } })),
       fetched_at: '2026-05-05T09:00:00Z',
     }),
+    getActiveModel: async () => ({ provider: null, model: null }),
   };
 }

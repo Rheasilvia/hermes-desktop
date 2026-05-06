@@ -4,6 +4,7 @@ import type { ListResponse, Provider } from '../../types';
 export interface ModelTransport {
   listProviders(): Promise<ListResponse<Provider>>;
   getCatalog(): Promise<{ providers: Provider[]; fetched_at: string | null }>;
+  getActiveModel(): Promise<{ provider: string | null; model: string | null }>;
 }
 
 export function makeModelTransport(c: HttpClient): ModelTransport {
@@ -13,6 +14,10 @@ export function makeModelTransport(c: HttpClient): ModelTransport {
     getCatalog: () =>
       c.get<{ providers: Provider[]; fetched_at: string | null }>(
         '/desktop/api/model/catalog',
+      ),
+    getActiveModel: () =>
+      c.get<{ provider: string | null; model: string | null }>(
+        '/desktop/api/model/active',
       ),
   };
 }
