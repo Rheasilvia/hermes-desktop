@@ -2,7 +2,6 @@ import type { Component } from 'solid-js';
 import {
   createSignal,
   createEffect,
-  createMemo,
   onMount,
   Show,
   For,
@@ -40,11 +39,6 @@ export const ModelSwitcherView: Component = () => {
     if (modelStore.activeProvider && !selectedProvider()) {
       setSelectedProvider(modelStore.activeProvider);
     }
-  });
-
-  const filteredProviders = createMemo<ProviderEntry[]>(() => {
-    const allProviders = modelsStore.providers();
-    return allProviders;
   });
 
   const handleConfigureProvider = (provider: ProviderEntry) => {
@@ -106,7 +100,7 @@ export const ModelSwitcherView: Component = () => {
             <Show when={activeTab() === 'providers'}>
               <section class={styles.providersSection}>
                 <div class={styles.providerGrid}>
-                  <For each={filteredProviders()}>
+                  <For each={modelsStore.providers()}>
                     {(provider) => (
                       <ProviderCard
                         provider={provider}

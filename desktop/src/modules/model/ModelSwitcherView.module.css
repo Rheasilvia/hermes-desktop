@@ -71,14 +71,6 @@
   }
 }
 
-.searchSection {
-  padding: var(--space-4) var(--space-4) 0;
-}
-
-.comparison {
-  padding: 0 var(--space-4) var(--space-4);
-}
-
 .error {
   margin: 0 var(--space-4);
   padding: var(--space-3) var(--space-4);
