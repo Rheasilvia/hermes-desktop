@@ -55,8 +55,10 @@ noted.
 
 ## Status
 
-- [ ] Sidecar backend complete (Tasks 1–18)
-- [ ] Tauri sidecar manager complete (Tasks 19–22)
-- [ ] Frontend api + stores + modules complete (Tasks 23–33)
-- [ ] Boundaries + packaging complete (Tasks 34–38)
-- [ ] Acceptance criteria from `05-implementation-notes.md` met
+- [x] Sidecar backend complete (Tasks 1–18)
+- [x] Tauri sidecar manager complete (Tasks 19–22)
+- [x] Frontend api + stores + modules complete (Tasks 23–33)
+- [x] Boundaries + packaging complete (Tasks 34–38)
+- [x] Acceptance criteria from `05-implementation-notes.md` met
+
+**COMPLETED 2026-05-06** — All tasks implemented on branch `feat/desktop-standalone`.
