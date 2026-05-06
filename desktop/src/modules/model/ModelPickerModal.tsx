@@ -31,31 +31,36 @@ export const ModelPickerModal: Component<ModelPickerModalProps> = (props) => {
     });
   });
 
-  const effectiveProvider = createMemo<string | null>(() => {
-    return pickedProvider() ?? props.currentProvider ?? filteredProviders()[0]?.name ?? null;
-  });
+  const effectiveProvider = createMemo<string | null>(
+    () => pickedProvider() ?? props.currentProvider ?? props.providers[0]?.name ?? null
+  );
 
-  const selectedEntry = createMemo<ProviderEntry | undefined>(() => {
-    const ep = effectiveProvider();
-    return filteredProviders().find((p) => p.name === ep);
+  const selectedEntry = createMemo<ProviderEntry | null>(() => {
+    const name = effectiveProvider();
+    return filteredProviders().find((p) => p.name === name) ?? null;
   });
 
   const models = createMemo<ModelOption[]>(() => {
     return selectedEntry()?.models ?? [];
   });
 
-  const effectiveModel = createMemo<string | null>(() => {
-    if (pickedModel() !== null) return pickedModel();
-    if (effectiveProvider() === props.currentProvider) return props.currentModel;
-    return null;
-  });
+  const effectiveModel = createMemo<string | null>(
+    () =>
+      pickedModel() ??
+      (selectedEntry()?.name === props.currentProvider ? props.currentModel : null)
+  );
 
-  const isDirty = createMemo<boolean>(() => {
-    const ep = effectiveProvider();
-    const em = effectiveModel();
-    if (!ep || !em) return false;
-    return ep !== props.currentProvider || em !== props.currentModel;
-  });
+  const isDirty = createMemo<boolean>(
+    () => {
+      const ep = effectiveProvider();
+      const em = effectiveModel();
+      return (
+        ep !== null &&
+        em !== null &&
+        (ep !== props.currentProvider || em !== props.currentModel)
+      );
+    }
+  );
 
   const handleOverlayClick = (e: MouseEvent) => {
     if (e.target === e.currentTarget) {
@@ -90,10 +95,10 @@ export const ModelPickerModal: Component<ModelPickerModalProps> = (props) => {
           {/* Header */}
           <div class={styles.header}>
             <div class={styles.headerLeft}>
-              <span class={styles.title}>Select Model</span>
+              <span class={styles.title}>Set Main Model</span>
               <Show when={props.currentProvider && props.currentModel}>
                 <span class={styles.subtitle}>
-                  {props.currentProvider} / {props.currentModel}
+                  current: {props.currentModel} · {props.currentProvider}
                 </span>
               </Show>
             </div>
@@ -177,11 +182,7 @@ export const ModelPickerModal: Component<ModelPickerModalProps> = (props) => {
 
           {/* Footer */}
           <div class={styles.footer}>
-            <span class={styles.footerNote}>
-              <Show when={effectiveProvider() && effectiveModel()}>
-                {effectiveProvider()} / {effectiveModel()}
-              </Show>
-            </span>
+            <span class={styles.footerNote}>Persists to ~/.hermes/config.yaml</span>
             <button
               type="button"
               class={styles.cancelBtn}
