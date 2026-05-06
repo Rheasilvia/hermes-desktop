@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
+use tauri::Emitter;
 use once_cell::sync::OnceCell;
 use rand::RngCore;
 use serde::Serialize;
@@ -130,7 +131,6 @@ pub async fn current_info() -> Option<SidecarInfo> {
 }
 
 pub async fn run_health_probe(handle: tauri::AppHandle) {
-    use tauri::Manager;
     let mut consecutive_failures = 0u32;
     loop {
         tokio::time::sleep(Duration::from_secs(5)).await;
@@ -149,10 +149,10 @@ pub async fn run_health_probe(handle: tauri::AppHandle) {
         }
         consecutive_failures += 1;
         if consecutive_failures >= 3 {
-            let _ = handle.emit_all("sidecar://unhealthy", ());
+            let _ = handle.emit("sidecar://unhealthy", ());
             consecutive_failures = 0;
             if let Err(e) = restart_with_backoff(&handle).await {
-                let _ = handle.emit_all("sidecar://failed", format!("{e}"));
+                let _ = handle.emit("sidecar://failed", format!("{e}"));
             }
         }
     }
@@ -172,7 +172,6 @@ fn ledger() -> Arc<RestartLedger> {
 }
 
 async fn restart_with_backoff(handle: &tauri::AppHandle) -> Result<()> {
-    use tauri::Manager;
     // Hard cap: 5 restarts in 60 seconds.
     {
         let l = ledger();
@@ -196,7 +195,7 @@ async fn restart_with_backoff(handle: &tauri::AppHandle) -> Result<()> {
     tokio::time::sleep(Duration::from_secs(backoff)).await;
 
     let info = spawn(handle.clone()).await?;
-    let _ = handle.emit_all("sidecar://restarted", info);
+    let _ = handle.emit("sidecar://restarted", info);
     Ok(())
 }
 
