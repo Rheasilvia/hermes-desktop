@@ -33,10 +33,11 @@ export const ModelSwitcherView: Component = () => {
   const [pickerOpen, setPickerOpen] = createSignal(false);
 
   onMount(() => {
-    modelStore.loadModels();
-    modelStore.loadActiveModel();
+    void modelStore.loadModels();
+    void modelStore.loadActiveModel(); // gateway path — no-op in standalone mode
     void modelsStore.load();
-    void modelsStore.loadActive();
+    void modelsStore.loadActive();     // sidecar path — wins in standalone mode
+    // TODO: remove loadActiveModel() once standalone mode is fully wired (see models.ts loadActive)
   });
 
   createEffect(() => {
@@ -190,8 +191,9 @@ export const ModelSwitcherView: Component = () => {
             currentModel={modelStore.activeModel}
             providers={modelsStore.providers()}
             onApply={async (provider, model) => {
-              await modelStore.switchModel(provider, model);
-              setPickerOpen(false);
+              const ok = await modelStore.switchModel(provider, model);
+              if (ok) setPickerOpen(false);
+              // On failure: modal stays open; errors surface via modelStore.error banner
             }}
             onClose={() => setPickerOpen(false)}
           />
