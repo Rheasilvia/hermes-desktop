@@ -11,7 +11,7 @@ import styles from './ModelUsageView.module.css';
 
 export const ModelUsageView: Component = () => {
   createEffect(() => {
-    void analyticsStore.load(analyticsStore.period());
+    void analyticsStore.load();
   });
 
   const handlePeriodChange = (p: AnalyticsPeriod) => {
