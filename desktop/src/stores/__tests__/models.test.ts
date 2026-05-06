@@ -17,6 +17,7 @@ beforeEach(() => {
       generated_at: '2026-05-05T09:00:00Z',
     }),
     getCatalog: vi.fn(),
+    getActiveModel: vi.fn().mockResolvedValue({ provider: null, model: null }),
   } satisfies ModelTransport);
 });
 

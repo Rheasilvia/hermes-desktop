@@ -62,6 +62,11 @@ export const modelStore = {
     setProviders(entries);
   },
 
+  hydrateActiveModel(provider: string | null, model: string | null): void {
+    setActiveProvider(provider);
+    setActiveModel(model);
+  },
+
   async loadModels(): Promise<void> {
     const adapter = getModelAdapter();
     if (!adapter) return;
@@ -306,7 +311,16 @@ export function createModelsStore() {
     }
   };
 
-  return { providers, loading, error, load, resolveId };
+  const loadActive = async () => {
+    try {
+      const active = await api.model().getActiveModel();
+      modelStore.hydrateActiveModel(active.provider, active.model);
+    } catch {
+      modelStore.hydrateActiveModel(null, null);
+    }
+  };
+
+  return { providers, loading, error, load, loadActive, resolveId };
 }
 
 /** Singleton instance used by the model module views. */
