@@ -15,7 +15,7 @@ export default defineConfig({
     strictPort: true,
     watch: {
       // Exclude the Tauri build output directory to avoid exhausting inotify watchers
-      ignored: ['**/src-tauri/target/**'],
+      ignored: ['**/src-tauri/target/**', '**/backend/.venv/**'],
     },
   },
   envPrefix: ["VITE_", "TAURI_"],

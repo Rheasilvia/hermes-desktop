@@ -62,17 +62,18 @@ def _get_provider_to_models_dev() -> dict[str, str]:
 
 
 def _enrich_models(providers: list, hermes_home: Path) -> None:
-    """Fill empty model lists from ~/.hermes/models_dev_cache.json.
+    """Fill empty model lists using hermes_cli as primary source, cache for supplements.
 
-    Reads the live cache directly (no package import needed) so that all model
-    variants including highspeed are returned.  Filters to tool_call=True entries
-    to match agent.models_dev.list_agentic_models() semantics.
-    Falls back to hermes_cli.models.provider_model_ids() if cache has no entry.
+    hermes_cli.models.provider_model_ids() is the authoritative source of hermes-
+    compatible model IDs (same as the dashboard).  models_dev_cache supplements with
+    variants (e.g. highspeed) whose IDs extend a hermes base ID as a prefix —
+    catching MiniMax-M2.7-highspeed without importing incompatible models.dev IDs
+    like k2p6 that conflict with the hermes kimi-k2.6 namespace.
     """
     cache = _load_models_dev_cache(hermes_home)
     alias_map = _get_provider_to_models_dev()
 
-    def _ids_from_cache(pid: str) -> list[str]:
+    def _cache_extra_ids(pid: str, base_ids: list[str]) -> list[str]:
         cache_key = alias_map.get(pid, pid)
         provider_data = cache.get(cache_key, {})
         if not isinstance(provider_data, dict):
@@ -80,16 +81,26 @@ def _enrich_models(providers: list, hermes_home: Path) -> None:
         models = provider_data.get("models", {})
         if not isinstance(models, dict):
             return []
+        base_set = set(base_ids)
         return [
             mid
             for mid, mdata in models.items()
-            if isinstance(mdata, dict) and mdata.get("tool_call", False)
+            if isinstance(mdata, dict)
+            and mdata.get("tool_call", False)
+            and mid not in base_set
+            and any(mid.startswith(b) for b in base_ids)
         ]
 
     for p in providers:
         if not p.models:
-            ids = _ids_from_cache(p.id)
-            p.models = [{"id": m, "name": m} for m in ids]
+            try:
+                from hermes_cli.models import provider_model_ids
+
+                base_ids = provider_model_ids(p.id)
+            except ImportError:
+                base_ids = []
+            extra_ids = _cache_extra_ids(p.id, base_ids)
+            p.models = [{"id": m, "name": m} for m in base_ids + extra_ids]
 
 
 @router.get("/model/providers")
