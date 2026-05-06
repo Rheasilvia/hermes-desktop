@@ -88,3 +88,7 @@
   color: var(--color-primary);
   font-size: var(--text-sm);
 }
+
+.usageSection {
+  /* ModelUsageView manages its own layout */
+}
