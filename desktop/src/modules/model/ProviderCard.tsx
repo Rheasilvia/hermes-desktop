@@ -25,8 +25,10 @@ export const ProviderCard: Component<ProviderCardProps> = (props) => {
     props.provider.enabled !== false ? 'active' : 'inactive';
 
   const apiKeyDisplay = () => {
-    if (!props.provider.api_key) return 'Not configured';
-    return showKey() ? props.provider.api_key : maskApiKey(props.provider.api_key);
+    const key = props.provider.api_key;
+    if (key) return showKey() ? key : maskApiKey(key);
+    if (props.provider.api_key_env) return `env:${props.provider.api_key_env}`;
+    return 'Not configured';
   };
 
   const toggleKeyVisibility = (e: Event) => {

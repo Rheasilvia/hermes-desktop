@@ -1,6 +1,6 @@
 import type { Component } from 'solid-js';
 import { createSignal, Show, For } from 'solid-js';
-import { modelStore } from '@/stores/models.js';
+import { modelStore, modelsStore } from '@/stores/models.js';
 import type { ProviderEntry, ModelOption } from '@/types/index.js';
 import { Button } from '@/components/Button.js';
 import { Icon } from '@/components/Icon.js';
@@ -30,13 +30,19 @@ export const ProviderModelsView: Component = () => {
   const [showKey, setShowKey] = createSignal(false);
   const [editing, setEditing] = createSignal(false);
 
-  const provider = (): ProviderEntry | null => modelStore.detailProviderEntry;
+  const provider = (): ProviderEntry | null => {
+    const name = modelStore.detailProviderName;
+    if (!name) return null;
+    return modelsStore.providers().find((p) => p.name === name) ?? null;
+  };
   const models = (): ModelOption[] => provider()?.models ?? [];
 
   const apiKeyDisplay = () => {
-    const key = provider()?.api_key;
-    if (!key) return 'Not configured';
-    return showKey() ? key : maskApiKey(key);
+    const p = provider();
+    const key = p?.api_key;
+    if (key) return showKey() ? key : maskApiKey(key);
+    if (p?.api_key_env) return `env:${p.api_key_env}`;
+    return 'Not configured';
   };
 
   const handleToggleModel = (modelName: string, enabled: boolean) => {

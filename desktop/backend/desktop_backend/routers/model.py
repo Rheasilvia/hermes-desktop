@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query, Request
 
 from ..overlays import loader as overlays_loader
 from ..readers import model_catalog
+from ..readers.auth_reader import read_auth_providers
 from ..readers.hermes_config import read_active_model
 from ..services.merger import filter_configured, merge_providers
 
@@ -42,6 +43,10 @@ def list_providers(
     providers = model_catalog.get_providers(cfg.hermes_home)
     overlay = overlays_loader.load(cfg.hermes_home, "model")
     merged = merge_providers(providers, overlay)
+    catalog_ids = {p.id for p in merged}
+    for ap in read_auth_providers(cfg.hermes_home):
+        if ap.id not in catalog_ids:
+            merged.append(ap)
     if configured_only:
         merged = filter_configured(merged)
     return {
