@@ -1,5 +1,5 @@
+# SNAPSHOT:
 """Pure read-only parser for the active model section of ~/.hermes/config.yaml."""
-
 from __future__ import annotations
 
 from pathlib import Path

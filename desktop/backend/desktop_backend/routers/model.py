@@ -36,14 +36,14 @@ def get_catalog(request: Request):
 @router.get("/model/providers")
 def list_providers(
     request: Request,
-    configured_only: bool = Query(default=False),
+    configured_only: bool = Query(default=False),  # TODO(Task 3): flip to default=True after filter_configured is implemented
 ):
     cfg = request.app.state.cfg
     providers = model_catalog.get_providers(cfg.hermes_home)
     overlay = overlays_loader.load(cfg.hermes_home, "model")
     merged = merge_providers(providers, overlay)
     if configured_only:
-        from ..services.merger import filter_configured
+        from ..services.merger import filter_configured  # TODO(Task 3): promote to module-level import
         merged = filter_configured(merged)
     return {
         "items": [m.model_dump() for m in merged],
