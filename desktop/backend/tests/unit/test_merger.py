@@ -1,4 +1,5 @@
-from desktop_backend.services.merger import merge_cron_jobs, merge_providers
+from desktop_backend.schemas.model import MergedProvider, ProviderOverlay
+from desktop_backend.services.merger import filter_configured, merge_cron_jobs, merge_providers
 
 
 JOBS = [
@@ -47,9 +48,6 @@ def test_merge_providers_default_visible():
 
 
 def test_filter_configured_keeps_providers_with_credentials():
-    from desktop_backend.services.merger import filter_configured
-    from desktop_backend.schemas.model import MergedProvider, ProviderOverlay
-
     providers = [
         MergedProvider(id="a", name="A", desktop=ProviderOverlay(api_key="sk-123")),
         MergedProvider(id="b", name="B", desktop=ProviderOverlay(api_key_env="MY_KEY")),
@@ -62,5 +60,4 @@ def test_filter_configured_keeps_providers_with_credentials():
 
 
 def test_filter_configured_empty_list():
-    from desktop_backend.services.merger import filter_configured
     assert filter_configured([]) == []

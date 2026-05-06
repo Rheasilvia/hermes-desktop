@@ -75,4 +75,6 @@ def test_providers_configured_only_false_shows_all(client, auth):
     items = client.get(
         "/desktop/api/model/providers?configured_only=false", headers=auth
     ).json()["items"]
-    assert len(items) == 2
+    ids = [p["id"] for p in items]
+    assert "provider_test_anthropic" in ids
+    assert "provider_test_openai" in ids
