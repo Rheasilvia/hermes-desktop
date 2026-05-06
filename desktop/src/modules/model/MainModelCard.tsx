@@ -9,7 +9,7 @@ interface Props {
 }
 
 export const MainModelCard: Component<Props> = (props) => {
-  const hasModel = () => props.provider !== null || props.model !== null;
+  const hasModel = () => props.provider !== null && props.model !== null;
 
   return (
     <div class={styles.wrapper} data-testid="main-model-card">
@@ -30,6 +30,7 @@ export const MainModelCard: Component<Props> = (props) => {
           type="button"
           class={styles.changeBtn}
           onClick={props.onChangeClick}
+          aria-label={hasModel() ? 'Change main model' : 'Configure main model'}
           data-testid="main-model-change-btn"
         >
           {hasModel() ? 'Change' : 'Configure'}
