@@ -7,6 +7,13 @@ import pytest
 
 from desktop_backend.readers.hermes_config import read_active_model
 
+FIXTURES = Path(__file__).parent.parent / "fixtures" / "hermes_home"
+
+
+def test_reads_fixture_file():
+    result = read_active_model(FIXTURES)
+    assert result == {"provider": "kimi-coding", "model": "kimi-k2.6"}
+
 
 def test_reads_provider_and_model(tmp_path: Path):
     (tmp_path / "config.yaml").write_text(
