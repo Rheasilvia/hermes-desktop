@@ -78,4 +78,4 @@ export function isApiError(e: unknown): e is ApiError {
   );
 }
 
-export type Domain = 'cron' | 'model' | 'overlays' | 'settings' | 'state';
+export type Domain = 'analytics' | 'cron' | 'model' | 'overlays' | 'settings' | 'state';
