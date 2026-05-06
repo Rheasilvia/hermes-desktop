@@ -10,7 +10,7 @@ def test_get_catalog(client, auth):
 
 
 def test_get_providers_default_visible(client, auth):
-    r = client.get("/desktop/api/model/providers", headers=auth)
+    r = client.get("/desktop/api/model/providers?configured_only=false", headers=auth)
     assert r.status_code == 200
     items = r.json()["items"]
     assert all(p["desktop"]["visible"] is True for p in items)
@@ -21,6 +21,7 @@ def test_providers_overlay_applied(client, auth, hermes_home):
 
     od = hermes_home / "desktop" / "overlays"
     od.mkdir(parents=True, exist_ok=True)
+    # api_key required so provider survives the configured_only=True default filter
     (od / "model.json").write_text(
         _json.dumps({"provider_test_openai": {"visible": False, "api_key": "sk-test"}})
     )
