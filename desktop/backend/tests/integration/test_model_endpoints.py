@@ -47,6 +47,7 @@ def test_get_active_model_reads_config(client, auth, hermes_home):
 
 
 def test_get_active_model_no_config(client, auth, hermes_home):
+    # The base fixture copies config.yaml; remove it to exercise the missing-file path.
     (hermes_home / "config.yaml").unlink(missing_ok=True)
     r = client.get("/desktop/api/model/active", headers=auth)
     assert r.status_code == 200
