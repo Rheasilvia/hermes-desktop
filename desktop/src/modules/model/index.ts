@@ -13,3 +13,6 @@ export { EmptyProviders } from './EmptyProviders.js';
 export { AddProviderView } from './AddProviderView.js';
 export { ProviderModelsView } from './ProviderModelsView.js';
 export { ModelDetailView } from './ModelDetailView.js';
+export { UsageSummaryBar } from './UsageSummaryBar.js';
+export { ModelUsageCard } from './ModelUsageCard.js';
+export { ModelUsageView } from './ModelUsageView.js';
