@@ -13,6 +13,10 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    watch: {
+      // Exclude the Tauri build output directory to avoid exhausting inotify watchers
+      ignored: ['**/src-tauri/target/**'],
+    },
   },
   envPrefix: ["VITE_", "TAURI_"],
 });
