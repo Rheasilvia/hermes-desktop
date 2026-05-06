@@ -1,5 +1,8 @@
 import sqlite3
+import time
 from pathlib import Path
+
+_NOW = time.time()
 
 
 def _seed_db(path: Path):
@@ -7,28 +10,29 @@ def _seed_db(path: Path):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
-            provider TEXT,
+            billing_provider TEXT,
             model TEXT,
             input_tokens INTEGER DEFAULT 0,
             output_tokens INTEGER DEFAULT 0,
-            cost_usd REAL DEFAULT 0,
-            created_at TEXT DEFAULT (datetime('now'))
+            estimated_cost_usd REAL DEFAULT 0,
+            actual_cost_usd REAL,
+            started_at REAL NOT NULL
         )
     """)
     # 5 days ago — outside any reasonable short window
     conn.execute(
-        "INSERT INTO sessions VALUES (?,?,?,?,?,?,datetime('now','-5 days'))",
-        ("s1", "anthropic", "claude-sonnet-4-6", 1000, 500, 0.015),
+        "INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?)",
+        ("s1", "anthropic", "claude-sonnet-4-6", 1000, 500, 0.015, None, _NOW - 5 * 86400),
     )
     # 2 days ago — outside days=1 window, inside days=30 window
     conn.execute(
-        "INSERT INTO sessions VALUES (?,?,?,?,?,?,datetime('now','-2 days'))",
-        ("s2", "anthropic", "claude-opus-4-7", 800, 400, 0.048),
+        "INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?)",
+        ("s2", "anthropic", "claude-opus-4-7", 800, 400, 0.048, None, _NOW - 2 * 86400),
     )
     # Recent (today) — inside days=1 window
     conn.execute(
-        "INSERT INTO sessions VALUES (?,?,?,?,?,?,datetime('now','-1 hours'))",
-        ("s3", "anthropic", "claude-haiku-4-5", 200, 100, 0.003),
+        "INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?)",
+        ("s3", "anthropic", "claude-haiku-4-5", 200, 100, 0.003, None, _NOW - 3600),
     )
     conn.commit()
     conn.close()
