@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { createEffect, For, Show } from 'solid-js';
+import { For, onMount, Show } from 'solid-js';
 import { analyticsStore } from '@/stores/analytics.js';
 import { modelStore } from '@/stores/models.js';
 import { LoadingSpinner } from '@/components/LoadingSpinner.js';
@@ -10,7 +10,7 @@ import type { AnalyticsPeriod } from '@/types/analytics.js';
 import styles from './ModelUsageView.module.css';
 
 export const ModelUsageView: Component = () => {
-  createEffect(() => {
+  onMount(() => {
     void analyticsStore.load();
   });
 

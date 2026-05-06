@@ -1,4 +1,5 @@
 import type { Component } from 'solid-js';
+import { For } from 'solid-js';
 import type { UsageTotals, AnalyticsPeriod } from '@/types/analytics.js';
 import styles from './UsageSummaryBar.module.css';
 
@@ -36,14 +37,16 @@ export const UsageSummaryBar: Component<Props> = (props) => {
       </div>
 
       <div class={styles.periodPicker}>
-        {PERIODS.map((p) => (
-          <button
-            class={`${styles.periodBtn} ${props.period === p ? styles.active : ''}`}
-            onClick={() => props.onPeriodChange(p)}
-          >
-            {p}d
-          </button>
-        ))}
+        <For each={PERIODS}>
+          {(p) => (
+            <button
+              class={`${styles.periodBtn} ${props.period === p ? styles.active : ''}`}
+              onClick={() => props.onPeriodChange(p)}
+            >
+              {p}d
+            </button>
+          )}
+        </For>
       </div>
     </div>
   );
