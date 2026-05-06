@@ -93,6 +93,7 @@ def build_app(cfg: Config) -> FastAPI:
         settings as settings_router,
         state as state_router,
         overlays,
+        analytics,
     )
 
     app.include_router(health.router, prefix=API_PREFIX)
@@ -102,6 +103,7 @@ def build_app(cfg: Config) -> FastAPI:
     app.include_router(settings_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(state_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(overlays.router, prefix=API_PREFIX, dependencies=deps)
+    app.include_router(analytics.router, prefix=API_PREFIX, dependencies=deps)
 
     return app
 
