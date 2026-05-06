@@ -34,10 +34,8 @@ export const ModelSwitcherView: Component = () => {
 
   onMount(() => {
     void modelStore.loadModels();
-    void modelStore.loadActiveModel(); // gateway path — no-op in standalone mode
     void modelsStore.load();
-    void modelsStore.loadActive();     // sidecar path — wins in standalone mode
-    // TODO: remove loadActiveModel() once standalone mode is fully wired (see models.ts loadActive)
+    void modelsStore.loadActive(); // sidecar is source of truth for active model
   });
 
   createEffect(() => {
