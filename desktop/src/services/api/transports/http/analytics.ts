@@ -7,9 +7,11 @@ export interface AnalyticsTransport {
 
 export function makeAnalyticsTransport(client: HttpClient): AnalyticsTransport {
   return {
-    getModelAnalytics: (days = 30) =>
-      client.get<ModelAnalyticsResponse>(
-        `/desktop/api/analytics/models?days=${days}`
-      ),
+    getModelAnalytics: (days = 30) => {
+      const safeDays = Number.isFinite(days) && days > 0 ? Math.trunc(days) : 30;
+      return client.get<ModelAnalyticsResponse>(
+        `/desktop/api/analytics/models?days=${safeDays}`
+      );
+    },
   };
 }

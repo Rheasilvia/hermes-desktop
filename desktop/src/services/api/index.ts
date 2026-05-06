@@ -1,6 +1,7 @@
 import { api } from './router';
 import { httpClient } from './http-client';
-import { makeAnalyticsTransport } from './transports/http/analytics.js';
+import { makeAnalyticsTransport } from './transports/http/analytics';
+import { makeMockAnalyticsTransport } from './transports/mock/analytics';
 import { makeCronTransport } from './transports/http/cron';
 import { makeModelTransport } from './transports/http/model';
 import { makeOverlayTransport } from './transports/http/overlays';
@@ -31,7 +32,7 @@ export function bootstrapApi(mode: 'http' | 'mock' = 'http'): void {
     api.register('overlays', makeMockOverlayTransport());
     api.register('settings', makeMockSettingsTransport());
     api.register('state', makeMockStateTransport());
-    api.register('analytics', makeAnalyticsTransport(httpClient));
+    api.register('analytics', makeMockAnalyticsTransport());
     return;
   }
   api.register('cron', makeCronTransport(httpClient));
