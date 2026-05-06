@@ -48,23 +48,17 @@ def _load_models_dev_cache(hermes_home: Path) -> dict:
 
 
 def _get_provider_to_models_dev() -> dict[str, str]:
-    """Return the Hermes→models.dev provider ID alias map.
+    """Return the Hermes→models.dev provider ID alias map from agent.models_dev.
 
-    Prefers the authoritative map from agent.models_dev when available; otherwise
-    returns a minimal fallback covering known non-identity mappings so the cache
-    lookup still works without the agent package installed.
+    Returns an empty dict if agent is not installed — enrichment then falls back
+    to direct cache lookup by the provider's own ID.
     """
     try:
         from agent.models_dev import PROVIDER_TO_MODELS_DEV
 
         return dict(PROVIDER_TO_MODELS_DEV)
     except ImportError:
-        # Minimal fallback: only the non-identity mappings we know about
-        return {
-            "kimi-coding": "kimi-for-coding",
-            "kimi-coding-cn": "kimi-for-coding",
-            "minimax-oauth": "minimax",
-        }
+        return {}
 
 
 def _enrich_models(providers: list, hermes_home: Path) -> None:
@@ -95,14 +89,6 @@ def _enrich_models(providers: list, hermes_home: Path) -> None:
     for p in providers:
         if not p.models:
             ids = _ids_from_cache(p.id)
-            if not ids:
-                # Fall back to hermes_cli static list when cache has no entry
-                try:
-                    from hermes_cli.models import provider_model_ids
-
-                    ids = provider_model_ids(p.id)
-                except ImportError:
-                    pass
             p.models = [{"id": m, "name": m} for m in ids]
 
 
