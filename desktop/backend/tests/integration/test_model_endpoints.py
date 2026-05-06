@@ -22,7 +22,7 @@ def test_providers_overlay_applied(client, auth, hermes_home):
     od = hermes_home / "desktop" / "overlays"
     od.mkdir(parents=True, exist_ok=True)
     (od / "model.json").write_text(
-        _json.dumps({"provider_test_openai": {"visible": False}})
+        _json.dumps({"provider_test_openai": {"visible": False, "api_key": "sk-test"}})
     )
     items = {
         p["id"]: p
@@ -54,3 +54,24 @@ def test_get_active_model_no_config(client, auth, hermes_home):
     body = r.json()
     assert body["provider"] is None
     assert body["model"] is None
+
+
+def test_providers_configured_only_default(client, auth, hermes_home):
+    import json as _json
+
+    od = hermes_home / "desktop" / "overlays"
+    od.mkdir(parents=True, exist_ok=True)
+    (od / "model.json").write_text(
+        _json.dumps({"provider_test_anthropic": {"api_key": "sk-test"}})
+    )
+    items = client.get("/desktop/api/model/providers", headers=auth).json()["items"]
+    ids = [p["id"] for p in items]
+    assert "provider_test_anthropic" in ids
+    assert "provider_test_openai" not in ids
+
+
+def test_providers_configured_only_false_shows_all(client, auth):
+    items = client.get(
+        "/desktop/api/model/providers?configured_only=false", headers=auth
+    ).json()["items"]
+    assert len(items) == 2

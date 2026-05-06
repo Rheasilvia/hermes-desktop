@@ -44,3 +44,23 @@ def test_merge_providers_default_visible():
     providers = [{"id": "p1", "name": "P1", "models": []}]
     out = merge_providers(providers, {})
     assert out[0].desktop.visible is True
+
+
+def test_filter_configured_keeps_providers_with_credentials():
+    from desktop_backend.services.merger import filter_configured
+    from desktop_backend.schemas.model import MergedProvider, ProviderOverlay
+
+    providers = [
+        MergedProvider(id="a", name="A", desktop=ProviderOverlay(api_key="sk-123")),
+        MergedProvider(id="b", name="B", desktop=ProviderOverlay(api_key_env="MY_KEY")),
+        MergedProvider(id="c", name="C", desktop=ProviderOverlay(base_url="http://localhost")),
+        MergedProvider(id="d", name="D", desktop=ProviderOverlay()),
+        MergedProvider(id="e", name="E", desktop=ProviderOverlay(api_key="")),
+    ]
+    result = filter_configured(providers)
+    assert [p.id for p in result] == ["a", "b", "c"]
+
+
+def test_filter_configured_empty_list():
+    from desktop_backend.services.merger import filter_configured
+    assert filter_configured([]) == []
