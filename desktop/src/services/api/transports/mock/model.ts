@@ -29,5 +29,6 @@ export function makeMockModelTransport(): ModelTransport {
       fetched_at: '2026-05-05T09:00:00Z',
     }),
     getActiveModel: async () => ({ provider: null, model: null }),
+    setActiveModel: async () => undefined,
   };
 }

@@ -5,6 +5,7 @@ export interface ModelTransport {
   listProviders(): Promise<ListResponse<Provider>>;
   getCatalog(): Promise<{ providers: Provider[]; fetched_at: string | null }>;
   getActiveModel(): Promise<{ provider: string | null; model: string | null }>;
+  setActiveModel(provider: string, model: string): Promise<void>;
 }
 
 export function makeModelTransport(c: HttpClient): ModelTransport {
@@ -19,5 +20,7 @@ export function makeModelTransport(c: HttpClient): ModelTransport {
       c.get<{ provider: string | null; model: string | null }>(
         '/desktop/api/model/active',
       ),
+    setActiveModel: (provider, model) =>
+      c.put<void>('/desktop/api/model/active', { provider, model }),
   };
 }
