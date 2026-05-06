@@ -33,7 +33,7 @@ PORT=$(grep -oP 'READY \K\d+' /tmp/sidecar_stdout.txt)
 echo "==> 侧车就绪: http://127.0.0.1:$PORT"
 
 # 写入实际端口
-cat > "$REPO/desktop/.env.local" << EOF
+cat > "$REPO/desktop/.env.development.local" << EOF
 VITE_API_MODE=http
 VITE_SIDECAR_URL=http://127.0.0.1:$PORT
 VITE_SIDECAR_TOKEN=dev-token
