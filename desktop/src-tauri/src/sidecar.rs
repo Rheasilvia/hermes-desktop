@@ -120,18 +120,29 @@ async fn restart_with_backoff(handle: &tauri::AppHandle) -> Result<()> {
 }
 
 #[cfg(not(debug_assertions))]
-fn release_binary(handle: &tauri::AppHandle) -> Result<std::path::PathBuf> {
-    use std::path::PathBuf;
-    use std::process::Stdio;
-    use tauri::Manager;
-    let resolver = handle.path();
-    let res = resolver
-        .resolve(
-            "desktop_backend/desktop_backend",
-            tauri::path::BaseDirectory::Resource,
-        )
-        .context("resolve sidecar binary")?;
-    Ok(res)
+fn release_binary(_handle: &tauri::AppHandle) -> Result<std::path::PathBuf> {
+    // Tauri strips the arch suffix and bundles externalBin alongside the main
+    // executable in Contents/MacOS/ (macOS) or next to the .exe (Windows/Linux).
+    // BaseDirectory::Executable is unreliable across platforms, so resolve from
+    // the current executable's directory directly.
+    let current = std::env::current_exe().context("locate current executable")?;
+    let dir = current
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("current_exe has no parent directory"))?;
+    let exe_name = if cfg!(windows) {
+        "desktop_backend.exe"
+    } else {
+        "desktop_backend"
+    };
+    let candidate = dir.join(exe_name);
+    if !candidate.exists() {
+        bail!(
+            "sidecar binary not found at {} (current_exe={})",
+            candidate.display(),
+            current.display()
+        );
+    }
+    Ok(candidate)
 }
 
 #[cfg(not(debug_assertions))]
@@ -168,7 +179,7 @@ pub async fn spawn(handle: tauri::AppHandle) -> Result<SidecarInfo> {
         let mut child = cmd.spawn().context("failed to spawn sidecar")?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?;
         let mut reader = BufReader::new(stdout).lines();
-        let port = timeout(Duration::from_secs(5), async {
+        let port = timeout(Duration::from_secs(30), async {
             while let Some(line) = reader.next_line().await? {
                 if let Some(rest) = line.strip_prefix("READY ") {
                     return Ok::<u16, anyhow::Error>(rest.trim().parse()?);

@@ -25,13 +25,8 @@ a = Analysis(
 )
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
-    pyz, a.scripts, [],
-    exclude_binaries=True,
+    pyz, a.scripts, a.binaries, a.zipfiles, a.datas,
     name="desktop_backend",
     debug=False, bootloader_ignore_signals=False,
     strip=False, upx=False, console=True,
-)
-coll = COLLECT(
-    exe, a.binaries, a.zipfiles, a.datas,
-    strip=False, upx=False, name="desktop_backend",
 )
