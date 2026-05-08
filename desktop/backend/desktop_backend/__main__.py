@@ -9,8 +9,13 @@ import threading
 
 import uvicorn
 
-from .app import build_app
-from .config import load_config
+try:
+    from .app import build_app
+    from .config import load_config
+except ImportError:
+    # PyInstaller one-file: __main__ has no package context
+    from desktop_backend.app import build_app  # type: ignore[no-redef]
+    from desktop_backend.config import load_config  # type: ignore[no-redef]
 
 
 def _announce(server: uvicorn.Server, port: int) -> None:

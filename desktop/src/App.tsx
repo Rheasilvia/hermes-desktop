@@ -8,6 +8,8 @@ import { initTheme } from '@/services/theme.js';
 import { loadDesktopSettings, applyDesktopSettings } from '@/services/desktop-settings.js';
 import { initializeStores } from '@/stores/context.js';
 import { createMockGateway } from '@/services/gateway/index.js';
+import { cronStore } from '@/stores/cron.js';
+import { analyticsStore } from '@/stores/analytics.js';
 
 const isTauri = typeof window !== 'undefined' && !!(window as unknown as { __TAURI__?: unknown }).__TAURI__;
 
@@ -43,6 +45,23 @@ const App: Component = () => {
       applyDesktopSettings(desktop);
     } catch {
       // If desktop settings fail to load, theme is already initialised
+    }
+    if (isTauri) {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        const { invoke } = await import('@tauri-apps/api/core');
+        // Listen for future ready events (prod: sidecar takes ~5s to start)
+        await listen('sidecar://ready', () => {
+          void cronStore.load();
+          void analyticsStore.load();
+        });
+        // Also check if already ready (dev: event fires before listener registers)
+        try {
+          await invoke('sidecar_info');
+          void cronStore.load();
+          void analyticsStore.load();
+        } catch { /* not ready yet, listener will handle it */ }
+      } catch { /* not in Tauri */ }
     }
   });
 
