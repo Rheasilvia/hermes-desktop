@@ -42,11 +42,13 @@ def build_app(cfg: Config) -> FastAPI:
     def require_token(request: Request) -> None:
         if request.url.path in PUBLIC_PATHS:
             return
+        if cfg.token is None:
+            return  # dev mode: no token configured, skip auth
         header = request.headers.get("Authorization", "")
         if not header.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="AUTH_FAILED")
         provided = header[len("Bearer ") :].strip()
-        if cfg.token is None or not hmac.compare_digest(provided, cfg.token):
+        if not hmac.compare_digest(provided, cfg.token):
             raise HTTPException(status_code=401, detail="AUTH_FAILED")
 
     app.dependency_overrides = {}

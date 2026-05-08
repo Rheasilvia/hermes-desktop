@@ -17,7 +17,7 @@ def merge_cron_jobs(
         merged.append(
             MergedCronJob(
                 id=job["id"],
-                schedule=job["schedule"],
+                schedule=job["schedule"] if isinstance(job["schedule"], str) else job["schedule"].get("expr", ""),
                 prompt=job["prompt"],
                 enabled=bool(job.get("enabled", True)),
                 created_at=job.get("created_at", ""),

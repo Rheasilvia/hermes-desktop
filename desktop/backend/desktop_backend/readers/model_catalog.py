@@ -33,7 +33,13 @@ def load_catalog(hermes_home: Path) -> dict[str, Any]:
             payload = json.load(fh)
     except json.JSONDecodeError as exc:
         raise L1CorruptError(str(path), str(exc)) from exc
-    if not isinstance(payload, dict) or not isinstance(payload.get("providers"), list):
+    if not isinstance(payload, dict):
+        raise L1CorruptError(str(path), "expected top-level object")
+    providers = payload.get("providers")
+    if isinstance(providers, dict):
+        providers = [{"id": k, **v} for k, v in providers.items()]
+        payload["providers"] = providers
+    if not isinstance(providers, list):
         raise L1CorruptError(str(path), "expected {providers: [...]}")
     payload.setdefault("fetched_at", None)
     return payload

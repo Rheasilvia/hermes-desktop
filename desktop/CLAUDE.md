@@ -20,6 +20,7 @@ All commands run from the `desktop/` directory:
 ```bash
 # Development
 npm run dev           # Vite dev server (port 1420)
+npm run backend       # Python backend (port 18080, dev token)
 npm run tauri:dev     # Tauri dev mode with Rust backend
 
 # Build
@@ -108,6 +109,15 @@ The Rust layer in `src-tauri/` provides:
 - Platform detection, external URL opening, process spawning
 - Auto-updater via GitHub Releases
 - Single-instance enforcement
+- Sidecar management: dev mode connects to pre-running backend, prod mode spawns bundled binary
+
+### Python Backend
+
+The standalone Python backend in `backend/desktop_backend/` serves the desktop API:
+- **Config**: Env-var driven (`DESKTOP_BACKEND_PORT`, `DESKTOP_BACKEND_TOKEN`). Dev defaults: port 18080, token `dev-secret`. Prod defaults: port 18081, token `prod-secret`.
+- **Auth**: Bearer token via `Authorization` header. Skipped when token is not configured.
+- **Model providers**: Mirrors the dashboard's `list_authenticated_providers()` logic — reads credentials from `~/.hermes/auth.json` credential pool, environment variables (via `PROVIDER_REGISTRY`), and `models_dev_cache.json`. Curated model lists parsed from `hermes_cli/models.py` via AST.
+- **Sidecar health**: Rust sidecar health probe monitors `/desktop/api/health` and restarts with backoff on failures.
 
 ### Path Aliases
 

@@ -132,16 +132,22 @@ export const ModelPickerModal: Component<ModelPickerModalProps> = (props) => {
             {/* Provider column */}
             <div class={styles.provCol} aria-label="Providers">
               <For each={filteredProviders()}>
-                {(provider) => (
-                  <button
-                    type="button"
-                    class={`${styles.provRow}${effectiveProvider() === provider.name ? ` ${styles.provRowActive}` : ''}`}
-                    onClick={() => handlePickProvider(provider.name)}
-                    data-testid={`provider-row-${provider.name}`}
-                  >
-                    {provider.display_name ?? provider.name}
-                  </button>
-                )}
+                {(provider) => {
+                  const isCurrentProvider = () => provider.name === props.currentProvider;
+                  return (
+                    <button
+                      type="button"
+                      class={`${styles.provRow}${effectiveProvider() === provider.name ? ` ${styles.provRowActive}` : ''}`}
+                      onClick={() => handlePickProvider(provider.name)}
+                      data-testid={`provider-row-${provider.name}`}
+                    >
+                      {provider.display_name ?? provider.name}
+                      <Show when={isCurrentProvider()}>
+                        <span class={styles.currentBadge}>current</span>
+                      </Show>
+                    </button>
+                  );
+                }}
               </For>
             </div>
 
