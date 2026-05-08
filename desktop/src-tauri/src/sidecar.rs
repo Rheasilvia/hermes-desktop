@@ -1,14 +1,16 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Result};
+#[cfg(not(debug_assertions))]
+use anyhow::Context;
 use tauri::Emitter;
 use once_cell::sync::OnceCell;
-use rand::RngCore;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+#[cfg(not(debug_assertions))]
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
+#[cfg(not(debug_assertions))]
+use tokio::process::Command;
+use tokio::process::Child;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 
@@ -32,97 +34,16 @@ pub fn state() -> Arc<SidecarState> {
         .clone()
 }
 
-fn hermes_home() -> PathBuf {
-    if let Ok(p) = std::env::var("HERMES_HOME") {
-        return PathBuf::from(p);
-    }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    Path::new(&home).join(".hermes")
-}
-
-pub(crate) fn token_file() -> PathBuf {
-    hermes_home().join("desktop").join("sidecar.token")
-}
-
-fn write_token() -> Result<String> {
-    let path = token_file();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let mut buf = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut buf);
-    let token = hex_encode(&buf);
-    std::fs::write(&path, &token)?;
-    set_perm_0600(&path)?;
-    Ok(token)
-}
-
-#[cfg(unix)]
-fn set_perm_0600(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let mut perm = std::fs::metadata(path)?.permissions();
-    perm.set_mode(0o600);
-    std::fs::set_permissions(path, perm)?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_perm_0600(_: &Path) -> Result<()> {
-    Ok(())
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        s.push(HEX[(b >> 4) as usize] as char);
-        s.push(HEX[(b & 0xf) as usize] as char);
-    }
-    s
-}
-
-fn dev_python() -> PathBuf {
-    let venv = Path::new("../backend/.venv/bin/python");
-    if venv.exists() {
-        venv.to_path_buf()
-    } else {
-        PathBuf::from("python3")
-    }
-}
-
+/// Dev mode: connect to a pre-running backend.
+/// Reads HERMES_BACKEND_URL (default: http://127.0.0.1:18080)
+/// and HERMES_BACKEND_TOKEN from env vars.
 pub async fn spawn_dev() -> Result<SidecarInfo> {
-    let token = write_token()?;
-    let mut cmd = Command::new(dev_python());
-    cmd.arg("-m").arg("desktop_backend");
-    cmd.current_dir("../backend");
-    cmd.env("HERMES_HOME", hermes_home());
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-    let mut child = cmd.spawn().context("failed to spawn desktop_backend")?;
-
-    let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
-    let mut reader = BufReader::new(stdout).lines();
-
-    let port = timeout(Duration::from_secs(5), async {
-        while let Some(line) = reader.next_line().await? {
-            if let Some(rest) = line.strip_prefix("READY ") {
-                return Ok::<u16, anyhow::Error>(rest.trim().parse()?);
-            }
-        }
-        bail!("sidecar exited before READY")
-    })
-    .await
-    .map_err(|_| anyhow!("sidecar startup timeout"))??;
-
-    let info = SidecarInfo {
-        base_url: format!("http://127.0.0.1:{port}"),
-        token,
-    };
-
+    let base_url = std::env::var("HERMES_BACKEND_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:18080".into());
+    let token = std::env::var("HERMES_BACKEND_TOKEN").unwrap_or_default();
+    let info = SidecarInfo { base_url, token };
     let s = state();
     *s.info.lock().await = Some(info.clone());
-    *s.child.lock().await = Some(child);
-
     Ok(info)
 }
 
@@ -172,7 +93,6 @@ fn ledger() -> Arc<RestartLedger> {
 }
 
 async fn restart_with_backoff(handle: &tauri::AppHandle) -> Result<()> {
-    // Hard cap: 5 restarts in 60 seconds.
     {
         let l = ledger();
         let mut attempts = l.attempts.lock().await;
@@ -200,7 +120,9 @@ async fn restart_with_backoff(handle: &tauri::AppHandle) -> Result<()> {
 }
 
 #[cfg(not(debug_assertions))]
-fn release_binary(handle: &tauri::AppHandle) -> Result<PathBuf> {
+fn release_binary(handle: &tauri::AppHandle) -> Result<std::path::PathBuf> {
+    use std::path::PathBuf;
+    use std::process::Stdio;
     use tauri::Manager;
     let resolver = handle.path();
     let res = resolver
@@ -210,6 +132,15 @@ fn release_binary(handle: &tauri::AppHandle) -> Result<PathBuf> {
         )
         .context("resolve sidecar binary")?;
     Ok(res)
+}
+
+#[cfg(not(debug_assertions))]
+fn hermes_home() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("HERMES_HOME") {
+        return std::path::PathBuf::from(p);
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    std::path::PathBuf::from(home).join(".hermes")
 }
 
 pub async fn spawn(handle: tauri::AppHandle) -> Result<SidecarInfo> {
@@ -222,13 +153,20 @@ pub async fn spawn(handle: tauri::AppHandle) -> Result<SidecarInfo> {
     #[cfg(not(debug_assertions))]
     {
         let bin = release_binary(&handle)?;
-        let token = write_token()?;
+        let token = std::env::var("HERMES_BACKEND_TOKEN").unwrap_or_default();
+        let port = std::env::var("DESKTOP_BACKEND_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(18081);
         let mut cmd = Command::new(bin);
         cmd.env("HERMES_HOME", hermes_home());
+        cmd.env("DESKTOP_BACKEND_PORT", port.to_string());
+        cmd.env("DESKTOP_BACKEND_TOKEN", &token);
+        use std::process::Stdio;
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         let mut child = cmd.spawn().context("failed to spawn sidecar")?;
-        let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
+        let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?;
         let mut reader = BufReader::new(stdout).lines();
         let port = timeout(Duration::from_secs(5), async {
             while let Some(line) = reader.next_line().await? {
@@ -239,7 +177,7 @@ pub async fn spawn(handle: tauri::AppHandle) -> Result<SidecarInfo> {
             bail!("sidecar exited before READY")
         })
         .await
-        .map_err(|_| anyhow!("sidecar startup timeout"))??;
+        .map_err(|_| anyhow::anyhow!("sidecar startup timeout"))??;
 
         let info = SidecarInfo {
             base_url: format!("http://127.0.0.1:{port}"),

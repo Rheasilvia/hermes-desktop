@@ -265,7 +265,7 @@ function mapModelOption(raw: Record<string, unknown>): ModelOption {
 function mapProvider(apiProvider: Provider): ProviderEntry {
   const d = apiProvider.desktop;
   return {
-    name: apiProvider.name,
+    name: apiProvider.id,
     display_name: d.display_name ?? apiProvider.name,
     is_builtin: true,
     enabled: d.visible !== false,
