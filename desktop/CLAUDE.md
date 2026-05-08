@@ -44,11 +44,15 @@ Playwright E2E tests automatically start the Vite dev server (`npm run dev`) as 
 
 ### Gateway Adapter Pattern
 
-The frontend does not call APIs directly. All communication with the Python backend goes through the `GatewayAdapter` interface defined in `src/services/gateway/types.ts`. This interface exposes typed method groups (session, prompt, config, tools, model, approval, clarify, sudo, secret, cron, mcp, memory, skills, complete, slash, command) and an event emitter for streaming events (message deltas, tool calls, reasoning, errors, etc.).
+The frontend does not call APIs directly. All communication with the Python backend goes through the `GatewayAdapter` interface defined in `src/services/gateway/types.ts`. This interface exposes typed method groups (session, prompt, config, tools, model, approval, clarify, sudo, secret, cron, mcp, memory, skills, complete, slash, command, **analytics**) and an event emitter for streaming events (message deltas, tool calls, reasoning, errors, etc.).
 
 There are two implementations:
 - `GatewayClient` — wraps a real `Transport` for JSON-RPC communication with the Python gateway.
 - `MockGatewayAdapter` — fully functional mock with realistic data, used for frontend development when the backend is not running.
+
+The newer **API Transport Pattern** (`src/services/api/`) provides HTTP-based communication for specific features:
+- **Analytics Transport** — fetches model usage statistics and cost data
+- Each transport has HTTP and mock implementations for testing
 
 Stores obtain the gateway instance via dependency injection in `src/stores/context.ts` (`initializeStores` / `getGateway`).
 
@@ -59,7 +63,8 @@ State management uses SolidJS `createSignal` in module-level stores under `src/s
 - `session.ts` — session list, active session, CRUD
 - `settings.ts` — config loading/saving
 - `ui.ts` — sidebar, theme, connection state (persists to localStorage)
-- `models.ts` — model state
+- `models.ts` — model state, active provider/model selection
+- `analytics.ts` — usage statistics, cost tracking, period management
 
 ### Application Shell
 
@@ -76,12 +81,21 @@ Each major feature lives in `src/modules/<feature>/` containing view components 
 - `chat/` — streaming chat interface, message bubbles, input, tool call rendering
 - `sessions/` — session list, cards, detail views
 - `settings/` — settings tabs (General, Agent, Security, Memory, Voice, Browser, YAML)
-- `model/` — model selection, provider cards
+- `model/` — model selection, provider management, **usage analytics dashboard**
 - `skills/` — skills hub, tool lists
 - `mcp/` — MCP server management
 - `memory/` — memory search, context files, user profile
 - `gateway/` — connection status, setup wizard, message log
 - `cron/` — scheduled job management
+
+#### Analytics Module
+
+The `model/` module now includes comprehensive usage analytics:
+- **ModelUsageView** — main analytics dashboard with period selection (7/30/90 days)
+- **ModelUsageCard** — individual model statistics with session counts, token usage, costs
+- **UsageSummaryBar** - aggregated totals across all models with period switching
+- Data includes: session counts, input/output tokens, costs, last used timestamps, model capabilities
+- Integrates with `analyticsStore` for state management and API communication
 
 ### Design System and Theming
 
