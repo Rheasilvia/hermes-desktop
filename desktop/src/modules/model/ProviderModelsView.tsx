@@ -28,6 +28,9 @@ function formatPrice(price: number | undefined): string {
 
 export const ProviderModelsView: Component = () => {
   const [showKey, setShowKey] = createSignal(false);
+  const [revealedKey, setRevealedKey] = createSignal<string | null>(null);
+  const [revealing, setRevealing] = createSignal(false);
+  const [revealError, setRevealError] = createSignal<string | null>(null);
   const [editing, setEditing] = createSignal(false);
 
   const provider = (): ProviderEntry | null => {
@@ -39,10 +42,52 @@ export const ProviderModelsView: Component = () => {
 
   const apiKeyDisplay = () => {
     const p = provider();
-    const key = p?.api_key;
+    const key = revealedKey() ?? p?.api_key;
     if (key) return showKey() ? key : maskApiKey(key);
-    if (p?.api_key_env) return `env:${p.api_key_env}`;
+    if (p?.api_key_preview) return p.api_key_preview;
+    if (p?.api_key_env) return `Set via ${p.api_key_env}`;
+    if (p?.api_key_source) return `Set via ${p.api_key_source}`;
     return 'Not configured';
+  };
+
+  const apiKeyTitle = () => {
+    const p = provider();
+    return (
+      revealError() ??
+      revealedKey() ??
+      p?.api_key ??
+      p?.api_key_preview ??
+      p?.api_key_env ??
+      p?.api_key_source ??
+      undefined
+    );
+  };
+
+  const canRevealKey = () => {
+    const p = provider();
+    return Boolean(p?.api_key || p?.api_key_set || p?.api_key_env);
+  };
+
+  const toggleKeyVisibility = async () => {
+    const p = provider();
+    if (!p) return;
+    setRevealError(null);
+    if (showKey()) {
+      setShowKey(false);
+      return;
+    }
+    if (!revealedKey() && !p.api_key) {
+      setRevealing(true);
+      try {
+        setRevealedKey(await modelsStore.revealProviderApiKey(p.name));
+      } catch {
+        setRevealError('Unable to reveal key');
+        return;
+      } finally {
+        setRevealing(false);
+      }
+    }
+    setShowKey(true);
   };
 
   const handleToggleModel = (modelName: string, enabled: boolean) => {
@@ -72,15 +117,18 @@ export const ProviderModelsView: Component = () => {
               {provider()?.base_url ?? 'Not configured'}
             </span>
           </div>
-          <div class={styles.infoGroup}>
+          <div class={`${styles.infoGroup} ${styles.apiKeyInfoGroup}`}>
             <span class={styles.infoLabel}>API Key</span>
             <div class={styles.apiKeyGroup}>
-              <span class={styles.infoValueMono}>{apiKeyDisplay()}</span>
-              <Show when={provider()?.api_key}>
+              <span class={styles.infoValueMono} title={apiKeyTitle()}>
+                {revealing() ? 'Loading...' : apiKeyDisplay()}
+              </span>
+              <Show when={canRevealKey()}>
                 <button
                   type="button"
                   class={styles.iconBtn}
-                  onClick={() => setShowKey((p) => !p)}
+                  onClick={toggleKeyVisibility}
+                  disabled={revealing()}
                   aria-label={showKey() ? 'Hide API key' : 'Show API key'}
                   title={showKey() ? 'Hide API key' : 'Show API key'}
                 >

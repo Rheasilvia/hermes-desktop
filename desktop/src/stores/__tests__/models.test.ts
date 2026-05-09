@@ -23,6 +23,7 @@ beforeEach(async () => {
     getCatalog: vi.fn(),
     getActiveModel: vi.fn().mockResolvedValue({ provider: null, model: null }),
     setActiveModel: vi.fn(),
+    revealProviderApiKey: vi.fn(),
   } satisfies ModelTransport);
 });
 
@@ -52,6 +53,7 @@ describe('models store', () => {
       getCatalog: vi.fn(),
       getActiveModel: vi.fn().mockResolvedValue({ provider: null, model: null }),
       setActiveModel: vi.fn(),
+      revealProviderApiKey: vi.fn(),
     } satisfies ModelTransport);
 
     const { createModelsStore } = await import('../models');
@@ -105,6 +107,7 @@ describe('loadActive', () => {
       getCatalog: vi.fn(),
       getActiveModel: mockGetActiveModel,
       setActiveModel: vi.fn(),
+      revealProviderApiKey: vi.fn(),
     } satisfies ModelTransport);
 
     const { createModelsStore, modelStore } = await import('../models');
@@ -123,6 +126,7 @@ describe('loadActive', () => {
       getCatalog: vi.fn(),
       getActiveModel: mockGetActiveModel,
       setActiveModel: vi.fn(),
+      revealProviderApiKey: vi.fn(),
     } satisfies ModelTransport);
 
     const { createModelsStore, modelStore } = await import('../models');

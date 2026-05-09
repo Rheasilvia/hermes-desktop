@@ -25,6 +25,10 @@ export interface ProviderOverlay {
   base_url?: string | null;
   api_key?: string | null;
   api_key_env?: string | null;
+  api_key_set?: boolean;
+  api_key_preview?: string | null;
+  api_key_source?: string | null;
+  base_url_source?: string | null;
   display_name?: string | null;
 }
 

@@ -6,6 +6,7 @@ export interface ModelTransport {
   getCatalog(): Promise<{ providers: Provider[]; fetched_at: string | null }>;
   getActiveModel(): Promise<{ provider: string | null; model: string | null }>;
   setActiveModel(provider: string, model: string): Promise<void>;
+  revealProviderApiKey(provider: string): Promise<{ provider: string; api_key: string; source: string }>;
 }
 
 export function makeModelTransport(c: HttpClient): ModelTransport {
@@ -22,5 +23,10 @@ export function makeModelTransport(c: HttpClient): ModelTransport {
       ),
     setActiveModel: (provider, model) =>
       c.put<void>('/desktop/api/model/active', { provider, model }),
+    revealProviderApiKey: (provider) =>
+      c.post<{ provider: string; api_key: string; source: string }>(
+        `/desktop/api/model/providers/${encodeURIComponent(provider)}/api-key/reveal`,
+        {},
+      ),
   };
 }

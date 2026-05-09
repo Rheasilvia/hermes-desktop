@@ -126,12 +126,15 @@ export const modelStore = {
     // a mock gateway is present (browser dev).
     try {
       const id = modelsStore.resolveId(input.name);
-      await api.overlays().patch('model', id, {
+      const patch: Record<string, string | boolean | null> = {
         base_url: input.base_url ?? null,
-        api_key: input.api_key ?? null,
         api_key_env: input.api_key_env ?? null,
         display_name: input.display_name ?? null,
-      });
+      };
+      if (input.api_key !== undefined) {
+        patch.api_key = input.api_key;
+      }
+      await api.overlays().patch('model', id, patch);
     } catch {
       void 0;
     }
@@ -274,6 +277,10 @@ function mapProvider(apiProvider: Provider): ProviderEntry {
     base_url: d.base_url ?? undefined,
     api_key: d.api_key ?? undefined,
     api_key_env: d.api_key_env ?? undefined,
+    api_key_set: d.api_key_set ?? Boolean(d.api_key || d.api_key_env),
+    api_key_preview: d.api_key_preview ?? undefined,
+    api_key_source: d.api_key_source ?? undefined,
+    base_url_source: d.base_url_source ?? undefined,
     models: (apiProvider.models ?? []).map(mapModelOption),
   };
 }
@@ -356,7 +363,12 @@ export function createModelsStore() {
     }
   };
 
-  return { providers, loading, error, hasLoaded, load, loadActive, resolveId };
+  const revealProviderApiKey = async (provider: string) => {
+    const response = await api.model().revealProviderApiKey(provider);
+    return response.api_key;
+  };
+
+  return { providers, loading, error, hasLoaded, load, loadActive, revealProviderApiKey, resolveId };
 }
 
 /** Singleton instance used by the model module views. */
