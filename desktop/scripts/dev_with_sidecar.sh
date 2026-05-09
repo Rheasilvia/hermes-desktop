@@ -18,8 +18,7 @@ chmod 600 ~/.hermes/desktop/sidecar.token
 
 echo "==> 启动 Python 侧车..."
 cd "$REPO/desktop/backend"
-source .venv/bin/activate
-python -m desktop_backend > /tmp/sidecar_stdout.txt 2>/dev/null &
+uv run python -m desktop_backend > /tmp/sidecar_stdout.txt 2>/dev/null &
 SIDECAR_PID=$!
 
 # 等待 READY

@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-python -m venv .venv-build
-source .venv-build/bin/activate
-pip install -e ".[build]"
+uv sync --frozen --extra build
 rm -rf build dist
-pyinstaller desktop_backend.spec --noconfirm
+uv run --frozen pyinstaller desktop_backend.spec --noconfirm
 
 # Arrange output for Tauri externalBin:
 # Tauri looks for dist/desktop_backend/desktop_backend-<arch>-apple-darwin
