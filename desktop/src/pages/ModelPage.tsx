@@ -1,7 +1,7 @@
 import { Component, Show } from 'solid-js';
 import { ModuleLayout } from '@/layouts/ModuleLayout';
 import { ModelSwitcherView } from '@/modules/model/ModelSwitcherView.js';
-import { modelStore } from '@/stores/models.js';
+import { modelStore, modelsStore } from '@/stores/models.js';
 import styles from '@/modules/model/ModelSwitcherView.module.css';
 
 const pageTitle = (): string => {
@@ -22,7 +22,13 @@ const pageTitle = (): string => {
 const pageDescription = (): string | undefined => {
   switch (modelStore.currentView) {
     case 'hub': {
-      const count = modelStore.providers.length;
+      if (!modelsStore.hasLoaded() && modelsStore.providers().length === 0) {
+        return 'Loading configured providers';
+      }
+      const count = modelsStore.providers().length;
+      if (modelsStore.loading() && count > 0) {
+        return `${count} configured provider${count === 1 ? '' : 's'} · refreshing`;
+      }
       return `${count} configured provider${count === 1 ? '' : 's'}`;
     }
     case 'add-provider':
@@ -46,7 +52,7 @@ export const ModelPage: Component = () => {
       title={pageTitle()}
       description={pageDescription()}
       actions={
-        <Show when={modelStore.currentView === 'hub' && modelStore.providers.length > 0}>
+        <Show when={modelStore.currentView === 'hub' && modelsStore.providers().length > 0}>
           <button
             type="button"
             class={styles.addBtn}

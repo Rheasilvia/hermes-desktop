@@ -8,6 +8,8 @@ import { getGateway, getModelAdapter } from './context.js';
 import { api } from '../services/api/router';
 import type { Provider } from '../services/api/types';
 
+const MODEL_PROVIDER_CACHE_KEY = 'hermes.desktop.model.providers.v1';
+
 const [providers, setProviders] = createSignal<ProviderEntry[]>([]);
 const [activeProvider, setActiveProvider] = createSignal<string | null>(null);
 const [activeModel, setActiveModel] = createSignal<string | null>(null);
@@ -276,15 +278,43 @@ function mapProvider(apiProvider: Provider): ProviderEntry {
   };
 }
 
+function readCachedProviders(): Provider[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(MODEL_PROVIDER_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed as Provider[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedProviders(nextProviders: Provider[]): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(MODEL_PROVIDER_CACHE_KEY, JSON.stringify(nextProviders));
+  } catch {
+    void 0;
+  }
+}
+
 /**
  * Factory for creating a models store sourced from the services/api layer.
  * Maps sidecar Provider → ProviderEntry so the UI components work without
  * a connected gateway.
  */
 export function createModelsStore() {
-  const [rawProviders, setRawProviders] = createSignal<Provider[]>([]);
+  const initialProviders = readCachedProviders();
+  const [rawProviders, setRawProviders] = createSignal<Provider[]>(initialProviders);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<Error | null>(null);
+  const [hasLoaded, setHasLoaded] = createSignal(initialProviders.length > 0);
+
+  if (initialProviders.length > 0) {
+    modelStore.hydrateProviders(initialProviders.map(mapProvider));
+  }
 
   const providers = () => rawProviders().map(mapProvider);
 
@@ -302,8 +332,11 @@ export function createModelsStore() {
       const resp = await api.model().listProviders();
       setRawProviders(resp.items);
       modelStore.hydrateProviders(resp.items.map(mapProvider));
+      writeCachedProviders(resp.items);
+      setHasLoaded(true);
     } catch (e) {
       setError(e as Error);
+      setHasLoaded(true);
     } finally {
       setLoading(false);
     }
@@ -323,7 +356,7 @@ export function createModelsStore() {
     }
   };
 
-  return { providers, loading, error, load, loadActive, resolveId };
+  return { providers, loading, error, hasLoaded, load, loadActive, resolveId };
 }
 
 /** Singleton instance used by the model module views. */
