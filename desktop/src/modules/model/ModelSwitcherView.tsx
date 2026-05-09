@@ -9,7 +9,6 @@ import {
   Match,
 } from 'solid-js';
 import { modelStore, modelsStore } from '@/stores/models.js';
-import { LoadingSpinner } from '@/components/LoadingSpinner.js';
 import { Tabs } from '@/components/Tabs.js';
 import { ProviderCard } from './ProviderCard.js';
 import { ModelUsageView } from './ModelUsageView.js';
@@ -30,9 +29,10 @@ export const ModelSwitcherView: Component = () => {
   const [pickerOpen, setPickerOpen] = createSignal(false);
 
   onMount(() => {
-    void modelStore.loadModels();
-    void modelsStore.load();
-    void modelsStore.loadActive(); // sidecar is source of truth for active model
+    void Promise.all([
+      modelsStore.load(),
+      modelsStore.loadActive(), // sidecar is source of truth for active model
+    ]);
   });
 
   createEffect(() => {
@@ -54,6 +54,17 @@ export const ModelSwitcherView: Component = () => {
     setConfiguringProvider(null);
   };
 
+  const isInitialLoading = () =>
+    modelsStore.loading() &&
+    !modelsStore.hasLoaded() &&
+    modelsStore.providers().length === 0;
+
+  const shouldShowEmpty = () =>
+    modelsStore.hasLoaded() &&
+    !modelsStore.loading() &&
+    modelsStore.providers().length === 0 &&
+    !modelsStore.error();
+
   return (
     <Switch>
       <Match when={modelStore.currentView === 'add-provider'}>
@@ -73,15 +84,35 @@ export const ModelSwitcherView: Component = () => {
             onChangeClick={() => setPickerOpen(true)}
           />
 
-          <Show when={modelStore.isLoading && modelsStore.providers().length === 0}>
-            <div class={styles.loading}>
-              <LoadingSpinner size="lg" />
+          <Show when={isInitialLoading()}>
+            <div
+              class={styles.skeletonGrid}
+              aria-busy="true"
+              aria-label="Loading providers"
+            >
+              <For each={[0, 1, 2, 3]}>
+                {() => (
+                  <div class={styles.skeletonCard}>
+                    <div class={styles.skeletonHeader}>
+                      <div class={styles.skeletonAvatar} />
+                      <div class={styles.skeletonTitleGroup}>
+                        <div class={styles.skeletonLineWide} />
+                        <div class={styles.skeletonLineShort} />
+                      </div>
+                    </div>
+                    <div class={styles.skeletonLineFull} />
+                    <div class={styles.skeletonLineMedium} />
+                    <div class={styles.skeletonFooter}>
+                      <div class={styles.skeletonPill} />
+                      <div class={styles.skeletonButton} />
+                    </div>
+                  </div>
+                )}
+              </For>
             </div>
           </Show>
 
-          <Show
-            when={!modelStore.isLoading && modelsStore.providers().length === 0}
-          >
+          <Show when={shouldShowEmpty()}>
             <EmptyProviders />
           </Show>
 
@@ -124,8 +155,10 @@ export const ModelSwitcherView: Component = () => {
             </Show>
           </Show>
 
-          <Show when={modelStore.error}>
-            <div class={styles.error}>{modelStore.error}</div>
+          <Show when={modelStore.error || modelsStore.error()}>
+            <div class={styles.error}>
+              {modelStore.error ?? modelsStore.error()?.message}
+            </div>
           </Show>
 
           <ConfigureProviderModal
