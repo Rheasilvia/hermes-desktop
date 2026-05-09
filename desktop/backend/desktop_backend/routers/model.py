@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+from contextlib import contextmanager
 import json
 import os
 from datetime import datetime, timezone
@@ -31,6 +32,30 @@ def _now_iso() -> str:
 class SetActiveModelRequest(BaseModel):
     provider: str
     model: str
+
+
+@contextmanager
+def _hermes_home_env(hermes_home: Path):
+    previous = os.environ.get("HERMES_HOME")
+    os.environ["HERMES_HOME"] = str(hermes_home)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("HERMES_HOME", None)
+        else:
+            os.environ["HERMES_HOME"] = previous
+
+
+def _redact_secret(value: str) -> str:
+    try:
+        from hermes_cli.config import redact_key
+
+        return str(redact_key(value))
+    except Exception:
+        if len(value) <= 8:
+            return "********"
+        return f"{value[:4]}********{value[-4:]}"
 
 
 @router.get("/model/active")
@@ -298,6 +323,105 @@ def _discover_env_providers(cache: dict, alias_map: dict[str, str]) -> dict[str,
     return found2
 
 
+def _apply_resolved_provider_credentials(providers: list, hermes_home: Path) -> None:
+    """Attach dashboard-style key/base-url metadata without exposing raw secrets.
+
+    The dashboard Keys page shows env-backed LLM provider credentials via
+    OPTIONAL_ENV_VARS and reveals the raw value only on demand.  The desktop
+    model list follows the same shape: configured state, redacted preview, and
+    source are returned up front; raw API keys are stripped from the list
+    payload so they are not cached by the frontend.
+    """
+    try:
+        from hermes_cli.auth import PROVIDER_REGISTRY, resolve_api_key_provider_credentials
+    except Exception:
+        PROVIDER_REGISTRY = {}
+        resolve_api_key_provider_credentials = None
+
+    for provider in providers:
+        desktop = provider.desktop
+
+        raw_key = (desktop.api_key or "").strip()
+        if raw_key:
+            desktop.api_key_set = True
+            desktop.api_key_preview = _redact_secret(raw_key)
+            desktop.api_key_source = desktop.api_key_source or "desktop"
+
+        pconfig = PROVIDER_REGISTRY.get(provider.id) if PROVIDER_REGISTRY else None
+        if pconfig is not None:
+            if not desktop.api_key_env:
+                for env_name in getattr(pconfig, "api_key_env_vars", ()) or ():
+                    if os.environ.get(env_name, "").strip():
+                        desktop.api_key_env = env_name
+                        break
+            if not desktop.base_url:
+                default_base_url = (
+                    getattr(pconfig, "inference_base_url", "")
+                    or getattr(pconfig, "base_url", "")
+                )
+                if default_base_url:
+                    desktop.base_url = str(default_base_url).rstrip("/")
+                    desktop.base_url_source = "provider-default"
+
+        if resolve_api_key_provider_credentials is not None and pconfig is not None:
+            try:
+                with _hermes_home_env(hermes_home):
+                    creds = resolve_api_key_provider_credentials(provider.id)
+                resolved_key = str(creds.get("api_key") or "").strip()
+                resolved_base_url = str(creds.get("base_url") or "").strip()
+                resolved_source = str(creds.get("source") or "").strip()
+                if resolved_key:
+                    desktop.api_key_set = True
+                    desktop.api_key_preview = _redact_secret(resolved_key)
+                    desktop.api_key_source = resolved_source or desktop.api_key_source
+                    if resolved_source and not desktop.api_key_env:
+                        for prefix in ("env:", ""):
+                            source = resolved_source.removeprefix(prefix)
+                            if source.endswith("_API_KEY") or source.endswith("_TOKEN"):
+                                desktop.api_key_env = source
+                                break
+                if resolved_base_url:
+                    desktop.base_url = resolved_base_url.rstrip("/")
+                    desktop.base_url_source = "resolved"
+            except Exception:
+                pass
+
+        # Never leak raw secrets in the providers list; reveal uses a dedicated endpoint.
+        desktop.api_key = None
+
+
+def _reveal_provider_api_key(provider_id: str, hermes_home: Path) -> dict[str, str]:
+    overlay = overlays_loader.load(hermes_home, "model")
+    raw_overlay_key = str(overlay.get(provider_id, {}).get("api_key") or "").strip()
+    if raw_overlay_key:
+        return {"provider": provider_id, "api_key": raw_overlay_key, "source": "desktop"}
+
+    for auth_provider in read_auth_providers(hermes_home):
+        if auth_provider.id == provider_id and auth_provider.desktop.api_key:
+            return {
+                "provider": provider_id,
+                "api_key": auth_provider.desktop.api_key,
+                "source": auth_provider.desktop.api_key_source or "credential_pool",
+            }
+
+    try:
+        from hermes_cli.auth import resolve_api_key_provider_credentials
+
+        with _hermes_home_env(hermes_home):
+            creds = resolve_api_key_provider_credentials(provider_id)
+        api_key = str(creds.get("api_key") or "").strip()
+        if api_key:
+            return {
+                "provider": provider_id,
+                "api_key": api_key,
+                "source": str(creds.get("source") or ""),
+            }
+    except Exception:
+        pass
+
+    raise HTTPException(status_code=404, detail="NOT_FOUND")
+
+
 @router.get("/model/providers")
 def list_providers(
     request: Request,
@@ -343,10 +467,17 @@ def list_providers(
             merged.append(p)
             catalog_map[slug] = p
 
+    _enrich_models(merged, cfg.hermes_home)
+    _apply_resolved_provider_credentials(merged, cfg.hermes_home)
     if configured_only:
         merged = filter_configured(merged)
-    _enrich_models(merged, cfg.hermes_home)
     return {
         "items": [m.model_dump() for m in merged],
         "generated_at": _now_iso(),
     }
+
+
+@router.post("/model/providers/{provider_id}/api-key/reveal")
+def reveal_provider_api_key(provider_id: str, request: Request):
+    cfg = request.app.state.cfg
+    return _reveal_provider_api_key(provider_id, cfg.hermes_home)

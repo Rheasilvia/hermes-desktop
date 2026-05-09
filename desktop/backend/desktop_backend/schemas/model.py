@@ -13,6 +13,10 @@ class ProviderOverlay(BaseModel):
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     api_key_env: Optional[str] = None
+    api_key_set: bool = False
+    api_key_preview: Optional[str] = None
+    api_key_source: Optional[str] = None
+    base_url_source: Optional[str] = None
     display_name: Optional[str] = None
 
 

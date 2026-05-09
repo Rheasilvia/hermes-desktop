@@ -53,9 +53,14 @@ def filter_configured(providers: list[MergedProvider]) -> list[MergedProvider]:
     def _has_creds(p: MergedProvider) -> bool:
         d = p.desktop
         return bool(
-            (d.api_key and d.api_key.strip())
+            d.api_key_set
+            or (d.api_key and d.api_key.strip())
             or (d.api_key_env and d.api_key_env.strip())
-            or (d.base_url and d.base_url.strip())
+            or (
+                d.base_url
+                and d.base_url.strip()
+                and d.base_url_source != "provider-default"
+            )
         )
 
     return [p for p in providers if _has_creds(p)]

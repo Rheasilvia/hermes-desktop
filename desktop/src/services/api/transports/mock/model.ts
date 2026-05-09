@@ -30,5 +30,10 @@ export function makeMockModelTransport(): ModelTransport {
     }),
     getActiveModel: async () => ({ provider: null, model: null }),
     setActiveModel: async () => undefined,
+    revealProviderApiKey: async (provider) => ({
+      provider,
+      api_key: 'sk-mock-provider-key',
+      source: 'mock',
+    }),
   };
 }

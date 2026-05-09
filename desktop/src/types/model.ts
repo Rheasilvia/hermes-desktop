@@ -9,6 +9,10 @@ export interface ProviderEntry {
   base_url?: string;
   api_key?: string;
   api_key_env?: string;
+  api_key_set?: boolean;
+  api_key_preview?: string;
+  api_key_source?: string;
+  base_url_source?: string;
   enabled?: boolean;
   is_builtin?: boolean;
   models?: ModelOption[];

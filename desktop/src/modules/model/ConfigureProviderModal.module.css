@@ -48,7 +48,7 @@
   background: transparent;
   font-size: var(--text-sm, 0.875rem);
   color: var(--color-on-surface);
-  font-family: inherit;
+  font-family: var(--font-mono, monospace);
 }
 
 .passwordInput:focus {
@@ -59,10 +59,23 @@
   color: var(--color-on-surface-dim);
 }
 
+.helpText {
+  margin: 0;
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-on-surface-muted);
+}
+
+.errorText {
+  margin: 0;
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-danger, var(--color-primary));
+}
+
 .eyeButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -77,6 +90,11 @@
 .eyeButton:hover {
   color: var(--color-on-surface);
   background: var(--color-surface-raised);
+}
+
+.eyeButton:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .eyeButton:focus-visible {

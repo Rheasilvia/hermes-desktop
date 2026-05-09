@@ -6,6 +6,7 @@ import { Input } from '@/components/Input.js';
 import { Button } from '@/components/Button.js';
 import { Icon } from '@/components/Icon.js';
 import { Toggle } from '@/components/Toggle.js';
+import { modelsStore } from '@/stores/models.js';
 import styles from './ConfigureProviderModal.module.css';
 
 export interface ConfigureProviderModalProps {
@@ -15,24 +16,38 @@ export interface ConfigureProviderModalProps {
   onSave: (provider: ProviderEntry) => void;
 }
 
+function maskApiKey(key: string | undefined): string {
+  if (!key) return 'Not configured';
+  if (key.length <= 8) return '********';
+  return `${key.slice(0, 4)}********${key.slice(-4)}`;
+}
+
 export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
   props,
 ) => {
   const [baseUrl, setBaseUrl] = createSignal('');
   const [apiKey, setApiKey] = createSignal('');
+  const [apiKeyDirty, setApiKeyDirty] = createSignal(false);
   const [apiKeyEnv, setApiKeyEnv] = createSignal('');
   const [enabled, setEnabled] = createSignal(true);
   const [showKey, setShowKey] = createSignal(false);
+  const [revealedKey, setRevealedKey] = createSignal<string | null>(null);
+  const [revealing, setRevealing] = createSignal(false);
+  const [revealError, setRevealError] = createSignal<string | null>(null);
   const [urlError, setUrlError] = createSignal('');
 
   createEffect(() => {
     if (props.open && props.provider) {
       setBaseUrl(props.provider.base_url ?? '');
-      setApiKey(props.provider.api_key ?? '');
+      setApiKey('');
+      setApiKeyDirty(false);
       setApiKeyEnv(props.provider.api_key_env ?? '');
       setEnabled(props.provider.enabled !== false);
       setUrlError('');
       setShowKey(false);
+      setRevealedKey(null);
+      setRevealError(null);
+      setRevealing(false);
     }
   });
 
@@ -50,7 +65,7 @@ export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
     props.onSave({
       ...props.provider,
       base_url: baseUrl().trim() || undefined,
-      api_key: apiKey().trim() || undefined,
+      api_key: apiKeyDirty() ? apiKey().trim() || undefined : undefined,
       api_key_env: apiKeyEnv().trim() || undefined,
       enabled: enabled(),
     });
@@ -58,6 +73,83 @@ export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
   };
 
   const providerName = () => props.provider?.display_name ?? props.provider?.name ?? '';
+  const currentApiKeyDisplay = () => {
+    const provider = props.provider;
+    const key = revealedKey() ?? provider?.api_key;
+    if (key) return showKey() ? key : maskApiKey(key);
+    if (provider?.api_key_preview) return provider.api_key_preview;
+    if (provider?.api_key_env) return `Set via ${provider.api_key_env}`;
+    if (provider?.api_key_source) return `Set via ${provider.api_key_source}`;
+    return 'Not configured';
+  };
+
+  const currentApiKeyTitle = () => {
+    const provider = props.provider;
+    return (
+      revealError() ??
+      revealedKey() ??
+      provider?.api_key ??
+      provider?.api_key_preview ??
+      provider?.api_key_env ??
+      provider?.api_key_source ??
+      undefined
+    );
+  };
+
+  const canRevealCurrentKey = () => {
+    const provider = props.provider;
+    return Boolean(provider?.api_key || provider?.api_key_set || provider?.api_key_env);
+  };
+
+  const toggleCurrentKeyVisibility = async () => {
+    const provider = props.provider;
+    if (!provider) return;
+    setRevealError(null);
+    if (showKey()) {
+      setShowKey(false);
+      return;
+    }
+    if (!revealedKey() && !provider.api_key) {
+      setRevealing(true);
+      try {
+        setRevealedKey(await modelsStore.revealProviderApiKey(provider.name));
+      } catch {
+        setRevealError('Unable to reveal key');
+        return;
+      } finally {
+        setRevealing(false);
+      }
+    }
+    setShowKey(true);
+  };
+
+  const apiKeyValue = () => {
+    if (apiKeyDirty()) return apiKey();
+    return currentApiKeyDisplay();
+  };
+
+  const handleApiKeyFocus = () => {
+    if (apiKeyDirty()) return;
+    if (!canRevealCurrentKey()) return;
+    setApiKey('');
+    setApiKeyDirty(true);
+    setShowKey(false);
+  };
+
+  const handleApiKeyInput = (value: string) => {
+    if (!apiKeyDirty()) setApiKeyDirty(true);
+    setApiKey(value);
+  };
+
+  const apiKeyHelpText = () => {
+    if (apiKeyDirty()) {
+      return apiKey().trim()
+        ? 'This new key will replace the current one when you save.'
+        : 'Leave empty to keep the current key.';
+    }
+    if (canRevealCurrentKey()) return 'Click into the field to replace the current key.';
+    return 'Enter a key or set an environment variable below.';
+  };
 
   return (
     <Modal
@@ -94,21 +186,30 @@ export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
           <div class={styles.passwordRow}>
             <input
               class={styles.passwordInput}
-              type={showKey() ? 'text' : 'password'}
+              type={showKey() || apiKeyDirty() ? 'text' : 'password'}
               placeholder="sk-..."
-              value={apiKey()}
-              onInput={(e) => setApiKey(e.currentTarget.value)}
+              value={revealing() ? 'Loading...' : apiKeyValue()}
+              title={currentApiKeyTitle()}
+              onFocus={handleApiKeyFocus}
+              onInput={(e) => handleApiKeyInput(e.currentTarget.value)}
             />
-            <button
-              type="button"
-              class={styles.eyeButton}
-              onClick={() => setShowKey((prev) => !prev)}
-              aria-label={showKey() ? 'Hide API key' : 'Show API key'}
-              title={showKey() ? 'Hide API key' : 'Show API key'}
-            >
-              <Icon name={showKey() ? 'eye-off' : 'eye'} size={16} />
-            </button>
+            <Show when={canRevealCurrentKey() && !apiKeyDirty()}>
+              <button
+                type="button"
+                class={styles.eyeButton}
+                onClick={toggleCurrentKeyVisibility}
+                disabled={revealing()}
+                aria-label={showKey() ? 'Hide API key' : 'Show API key'}
+                title={showKey() ? 'Hide API key' : 'Show API key'}
+              >
+                <Icon name={showKey() ? 'eye-off' : 'eye'} size={16} />
+              </button>
+            </Show>
           </div>
+          <p class={styles.helpText}>{apiKeyHelpText()}</p>
+          <Show when={revealError()}>
+            <p class={styles.errorText}>{revealError()}</p>
+          </Show>
         </div>
 
         <Input

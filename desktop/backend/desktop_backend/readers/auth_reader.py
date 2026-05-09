@@ -37,7 +37,8 @@ def read_auth_providers(hermes_home: Path) -> list[MergedProvider]:
             continue
         entry = entries[0]  # highest-priority credential
         base_url: str | None = entry.get("base_url") or None
-        source: str = entry.get("source", "")
+        api_key: str | None = entry.get("access_token") or entry.get("agent_key") or None
+        source = str(entry.get("source") or "")
         api_key_env: str | None = (
             source.removeprefix("env:") if source.startswith("env:") else None
         )
@@ -49,6 +50,7 @@ def read_auth_providers(hermes_home: Path) -> list[MergedProvider]:
                 models=[],
                 desktop=ProviderOverlay(
                     base_url=base_url,
+                    api_key=api_key,
                     api_key_env=api_key_env,
                 ),
             )
