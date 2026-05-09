@@ -9,7 +9,11 @@ dependencies = [
     "pydantic>=2.6,<3.0",
     "pyyaml>=6.0",
     "requests>=2.31",
+    "hermes-agent",
 ]
+
+[tool.uv.sources]
+hermes-agent = { path = "../..", editable = true }
 
 [project.optional-dependencies]
 dev = [

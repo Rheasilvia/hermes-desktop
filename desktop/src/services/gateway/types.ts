@@ -199,9 +199,27 @@ export interface MemoryMethods {
   search(query: string): Promise<MemoryEntry[]>;
 }
 
+/** A skill registered in the agent, with category and enabled state. */
+export interface SkillInfo {
+  name: string;
+  description: string;
+  category: string;
+  enabled: boolean;
+}
+
+/** A toolset card from the toolset registry. */
+export interface SkillsToolset {
+  name: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  configured: boolean;
+  tools: string[];
+}
+
 /** Skills method group. */
 export interface SkillsMethods {
-  list(): Promise<{ name: string; description: string }[]>;
+  list(): Promise<SkillInfo[]>;
 }
 
 /** Slash command completion method group. */

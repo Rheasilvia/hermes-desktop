@@ -195,7 +195,7 @@ export class GatewayClient {
   };
 
   skills = {
-    list: (): Promise<{ name: string; description: string }[]> => this.call('skills.list'),
+    list: (): Promise<import('./types.js').SkillInfo[]> => this.call('skills.list'),
   };
 
   complete = {
