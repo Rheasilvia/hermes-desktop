@@ -92,7 +92,7 @@ export function createTestGateway(): GatewayAdapter {
       search: async () => [],
     },
     skills: {
-      list: async () => [],
+      list: async () => [] as import('@/services/gateway/types.js').SkillInfo[],
     },
     complete: {
       slash: async () => [],

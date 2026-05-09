@@ -78,4 +78,20 @@ export function isApiError(e: unknown): e is ApiError {
   );
 }
 
-export type Domain = 'analytics' | 'cron' | 'model' | 'overlays' | 'settings' | 'state';
+export type Domain = 'analytics' | 'cron' | 'model' | 'overlays' | 'settings' | 'skills' | 'state';
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  category: string;
+  enabled: boolean;
+}
+
+export interface SkillsToolset {
+  name: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  configured: boolean;
+  tools: string[];
+}

@@ -24,6 +24,7 @@ import type {
   UpsertProviderInput,
   DeleteProviderInput,
   ModelOptionsResult,
+  SkillInfo,
 } from './types.js';
 import type { ProviderEntry } from '@/types/index.js';
 
@@ -337,11 +338,19 @@ const MOCK_MEMORY_ENTRIES: MemoryEntry[] = [
   },
 ];
 
-const MOCK_SKILLS = [
-  { name: 'code-review', description: 'Perform a thorough code review of any diff or PR.' },
-  { name: 'refactor', description: 'Suggest and apply refactoring improvements to code.' },
-  { name: 'debug', description: 'Help debug issues with detailed root-cause analysis.' },
+const MOCK_SKILL_INFOS: SkillInfo[] = [
+  { name: 'code-review', description: 'Perform a thorough code review of any diff or PR.', category: 'Development', enabled: true },
+  { name: 'refactor', description: 'Suggest and apply refactoring improvements to code.', category: 'Development', enabled: true },
+  { name: 'debug', description: 'Help debug issues with detailed root-cause analysis.', category: 'Development', enabled: true },
+  { name: 'deep-research', description: 'Multi-source research with citation and synthesis.', category: 'Research', enabled: true },
+  { name: 'web-summarize', description: 'Fetch and summarize web pages or articles.', category: 'Research', enabled: false },
+  { name: 'doc-writer', description: 'Generate documentation from code and comments.', category: 'Productivity', enabled: true },
+  { name: 'task-planner', description: 'Break down complex tasks into actionable steps.', category: 'Productivity', enabled: false },
+  { name: 'shell-expert', description: 'Advanced shell command generation and explanation.', category: 'System', enabled: true },
+  { name: 'git-wizard', description: 'Smart Git operations: rebase, conflict resolution, history.', category: 'System', enabled: true },
+  { name: 'email-assistant', description: 'Draft and manage emails with tone analysis.', category: 'Communication', enabled: false },
 ];
+
 
 function streamText(
   text: string,
@@ -694,16 +703,16 @@ export class MockGatewayAdapter implements GatewayAdapter {
     };
 
     this.skills = {
-      list: async (): Promise<{ name: string; description: string }[]> => {
+      list: async (): Promise<SkillInfo[]> => {
         await delay(this.delayMin, this.delayMax);
-        return [...MOCK_SKILLS];
+        return [...MOCK_SKILL_INFOS];
       },
     };
 
     this.complete = {
       slash: async (params: { partial: string }): Promise<{ command: string; description: string }[]> => {
         await delay(this.delayMin / 2, this.delayMax / 2);
-        return MOCK_SKILLS.filter(s => s.name.startsWith(params.partial))
+        return MOCK_SKILL_INFOS.filter(s => s.name.startsWith(params.partial))
           .map(s => ({ command: s.name, description: s.description }));
       },
       path: async (params: { partial: string }): Promise<string[]> => {

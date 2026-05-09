@@ -1,178 +1,138 @@
 import type { Component } from 'solid-js';
-import { Show, For, Switch, Match, createSignal, createMemo, onMount } from 'solid-js';
-import type { ToolEntry } from '@/types/tool.js';
-import type { SkillDetailData } from './SkillDetail.js';
-import { getGateway } from '@/stores/context.js';
+import { Show, For, createSignal, createMemo, onMount } from 'solid-js';
+import type { SkillInfo, SkillsToolset } from '@/services/api/index.js';
+import { api } from '@/services/api/index.js';
 import { Tabs } from '@/components/Tabs.js';
 import { SearchInput } from '@/components/SearchInput.js';
-import { Button } from '@/components/Button.js';
 import { Pill } from '@/components/Pill.js';
+import { Toggle } from '@/components/Toggle.js';
 import { EmptyState } from '@/components/EmptyState.js';
 import { LoadingSpinner } from '@/components/LoadingSpinner.js';
-import { Toggle } from '@/components/Toggle.js';
-import { ToolList } from './ToolList.js';
-import { SkillsHub } from './SkillsHub.js';
-import { ToolsetsGrid } from './ToolsetsGrid.js';
-import { SkillDetail } from './SkillDetail.js';
+import { Icon } from '@/components/Icon.js';
 import type { IconName } from '@/components/Icon.js';
 import styles from './SkillsView.module.css';
 
-interface HubSkill {
-  name: string;
-  description: string;
-  icon: IconName;
-  author: string;
-  category: string;
-  installed: boolean;
-}
+const BADGES_LIMIT = 6;
 
-interface ToolsetCard {
-  name: string;
-  icon: IconName;
-  tools: string[];
-  enabled: boolean;
-  category: string;
-}
-
-interface EnabledSkill {
-  name: string;
-  description: string;
-  category: string;
-  icon: IconName;
-  enabled: boolean;
-}
-
-const TABS = [
-  { id: 'tools', label: 'Tools', iconName: 'wrench' as const },
-  { id: 'hub', label: 'Skills Hub', iconName: 'store' as const },
-  { id: 'toolsets', label: 'Toolsets', iconName: 'package' as const },
-  { id: 'enabled', label: 'Enabled', iconName: 'check-circle' as const },
-];
-
-const MOCK_HUB_SKILLS: HubSkill[] = [
-  { name: 'Task Master', description: 'Advanced task management with priorities, deadlines, and recurring tasks.', icon: 'file-check', author: 'Hermes Team', category: 'Productivity', installed: true },
-  { name: 'Git Wizard', description: 'Smart Git operations including interactive rebase, conflict resolution, and branch management.', icon: 'shuffle', author: 'Hermes Team', category: 'Development', installed: true },
-  { name: 'Email Assistant', description: 'Draft, review, and manage emails with tone analysis and template support.', icon: 'mail', author: 'Hermes Team', category: 'Communication', installed: false },
-  { name: 'Code Reviewer', description: 'Automated code review with style checks, security scanning, and best practices.', icon: 'search', author: 'Community', category: 'Development', installed: true },
-  { name: 'Notion Sync', description: 'Two-way sync between Hermes memory and Notion workspaces.', icon: 'book', author: 'Community', category: 'Productivity', installed: false },
-  { name: 'Slack Bot', description: 'Post messages, manage channels, and search conversations in Slack workspaces.', icon: 'message-circle', author: 'Hermes Team', category: 'Communication', installed: false },
-];
-
-const MOCK_TOOLSETS: ToolsetCard[] = [
-  { name: 'File Operations', icon: 'layers', tools: ['file_read', 'file_write', 'file_search', 'file_patch'], enabled: true, category: 'System' },
-  { name: 'Web Tools', icon: 'globe', tools: ['web_search', 'web_fetch', 'browser_navigate', 'browser_snapshot'], enabled: true, category: 'Research' },
-  { name: 'Code Tools', icon: 'code', tools: ['execute_code', 'terminal', 'delegate'], enabled: true, category: 'Development' },
-  { name: 'System Tools', icon: 'disc', tools: ['process_list', 'process_kill', 'system_info'], enabled: true, category: 'System' },
-  { name: 'Media Tools', icon: 'palette', tools: ['image_generate', 'image_edit', 'tts', 'stt'], enabled: false, category: 'Custom' },
-  { name: 'Communication', icon: 'radio-tower', tools: ['email_send', 'slack_post', 'telegram_send'], enabled: true, category: 'Communication' },
-  { name: 'Browser', icon: 'monitor', tools: ['browser_navigate', 'browser_click', 'browser_snapshot', 'browser_type'], enabled: true, category: 'Development' },
-  { name: 'Delegation', icon: 'handshake', tools: ['delegate', 'batch_run', 'parallel_exec'], enabled: true, category: 'Productivity' },
-  { name: 'Memory', icon: 'brain', tools: ['memory_save', 'memory_search', 'memory_recall'], enabled: true, category: 'Productivity' },
-];
-
-const MOCK_ENABLED_SKILLS: EnabledSkill[] = [
-  { name: 'Code Review', description: 'Automated code review with style and security checks', category: 'Development', icon: 'search', enabled: true },
-  { name: 'Bug Hunter', description: 'Systematic debugging with root-cause analysis', category: 'Development', icon: 'bug', enabled: true },
-  { name: 'Doc Writer', description: 'Generate documentation from code and comments', category: 'Productivity', icon: 'file-text', enabled: true },
-  { name: 'Deep Research', description: 'Multi-source research with citation tracking', category: 'Research', icon: 'flask-conical', enabled: true },
-  { name: 'Slack Summarizer', description: 'Summarize Slack conversations and channels', category: 'Communication', icon: 'message-circle', enabled: false },
-  { name: 'Shell Expert', description: 'Advanced shell command generation and explanation', category: 'System', icon: 'code', enabled: true },
-];
-
-const MOCK_SKILL_DETAIL: SkillDetailData = {
-  name: 'Code Review',
-  icon: 'search',
-  category: 'Development',
-  description: 'Automated code review',
-  instructions: 'Analyze code changes for style issues, security vulnerabilities, performance problems, and best practice violations. Provide actionable suggestions with severity ratings.',
-  prerequisites: ['Git repository access', 'Code analysis tools installed', 'Style guide configuration'],
-  inputSchema: 'interface ReviewInput {\n  diff: string;\n  language?: string;\n  focus?: ("style" | "security" | "performance")[];\n}',
-  outputSchema: 'interface ReviewOutput {\n  findings: Finding[];\n  summary: string;\n  score: number;\n}',
-  enabled: true,
-  confidence: 92,
+const TOOLSET_ICONS: Record<string, IconName> = {
+  web: 'globe',
+  browser: 'monitor',
+  terminal: 'terminal',
+  file: 'folder-open',
+  code_execution: 'code',
+  vision: 'eye',
+  video: 'layers',
+  image_gen: 'palette',
+  moa: 'layers',
+  tts: 'radio',
+  skills: 'zap',
+  todo: 'clipboard-list',
+  memory: 'brain',
+  session_search: 'search',
+  clarify: 'message-circle',
+  delegation: 'shuffle',
+  cronjob: 'clock',
+  messaging: 'mail',
+  rl: 'flask-conical',
+  homeassistant: 'home',
+  spotify: 'disc',
+  discord: 'message-square',
+  discord_admin: 'lock',
+  yuanbao: 'bot',
 };
 
+const stripEmoji = (label: string) =>
+  label.replace(/^[^\w\s]+\s*/, '').trim();
+
+const TABS = [
+  { id: 'skills', label: 'Skills', iconName: 'zap' as const },
+  { id: 'toolsets', label: 'Toolsets', iconName: 'package' as const },
+];
+
 export const SkillsView: Component = () => {
-  const [activeTab, setActiveTab] = createSignal('tools');
-  const [tools, setTools] = createSignal<ToolEntry[]>([]);
-  const [enabledTools, setEnabledTools] = createSignal<Set<string>>(new Set());
-  const [hubSkills, setHubSkills] = createSignal<HubSkill[]>(MOCK_HUB_SKILLS);
+  const [activeTab, setActiveTab] = createSignal('skills');
+
+  // Skills tab state
+  const [skills, setSkills] = createSignal<SkillInfo[]>([]);
+  const [skillsLoading, setSkillsLoading] = createSignal(true);
+  const [activeCategory, setActiveCategory] = createSignal('all');
   const [searchQuery, setSearchQuery] = createSignal('');
-  const [selectedEnabledSkill, setSelectedEnabledSkill] = createSignal<string | null>(null);
-  const [loading, setLoading] = createSignal(true);
 
-  onMount(async () => {
-    const gateway = getGateway();
-    if (gateway) {
-      try {
-        const toolList = await gateway.tools.list();
-        setTools(toolList);
-        setEnabledTools(new Set(toolList.map((t) => t.name)));
-      } catch {
-        setTools([]);
-      }
-    }
-    setLoading(false);
-  });
+  const [expandedSkills, setExpandedSkills] = createSignal(new Set<string>());
 
-  const filteredTools = createMemo(() => {
-    const q = searchQuery().toLowerCase();
-    if (!q) return tools();
-    return tools().filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) ||
-        t.schema.description.toLowerCase().includes(q) ||
-        t.toolset.toLowerCase().includes(q)
-    );
-  });
-
-  const handleToolToggle = (toolName: string, enabled: boolean) => {
-    setEnabledTools((prev) => {
+  const toggleSkillDesc = (name: string) => {
+    setExpandedSkills((prev) => {
       const next = new Set(prev);
-      if (enabled) {
-        next.add(toolName);
-      } else {
-        next.delete(toolName);
-      }
+      if (next.has(name)) next.delete(name); else next.add(name);
       return next;
     });
   };
 
-  const handleHubInstall = (name: string) => {
-    setHubSkills((prev) =>
-      prev.map((s) => (s.name === name ? { ...s, installed: true } : s))
-    );
+  // Toolsets tab state
+  const [toolsets, setToolsets] = createSignal<SkillsToolset[]>([]);
+  const [toolsetsLoading, setToolsetsLoading] = createSignal(true);
+  const [expandedToolsets, setExpandedToolsets] = createSignal(new Set<string>());
+
+  const toggleExpanded = (name: string) => {
+    setExpandedToolsets((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
   };
 
-  const handleHubUninstall = (name: string) => {
-    setHubSkills((prev) =>
-      prev.map((s) => (s.name === name ? { ...s, installed: false } : s))
-    );
-  };
-
-  const handleToolsetToggle = (name: string, enabled: boolean) => {
-    void name;
-    void enabled;
-  };
-
-  const handleToolsetSelect = (name: string) => {
-    void name;
-  };
-
-  const selectedSkillDetail = createMemo((): SkillDetailData | null => {
-    const sel = selectedEnabledSkill();
-    if (!sel) return null;
-    const skill = MOCK_ENABLED_SKILLS.find((s) => s.name === sel);
-    if (!skill) return null;
-    return {
-      ...MOCK_SKILL_DETAIL,
-      name: skill.name,
-      icon: skill.icon,
-      category: skill.category,
-      description: skill.description,
-      enabled: skill.enabled,
-    };
+  onMount(async () => {
+    try {
+      const [skillsRes, toolsetsRes] = await Promise.all([
+        api.skills().listSkills(),
+        api.skills().listToolsets(),
+      ]);
+      setSkills(skillsRes.items);
+      setToolsets(toolsetsRes.items);
+    } catch {
+      setSkills([]);
+      setToolsets([]);
+    } finally {
+      setSkillsLoading(false);
+      setToolsetsLoading(false);
+    }
   });
+
+  // Derived: unique categories with counts
+  const categories = createMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of skills()) {
+      counts.set(s.category, (counts.get(s.category) ?? 0) + 1);
+    }
+    return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  });
+
+  const filteredSkills = createMemo(() => {
+    const cat = activeCategory();
+    const q = searchQuery().toLowerCase();
+    return skills().filter((s) => {
+      const catMatch = cat === 'all' || s.category === cat;
+      const qMatch =
+        !q ||
+        s.name.toLowerCase().includes(q) ||
+        s.description.toLowerCase().includes(q);
+      return catMatch && qMatch;
+    });
+  });
+
+  const handleToggleSkill = async (name: string, enabled: boolean) => {
+    // Optimistic update — roll back on error
+    setSkills((prev) =>
+      prev.map((s) => (s.name === name ? { ...s, enabled } : s))
+    );
+    try {
+      await api.skills().toggleSkill(name, enabled);
+    } catch {
+      setSkills((prev) =>
+        prev.map((s) => (s.name === name ? { ...s, enabled: !enabled } : s))
+      );
+    }
+  };
 
   return (
     <div class={styles.skillsView}>
@@ -181,111 +141,160 @@ export const SkillsView: Component = () => {
       </div>
 
       <div class={styles.tabContent}>
-        <Switch>
-          <Match when={activeTab() === 'tools'}>
-            <div class={styles.toolsTab}>
-              <div class={styles.toolsSearchRow}>
-                <SearchInput
-                  placeholder="Search tools..."
-                  value={searchQuery()}
-                  onChange={setSearchQuery}
-                />
-                <span class={styles.toolsCount}>
-                  {filteredTools().length} tool{filteredTools().length !== 1 ? 's' : ''}
-                </span>
-              </div>
-              <Show
-                when={!loading()}
-                fallback={<LoadingSpinner size="md" />}
-              >
-                <Show
-                  when={filteredTools().length > 0}
-                  fallback={
-                    <EmptyState
-                      iconName="wrench"
-                      title="No tools found"
-                      description="Try adjusting your search query"
-                    />
-                  }
+        <Show when={activeTab() === 'skills'}>
+          <Show
+            when={!skillsLoading()}
+            fallback={<div class={styles.loadingCenter}><LoadingSpinner size="md" /></div>}
+          >
+            <div class={styles.skillsLayout}>
+              {/* Category index pane */}
+              <nav class={styles.categoryPane}>
+                <button
+                  class={`${styles.categoryItem} ${activeCategory() === 'all' ? styles.categoryItemActive : ''}`}
+                  onClick={() => setActiveCategory('all')}
                 >
-                  <ToolList
-                    tools={filteredTools()}
-                    enabledTools={enabledTools()}
-                    onToggle={handleToolToggle}
-                  />
-                </Show>
-              </Show>
-            </div>
-          </Match>
+                  <span class={styles.categoryLabel}>All</span>
+                  <span class={styles.categoryCount}>{skills().length}</span>
+                </button>
+                <For each={categories()}>
+                  {([cat, count]) => (
+                    <button
+                      class={`${styles.categoryItem} ${activeCategory() === cat ? styles.categoryItemActive : ''}`}
+                      onClick={() => setActiveCategory(cat)}
+                    >
+                      <span class={styles.categoryLabel}>{cat}</span>
+                      <span class={styles.categoryCount}>{count}</span>
+                    </button>
+                  )}
+                </For>
+              </nav>
 
-          <Match when={activeTab() === 'hub'}>
-            <div class={styles.hubTab}>
-              <div class={styles.hubHeader}>
-                <div class={styles.hubTitle}>Skills Hub</div>
-                <div class={styles.hubSubtitle}>
-                  Discover and install community skills to extend your agent
+              {/* Skills list pane */}
+              <div class={styles.skillsPane}>
+                <div class={styles.skillsToolbar}>
+                  <SearchInput
+                    placeholder="Search skills…"
+                    value={searchQuery()}
+                    onChange={setSearchQuery}
+                  />
+                  <span class={styles.skillsCount}>
+                    {filteredSkills().length} skill{filteredSkills().length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div class={styles.skillsScroll}>
+                  <Show
+                    when={filteredSkills().length > 0}
+                    fallback={
+                      <EmptyState
+                        iconName="zap"
+                        title="No skills found"
+                        description="Try a different category or search term"
+                      />
+                    }
+                  >
+                    <For each={filteredSkills()}>
+                      {(skill) => (
+                        <div class={styles.skillRow}>
+                          <div class={styles.skillRowInfo}>
+                            <div class={styles.skillRowName}>{skill.name}</div>
+                            <div
+                              class={`${styles.skillRowDesc} ${expandedSkills().has(skill.name) ? styles.skillRowDescExpanded : ''}`}
+                              onClick={() => toggleSkillDesc(skill.name)}
+                              title={skill.description}
+                            >
+                              {skill.description}
+                            </div>
+                          </div>
+                          <div class={styles.skillRowActions}>
+                            <Pill variant="secondary">{skill.category}</Pill>
+                            <Toggle
+                              checked={skill.enabled}
+                              onChange={(v) => void handleToggleSkill(skill.name, v)}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </Show>
                 </div>
               </div>
-              <SkillsHub
-                skills={hubSkills()}
-                onInstall={handleHubInstall}
-                onUninstall={handleHubUninstall}
-              />
             </div>
-          </Match>
+          </Show>
+        </Show>
 
-          <Match when={activeTab() === 'toolsets'}>
-            <ToolsetsGrid
-              toolsets={MOCK_TOOLSETS}
-              onToggle={handleToolsetToggle}
-              onSelect={handleToolsetSelect}
-            />
-          </Match>
-
-          <Match when={activeTab() === 'enabled'}>
-            <div class={styles.enabledLayout}>
-              <div class={styles.enabledMain}>
-                <div class={styles.enabledToolbar}>
-                  <SearchInput
-                    placeholder="Search skills..."
-                    value=""
-                    onChange={() => {}}
+        <Show when={activeTab() === 'toolsets'}>
+          <Show
+            when={!toolsetsLoading()}
+            fallback={<div class={styles.loadingCenter}><LoadingSpinner size="md" /></div>}
+          >
+            <div class={styles.toolsetsScroll}>
+              <Show
+                when={toolsets().length > 0}
+                fallback={
+                  <EmptyState
+                    iconName="package"
+                    title="No toolsets available"
+                    description="Toolsets will appear here when the backend is connected"
                   />
-                  <Button size="sm" variant="primary">
-                    + Add Custom
-                  </Button>
-                </div>
-                <div class={styles.enabledGrid}>
-                  <For each={MOCK_ENABLED_SKILLS}>
-                    {(skill) => (
-                      <div
-                        class={`${styles.enabledCard} ${selectedEnabledSkill() === skill.name ? styles.enabledCardSelected : ''}`}
-                        onClick={() => setSelectedEnabledSkill(skill.name)}
-                      >
-                        <div class={styles.enabledCardInfo}>
-                          <div class={styles.enabledCardName}>{skill.name}</div>
-                          <div class={styles.enabledCardMeta}>
-                            <Pill variant="secondary">{skill.category}</Pill>
+                }
+              >
+                <div class={styles.toolsetsGrid}>
+                  <For each={toolsets()}>
+                    {(ts) => {
+                      const isExpanded = () => expandedToolsets().has(ts.name);
+                      const visibleTools = () =>
+                        isExpanded() ? ts.tools : ts.tools.slice(0, BADGES_LIMIT);
+                      return (
+                        <div class={`${styles.toolsetCard} ${ts.enabled ? styles.toolsetCardActive : ''}`}>
+                          <div class={styles.toolsetHeader}>
+                            <div class={styles.toolsetTitleGroup}>
+                              <Icon
+                                name={TOOLSET_ICONS[ts.name] ?? 'package'}
+                                size={15}
+                                class={styles.toolsetIcon}
+                              />
+                              <span class={styles.toolsetLabel}>{stripEmoji(ts.label)}</span>
+                            </div>
+                            <div class={styles.toolsetBadges}>
+                              <Show when={!ts.configured}>
+                                <Pill variant="outline">Setup needed</Pill>
+                              </Show>
+                              <Pill variant={ts.enabled ? 'primary' : 'secondary'}>
+                                {ts.enabled ? 'Active' : 'Inactive'}
+                              </Pill>
+                            </div>
                           </div>
-                          <div class={styles.enabledCardDesc}>{skill.description}</div>
+                          <p class={styles.toolsetDesc}>{ts.description}</p>
+                          <div class={styles.toolsetTools}>
+                            <For each={visibleTools()}>
+                              {(tool) => <span class={styles.toolBadge}>{tool}</span>}
+                            </For>
+                            <Show when={!isExpanded() && ts.tools.length > BADGES_LIMIT}>
+                              <button
+                                class={styles.toolBadgeToggle}
+                                onClick={() => toggleExpanded(ts.name)}
+                              >
+                                +{ts.tools.length - BADGES_LIMIT} more
+                              </button>
+                            </Show>
+                            <Show when={isExpanded()}>
+                              <button
+                                class={styles.toolBadgeToggle}
+                                onClick={() => toggleExpanded(ts.name)}
+                              >
+                                collapse
+                              </button>
+                            </Show>
+                          </div>
                         </div>
-                        <Toggle
-                          checked={skill.enabled}
-                          onChange={() => {}}
-                        />
-                      </div>
-                    )}
+                      );
+                    }}
                   </For>
                 </div>
-              </div>
-              <SkillDetail
-                skill={selectedSkillDetail()}
-                onClose={() => setSelectedEnabledSkill(null)}
-                onToggle={() => {}}
-              />
+              </Show>
             </div>
-          </Match>
-        </Switch>
+          </Show>
+        </Show>
       </div>
     </div>
   );
