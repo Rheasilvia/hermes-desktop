@@ -153,6 +153,22 @@ export class HttpClient {
       { retryNetwork: false, retryAuthOnce: true },
     ) as Promise<T>;
   }
+
+  post<T>(path: string, body: unknown): Promise<T> {
+    return this.send(
+      path,
+      { method: 'POST', body: JSON.stringify(body) },
+      { retryNetwork: false, retryAuthOnce: true },
+    ) as Promise<T>;
+  }
+
+  delete<T>(path: string): Promise<T> {
+    return this.send(
+      path,
+      { method: 'DELETE' },
+      { retryNetwork: false, retryAuthOnce: true },
+    ) as Promise<T>;
+  }
 }
 
 export const httpClient = new HttpClient();

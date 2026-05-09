@@ -13,4 +13,8 @@ describe("api registry boundary", () => {
   it("exposes analytics accessor", () => {
     expect(typeof api.analytics).toBe("function");
   });
+
+  it("exposes plugins accessor", () => {
+    expect(typeof api.plugins).toBe("function");
+  });
 });

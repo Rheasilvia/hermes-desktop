@@ -35,7 +35,7 @@ def build_app(cfg: Config) -> FastAPI:
             r"|https://tauri\.localhost)"
         ),
         allow_credentials=False,
-        allow_methods=["GET", "PATCH", "PUT"],
+        allow_methods=["GET", "PATCH", "PUT", "POST", "DELETE"],
         allow_headers=["Authorization", "Content-Type"],
     )
 
@@ -104,6 +104,7 @@ def build_app(cfg: Config) -> FastAPI:
         overlays,
         analytics,
         skills,
+        plugins as plugins_router,
     )
 
     app.include_router(health.router, prefix=API_PREFIX)
@@ -115,6 +116,7 @@ def build_app(cfg: Config) -> FastAPI:
     app.include_router(overlays.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(analytics.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(skills.router, prefix=API_PREFIX, dependencies=deps)
+    app.include_router(plugins_router.router, prefix=API_PREFIX, dependencies=deps)
 
     return app
 

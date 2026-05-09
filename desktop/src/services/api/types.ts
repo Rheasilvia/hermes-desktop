@@ -78,7 +78,63 @@ export function isApiError(e: unknown): e is ApiError {
   );
 }
 
-export type Domain = 'analytics' | 'cron' | 'model' | 'overlays' | 'settings' | 'skills' | 'state';
+export type Domain = 'analytics' | 'cron' | 'model' | 'overlays' | 'plugins' | 'settings' | 'skills' | 'state';
+
+export interface PluginRow {
+  name: string;
+  version: string;
+  description: string;
+  source: string;
+  runtime_status: string;
+  has_dashboard_manifest: boolean;
+  dashboard_manifest: Record<string, unknown> | null;
+  path: string;
+  can_remove: boolean;
+  can_update_git: boolean;
+  auth_required: boolean;
+  auth_command: string;
+  user_hidden: boolean;
+}
+
+export interface PluginProviderOption {
+  name: string;
+  description: string;
+}
+
+export interface PluginProviders {
+  memory_provider: string;
+  memory_options: PluginProviderOption[];
+  context_engine: string | null;
+  context_options: PluginProviderOption[];
+}
+
+export interface PluginHubResponse {
+  plugins: PluginRow[];
+  orphan_dashboard_plugins: Record<string, unknown>[];
+  providers: PluginProviders;
+}
+
+export interface PluginInstallRequest {
+  identifier: string;
+  force?: boolean;
+  enable?: boolean;
+}
+
+export interface PluginInstallResponse {
+  ok: boolean;
+  plugin_name?: string | null;
+  warnings?: string[] | null;
+  missing_env?: string[] | null;
+}
+
+export interface PluginProvidersRequest {
+  memory_provider?: string | null;
+  context_engine?: string | null;
+}
+
+export interface PluginVisibilityRequest {
+  hidden: boolean;
+}
 
 export interface SkillInfo {
   name: string;

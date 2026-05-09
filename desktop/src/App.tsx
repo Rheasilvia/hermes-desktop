@@ -19,7 +19,7 @@ const SessionDetailPage = lazy(() => import('@/pages/SessionDetailPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const ModelPage = lazy(() => import('@/pages/ModelPage'));
 const SkillsPage = lazy(() => import('@/pages/SkillsPage'));
-const McpPage = lazy(() => import('@/pages/McpPage'));
+const PluginsPage = lazy(() => import('@/pages/PluginsPage'));
 const MemoryPage = lazy(() => import('@/pages/MemoryPage'));
 const GatewayPage = lazy(() => import('@/pages/GatewayPage'));
 const CronPage = lazy(() => import('@/pages/CronPage'));
@@ -85,8 +85,8 @@ const App: Component = () => {
       <Route path="/skills" component={() => (
         <ModuleSuspense moduleName="Skills"><SkillsPage /></ModuleSuspense>
       )} />
-      <Route path="/mcp" component={() => (
-        <ModuleSuspense moduleName="MCP"><McpPage /></ModuleSuspense>
+      <Route path="/plugins" component={() => (
+        <ModuleSuspense moduleName="Plugins"><PluginsPage /></ModuleSuspense>
       )} />
       <Route path="/memory" component={() => (
         <ModuleSuspense moduleName="Memory"><MemoryPage /></ModuleSuspense>
