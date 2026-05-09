@@ -218,12 +218,12 @@ export function buildDefaultActions(callbacks: {
       callback: () => callbacks.onNavigate('/skills'),
     },
     {
-      id: 'nav-mcp',
-      label: 'MCP',
-      description: 'Manage MCP servers',
+      id: 'nav-plugins',
+      label: 'Plugins',
+      description: 'Manage plugins',
       category: 'Navigate',
       shortcut: `${mod}6`,
-      callback: () => callbacks.onNavigate('/mcp'),
+      callback: () => callbacks.onNavigate('/plugins'),
     },
     {
       id: 'nav-gateway',

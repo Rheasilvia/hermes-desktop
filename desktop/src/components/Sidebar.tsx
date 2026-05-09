@@ -30,7 +30,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Model', icon: 'bot', route: ROUTES.MODEL },
       { label: 'Skills', icon: 'wrench', route: ROUTES.SKILLS },
-      { label: 'MCP', icon: 'plug', route: ROUTES.MCP },
+      { label: 'Plugins', icon: 'plug', route: ROUTES.PLUGINS },
       { label: 'Memory', icon: 'brain', route: ROUTES.MEMORY },
     ],
   },

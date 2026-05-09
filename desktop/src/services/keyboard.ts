@@ -73,7 +73,7 @@ export function initKeyboardShortcuts(callbacks: KeyboardCallbacks): void {
         '3': '/memory',
         '4': '/model',
         '5': '/skills',
-        '6': '/mcp',
+        '6': '/plugins',
         '7': '/gateway',
         '8': '/cron',
         '9': '/settings',
