@@ -1,8 +1,8 @@
 import type { Component } from 'solid-js';
-import { Show, For, createEffect, onMount, onCleanup, createMemo, createSignal } from 'solid-js';
-import type { SessionMessage } from '@/types/session.js';
-import type { MessageDelta } from '@/types/message.js';
+import { Show, For, createEffect, onMount, onCleanup, createMemo, createSignal, Switch, Match } from 'solid-js';
 import type {
+  SessionMessage,
+  MessageDelta,
   MessageDeltaPayload,
   MessageCompletePayload,
   ToolStartPayload,
@@ -10,12 +10,15 @@ import type {
   ToolCompletePayload,
 } from '@/types/gateway.js';
 import { chatStore } from '@/stores/chat.js';
+import { diffStore } from '@/stores/chat.js';
 import { getGateway } from '@/stores/context.js';
 import { MessageBubble } from './MessageBubble.js';
 import { MessageInput } from './MessageInput.js';
 import { StreamingIndicator } from './StreamingIndicator.js';
 import { ModelSelector } from './ModelSelector.js';
-import { Icon } from '@/components/Icon';
+import { ChatToolbar } from './ChatToolbar.js';
+import { WorkspacePicker } from '@/modules/workspace/WorkspacePicker.js';
+import { DiffPanel } from '@/modules/diff/DiffPanel.js';
 import { AsciiBanner } from '@/components/AsciiBanner';
 import styles from './ChatView.module.css';
 
@@ -23,18 +26,14 @@ interface ChatViewProps {
   sessionId?: string;
 }
 
-interface ActiveTool {
-  id: string;
-  name: string;
-  args?: string;
-  result?: string;
-  status: 'running' | 'complete' | 'error';
-}
-
 export const ChatView: Component<ChatViewProps> = (props) => {
   const sessionId = () => props.sessionId ?? 'sess_abc123';
   let messagesEndRef: HTMLDivElement | undefined;
-  const [activeTools, setActiveTools] = createSignal<Map<string, ActiveTool>>(new Map());
+  let chatBodyRef: HTMLDivElement | undefined;
+  let diffPanelEl: HTMLDivElement | undefined;
+  let dragHandleEl: HTMLDivElement | undefined;
+  const [activeTools, setActiveTools] = createSignal<Map<string, { id: string; name: string; status: string }>>(new Map());
+  const [dragging, setDragging] = createSignal(false);
 
   const messages = (): SessionMessage[] => chatStore.getMessages(sessionId());
   const isStreaming = (): boolean => chatStore.isStreaming(sessionId());
@@ -88,7 +87,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   };
 
   const onToolStart = (payload: ToolStartPayload) => {
-    setActiveTools((prev: Map<string, ActiveTool>) => {
+    setActiveTools((prev) => {
       const next = new Map(prev);
       next.set(payload.tool_id, {
         id: payload.tool_id,
@@ -104,7 +103,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   };
 
   const onToolComplete = (payload: ToolCompletePayload) => {
-    setActiveTools((prev: Map<string, ActiveTool>) => {
+    setActiveTools((prev) => {
       const next = new Map(prev);
       const existing = next.get(payload.tool_id);
       if (existing) {
@@ -112,6 +111,67 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       }
       return next;
     });
+  };
+
+  const handleDragStart = (e: MouseEvent) => {
+    e.preventDefault();
+    setDragging(true);
+
+    // Disable CSS transitions on diff panel — prevents animation/JS conflict
+    if (diffPanelEl) {
+      diffPanelEl.style.transition = 'none';
+      diffPanelEl.style.willChange = 'width';
+    }
+    if (dragHandleEl) dragHandleEl.classList.add(styles.dragHandleActive);
+    if (chatBodyRef) chatBodyRef.classList.add(styles.chatBodyDragging);
+
+    const startX = e.clientX;
+    const startWidth = diffPanelEl?.offsetWidth ?? 500;
+    // Cache container width once — avoids forced layout on every mousemove
+    const containerWidth = chatBodyRef?.clientWidth ?? 1200;
+    let lastWidth = startWidth;
+    let prevWidth = startWidth;
+    let dirty = false;
+    let rafId: number | undefined;
+
+    const onMove = (ev: MouseEvent) => {
+      const delta = startX - ev.clientX;
+      lastWidth = Math.min(Math.max(startWidth + delta, 320), containerWidth * 0.8);
+      if (lastWidth !== prevWidth) {
+        dirty = true;
+        prevWidth = lastWidth;
+      }
+    };
+
+    const tick = () => {
+      if (dirty && diffPanelEl) {
+        diffPanelEl.style.width = `${lastWidth}px`;
+        dirty = false;
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+
+    const onUp = () => {
+      if (rafId != null) cancelAnimationFrame(rafId);
+      setDragging(false);
+
+      // Re-enable transitions and clean up
+      if (diffPanelEl) {
+        diffPanelEl.style.transition = '';
+        diffPanelEl.style.willChange = '';
+      }
+      if (dragHandleEl) dragHandleEl.classList.remove(styles.dragHandleActive);
+      if (chatBodyRef) chatBodyRef.classList.remove(styles.chatBodyDragging);
+
+      diffStore.setPanelWidth(lastWidth);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   };
 
   onMount(() => {
@@ -140,58 +200,87 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   return (
     <div class={styles.chatView}>
-      <div class={styles.toolbar}>
-        <div class={styles.toolbarLeft}>
-          <ModelSelector />
-        </div>
-        <div class={styles.toolbarRight}>
-          <button class={styles.toolbarBtn} title="More options" type="button">
-            <Icon name="more-horizontal" size={16} />
-          </button>
-        </div>
-      </div>
+      <ChatToolbar
+        workspacePath={diffStore.workspacePath()}
+        splitScreenActive={diffStore.isDiffOpen()}
+        onToggleSplitScreen={() => diffStore.toggleDiff()}
+        modelSelectorSlot={<ModelSelector />}
+      />
 
       <Show when={error()}>
         <div class={styles.errorBanner}>{error()}</div>
       </Show>
 
-      <Show
-        when={!isEmpty()}
-        fallback={
-          <div class={styles.emptyState}>
-            <AsciiBanner class={styles.emptyBanner} />
-            <div class={styles.emptyTitle}>Start a conversation</div>
-            <div class={styles.emptyDescription}>
-              Send a message to begin chatting with Hermes. You can ask questions, run commands,
-              search the web, and more.
-            </div>
-          </div>
-        }
-      >
-        <div class={styles.messageList}>
-          <For each={messages()}>
-            {(message) => <MessageBubble message={message} />}
-          </For>
-          <Show when={activeTools().size > 0}>
-            <For each={Array.from(activeTools().values())}>
-              {(tool: ActiveTool) => (
-                <div style={{ "margin-bottom": "var(--space-4)" }}>
-                  {tool.name}
+      <div class={styles.chatBody} ref={chatBodyRef}>
+        <div class={styles.chatPane}>
+          <Switch>
+            <Match when={!diffStore.workspacePath()}>
+              {/* Empty state: workspace not selected */}
+              <div class={styles.emptyState}>
+                <AsciiBanner class={styles.emptyBanner} />
+                <WorkspacePicker onSelect={() => diffStore.selectWorkspace()} />
+              </div>
+            </Match>
+            <Match when={isEmpty()}>
+              {/* Workspace selected, no messages yet */}
+              <div class={styles.emptyState}>
+                <AsciiBanner class={styles.emptyBanner} />
+                <div class={styles.emptyTitle}>Start a conversation</div>
+                <div class={styles.emptyDescription}>
+                  Send a message to begin chatting with Hermes. You can ask questions, run commands,
+                  search the web, and more.
                 </div>
-              )}
-            </For>
-          </Show>
-          <Show when={isStreaming()}>
-            <StreamingIndicator />
-          </Show>
-          <div ref={messagesEndRef} />
-        </div>
-      </Show>
+              </div>
+            </Match>
+            <Match when={true}>
+              {/* Messages */}
+              <div class={styles.messageList}>
+                <For each={messages()}>
+                  {(message) => <MessageBubble message={message} />}
+                </For>
+                <Show when={activeTools().size > 0}>
+                  <For each={Array.from(activeTools().values())}>
+                    {(tool) => (
+                      <div style={{ "margin-bottom": "var(--space-4)" }}>
+                        {tool.name}
+                      </div>
+                    )}
+                  </For>
+                </Show>
+                <Show when={isStreaming()}>
+                  <StreamingIndicator />
+                </Show>
+                <div ref={messagesEndRef} />
+              </div>
+            </Match>
+          </Switch>
 
-      <MessageInput
-        onSend={handleSend}
-        disabled={isStreaming()}
-      />
+          <MessageInput
+            onSend={handleSend}
+            disabled={isStreaming() || !diffStore.workspacePath()}
+          />
+        </div>
+
+        <Show when={diffStore.isDiffOpen()}>
+          <div class={styles.diffSeparator} />
+          <div
+            ref={(el) => { dragHandleEl = el; }}
+            class={styles.dragHandle}
+            onMouseDown={handleDragStart}
+          />
+        </Show>
+        <DiffPanel
+          ref={(el) => { diffPanelEl = el; }}
+          visible={diffStore.isDiffOpen()}
+          data={diffStore.diffData()}
+          loading={diffStore.diffLoading()}
+          error={diffStore.diffError()}
+          panelWidth={diffStore.panelWidth()}
+          hasWorkspace={diffStore.workspacePath() != null}
+          onClose={() => diffStore.closeDiff()}
+          onAddWorkspace={() => diffStore.selectWorkspace()}
+        />
+      </div>
     </div>
   );
 };

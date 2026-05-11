@@ -8,6 +8,7 @@
   --color-terracotta: #c96442;
   --color-sage: #8FA882;
   --color-charcoal: #E5E5E5;
+  --color-charcoal-warm: #C5C0B8;  /* lighter warm gray for button text in dark */
   --color-cream: #222222;
   --color-stone: #9B9589;
   --color-warm-gray: #444444;
@@ -44,6 +45,12 @@
   --color-warning: #E6C36A;
   --color-error: #E07A5F;
   --color-info: #7FB3D5;
+
+  /* --- Diff View Colors (dark) — brighter for visibility on dark bg --- */
+  --diff-addition-color: #73D673;
+  --diff-deletion-color: #FF6B6B;
+  --diff-addition-bg: rgba(115, 214, 115, 0.10);
+  --diff-deletion-bg: rgba(255, 107, 107, 0.08);
 
   /* --- Shadows --- */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);

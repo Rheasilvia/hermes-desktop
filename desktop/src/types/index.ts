@@ -52,6 +52,9 @@ export type { MemoryFile, ContextFile, MemoryEntry, UserProfile } from './memory
 // MCP types
 export type { McpTransport, McpAuthType, McpServer, McpOAuthConfig, McpSamplingConfig, McpTool, McpInputSchema, McpSchemaProperty, McpConnectionStatus } from './mcp.js';
 
+// Diff types
+export type { LineKind, DiffLine, DiffHunk, FileStatus, DiffFile, DiffSummary, GitDiffResult } from './diff.js';
+
 // Analytics types
 export type {
   ModelCapabilities,

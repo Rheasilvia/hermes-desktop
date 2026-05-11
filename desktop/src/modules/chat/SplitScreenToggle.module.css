@@ -1,0 +1,28 @@
+.toggle {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-on-surface-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  transition: all var(--transition-fast);
+}
+
+.toggle:hover {
+  background: rgba(20, 20, 19, 0.04);
+  color: var(--color-charcoal-warm);
+}
+
+.toggleActive {
+  color: var(--color-terracotta);
+}
+
+.toggleActive:hover {
+  color: var(--color-terracotta);
+}
