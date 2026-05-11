@@ -9,6 +9,7 @@
   --color-terracotta: #c96442;
   --color-sage: #7A8B6F;
   --color-charcoal: #141413;
+  --color-charcoal-warm: #4d4c48;  /* DESIGN.md button text, subheadings */
   --color-cream: #faf9f5;
   --color-stone: #5e5d59;
   --color-warm-gray: #e8e6dc;
@@ -116,6 +117,12 @@
   --z-overlay: 300;
   --z-modal: 400;
   --z-toast: 500;
+
+  /* --- Diff View Colors --- */
+  --diff-addition-color: var(--color-success);
+  --diff-deletion-color: var(--color-error);
+  --diff-addition-bg: rgba(90, 143, 108, 0.08);
+  --diff-deletion-bg: rgba(181, 51, 51, 0.06);
 
   /* --- Layout --- */
   --sidebar-width: 240px;

@@ -1,0 +1,10 @@
+.path {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--color-on-surface-dim);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}

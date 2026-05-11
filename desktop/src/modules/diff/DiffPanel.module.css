@@ -1,0 +1,402 @@
+/* ── Diff Panel Container ─────────────────────────────────── */
+
+.diffPanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-parchment);
+  border-left: 1px solid var(--color-border);
+  overflow: hidden;
+  contain: layout style;
+  transition: width 300ms ease-out, opacity 300ms ease-out;
+}
+
+/* Width and opacity are now controlled via inline style + JS */
+
+/* ── Header ──────────────────────────────────────────────── */
+
+.diffPanelHeader {
+  display: flex;
+  align-items: center;
+  background: var(--color-warm-gray);
+  flex-shrink: 0;
+  min-height: 36px;
+}
+
+.diffPanelHeaderSpacer {
+  flex: 1;
+}
+
+.diffPanelHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding-right: 4px;
+}
+
+.diffCloseBtn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-on-surface-dim);
+  cursor: pointer;
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 16px;
+}
+
+.diffCloseBtn:hover {
+  color: var(--color-charcoal-warm);
+}
+
+/* ── File Tabs ───────────────────────────────────────────── */
+
+.fileTabs {
+  display: flex;
+  overflow-x: auto;
+  flex: 1;
+}
+
+.fileTabs::-webkit-scrollbar {
+  height: 0;
+}
+
+.fileTab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: var(--color-warm-gray);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--color-on-surface-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+  border-bottom: 2px solid transparent;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.fileTab:hover {
+  color: var(--color-charcoal-warm);
+}
+
+.fileTabActive {
+  background: var(--color-cream);
+  color: var(--color-charcoal-warm);
+  border-bottom-color: var(--color-terracotta);
+}
+
+.fileTabName {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Status Dots ─────────────────────────────────────────── */
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusAdded {
+  background: var(--diff-addition-color);
+}
+
+.statusModified {
+  background: var(--color-terracotta);
+}
+
+.statusDeleted {
+  background: var(--diff-deletion-color);
+}
+
+.statusRenamed {
+  background: var(--color-info);
+}
+
+/* ── Diff Summary ────────────────────────────────────────── */
+
+.diffSummary {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  display: flex;
+  gap: 12px;
+}
+
+.diffSummaryInsertions {
+  color: var(--diff-addition-color);
+}
+
+.diffSummaryDeletions {
+  color: var(--diff-deletion-color);
+}
+
+/* ── Body ────────────────────────────────────────────────── */
+
+.diffPanelBody {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Content (scrollable diff) ───────────────────────────── */
+
+.diffContent {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 8px 0;
+}
+
+.diffContent::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.diffContent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.diffContent::-webkit-scrollbar-thumb {
+  background: var(--color-warm-gray);
+  border-radius: 9999px;
+}
+
+/* ── File Section ────────────────────────────────────────── */
+
+.diffFileSection + .diffFileSection {
+  border-top: 1px solid var(--color-border);
+}
+
+/* ── File Header ─────────────────────────────────────────── */
+
+.diffFileHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--color-border-light);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.diffFileName {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-charcoal-warm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.diffFileStatus {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.fileStatusAdded {
+  background: rgba(90, 143, 108, 0.12);
+  color: var(--diff-addition-color);
+}
+
+.fileStatusModified {
+  background: rgba(201, 100, 66, 0.12);
+  color: var(--color-terracotta);
+}
+
+.fileStatusDeleted {
+  background: rgba(181, 51, 51, 0.1);
+  color: var(--diff-deletion-color);
+}
+
+.fileStatusRenamed {
+  background: rgba(91, 143, 185, 0.12);
+  color: var(--color-info);
+}
+
+/* ── Diff Truncated ──────────────────────────────────────── */
+
+.diffTruncated {
+  padding: 12px 16px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--color-on-surface-dim);
+  text-align: center;
+  border-top: 1px solid var(--color-border-light);
+}
+
+/* ── Diff Hunk ───────────────────────────────────────────── */
+
+.diffHunk {
+  margin-bottom: 8px;
+}
+
+.diffHunkHeader {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--color-on-surface-dim);
+  background: var(--color-warm-gray);
+  padding: 2px 8px;
+}
+
+/* ── Diff Line ───────────────────────────────────────────── */
+
+.diffLine {
+  display: flex;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 0 8px;
+  min-height: 20px;
+  transition: background 150ms ease;
+}
+
+.diffLine:hover {
+  background: rgba(20, 20, 19, 0.04);
+}
+
+.diffLineNumber {
+  width: 48px;
+  text-align: right;
+  color: var(--color-on-surface-dim);
+  user-select: none;
+  flex-shrink: 0;
+  padding-right: 8px;
+}
+
+.diffLinePrefix {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  font-weight: 600;
+  user-select: none;
+}
+
+.diffLineContent {
+  white-space: pre;
+  overflow: hidden;
+  flex: 1;
+  color: var(--color-charcoal-warm);
+}
+
+/* ── Line Kind: Context ──────────────────────────────────── */
+
+.diffLineContext {
+  background: transparent;
+  color: var(--color-on-surface-muted);
+}
+
+.diffLineContext .diffLineContent {
+  color: var(--color-on-surface-muted);
+}
+
+.diffLineContext .diffLinePrefix {
+  color: var(--color-on-surface-dim);
+}
+
+/* ── Line Kind: Addition ─────────────────────────────────── */
+
+.diffLineAddition {
+  background: var(--diff-addition-bg);
+}
+
+.diffLineAddition .diffLinePrefix {
+  color: var(--diff-addition-color);
+}
+
+/* ── Line Kind: Deletion ─────────────────────────────────── */
+
+.diffLineDeletion {
+  background: var(--diff-deletion-bg);
+}
+
+.diffLineDeletion .diffLinePrefix {
+  color: var(--diff-deletion-color);
+}
+
+/* ── Empty / Error States ────────────────────────────────── */
+
+.diffEmptyState,
+.diffErrorState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.diffEmptyTitle {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-on-surface-muted);
+  margin-bottom: 8px;
+}
+
+.diffEmptyBody {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--color-on-surface-dim);
+  line-height: 1.6;
+}
+
+.diffErrorTitle {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-error);
+  margin-bottom: 8px;
+}
+
+.diffErrorBody {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  color: var(--color-on-surface-dim);
+  line-height: 1.6;
+}
+
+/* ── Empty workspace state ─────────────────────────────── */
+
+.diffEmptyIcon {
+  color: var(--color-on-surface-dim);
+  opacity: 0.5;
+  margin-bottom: var(--space-3);
+}
+
+.diffAddWorkspaceBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 20px;
+  background: var(--color-warm-gray);
+  color: var(--color-charcoal-warm);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--radius-sm);
+  box-shadow: 0px 0px 0px 1px var(--color-on-surface-dim);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.diffAddWorkspaceBtn:hover {
+  background: var(--color-border-light);
+}

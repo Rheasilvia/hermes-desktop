@@ -1,10 +1,22 @@
 /**
  * Chat state store - per-session messages, streaming state, tool calls.
+ * Also manages workspace path, diff panel visibility, and git diff data.
  */
 
 import { createSignal } from 'solid-js';
-import type { SessionMessage, ToolCall, MessageDelta } from '@/types/index.js';
+import type { SessionMessage, ToolCall, MessageDelta, GitDiffResult } from '@/types/index.js';
 import { getGateway } from './context.js';
+import { invoke } from '@tauri-apps/api/core';
+
+// ── Diff State (global, not per-session) ─────────────────────────────────
+
+const [workspacePath, setWorkspacePath] = createSignal<string | null>(null);
+const [isDiffOpen, setIsDiffOpen] = createSignal(false);
+const [diffData, setDiffData] = createSignal<GitDiffResult | null>(null);
+const [diffLoading, setDiffLoading] = createSignal(false);
+const [diffError, setDiffError] = createSignal<string | null>(null);
+const [activeFileIndex, setActiveFileIndex] = createSignal(0);
+const [panelWidth, setPanelWidth] = createSignal(500); // default: 500px
 
 interface ChatState {
   messages: SessionMessage[];
@@ -207,4 +219,81 @@ export const chatStore = {
   clearError(sessionId: string): void {
     updateChatState(sessionId, (state) => ({ ...state, error: null }));
   },
+};
+
+// ── Diff & Workspace Actions ──────────────────────────────────────────────
+
+async function selectWorkspace(): Promise<void> {
+  try {
+    // Use Tauri dialog plugin to open folder picker
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const selected = await open({
+      directory: true,
+      title: 'Select Workspace',
+    });
+    if (selected && typeof selected === 'string') {
+      setWorkspacePath(selected);
+    }
+  } catch {
+    // dialog plugin may not be available — silently ignore
+  }
+}
+
+async function toggleDiff(): Promise<void> {
+  const next = !isDiffOpen();
+  setIsDiffOpen(next);
+  if (next) {
+    setDiffError(null);
+    setActiveFileIndex(0);
+    void fetchDiff();
+  }
+}
+
+async function fetchDiff(): Promise<void> {
+  const wd = workspacePath();
+  if (!wd) {
+    setDiffError('Select a workspace first');
+    return;
+  }
+  setDiffLoading(true);
+  setDiffError(null);
+  try {
+    const result = await invoke<GitDiffResult | { error: string }>('run_git_diff', { cwd: wd });
+    if (result && typeof result === 'object' && 'error' in result) {
+      setDiffError((result as { error: string }).error);
+    } else {
+      setDiffData(result as GitDiffResult);
+      setActiveFileIndex(0);
+    }
+  } catch (e) {
+    setDiffError(typeof e === 'string' ? e : (e as Error).message ?? 'Failed to fetch diff');
+  } finally {
+    setDiffLoading(false);
+  }
+}
+
+function closeDiff(): void {
+  setIsDiffOpen(false);
+}
+
+function selectDiffFile(index: number): void {
+  setActiveFileIndex(index);
+}
+
+// ── Exported diff store ──────────────────────────────────────────────────
+
+export const diffStore = {
+  workspacePath,
+  isDiffOpen,
+  diffData,
+  diffLoading,
+  diffError,
+  activeFileIndex,
+  panelWidth,
+  setPanelWidth,
+  selectWorkspace,
+  toggleDiff,
+  fetchDiff,
+  closeDiff,
+  selectDiffFile,
 };
