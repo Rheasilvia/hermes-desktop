@@ -1,4 +1,4 @@
-mod commands;
+pub mod commands;
 mod sidecar;
 #[cfg(test)]
 mod sidecar_tests;
@@ -41,6 +41,7 @@ pub fn run() {
             commands::open_external,
             commands::get_platform,
             commands::spawn_process,
+            commands::run_git_diff,
             sidecar_info,
             updater::check_for_updates,
             updater::install_update,
