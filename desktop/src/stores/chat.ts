@@ -223,21 +223,6 @@ export const chatStore = {
 
 // ── Diff & Workspace Actions ──────────────────────────────────────────────
 
-async function selectWorkspace(): Promise<void> {
-  try {
-    // Use Tauri dialog plugin to open folder picker
-    const { open } = await import('@tauri-apps/plugin-dialog');
-    const selected = await open({
-      directory: true,
-      title: 'Select Workspace',
-    });
-    if (selected && typeof selected === 'string') {
-      setWorkspacePath(selected);
-    }
-  } catch {
-    // dialog plugin may not be available — silently ignore
-  }
-}
 
 async function toggleDiff(): Promise<void> {
   const next = !isDiffOpen();
@@ -283,7 +268,6 @@ function selectDiffFile(index: number): void {
 // ── Exported diff store ──────────────────────────────────────────────────
 
 export const diffStore = {
-  workspacePath,
   isDiffOpen,
   diffData,
   diffLoading,
@@ -291,9 +275,9 @@ export const diffStore = {
   activeFileIndex,
   panelWidth,
   setPanelWidth,
-  selectWorkspace,
   toggleDiff,
   fetchDiff,
+  setWorkspacePath,
   closeDiff,
   selectDiffFile,
 };

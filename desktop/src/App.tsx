@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, onMount } from 'solid-js';
+import { Component, lazy, Suspense } from 'solid-js';
 import { Router, Route } from '@solidjs/router';
 import '@/styles/global.css';
 import { AppLayout } from '@/layouts/AppLayout';
@@ -13,7 +13,8 @@ import { analyticsStore } from '@/stores/analytics.js';
 
 const isTauri = typeof window !== 'undefined' && !!(window as unknown as { __TAURI__?: unknown }).__TAURI__;
 
-const ChatPage = lazy(() => import('@/pages/ChatPage'));
+const WelcomePage = lazy(() => import('@/pages/WelcomePage'));
+const ConversationPage = lazy(() => import('@/pages/ConversationPage'));
 const SessionsPage = lazy(() => import('@/pages/SessionsPage'));
 const SessionDetailPage = lazy(() => import('@/pages/SessionDetailPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
@@ -33,42 +34,43 @@ const ModuleSuspense: Component<{ moduleName: string; children: any }> = (props)
 );
 
 const App: Component = () => {
-  onMount(async () => {
-    if (!isTauri) {
-      const gateway = createMockGateway();
-      initializeStores(gateway);
-      await gateway.connect();
-    }
+  // Non-routing setup: theme, settings, gateway, sidecar listeners
+  const init = async () => {
+    const gateway = createMockGateway();
+    initializeStores(gateway);
+    await gateway.connect();
     await initTheme();
     try {
       const desktop = await loadDesktopSettings();
       applyDesktopSettings(desktop);
     } catch {
-      // If desktop settings fail to load, theme is already initialised
+      // theme already initialised
     }
     if (isTauri) {
       try {
         const { listen } = await import('@tauri-apps/api/event');
         const { invoke } = await import('@tauri-apps/api/core');
-        // Listen for future ready events (prod: sidecar takes ~5s to start)
         await listen('sidecar://ready', () => {
           void cronStore.load();
           void analyticsStore.load();
         });
-        // Also check if already ready (dev: event fires before listener registers)
         try {
           await invoke('sidecar_info');
           void cronStore.load();
           void analyticsStore.load();
-        } catch { /* not ready yet, listener will handle it */ }
+        } catch { /* not ready yet */ }
       } catch { /* not in Tauri */ }
     }
-  });
+  };
+  void init();
 
   return (
     <Router root={AppLayout}>
       <Route path="/" component={() => (
-        <ModuleSuspense moduleName="Chat"><ChatPage /></ModuleSuspense>
+        <ModuleSuspense moduleName="Welcome"><WelcomePage /></ModuleSuspense>
+      )} />
+      <Route path="/conversation/:id" component={() => (
+        <ModuleSuspense moduleName="Conversation"><ConversationPage /></ModuleSuspense>
       )} />
       <Route path="/sessions" component={() => (
         <ModuleSuspense moduleName="Sessions"><SessionsPage /></ModuleSuspense>

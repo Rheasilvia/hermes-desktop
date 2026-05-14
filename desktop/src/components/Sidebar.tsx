@@ -19,13 +19,6 @@ interface NavGroup {
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    label: 'Core',
-    items: [
-      { label: 'Chat', icon: 'message-square', route: ROUTES.HOME },
-      { label: 'Sessions', icon: 'clipboard-list', route: ROUTES.SESSIONS },
-    ],
-  },
-  {
     label: 'Tools & Data',
     items: [
       { label: 'Model', icon: 'bot', route: ROUTES.MODEL },
@@ -59,11 +52,16 @@ export const Sidebar: Component = () => {
     return location.pathname.startsWith(route);
   };
 
-  const handleNewSession = async () => {
-    const meta = await sessionStore.createSession({});
-    if (meta) {
-      navigate(ROUTES.HOME);
-    }
+  const isConversationActive = (sessionId: string) => {
+    return location.pathname === `/conversation/${sessionId}`;
+  };
+
+  const handleNewConversation = () => {
+    navigate(ROUTES.HOME);
+  };
+
+  const recentSessions = () => {
+    return sessionStore.sessions.slice(0, 10);
   };
 
   return (
@@ -74,16 +72,51 @@ export const Sidebar: Component = () => {
         </div>
         <button
           class={styles.newChatBtn}
-          onClick={handleNewSession}
-          title="New chat"
+          onClick={handleNewConversation}
+          title="New conversation"
           type="button"
         >
           <Icon name="plus" size={14} />
-          <span>New Chat</span>
+          <span>New Conversation</span>
         </button>
       </div>
 
       <nav class={styles.nav}>
+        <Show when={recentSessions().length > 0}>
+          <div class={styles.group}>
+            <span class={styles.groupLabel}>Conversations</span>
+            <For each={recentSessions()}>
+              {(session) => (
+                <A
+                  href={`/conversation/${session.id}`}
+                  class={`${styles.navItem} ${isConversationActive(session.id) ? styles.active : ''}`}
+                  title={session.title || 'Untitled conversation'}
+                >
+                  <Icon name="message-square" size={14} />
+                  <span class={styles.navLabel}>{session.title || 'Untitled'}</span>
+                </A>
+              )}
+            </For>
+            <A
+              href={ROUTES.SESSIONS}
+              class={`${styles.navItem} ${styles.viewAll}`}
+            >
+              <Icon name="chevron-right" size={14} />
+              <span class={styles.navLabel}>View all</span>
+            </A>
+          </div>
+        </Show>
+
+        <Show when={recentSessions().length === 0}>
+          <div class={styles.group}>
+            <span class={styles.groupLabel}>Conversations</span>
+            <div class={`${styles.navItem} ${styles.emptyHint}`}>
+              <Icon name="message-square" size={14} />
+              <span class={styles.navLabel}>No conversations yet</span>
+            </div>
+          </div>
+        </Show>
+
         <For each={NAV_GROUPS}>
           {(group) => (
             <div class={styles.group}>
@@ -102,24 +135,6 @@ export const Sidebar: Component = () => {
             </div>
           )}
         </For>
-
-        <Show when={sessionStore.sessions.length > 0}>
-          <div class={styles.group}>
-            <span class={styles.groupLabel}>Recent</span>
-            <For each={sessionStore.sessions.slice(0, 5)}>
-              {(session) => (
-                <A
-                  href={`/sessions/${session.id}`}
-                  class={`${styles.navItem} ${location.pathname === `/sessions/${session.id}` ? styles.active : ''}`}
-                  title={session.title || 'Untitled session'}
-                >
-                  <Icon name="message-square" size={14} />
-                  <span class={styles.navLabel}>{session.title || 'Untitled'}</span>
-                </A>
-              )}
-            </For>
-          </div>
-        </Show>
       </nav>
 
       <div class={styles.footer}>

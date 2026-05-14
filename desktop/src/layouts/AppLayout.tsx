@@ -1,11 +1,13 @@
-import { Component, JSX, onMount, onCleanup } from 'solid-js';
-import { useNavigate } from '@solidjs/router';
+import { Component, JSX, onMount, onCleanup, createSignal, Show } from 'solid-js';
+import { useNavigate, useLocation } from '@solidjs/router';
 import { Sidebar } from '@/components/Sidebar';
 import { CommandPalette, buildDefaultActions } from '@/components/CommandPalette';
 import type { PaletteAction } from '@/components/CommandPalette';
 import { sessionStore } from '@/stores/session.js';
 import { uiStore } from '@/stores/ui.js';
 import { initKeyboardShortcuts, destroyKeyboardShortcuts } from '@/services/keyboard.js';
+import { loadState } from '@/services/api/state.js';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
 import styles from './AppLayout.module.css';
 
 interface AppLayoutProps {
@@ -14,14 +16,14 @@ interface AppLayoutProps {
 
 export const AppLayout: Component<AppLayoutProps> = (props) => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [initializing, setInitializing] = createSignal(true);
 
   const paletteActions = (): PaletteAction[] =>
     buildDefaultActions({
       onNavigate: (route: string) => navigate(route),
       onNewSession: () => {
-        void sessionStore.createSession({}).then((meta) => {
-          if (meta) navigate('/');
-        });
+        navigate('/');
       },
       onToggleSidebar: () => uiStore.toggleSidebar(),
       onCompressContext: () => {},
@@ -29,17 +31,38 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
       onSwitchModel: () => navigate('/model'),
     });
 
-  onMount(() => {
+  onMount(async () => {
     initKeyboardShortcuts({
       onToggleSidebar: () => uiStore.toggleSidebar(),
       onNavigate: (route: string) => navigate(route),
       onNewSession: () => {
-        void sessionStore.createSession({}).then((meta) => {
-          if (meta) navigate('/');
-        });
+        navigate('/');
       },
       onToggleCommandPalette: () => {},
     });
+
+    // Load sessions and determine default route
+    await sessionStore.loadSessions();
+    const sessions = sessionStore.sessions;
+    const isHome = location.pathname === '/' || location.pathname === '';
+
+    if (sessions.length > 0 && isHome) {
+      try {
+        const state = await loadState();
+        const lastSessionId = state.last_session_id;
+        if (lastSessionId && sessions.some((s) => s.id === lastSessionId)) {
+          navigate(`/conversation/${lastSessionId}`, { replace: true });
+          setInitializing(false);
+          return;
+        }
+      } catch {
+        // state load failed, fall through
+      }
+      const mostRecent = sessions[0];
+      navigate(`/conversation/${mostRecent.id}`, { replace: true });
+    }
+
+    setInitializing(false);
   });
 
   onCleanup(() => {
@@ -48,6 +71,11 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
 
   return (
     <div class={styles.layout}>
+      <Show when={initializing()}>
+        <div style={{ display: 'flex', 'align-items': 'center', 'justify-content': 'center', height: '100vh', position: 'absolute', inset: '0', 'z-index': '100', background: 'var(--color-background)' }}>
+          <LoadingSpinner size="lg" label="Starting Hermes..." />
+        </div>
+      </Show>
       <div class={styles.contentRow}>
         <Sidebar />
         <div class={styles.mainColumn}>

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from ..store import state as store
-from ..store.settings import SchemaVersionMismatch
 
 router = APIRouter()
 
@@ -18,7 +17,4 @@ def get_state(request: Request):
 async def put_state(request: Request):
     cfg = request.app.state.cfg
     payload = await request.json()
-    try:
-        return store.save(cfg.hermes_home, payload)
-    except SchemaVersionMismatch:
-        raise HTTPException(status_code=409, detail="SCHEMA_VERSION")
+    return store.save(cfg.hermes_home, payload)

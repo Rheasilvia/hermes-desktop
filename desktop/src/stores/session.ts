@@ -46,7 +46,7 @@ export const sessionStore = {
     }
   },
 
-  async createSession(params: { model?: string; system_prompt?: string }): Promise<SessionMeta | null> {
+  async createSession(params: { model?: string; system_prompt?: string; workspace_path?: string }): Promise<SessionMeta | null> {
     const gateway = getGateway();
     if (!gateway) return null;
     setIsLoading(true);
