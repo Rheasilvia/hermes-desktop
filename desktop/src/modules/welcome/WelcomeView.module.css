@@ -1,0 +1,97 @@
+/* Welcome page — editorial, book-like entry point.
+   Follows DESIGN.md: warm parchment, serif headings, warm sand button. */
+
+.welcome {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--color-background);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 520px;
+  padding: var(--space-12) var(--space-8);
+}
+
+/* ASCII banner: subtle, like a colophon in a book */
+.banner {
+  margin-bottom: var(--space-10);
+  opacity: 0.35;
+  filter: saturate(0.6);
+}
+
+/* Serif heading — weight 500 per DESIGN.md "Single weight for serifs" rule */
+.title {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-medium);
+  color: var(--color-on-surface);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+  margin: 0 0 var(--space-3);
+}
+
+/* Secondary body text — Olive Gray, relaxed line-height */
+.description {
+  color: var(--color-on-surface-muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  margin: 0 0 var(--space-10);
+  max-width: 380px;
+}
+
+/* Warm Sand button — DESIGN.md "Warm Sand" secondary button */
+.selectBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  background: var(--color-warm-gray);
+  color: var(--color-charcoal-warm);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  box-shadow: 0 0 0 0 var(--color-warm-gray), 0 0 0 1px #d1cfc5;
+  transition: box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.selectBtn:hover {
+  background: #dddace;
+  box-shadow: 0 0 0 0 #dddace, 0 0 0 1px #c2c0b6;
+}
+
+/* Loading state */
+.loadingState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.loadingText {
+  color: var(--color-on-surface);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  margin: 0;
+}
+
+.loadingPath {
+  color: var(--color-on-surface-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  margin: 0;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

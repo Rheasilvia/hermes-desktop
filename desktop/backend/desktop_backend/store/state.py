@@ -1,47 +1,52 @@
-"""Layer 3: state.json. Same shape contract as settings."""
+"""Layer 3: desktop state persisted in desktop.db (SQLite)."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
-from ..util.atomic_write import atomic_write_json
-from ..util.filelock import file_lock
-from .settings import SCHEMA_VERSION, SchemaVersionMismatch
+from ..db.connection import connect, ensure_schema
+from ..db.schema import SCHEMA_VERSION
 
 _DEFAULTS: dict[str, Any] = {
     "schema_version": SCHEMA_VERSION,
     "last_open_route": "/",
+    "last_session_id": None,
+    "last_workspace_path": None,
     "window": {"w": 1280, "h": 800},
 }
 
 
-def _path(hermes_home: Path) -> Path:
-    return Path(hermes_home) / "desktop" / "state.json"
-
-
 def load(hermes_home: Path) -> dict[str, Any]:
-    path = _path(hermes_home)
-    if not path.exists():
-        return json.loads(json.dumps(_DEFAULTS))
-    with file_lock(path, exclusive=False):
-        with open(path, "r", encoding="utf-8") as fh:
-            try:
-                payload = json.load(fh)
-            except json.JSONDecodeError:
-                return json.loads(json.dumps(_DEFAULTS))
-    if not isinstance(payload, dict):
-        return json.loads(json.dumps(_DEFAULTS))
-    payload.setdefault("schema_version", SCHEMA_VERSION)
-    return payload
+    conn = connect(hermes_home)
+    ensure_schema(conn)
+    try:
+        rows = conn.execute("SELECT key, value FROM desktop_state").fetchall()
+        if not rows:
+            return dict(_DEFAULTS)
+        payload: dict[str, Any] = {}
+        for row in rows:
+            payload[row["key"]] = row["value"]
+        payload.setdefault("schema_version", SCHEMA_VERSION)
+        payload.setdefault("last_open_route", "/")
+        payload.setdefault("last_session_id", None)
+        payload.setdefault("last_workspace_path", None)
+        payload.setdefault("window", {"w": 1280, "h": 800})
+        return payload
+    finally:
+        conn.close()
 
 
 def save(hermes_home: Path, payload: dict[str, Any]) -> dict[str, Any]:
-    if payload.get("schema_version") != SCHEMA_VERSION:
-        raise SchemaVersionMismatch(
-            f"expected schema_version={SCHEMA_VERSION}, got {payload.get('schema_version')!r}"
-        )
-    path = _path(hermes_home)
-    with file_lock(path, exclusive=True):
-        atomic_write_json(path, payload)
+    conn = connect(hermes_home)
+    ensure_schema(conn)
+    try:
+        conn.execute("DELETE FROM desktop_state")
+        for key, value in payload.items():
+            conn.execute(
+                "INSERT INTO desktop_state (key, value) VALUES (?, ?)",
+                (key, value),
+            )
+        conn.commit()
+    finally:
+        conn.close()
     return payload

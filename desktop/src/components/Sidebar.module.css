@@ -144,3 +144,19 @@
 .settingsItem {
   margin: 0;
 }
+
+.viewAll {
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+}
+
+.viewAll:hover {
+  background: var(--color-surface-hover);
+}
+
+.emptyHint {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  cursor: default;
+  pointer-events: none;
+}

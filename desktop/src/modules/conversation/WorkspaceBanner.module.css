@@ -1,0 +1,33 @@
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-muted);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-sage);
+}
+
+.path {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.warning {
+  color: var(--color-terracotta);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.broken {
+  border-left-color: var(--color-terracotta);
+}
+
+.broken .path {
+  color: var(--color-terracotta);
+}

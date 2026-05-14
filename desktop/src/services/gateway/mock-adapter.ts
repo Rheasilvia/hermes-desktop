@@ -155,7 +155,7 @@ const MOCK_SESSIONS: SessionListItem[] = [
   },
 ];
 
-function createMockSessionMeta(id: string, model: string): SessionMeta {
+function createMockSessionMeta(id: string, model: string, workspace_path?: string | null): SessionMeta {
   return {
     id,
     source: 'mock',
@@ -183,6 +183,7 @@ function createMockSessionMeta(id: string, model: string): SessionMeta {
     system_prompt: null,
     parent_session_id: null,
     end_reason: null,
+    workspace_path: workspace_path ?? null,
   };
 }
 
@@ -437,7 +438,7 @@ export class MockGatewayAdapter implements GatewayAdapter {
       create: async (params): Promise<SessionMeta> => {
         await delay(this.delayMin, this.delayMax);
         const id = `sess_${generateId()}`;
-        return createMockSessionMeta(id, params.model ?? 'anthropic/claude-opus-4.5');
+        return createMockSessionMeta(id, params.model ?? 'anthropic/claude-opus-4.5', params.workspace_path);
       },
       delete: async (sessionId: string): Promise<void> => {
         await delay(this.delayMin, this.delayMax);
