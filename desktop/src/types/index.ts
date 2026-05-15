@@ -63,3 +63,23 @@ export type {
   ModelAnalyticsResponse,
   AnalyticsPeriod,
 } from './analytics.js';
+
+// DB row types (snake_case, mirrors SQLite columns)
+export type { DbSession, DbDesktopSessionMeta } from './db/session.js';
+export type { DbMessage } from './db/message.js';
+
+// Domain model types (camelCase, business logic)
+export type { ConversationSession, SessionUsage as ConversationSessionUsage } from './domain/session.js';
+export type { ConversationMessage, ParsedToolCall, MessageAttachment } from './domain/message.js';
+
+// UI rendering types
+export type {
+  MessageBlock, TextBlock, CodeBlock, ReasoningBlock,
+  ToolCallBlock, RichContentBlock, RichContentKind, AttachmentBlock,
+} from './ui/blocks.js';
+export type {
+  ChartData, ChartDataset, WebSearchResult, WebSearchResultItem,
+  ImageContent, FileContent,
+} from './ui/rich.js';
+export type { RenderedMessage, MessageAction } from './ui/message.js';
+export type { TurnStatus, LiveTurnState, LiveToolCall } from './ui/turn.js';

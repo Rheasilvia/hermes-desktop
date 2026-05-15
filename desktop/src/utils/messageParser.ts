@@ -1,0 +1,125 @@
+/**
+ * Converts ConversationMessage domain objects into RenderedMessage UI objects
+ * by splitting raw content into typed MessageBlock[].
+ *
+ * Block parsing rules:
+ * - Fenced code blocks (```lang\n...\n```) → CodeBlock
+ * - Remaining text segments → TextBlock
+ * - reasoning field → ReasoningBlock (prepended before content blocks)
+ * - toolCalls → ToolCallBlock (appended after content blocks)
+ */
+
+import type { ConversationMessage, ParsedToolCall } from '../types/domain/message.js';
+import type {
+  MessageBlock, TextBlock, CodeBlock, ReasoningBlock, ToolCallBlock,
+} from '../types/ui/blocks.js';
+import type { RenderedMessage } from '../types/ui/message.js';
+
+let _blockIdCounter = 0;
+function nextId(): string {
+  return `b${++_blockIdCounter}`;
+}
+
+/** Split a markdown string into TextBlock / CodeBlock segments. */
+export function parseBlocks(content: string): Array<TextBlock | CodeBlock> {
+  const blocks: Array<TextBlock | CodeBlock> = [];
+  // Match fenced code blocks: ```[lang][space][filename?]\n...\n```
+  const fenceRe = /```([^\n`]*)\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = fenceRe.exec(content)) !== null) {
+    const before = content.slice(lastIndex, match.index);
+    if (before.trim()) {
+      blocks.push({ type: 'text', id: nextId(), content: before });
+    }
+
+    const meta = match[1].trim();
+    const [langPart, filenamePart] = meta.split(/\s+/, 2);
+    blocks.push({
+      type: 'code',
+      id: nextId(),
+      language: langPart || null,
+      filename: filenamePart ?? null,
+      content: match[2],
+    });
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  const tail = content.slice(lastIndex);
+  if (tail.trim()) {
+    blocks.push({ type: 'text', id: nextId(), content: tail });
+  }
+
+  return blocks;
+}
+
+function toolCallToBlock(tc: ParsedToolCall): ToolCallBlock {
+  return {
+    type: 'tool_call',
+    id: nextId(),
+    toolId: tc.id,
+    name: tc.name,
+    status: 'complete',
+    inputPreview: JSON.stringify(tc.arguments, null, 2),
+    outputSummary: null,
+    inlineDiff: null,
+    durationMs: null,
+  };
+}
+
+function actionsFor(role: ConversationMessage['role']): RenderedMessage['actions'] {
+  if (role === 'user') return ['copy', 'edit'];
+  if (role === 'assistant') return ['copy', 'retry', 'branch'];
+  return [];
+}
+
+/** Convert a persisted ConversationMessage into a RenderedMessage with typed blocks. */
+export function parseMessage(msg: ConversationMessage): RenderedMessage {
+  const blocks: MessageBlock[] = [];
+
+  if (msg.reasoning) {
+    const reasoningBlock: ReasoningBlock = {
+      type: 'reasoning',
+      id: nextId(),
+      content: msg.reasoning,
+      isStreaming: false,
+      tokenCount: null,
+    };
+    blocks.push(reasoningBlock);
+  }
+
+  if (msg.content) {
+    blocks.push(...parseBlocks(msg.content));
+  }
+
+  if (msg.toolCalls) {
+    for (const tc of msg.toolCalls) {
+      blocks.push(toolCallToBlock(tc));
+    }
+  }
+
+  return {
+    id: msg.id,
+    sessionId: msg.sessionId,
+    role: msg.role,
+    blocks,
+    timestamp: msg.timestamp,
+    tokenCount: msg.tokenCount,
+    finishReason: msg.finishReason,
+    isStreaming: false,
+    actions: actionsFor(msg.role),
+    toolName: msg.toolName ?? null,
+  };
+}
+
+/** Upgrade an ephemeral streaming RenderedMessage after message.complete. */
+export function finalizeStreamingMessage(
+  draft: RenderedMessage,
+  persistedId: number,
+  tokenCount: number | null,
+  finishReason: string | null,
+): RenderedMessage {
+  return { ...draft, id: persistedId, tokenCount, finishReason, isStreaming: false };
+}

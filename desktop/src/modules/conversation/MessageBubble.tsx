@@ -1,22 +1,59 @@
 import type { Component } from 'solid-js';
-import { Show, createMemo, For } from 'solid-js';
-import type { SessionMessage } from '@/types/session.js';
+import { Show, For } from 'solid-js';
+import type { RenderedMessage } from '@/types/index.js';
+import type { TextBlock, CodeBlock, ReasoningBlock, ToolCallBlock } from '@/types/ui/blocks.js';
 import { parseMarkdown } from '@/utils/markdown.js';
 import { ToolCard } from './ToolCard.js';
 import styles from './MessageBubble.module.css';
 
 interface MessageBubbleProps {
-  message: SessionMessage;
+  message: RenderedMessage;
 }
 
-function formatTimestamp(ts: string): string {
+function formatTimestamp(ts: number): string {
   try {
-    const d = new Date(ts);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   } catch {
     return '';
   }
 }
+
+const TextBlockView: Component<{ block: TextBlock; isAssistant: boolean }> = (props) => {
+  const rendered = () =>
+    props.isAssistant ? parseMarkdown(props.block.content) : props.block.content;
+  return (
+    <Show when={props.block.content}>
+      <Show
+        when={props.isAssistant}
+        fallback={<div>{rendered()}</div>}
+      >
+        <div class={styles.markdownContent} innerHTML={rendered() as string} />
+      </Show>
+    </Show>
+  );
+};
+
+const CodeBlockView: Component<{ block: CodeBlock }> = (props) => (
+  <pre class={styles.codeBlock}>
+    <Show when={props.block.language}>
+      <span class={styles.codeLang}>{props.block.language}</span>
+    </Show>
+    <code>{props.block.content}</code>
+  </pre>
+);
+
+const ReasoningBlockView: Component<{ block: ReasoningBlock }> = (props) => (
+  <div class={styles.reasoningBlock}>{props.block.content}</div>
+);
+
+const ToolCallBlockView: Component<{ block: ToolCallBlock }> = (props) => (
+  <ToolCard
+    name={props.block.name}
+    args={props.block.inputPreview ?? undefined}
+    result={props.block.outputSummary ?? undefined}
+    status={props.block.status === 'running' ? 'running' : props.block.status === 'error' ? 'error' : 'complete'}
+  />
+);
 
 export const MessageBubble: Component<MessageBubbleProps> = (props) => {
   const role = () => props.message.role;
@@ -30,25 +67,17 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
     return `${styles.bubble} ${styles.toolBubble}`;
   };
 
-  const renderedContent = createMemo(() => {
-    const content = props.message.content;
-    if (!content) return '';
-    if (isAssistant()) return parseMarkdown(content);
-    return content;
-  });
-
-  const toolCalls = createMemo(() => {
-    const tc = props.message.tool_calls;
-    if (!tc || !Array.isArray(tc)) return [];
-    return tc as Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
-  });
-
   return (
     <div class={styles.bubbleRow}>
       <Show when={isTool()}>
         <ToolCard
-          name={props.message.tool_name ?? 'unknown'}
-          args={props.message.content ?? undefined}
+          name={props.message.toolName ?? 'tool'}
+          args={
+            props.message.blocks
+              .filter((b): b is TextBlock => b.type === 'text')
+              .map((b) => b.content)
+              .join('\n') || undefined
+          }
           status="complete"
         />
       </Show>
@@ -56,26 +85,15 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
       <Show when={!isTool()}>
         <div class={styles.bubbleWrapper}>
           <div class={bubbleClass()}>
-            <Show when={isAssistant() && props.message.reasoning}>
-              <div class={styles.reasoningBlock}>{props.message.reasoning}</div>
-            </Show>
-            <Show when={isAssistant() && renderedContent()}>
-              <div class={styles.markdownContent} innerHTML={renderedContent()} />
-            </Show>
-            <Show when={isUser() && renderedContent()}>
-              <div>{renderedContent()}</div>
-            </Show>
-            <Show when={isAssistant() && toolCalls().length > 0}>
-              <For each={toolCalls()}>
-                {(tc) => (
-                  <ToolCard
-                    name={tc.function.name}
-                    args={tc.function.arguments}
-                    status="complete"
-                  />
-                )}
-              </For>
-            </Show>
+            <For each={props.message.blocks}>
+              {(block) => {
+                if (block.type === 'reasoning') return <ReasoningBlockView block={block as ReasoningBlock} />;
+                if (block.type === 'text') return <TextBlockView block={block as TextBlock} isAssistant={isAssistant()} />;
+                if (block.type === 'code') return <CodeBlockView block={block as CodeBlock} />;
+                if (block.type === 'tool_call') return <ToolCallBlockView block={block as ToolCallBlock} />;
+                return null;
+              }}
+            </For>
           </div>
           <Show when={props.message.timestamp}>
             <span class={styles.timestamp}>{formatTimestamp(props.message.timestamp)}</span>
