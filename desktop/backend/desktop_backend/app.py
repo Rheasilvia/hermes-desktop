@@ -105,6 +105,7 @@ def build_app(cfg: Config) -> FastAPI:
         analytics,
         skills,
         plugins as plugins_router,
+        conversations as conversations_router,
     )
 
     app.include_router(health.router, prefix=API_PREFIX)
@@ -117,6 +118,7 @@ def build_app(cfg: Config) -> FastAPI:
     app.include_router(analytics.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(skills.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(plugins_router.router, prefix=API_PREFIX, dependencies=deps)
+    app.include_router(conversations_router.router, prefix=API_PREFIX, dependencies=deps)
 
     return app
 

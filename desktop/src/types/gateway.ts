@@ -239,6 +239,9 @@ export interface ToolProgressPayload {
 export interface ToolCompletePayload {
   tool_id: string;
   name: string;
+  summary?: string;
+  inline_diff?: string;
+  duration_s?: number;
 }
 
 /** Tool generating event payload. */

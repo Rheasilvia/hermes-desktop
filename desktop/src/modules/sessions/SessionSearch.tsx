@@ -1,17 +1,25 @@
 import type { Component } from 'solid-js';
 import { createSignal, createMemo, Show, For } from 'solid-js';
-import type { SessionMessage } from '@/types/session.js';
+import type { RenderedMessage } from '@/types/index.js';
+import type { TextBlock } from '@/types/ui/blocks.js';
 import { SearchInput } from '@/components/SearchInput.js';
 import { EmptyState } from '@/components/EmptyState.js';
 import styles from './SessionSearch.module.css';
 
 interface SessionSearchProps {
-  messages: SessionMessage[];
+  messages: RenderedMessage[];
 }
 
 interface SearchResult {
-  message: SessionMessage;
+  message: RenderedMessage;
   index: number;
+}
+
+function getTextContent(msg: RenderedMessage): string {
+  return msg.blocks
+    .filter((b): b is TextBlock => b.type === 'text')
+    .map((b) => b.content)
+    .join(' ');
 }
 
 export const SessionSearch: Component<SessionSearchProps> = (props) => {
@@ -24,7 +32,7 @@ export const SessionSearch: Component<SessionSearchProps> = (props) => {
     return props.messages
       .map((msg, index) => ({ message: msg, index }))
       .filter((item) => {
-        const content = item.message.content ?? '';
+        const content = getTextContent(item.message);
         return content.toLowerCase().includes(q);
       });
   });
@@ -87,7 +95,7 @@ export const SessionSearch: Component<SessionSearchProps> = (props) => {
                     <span class={styles.resultIndex}>#{result.index + 1}</span>
                   </div>
                   <p class={styles.resultContent}>
-                    {result.message.content ?? '(empty)'}
+                    {getTextContent(result.message) || '(empty)'}
                   </p>
                 </div>
               )}

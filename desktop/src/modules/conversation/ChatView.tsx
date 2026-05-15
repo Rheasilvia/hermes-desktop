@@ -1,16 +1,15 @@
 import type { Component } from 'solid-js';
 import { Show, For, createEffect, onMount, onCleanup, createMemo, createSignal, Switch, Match } from 'solid-js';
 import type {
-  SessionMessage,
-  MessageDelta,
-} from '@/types/index.js';
-import type {
   MessageDeltaPayload,
   MessageCompletePayload,
   ToolStartPayload,
   ToolProgressPayload,
   ToolCompletePayload,
+  ToolGeneratingPayload,
+  ReasoningDeltaPayload,
 } from '@/types/gateway.js';
+import type { RenderedMessage } from '@/types/index.js';
 import { chatStore } from '@/stores/chat.js';
 import { diffStore } from '@/stores/chat.js';
 import { sessionStore } from '@/stores/session.js';
@@ -35,12 +34,12 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let chatBodyRef: HTMLDivElement | undefined;
   let diffPanelEl: HTMLDivElement | undefined;
   let dragHandleEl: HTMLDivElement | undefined;
-  const [activeTools, setActiveTools] = createSignal<Map<string, { id: string; name: string; status: string }>>(new Map());
   const [dragging, setDragging] = createSignal(false);
 
   const workspacePath = () => sessionStore.activeSession?.workspace_path ?? null;
 
-  const messages = (): SessionMessage[] => chatStore.getMessages(sessionId());
+  const messages = (): RenderedMessage[] => chatStore.getMessages(sessionId());
+  const liveState = () => chatStore.getLiveState(sessionId());
   const isStreaming = (): boolean => chatStore.isStreaming(sessionId());
   const error = (): string | null => chatStore.getError(sessionId());
 
@@ -60,62 +59,36 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   };
 
   const handleSend = async (text: string) => {
-    const userMessage: SessionMessage = {
-      session_id: sessionId(),
-      role: 'user',
-      content: text,
-      tool_call_id: null,
-      tool_calls: null,
-      tool_name: null,
-      timestamp: new Date().toISOString(),
-      token_count: 0,
-      finish_reason: null,
-      reasoning: null,
-      reasoning_details: null,
-      codex_reasoning_items: null,
-    };
-    chatStore.appendMessage(sessionId(), userMessage);
+    chatStore.appendUserMessage(sessionId(), text);
     await chatStore.sendMessage(sessionId(), text);
   };
 
   const onMessageDelta = (payload: MessageDeltaPayload) => {
-    const delta: MessageDelta = {
-      text: payload.text,
-      reasoning: payload.reasoning,
-      finish_reason: undefined,
-    };
-    chatStore.handleDelta(sessionId(), delta);
+    chatStore.handleDelta(sessionId(), payload);
   };
 
-  const onMessageComplete = (_payload: MessageCompletePayload) => {
-    chatStore.handleMessageComplete(sessionId());
+  const onMessageComplete = (payload: MessageCompletePayload) => {
+    chatStore.handleMessageComplete(sessionId(), payload);
+  };
+
+  const onReasoningDelta = (payload: ReasoningDeltaPayload) => {
+    chatStore.handleReasoningDelta(sessionId(), payload.text);
   };
 
   const onToolStart = (payload: ToolStartPayload) => {
-    setActiveTools((prev) => {
-      const next = new Map(prev);
-      next.set(payload.tool_id, {
-        id: payload.tool_id,
-        name: payload.name,
-        status: 'running',
-      });
-      return next;
-    });
+    chatStore.handleToolStart(sessionId(), payload);
   };
 
-  const onToolProgress = (_payload: ToolProgressPayload) => {
-    void undefined;
+  const onToolProgress = (payload: ToolProgressPayload) => {
+    chatStore.handleToolProgress(sessionId(), payload);
   };
 
   const onToolComplete = (payload: ToolCompletePayload) => {
-    setActiveTools((prev) => {
-      const next = new Map(prev);
-      const existing = next.get(payload.tool_id);
-      if (existing) {
-        next.set(payload.tool_id, { ...existing, status: 'complete' });
-      }
-      return next;
-    });
+    chatStore.handleToolComplete(sessionId(), payload);
+  };
+
+  const onToolGenerating = (payload: ToolGeneratingPayload) => {
+    chatStore.handleToolGenerating(sessionId(), payload);
   };
 
   const handleDragStart = (e: MouseEvent) => {
@@ -185,9 +158,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
     gateway.on('message.delta', onMessageDelta);
     gateway.on('message.complete', onMessageComplete);
+    gateway.on('reasoning.delta', onReasoningDelta);
     gateway.on('tool.start', onToolStart);
     gateway.on('tool.progress', onToolProgress);
     gateway.on('tool.complete', onToolComplete);
+    gateway.on('tool.generating', onToolGenerating);
 
     void chatStore.loadMessages(sessionId());
   });
@@ -198,9 +173,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
     gateway.off('message.delta', onMessageDelta);
     gateway.off('message.complete', onMessageComplete);
+    gateway.off('reasoning.delta', onReasoningDelta);
     gateway.off('tool.start', onToolStart);
     gateway.off('tool.progress', onToolProgress);
     gateway.off('tool.complete', onToolComplete);
+    gateway.off('tool.generating', onToolGenerating);
   });
 
   return (
@@ -234,8 +211,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 <For each={messages()}>
                   {(message) => <MessageBubble message={message} />}
                 </For>
-                <Show when={activeTools().size > 0}>
-                  <For each={Array.from(activeTools().values())}>
+                <Show when={liveState().activeTools.length > 0}>
+                  <For each={liveState().activeTools}>
                     {(tool) => (
                       <div style={{ "margin-bottom": "var(--space-4)" }}>
                         {tool.name}

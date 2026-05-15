@@ -4,7 +4,21 @@
  */
 
 import { createSignal } from 'solid-js';
-import type { SessionMessage, ToolCall, MessageDelta, GitDiffResult } from '@/types/index.js';
+import type { GitDiffResult } from '@/types/index.js';
+import type {
+  MessageDeltaPayload,
+  MessageCompletePayload,
+  ToolStartPayload,
+  ToolProgressPayload,
+  ToolCompletePayload,
+  ToolGeneratingPayload,
+} from '@/types/gateway.js';
+import type { SessionMessage } from '@/types/session.js';
+import type { RenderedMessage } from '@/types/ui/message.js';
+import type { LiveTurnState, LiveToolCall } from '@/types/ui/turn.js';
+import type { ConversationMessage, ParsedToolCall } from '@/types/domain/message.js';
+import type { ToolCallBlock } from '@/types/ui/blocks.js';
+import { parseMessage, parseBlocks } from '@/utils/messageParser.js';
 import { getGateway } from './context.js';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -16,32 +30,33 @@ const [diffData, setDiffData] = createSignal<GitDiffResult | null>(null);
 const [diffLoading, setDiffLoading] = createSignal(false);
 const [diffError, setDiffError] = createSignal<string | null>(null);
 const [activeFileIndex, setActiveFileIndex] = createSignal(0);
-const [panelWidth, setPanelWidth] = createSignal(500); // default: 500px
+const [panelWidth, setPanelWidth] = createSignal(500);
+
+// ── Chat State ────────────────────────────────────────────────────────────
 
 interface ChatState {
-  messages: SessionMessage[];
-  isStreaming: boolean;
-  activeToolCalls: Map<string, ToolCall>;
-  currentThinking: string;
-  currentReasoning: string;
-  error: string | null;
+  messages: RenderedMessage[];
+  liveState: LiveTurnState;
+}
+
+function makeLiveTurnState(sessionId: string): LiveTurnState {
+  return {
+    sessionId,
+    status: 'idle',
+    streamingText: '',
+    reasoningText: '',
+    activeTools: [],
+    errorMessage: null,
+  };
 }
 
 const [chatStates, setChatStates] = createSignal<Map<string, ChatState>>(new Map());
-const [streamingSessionId, setStreamingSessionId] = createSignal<string | null>(null);
 
 function getOrCreateChatState(sessionId: string): ChatState {
   const states = chatStates();
   let state = states.get(sessionId);
   if (!state) {
-    state = {
-      messages: [],
-      isStreaming: false,
-      activeToolCalls: new Map(),
-      currentThinking: '',
-      currentReasoning: '',
-      error: null,
-    };
+    state = { messages: [], liveState: makeLiveTurnState(sessionId) };
     const newStates = new Map(states);
     newStates.set(sessionId, state);
     setChatStates(newStates);
@@ -58,171 +73,288 @@ function updateChatState(sessionId: string, updater: (state: ChatState) => ChatS
   setChatStates(newStates);
 }
 
+let _ephemeralCounter = 0;
+function nextEphemeralId(): string {
+  return `ephemeral-${++_ephemeralCounter}`;
+}
+
+function nextBlockId(): string {
+  return `b-${++_ephemeralCounter}`;
+}
+
+/** Convert a legacy SessionMessage (gateway wire format) to a domain ConversationMessage. */
+function sessionMsgToDomain(msg: SessionMessage, sessionId: string): ConversationMessage {
+  let toolCalls: ParsedToolCall[] | null = null;
+  const rawCalls = msg.tool_calls;
+  if (rawCalls && Array.isArray(rawCalls)) {
+    toolCalls = (rawCalls as Array<{ id: string; function: { name: string; arguments: string } }>)
+      .map((tc) => ({
+        id: tc.id,
+        name: tc.function.name,
+        arguments: (() => {
+          try { return JSON.parse(tc.function.arguments) as Record<string, unknown>; }
+          catch { return { raw: tc.function.arguments }; }
+        })(),
+      }));
+  }
+  return {
+    id: 0,
+    sessionId,
+    role: msg.role,
+    content: msg.content,
+    reasoning: msg.reasoning,
+    toolCalls,
+    toolCallId: msg.tool_call_id,
+    toolName: msg.tool_name,
+    timestamp: new Date(msg.timestamp).getTime() / 1000,
+    tokenCount: msg.token_count ?? null,
+    finishReason: msg.finish_reason,
+    attachments: null,
+  };
+}
+
+// ── Chat Store ────────────────────────────────────────────────────────────
+
 export const chatStore = {
-  getMessages(sessionId: string): SessionMessage[] {
+  getMessages(sessionId: string): RenderedMessage[] {
     return chatStates().get(sessionId)?.messages ?? [];
   },
 
+  getLiveState(sessionId: string): LiveTurnState {
+    const state = chatStates().get(sessionId);
+    return state?.liveState ?? makeLiveTurnState(sessionId);
+  },
+
   isStreaming(sessionId: string): boolean {
-    return chatStates().get(sessionId)?.isStreaming ?? false;
-  },
-
-  getActiveToolCalls(sessionId: string): Map<string, ToolCall> {
-    return chatStates().get(sessionId)?.activeToolCalls ?? new Map();
-  },
-
-  getCurrentThinking(sessionId: string): string {
-    return chatStates().get(sessionId)?.currentThinking ?? '';
-  },
-
-  getCurrentReasoning(sessionId: string): string {
-    return chatStates().get(sessionId)?.currentReasoning ?? '';
+    const status = chatStates().get(sessionId)?.liveState.status;
+    return status === 'streaming' || status === 'tool_running';
   },
 
   getError(sessionId: string): string | null {
-    return chatStates().get(sessionId)?.error ?? null;
-  },
-
-  getStreamingSessionId(): string | null {
-    return streamingSessionId();
+    return chatStates().get(sessionId)?.liveState.errorMessage ?? null;
   },
 
   async loadMessages(sessionId: string): Promise<void> {
     const gateway = getGateway();
     if (!gateway) return;
+    getOrCreateChatState(sessionId);
     try {
-      const messages = await gateway.session.messages(sessionId);
-      updateChatState(sessionId, (state) => ({ ...state, messages }));
+      const rawMessages = await gateway.session.messages(sessionId);
+      const rendered = rawMessages.map((m) => parseMessage(sessionMsgToDomain(m, sessionId)));
+      updateChatState(sessionId, (state) => ({ ...state, messages: rendered }));
     } catch {
-      updateChatState(sessionId, (state) => ({ ...state, error: 'Failed to load messages' }));
+      updateChatState(sessionId, (state) => ({
+        ...state,
+        liveState: { ...state.liveState, errorMessage: 'Failed to load messages' },
+      }));
     }
   },
 
   async sendMessage(sessionId: string, text: string): Promise<boolean> {
     const gateway = getGateway();
     if (!gateway) return false;
+    getOrCreateChatState(sessionId);
     updateChatState(sessionId, (state) => ({
       ...state,
-      isStreaming: true,
-      error: null,
-      currentThinking: '',
-      currentReasoning: '',
+      liveState: { ...makeLiveTurnState(sessionId), status: 'streaming' },
     }));
-    setStreamingSessionId(sessionId);
     try {
       await gateway.prompt.execute({ message: text, session_id: sessionId });
       return true;
     } catch {
       updateChatState(sessionId, (state) => ({
         ...state,
-        isStreaming: false,
-        error: 'Failed to send message',
+        liveState: { ...state.liveState, status: 'error', errorMessage: 'Failed to send message' },
       }));
-      setStreamingSessionId(null);
       return false;
     }
   },
 
-  appendMessage(sessionId: string, message: SessionMessage): void {
+  appendUserMessage(sessionId: string, text: string): void {
+    getOrCreateChatState(sessionId);
+    const msg: RenderedMessage = {
+      id: nextEphemeralId(),
+      sessionId,
+      role: 'user',
+      blocks: text.trim() ? [{ type: 'text', id: nextBlockId(), content: text }] : [],
+      timestamp: Date.now() / 1000,
+      tokenCount: null,
+      finishReason: null,
+      isStreaming: false,
+      actions: ['copy', 'edit'],
+      toolName: null,
+    };
     updateChatState(sessionId, (state) => ({
       ...state,
-      messages: [...state.messages, message],
+      messages: [...state.messages, msg],
     }));
   },
 
-  handleDelta(sessionId: string, delta: MessageDelta): void {
-    updateChatState(sessionId, (state) => {
-      const lastMessage = state.messages[state.messages.length - 1];
-      if (!lastMessage || lastMessage.role !== 'assistant') {
-        const newMessage: SessionMessage = {
-          session_id: sessionId,
-          role: 'assistant',
-          content: delta.text ?? null,
-          tool_call_id: null,
-          tool_calls: delta.tool_calls ?? null,
-          tool_name: null,
-          timestamp: new Date().toISOString(),
-          token_count: 0,
-          finish_reason: delta.finish_reason ?? null,
-          reasoning: delta.reasoning ?? null,
-          reasoning_details: null,
-          codex_reasoning_items: null,
-        };
-        return { ...state, messages: [...state.messages, newMessage] };
-      }
-      const updatedMessage: SessionMessage = {
-        ...lastMessage,
-        content: (lastMessage.content ?? '') + (delta.text ?? ''),
-        tool_calls: delta.tool_calls ?? lastMessage.tool_calls,
-        reasoning: delta.reasoning ?? lastMessage.reasoning,
-      };
-      const newMessages = [...state.messages];
-      newMessages[newMessages.length - 1] = updatedMessage;
-      return { ...state, messages: newMessages };
-    });
-  },
-
-  handleThinkingDelta(sessionId: string, text: string): void {
+  handleMessageStart(sessionId: string): void {
+    getOrCreateChatState(sessionId);
     updateChatState(sessionId, (state) => ({
       ...state,
-      currentThinking: state.currentThinking + text,
+      liveState: { ...makeLiveTurnState(sessionId), status: 'streaming' },
+    }));
+  },
+
+  handleDelta(sessionId: string, payload: MessageDeltaPayload): void {
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: {
+        ...state.liveState,
+        streamingText: state.liveState.streamingText + (payload.text ?? ''),
+        status: 'streaming',
+      },
     }));
   },
 
   handleReasoningDelta(sessionId: string, text: string): void {
     updateChatState(sessionId, (state) => ({
       ...state,
-      currentReasoning: state.currentReasoning + text,
+      liveState: {
+        ...state.liveState,
+        reasoningText: state.liveState.reasoningText + text,
+      },
     }));
   },
 
-  handleMessageComplete(sessionId: string): void {
+  handleToolStart(sessionId: string, payload: ToolStartPayload): void {
+    const newTool: LiveToolCall = {
+      id: payload.tool_id,
+      name: payload.name,
+      status: 'running',
+      inputPreview: null,
+      progressPreview: null,
+      durationMs: null,
+    };
     updateChatState(sessionId, (state) => ({
       ...state,
-      isStreaming: false,
-      currentThinking: '',
-      currentReasoning: '',
+      liveState: {
+        ...state.liveState,
+        status: 'tool_running',
+        activeTools: [...state.liveState.activeTools, newTool],
+      },
     }));
-    if (streamingSessionId() === sessionId) {
-      setStreamingSessionId(null);
-    }
   },
 
-  addToolCall(sessionId: string, toolCall: ToolCall): void {
+  handleToolProgress(sessionId: string, payload: ToolProgressPayload): void {
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: {
+        ...state.liveState,
+        activeTools: state.liveState.activeTools.map((t) =>
+          t.name === payload.name
+            ? { ...t, progressPreview: payload.preview ?? payload.progress ?? null }
+            : t
+        ),
+      },
+    }));
+  },
+
+  handleToolComplete(sessionId: string, payload: ToolCompletePayload): void {
+    const durationMs = payload.duration_s != null ? Math.round(payload.duration_s * 1000) : null;
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: {
+        ...state.liveState,
+        status: 'streaming',
+        activeTools: state.liveState.activeTools.map((t) =>
+          t.id === payload.tool_id ? { ...t, status: 'complete', durationMs } : t
+        ),
+      },
+    }));
+  },
+
+  handleToolGenerating(sessionId: string, payload: ToolGeneratingPayload): void {
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: {
+        ...state.liveState,
+        activeTools: state.liveState.activeTools.map((t) =>
+          t.id === payload.tool_id
+            ? { ...t, status: 'generating', inputPreview: (t.inputPreview ?? '') + payload.text }
+            : t
+        ),
+      },
+    }));
+  },
+
+  handleMessageComplete(sessionId: string, payload: MessageCompletePayload): void {
     updateChatState(sessionId, (state) => {
-      const newToolCalls = new Map(state.activeToolCalls);
-      newToolCalls.set(toolCall.id, toolCall);
-      return { ...state, activeToolCalls: newToolCalls };
+      const live = state.liveState;
+      const toolBlocks: ToolCallBlock[] = live.activeTools.map((t) => ({
+        type: 'tool_call' as const,
+        id: `tc-${t.id}`,
+        toolId: t.id,
+        name: t.name,
+        status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
+        inputPreview: t.inputPreview,
+        outputSummary: null,
+        inlineDiff: null,
+        durationMs: t.durationMs,
+      }));
+
+      const blocks = [
+        ...(live.reasoningText ? [{
+          type: 'reasoning' as const,
+          id: nextBlockId(),
+          content: live.reasoningText,
+          isStreaming: false,
+          tokenCount: null,
+        }] : []),
+        ...parseBlocks(payload.text),
+        ...toolBlocks,
+      ];
+
+      const finalMsg: RenderedMessage = {
+        id: nextEphemeralId(),
+        sessionId,
+        role: 'assistant',
+        blocks,
+        timestamp: Date.now() / 1000,
+        tokenCount: payload.usage?.total ?? null,
+        finishReason: null,
+        isStreaming: false,
+        actions: ['copy', 'retry', 'branch'],
+        toolName: null,
+      };
+
+      return {
+        messages: [...state.messages, finalMsg],
+        liveState: makeLiveTurnState(sessionId),
+      };
     });
   },
 
-  removeToolCall(sessionId: string, toolId: string): void {
-    updateChatState(sessionId, (state) => {
-      const newToolCalls = new Map(state.activeToolCalls);
-      newToolCalls.delete(toolId);
-      return { ...state, activeToolCalls: newToolCalls };
-    });
+  handleError(sessionId: string, message: string): void {
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: { ...state.liveState, status: 'error', errorMessage: message },
+    }));
   },
 
   clearMessages(sessionId: string): void {
-    updateChatState(sessionId, (state) => ({
-      ...state,
+    getOrCreateChatState(sessionId);
+    updateChatState(sessionId, () => ({
       messages: [],
-      isStreaming: false,
-      activeToolCalls: new Map(),
-      currentThinking: '',
-      currentReasoning: '',
-      error: null,
+      liveState: makeLiveTurnState(sessionId),
     }));
   },
 
   clearError(sessionId: string): void {
-    updateChatState(sessionId, (state) => ({ ...state, error: null }));
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: {
+        ...state.liveState,
+        errorMessage: null,
+        status: state.liveState.status === 'error' ? 'idle' : state.liveState.status,
+      },
+    }));
   },
 };
 
 // ── Diff & Workspace Actions ──────────────────────────────────────────────
-
 
 async function toggleDiff(): Promise<void> {
   const next = !isDiffOpen();

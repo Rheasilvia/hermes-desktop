@@ -8,7 +8,9 @@ import {
   Switch,
   Match,
 } from 'solid-js';
-import type { SessionListItem, SessionMessage, SessionMeta } from '@/types/session.js';
+import type { SessionListItem, SessionMeta } from '@/types/session.js';
+import type { RenderedMessage } from '@/types/index.js';
+import type { TextBlock, ToolCallBlock } from '@/types/ui/blocks.js';
 import type { SessionInfoPayload } from '@/types/gateway.js';
 import { sessionStore } from '@/stores/session.js';
 import { chatStore } from '@/stores/chat.js';
@@ -59,8 +61,9 @@ function formatNumber(n: number): string {
   return String(n);
 }
 
-function formatTimestamp(ts: string): string {
-  return new Date(ts).toLocaleString(undefined, {
+function formatTimestamp(ts: string | number): string {
+  const d = typeof ts === 'number' ? new Date(ts * 1000) : new Date(ts);
+  return d.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -77,7 +80,7 @@ export const SessionDetail: Component<SessionDetailProps> = (props) => {
   const session = (): SessionListItem | undefined =>
     sessionStore.sessions.find((s) => s.id === props.sessionId);
 
-  const messages = (): SessionMessage[] =>
+  const messages = (): RenderedMessage[] =>
     chatStore.getMessages(props.sessionId);
 
   onMount(() => {
@@ -257,7 +260,7 @@ const OverviewTab: Component<{
   );
 };
 
-const DetailsTab: Component<{ messages: SessionMessage[] }> = (props) => {
+const DetailsTab: Component<{ messages: RenderedMessage[] }> = (props) => {
   const [expandedIndex, setExpandedIndex] = createSignal<number | null>(null);
 
   const toggleExpand = (index: number) => {
@@ -289,9 +292,13 @@ const DetailsTab: Component<{ messages: SessionMessage[] }> = (props) => {
         <For each={props.messages}>
           {(msg, index) => {
             const isExpanded = () => expandedIndex() === index();
-            const hasToolCalls = () =>
-              msg.tool_calls != null ||
-              (msg.role === 'tool' && msg.tool_name != null);
+            const toolBlocks = () => msg.blocks.filter((b): b is ToolCallBlock => b.type === 'tool_call');
+            const hasToolCalls = () => toolBlocks().length > 0 || msg.role === 'tool';
+            const textContent = () =>
+              msg.blocks
+                .filter((b): b is TextBlock => b.type === 'text')
+                .map((b) => b.content)
+                .join('\n');
 
             return (
               <div class={styles.messageItem}>
@@ -310,7 +317,7 @@ const DetailsTab: Component<{ messages: SessionMessage[] }> = (props) => {
                   </Show>
                 </div>
                 <div class={styles.messageContent}>
-                  <Show when={msg.content} fallback={<em class={styles.emptyMsg}>(empty)</em>}>
+                  <Show when={textContent()} fallback={<em class={styles.emptyMsg}>(empty)</em>}>
                     {(content) => (
                       <p class={styles.contentText}>{content()}</p>
                     )}
@@ -318,7 +325,7 @@ const DetailsTab: Component<{ messages: SessionMessage[] }> = (props) => {
                 </div>
                 <Show when={hasToolCalls() && isExpanded()}>
                   <div class={styles.toolCallDetails}>
-                    <Show when={msg.tool_name}>
+                    <Show when={msg.toolName}>
                       {(name) => (
                         <div class={styles.toolDetail}>
                           <span class={styles.toolDetailLabel}>Tool:</span>
@@ -326,13 +333,13 @@ const DetailsTab: Component<{ messages: SessionMessage[] }> = (props) => {
                         </div>
                       )}
                     </Show>
-                    <Show when={msg.tool_calls}>
-                      {(calls) => (
+                    <For each={toolBlocks()}>
+                      {(tc) => (
                         <pre class={styles.toolCallPre}>
-                          {JSON.stringify(calls(), null, 2)}
+                          {tc.inputPreview ?? '(no input)'}
                         </pre>
                       )}
-                    </Show>
+                    </For>
                   </div>
                 </Show>
               </div>
