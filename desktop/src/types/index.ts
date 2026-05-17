@@ -83,3 +83,4 @@ export type {
 } from './ui/rich.js';
 export type { RenderedMessage, MessageAction } from './ui/message.js';
 export type { TurnStatus, LiveTurnState, LiveToolCall } from './ui/turn.js';
+export type { ToolCallRow } from './ui/tool-presentation.js';

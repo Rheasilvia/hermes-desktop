@@ -352,6 +352,23 @@ export const chatStore = {
       },
     }));
   },
+
+  async cancelMessage(sessionId: string): Promise<void> {
+    const states = chatStates();
+    const state = states.get(sessionId);
+    if (state && (state.liveState.status === 'streaming' || state.liveState.status === 'tool_running')) {
+      try {
+        const gw = getGateway();
+        if (gw) await gw.session.interrupt();
+      } catch {
+        // interrupt may fail if already completed — ignore
+      }
+      updateChatState(sessionId, (s) => ({
+        ...s,
+        liveState: { ...s.liveState, status: 'idle' },
+      }));
+    }
+  },
 };
 
 // ── Diff & Workspace Actions ──────────────────────────────────────────────

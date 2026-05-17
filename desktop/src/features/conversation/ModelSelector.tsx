@@ -6,6 +6,7 @@ import styles from './ModelSelector.module.css';
 
 interface ModelSelectorProps {
   onModelChange?: (provider: string, model: string) => void;
+  dimmed?: boolean;
 }
 
 export const ModelSelector: Component<ModelSelectorProps> = (props) => {
@@ -52,26 +53,16 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
 
   return (
     <div class={styles.wrapper} ref={wrapperRef}>
-      <span class={styles.label}>Model:</span>
       <button
-        class={`${styles.trigger} ${isOpen() ? styles.triggerActive : ''}`}
+        class={`${styles.trigger} ${isOpen() ? styles.triggerActive : ''} ${props.dimmed ? styles.triggerDimmed : ''}`}
         onClick={toggleDropdown}
         type="button"
         aria-label="Select model"
         aria-expanded={isOpen()}
       >
+        <Icon name="cpu" size={12} class={`${styles.triggerIcon} ${props.dimmed ? styles.triggerIconDimmed : ''}`} />
         <span class={styles.triggerText}>{activeLabel()}</span>
-        <svg
-          class={`${styles.chevron} ${isOpen() ? styles.chevronOpen : ''}`}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        <Icon name="chevron-down" size={10} class={`${styles.chevronIcon} ${props.dimmed ? styles.chevronIconDimmed : ''}`} />
       </button>
       <Show when={isOpen()}>
         <div class={styles.dropdown}>

@@ -16,6 +16,16 @@
   flex: 1;
 }
 
+.sessionTitle {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-charcoal-warm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .toolbarRight {
   display: flex;
   align-items: center;

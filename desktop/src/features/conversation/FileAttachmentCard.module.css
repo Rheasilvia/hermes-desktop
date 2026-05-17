@@ -1,0 +1,76 @@
+.container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--color-background);
+  border: 1px solid var(--color-border-light);
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.fileIcon {
+  color: var(--color-on-surface-dim);
+  flex-shrink: 0;
+}
+
+.info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fileName {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metadata {
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-dim);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.actionBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  background: transparent;
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-muted);
+  font-family: var(--font-sans);
+}
+
+.actionBtn:hover {
+  background: var(--color-border-light);
+}
+
+.downloadBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--color-on-surface-muted);
+}
+
+.downloadBtn:hover {
+  background: var(--color-border-light);
+}

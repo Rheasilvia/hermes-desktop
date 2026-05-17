@@ -1,0 +1,13 @@
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background-color: var(--color-terracotta);
+  color: var(--color-cream);
+  font-family: var(--font-serif);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  flex-shrink: 0;
+  user-select: none;
+}

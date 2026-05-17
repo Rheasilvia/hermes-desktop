@@ -1,76 +1,206 @@
 .wrapper {
-  padding: var(--space-3) var(--space-4);
+  padding: 8px 32px 24px 32px;
   flex-shrink: 0;
 }
 
 .inputContainer {
-  background: var(--color-background);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3);
+  background: #ffffff;
+  border: 1px solid #e8e6dc;
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  transition: border-color var(--transition-fast);
 }
 
-.inputArea {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  position: relative;
+.inputContainerActive {
+  border-color: #c96442;
+}
+
+.inputContainerSending {
+  background: #f5f4ed;
+  border-color: #e8e6dc;
+}
+
+.inputContainerWithAttachments {
+  gap: 6px;
+}
+
+.textareaRow {
+  padding: 12px 16px 8px 16px;
+}
+
+.textareaRowCompact {
+  padding: 0 16px 8px 16px;
 }
 
 .textarea {
   width: 100%;
-  min-height: 24px;
+  min-height: 40px;
   max-height: 200px;
-  padding: 0;
+  padding: 4px 0;
   border: none;
   border-radius: 0;
   background: transparent;
-  color: var(--color-on-surface);
+  color: #141413;
   font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
+  font-size: 14px;
+  font-weight: normal;
+  line-height: 1.6;
   resize: none;
   outline: none;
   overflow-y: auto;
 }
 
 .textarea::placeholder {
-  color: var(--color-on-surface-dim);
+  color: #b0aea5;
+  font-weight: normal;
 }
 
-.actions {
+.textarea:disabled {
+  color: #b0aea5;
+}
+
+.chipsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 16px 0 16px;
+}
+
+.attachmentChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 20px;
+  background: #f0eee6;
+  padding: 4px 10px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: #5e5d59;
+}
+
+.chipIcon {
+  color: #5e5d59;
+  flex-shrink: 0;
+}
+
+.chipName {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipRemove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: #87867f;
+  cursor: pointer;
+  padding: 0;
+  transition: all var(--transition-fast);
+}
+
+.chipRemove:hover {
+  background: rgba(20, 20, 19, 0.08);
+  color: #141413;
+}
+
+.toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
+  padding: 0 16px 12px 16px;
 }
 
-.actionsLeft {
+.toolbarLeft {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: 8px;
+}
+
+.sendButton {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: #c96442;
+  color: #faf9f5;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background-color var(--transition-fast);
+}
+
+.sendButton:hover {
+  background: #b55838;
+}
+
+.sendButtonDisabled {
+  background: #e8e6dc;
+  color: #b0aea5;
+  cursor: default;
+}
+
+.sendButtonDisabled:hover {
+  background: #e8e6dc;
+  color: #b0aea5;
+}
+
+.stopButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  border: none;
+  background: #141413;
+  color: #faf9f5;
+  cursor: pointer;
+  padding: 6px 14px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.stopButton:hover {
+  background: #2a2a29;
+}
+
+.stopIcon {
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+  border-radius: 1px;
+  display: block;
 }
 
 .actionBtn {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   border: none;
   background: transparent;
-  color: var(--color-on-surface-muted);
+  color: #87867f;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .actionBtn:hover {
   background: rgba(20, 20, 19, 0.04);
-  color: var(--color-on-surface);
+  color: #141413;
 }
 
 .actionBtn:disabled {
@@ -78,26 +208,12 @@
   cursor: not-allowed;
 }
 
-.sendButton {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  cursor: pointer;
+.modelPill {
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: background-color var(--transition-fast);
-  flex-shrink: 0;
 }
 
-.sendButton:hover {
-  background-color: var(--color-primary-hover);
-}
-
-.sendButton:disabled {
+.inputContainerSending .modelPill {
   opacity: 0.5;
-  cursor: not-allowed;
 }
+

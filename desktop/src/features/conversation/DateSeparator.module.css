@@ -1,0 +1,19 @@
+.wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 12px 0;
+}
+
+.line {
+  flex: 1;
+  height: 1px;
+  background-color: var(--color-date-separator);
+}
+
+.label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--color-on-surface-dim);
+  white-space: nowrap;
+}

@@ -1,0 +1,35 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--color-background);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.url {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-on-surface-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itemTitle {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-on-surface);
+}
+
+.snippet {
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-muted);
+  line-height: 1.4;
+}

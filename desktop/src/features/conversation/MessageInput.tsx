@@ -1,25 +1,50 @@
 import type { Component } from 'solid-js';
-import { createSignal, createEffect, Show } from 'solid-js';
+import { createSignal, createEffect, Show, For } from 'solid-js';
+import { open } from '@tauri-apps/plugin-dialog';
 import { Icon } from '@/ui/atoms/Icon';
+import { WorkspacePicker } from './WorkspacePicker';
 import styles from './MessageInput.module.css';
 
+interface AttachmentChip {
+  name: string;
+  size: number;
+  path: string;
+}
+
 interface MessageInputProps {
-  onSend: (text: string) => void;
+  onSend: (text: string, attachments?: AttachmentChip[]) => void;
+  onStop?: () => void;
   disabled?: boolean;
+  isStreaming?: boolean;
   placeholder?: string;
+  modelSlot?: (dimmed: boolean) => any;
+  workspacePath?: string | null;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1048576).toFixed(1)}MB`;
 }
 
 export const MessageInput: Component<MessageInputProps> = (props) => {
   const [text, setText] = createSignal('');
+  const [focused, setFocused] = createSignal(false);
+  const [attachments, setAttachments] = createSignal<AttachmentChip[]>([]);
   let textareaRef: HTMLTextAreaElement | undefined;
 
-  const canSend = () => text().trim().length > 0 && !props.disabled;
+  const canSend = () => (text().trim().length > 0 || attachments().length > 0) && !props.disabled;
+  const isActive = () => canSend() && focused();
+  const hasAttachments = () => attachments().length > 0;
+  const showPaperclip = () => !props.isStreaming;
 
   const handleSend = () => {
     const value = text().trim();
-    if (!value || props.disabled) return;
-    props.onSend(value);
+    if ((!value && attachments().length === 0) || props.disabled) return;
+    const atts = attachments().length > 0 ? attachments() : undefined;
+    props.onSend(value, atts);
     setText('');
+    setAttachments([]);
     if (textareaRef) {
       textareaRef.style.height = 'auto';
     }
@@ -45,6 +70,25 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     el.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
   };
 
+  const handleAttach = async () => {
+    const selected = await open({
+      multiple: true,
+      filters: [],
+    });
+    if (!selected) return;
+    const files = Array.isArray(selected) ? selected : [selected];
+    const newChips: AttachmentChip[] = files.map((f: string) => ({
+      name: f.split('/').pop() ?? 'file',
+      size: 0,
+      path: f,
+    }));
+    setAttachments((prev) => [...prev, ...newChips]);
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
   createEffect(() => {
     if (textareaRef && text() === '') {
       textareaRef.style.height = 'auto';
@@ -53,38 +97,98 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
 
   return (
     <div class={styles.wrapper}>
-      <div class={styles.inputContainer}>
-        <div class={styles.inputArea}>
+      <div
+        class={styles.inputContainer}
+        classList={{
+          [styles.inputContainerActive]: isActive(),
+          [styles.inputContainerSending]: props.disabled && !props.isStreaming,
+          [styles.inputContainerWithAttachments]: hasAttachments(),
+        }}
+      >
+        {/* Attachment chips */}
+        <Show when={hasAttachments()}>
+          <div class={styles.chipsRow}>
+            <For each={attachments()}>
+              {(chip, idx) => (
+                <div class={styles.attachmentChip}>
+                  <Icon name="file-code" size={12} class={styles.chipIcon} />
+                  <span class={styles.chipName}>{chip.name}</span>
+                  <button
+                    class={styles.chipRemove}
+                    type="button"
+                    onClick={() => removeAttachment(idx())}
+                    aria-label={`Remove ${chip.name}`}
+                  >
+                    <Icon name="x" size={10} />
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+
+        {/* Textarea */}
+        <div
+          class={styles.textareaRow}
+          classList={{ [styles.textareaRowCompact]: hasAttachments() }}
+        >
           <textarea
             ref={textareaRef}
             class={styles.textarea}
             value={text()}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder={props.placeholder ?? 'Ask anything... (@ to mention tools, / for commands)'}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder={props.placeholder ?? 'Message Hermes...'}
             disabled={props.disabled}
             rows={1}
           />
         </div>
-        <div class={styles.actions}>
-          <div class={styles.actionsLeft}>
-            <button
-              class={styles.actionBtn}
-              type="button"
-              aria-label="Attach file"
-              disabled={props.disabled}
-            >
-              <Icon name="paperclip" size={16} />
-            </button>
+
+        {/* Toolbar */}
+        <div class={styles.toolbar}>
+          <div class={styles.toolbarLeft}>
+            <Show when={showPaperclip()}>
+              <button
+                class={styles.actionBtn}
+                type="button"
+                aria-label="Attach file"
+                onClick={handleAttach}
+                disabled={props.disabled}
+              >
+                <Icon name="paperclip" size={16} />
+              </button>
+            </Show>
+            <Show when={props.modelSlot}>
+              <div class={styles.modelPill}>{props.modelSlot!(Boolean(props.disabled && !props.isStreaming))}</div>
+            </Show>
+            <WorkspacePicker workspacePath={props.workspacePath} />
           </div>
-          <Show when={canSend()}>
+
+          <Show
+            when={!props.isStreaming}
+            fallback={
+              <button
+                class={styles.stopButton}
+                onClick={props.onStop}
+                type="button"
+                aria-label="Stop generation"
+              >
+                <span class={styles.stopIcon} />
+                <span>Stop</span>
+              </button>
+            }
+          >
             <button
               class={styles.sendButton}
+              classList={{ [styles.sendButtonDisabled]: !canSend() }}
               onClick={handleSend}
               type="button"
               aria-label="Send message"
+              disabled={!canSend()}
             >
-              <Icon name="send" size={16} />
+              <Icon name="send" size={14} />
             </button>
           </Show>
         </div>

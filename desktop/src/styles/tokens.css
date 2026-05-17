@@ -118,6 +118,28 @@
   --z-modal: 400;
   --z-toast: 500;
 
+  /* --- Conversation: Code Blocks --- */
+  --color-code-block-bg: #30302e;
+  --color-code-block-header: #3e3e3b;
+
+  /* --- Conversation: Callout Boxes --- */
+  --color-callout-bg: #fff8f5;
+  --color-callout-border: #f0c4b4;
+
+  /* --- Conversation: Tool Calls --- */
+  --color-tool-active: #c96442;
+  --color-tool-done: #3d8a5e;
+
+  /* --- Conversation: Error --- */
+  --color-error-surface: rgba(181, 51, 51, 0.06);
+
+  /* --- Conversation: Date Separator --- */
+  --color-date-separator: #e8e6dc;
+
+  /* --- Conversation: Message Radius --- */
+  --radius-user-bubble: 12px 12px 2px 12px;
+  --radius-ai-bubble: 12px 12px 12px 2px;
+
   /* --- Diff View Colors --- */
   --diff-addition-color: var(--color-success);
   --diff-deletion-color: var(--color-error);
