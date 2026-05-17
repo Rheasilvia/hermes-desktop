@@ -19,9 +19,11 @@ import { MessageInput } from './MessageInput.js';
 import { StreamingIndicator } from './StreamingIndicator.js';
 import { ModelSelector } from './ModelSelector.js';
 import { ChatToolbar } from './ChatToolbar.js';
-import { WorkspaceBanner } from './WorkspaceBanner.js';
 import { DiffPanel } from '@/features/diff/DiffPanel.js';
-import { AsciiBanner } from '@/ui/organisms/AsciiBanner';
+import { EmptyChatState } from './EmptyChatState.js';
+import { ErrorBanner } from './ErrorBanner.js';
+import { ToolCallPanel } from './ToolCallPanel.js';
+import { liveToRow } from './toolCallMappers.js';
 import styles from './ChatView.module.css';
 
 interface ChatViewProps {
@@ -45,11 +47,43 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const isEmpty = createMemo(() => messages().length === 0);
 
+  function computeDateSeparators(msgs: RenderedMessage[]): Map<number, string> {
+    const separators = new Map<number, string>();
+    let lastDay: string | null = null;
+    for (let i = 0; i < msgs.length; i++) {
+      const ts = msgs[i].timestamp;
+      if (ts == null) continue;
+      const day = new Date(ts * 1000).toDateString();
+      if (day !== lastDay) {
+        separators.set(i, formatDateLabel(ts));
+        lastDay = day;
+      }
+    }
+    return separators;
+  }
+
+  function formatDateLabel(ts: number): string {
+    const date = new Date(ts * 1000);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === today.toDateString()) return 'Today';
+    if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  const dateSeparators = createMemo(() => computeDateSeparators(messages()));
+
   createEffect(() => {
     const msgs = messages();
     if (msgs.length > 0) {
       scrollToBottom();
     }
+  });
+
+  createEffect(() => {
+    const path = workspacePath();
+    diffStore.setWorkspacePath(path);
   });
 
   const scrollToBottom = () => {
@@ -58,7 +92,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     });
   };
 
-  const handleSend = async (text: string) => {
+  const handleSend = async (text: string, _attachments?: any[]) => {
     chatStore.appendUserMessage(sessionId(), text);
     await chatStore.sendMessage(sessionId(), text);
   };
@@ -184,43 +218,49 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     <div class={styles.chatView}>
       <ChatToolbar
         workspacePath={workspacePath()}
+        sessionTitle={sessionStore.activeSession?.title}
         splitScreenActive={diffStore.isDiffOpen()}
         onToggleSplitScreen={() => diffStore.toggleDiff()}
-        modelSelectorSlot={<ModelSelector />}
       />
 
       <Show when={error()}>
-        <div class={styles.errorBanner}>{error()}</div>
+        <ErrorBanner
+          message={error()!}
+          onRetry={() => handleSend('')}
+          onDismiss={() => { chatStore.clearError(sessionId()); }}
+        />
       </Show>
 
       <div class={styles.chatBody} ref={chatBodyRef}>
         <div class={styles.chatPane}>
           <Switch>
             <Match when={isEmpty()}>
-              <div class={styles.emptyState}>
-                <AsciiBanner class={styles.emptyBanner} />
-                <div class={styles.emptyTitle}>Start a conversation</div>
-                <div class={styles.emptyDescription}>
-                  Send a message to begin chatting with Hermes. You can ask questions, run commands,
-                  search the web, and more.
-                </div>
-              </div>
+              <EmptyChatState onSuggestionClick={(idx) => {
+                const suggestions = ['Debug my code', 'Review my PR', 'Plan a feature'];
+                handleSend(suggestions[idx] ?? '');
+              }} />
             </Match>
             <Match when={true}>
               <div class={styles.messageList}>
                 <For each={messages()}>
-                  {(message) => <MessageBubble message={message} />}
+                  {(message, getIndex) => {
+                    const idx = getIndex();
+                    return (
+                      <MessageBubble
+                        message={message}
+                        showDateSeparator={dateSeparators().has(idx)}
+                        dateSeparatorLabel={dateSeparators().get(idx)}
+                      />
+                    );
+                  }}
                 </For>
                 <Show when={liveState().activeTools.length > 0}>
-                  <For each={liveState().activeTools}>
-                    {(tool) => (
-                      <div style={{ "margin-bottom": "var(--space-4)" }}>
-                        {tool.name}
-                      </div>
-                    )}
-                  </For>
+                  <ToolCallPanel
+                    rows={liveState().activeTools.map(liveToRow)}
+                    isLive={true}
+                  />
                 </Show>
-                <Show when={isStreaming()}>
+                <Show when={isStreaming() && liveState().activeTools.length === 0}>
                   <StreamingIndicator />
                 </Show>
                 <div ref={messagesEndRef} />
@@ -228,11 +268,13 @@ export const ChatView: Component<ChatViewProps> = (props) => {
             </Match>
           </Switch>
 
-          <WorkspaceBanner workspacePath={workspacePath()} />
-
           <MessageInput
             onSend={handleSend}
+            onStop={() => chatStore.cancelMessage(sessionId())}
             disabled={isStreaming()}
+            isStreaming={isStreaming()}
+            modelSlot={(dimmed) => <ModelSelector dimmed={dimmed} />}
+            workspacePath={workspacePath()}
           />
         </div>
 

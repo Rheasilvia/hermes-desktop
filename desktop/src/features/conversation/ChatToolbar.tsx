@@ -5,6 +5,7 @@ import styles from './ChatToolbar.module.css';
 
 interface ChatToolbarProps {
   workspacePath: string | null;
+  sessionTitle?: string;
   splitScreenActive: boolean;
   onToggleSplitScreen: () => void;
   modelSelectorSlot?: any;
@@ -14,11 +15,7 @@ export const ChatToolbar: Component<ChatToolbarProps> = (props) => {
   return (
     <div class={styles.toolbar}>
       <div class={styles.toolbarLeft}>
-        {props.workspacePath && (
-          <span class={styles.workspacePath} title={props.workspacePath}>
-            {props.workspacePath}
-          </span>
-        )}
+        <span class={styles.sessionTitle}>{props.sessionTitle ?? 'New Conversation'}</span>
       </div>
       <div class={styles.toolbarRight}>
         {props.modelSelectorSlot}

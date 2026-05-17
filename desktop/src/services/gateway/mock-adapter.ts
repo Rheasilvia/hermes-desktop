@@ -134,6 +134,7 @@ const MOCK_SESSIONS: SessionListItem[] = [
     message_count: 12,
     tool_call_count: 5,
     last_message: 'The issue was with the event loop not being properly awaited...',
+    workspace_path: '/home/dev/project',
   },
   {
     id: 'sess_def456',
@@ -143,6 +144,7 @@ const MOCK_SESSIONS: SessionListItem[] = [
     message_count: 28,
     tool_call_count: 14,
     last_message: 'We should use the adapter pattern for the new module...',
+    workspace_path: '/home/dev/hermes',
   },
   {
     id: 'sess_ghi789',
@@ -152,8 +154,12 @@ const MOCK_SESSIONS: SessionListItem[] = [
     message_count: 7,
     tool_call_count: 2,
     last_message: 'LGTM! Just a few nits about naming conventions.',
+    workspace_path: null,
   },
 ];
+
+// Dynamically created sessions (not in static MOCK_SESSIONS)
+const dynamicSessions: SessionListItem[] = [];
 
 function createMockSessionMeta(id: string, model: string, workspace_path?: string | null): SessionMeta {
   return {
@@ -416,7 +422,7 @@ export class MockGatewayAdapter implements GatewayAdapter {
     this.session = {
       list: async (): Promise<SessionListItem[]> => {
         await delay(this.delayMin, this.delayMax);
-        return [...MOCK_SESSIONS];
+        return [...MOCK_SESSIONS, ...dynamicSessions];
       },
       info: async (sessionId: string): Promise<SessionInfoPayload> => {
         await delay(this.delayMin, this.delayMax);
@@ -438,7 +444,17 @@ export class MockGatewayAdapter implements GatewayAdapter {
       create: async (params): Promise<SessionMeta> => {
         await delay(this.delayMin, this.delayMax);
         const id = `sess_${generateId()}`;
-        return createMockSessionMeta(id, params.model ?? 'anthropic/claude-opus-4.5', params.workspace_path);
+        const meta = createMockSessionMeta(id, params.model ?? 'anthropic/claude-opus-4.5', params.workspace_path);
+        dynamicSessions.push({
+          id,
+          title: meta.title ?? 'New Session',
+          model: meta.model,
+          started_at: meta.started_at,
+          message_count: 0,
+          tool_call_count: 0,
+          workspace_path: meta.workspace_path,
+        });
+        return meta;
       },
       delete: async (sessionId: string): Promise<void> => {
         await delay(this.delayMin, this.delayMax);

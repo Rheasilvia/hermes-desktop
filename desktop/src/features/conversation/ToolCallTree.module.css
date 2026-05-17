@@ -1,0 +1,115 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.header {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--color-on-surface-dim);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.rowContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.rowMain {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.connector {
+  color: var(--color-border);
+  font-size: 13px;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  line-height: 1;
+  padding-top: 1px;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background-color: var(--color-tool-active);
+}
+
+.statusDot.active {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.statusIcon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.completeIcon {
+  color: var(--color-tool-done);
+}
+
+.errorIcon {
+  color: var(--color-error);
+}
+
+.toolName {
+  font-weight: 600;
+  color: var(--color-on-surface);
+  white-space: nowrap;
+}
+
+.toolName.active {
+  color: var(--color-tool-active);
+}
+
+.argumentPreview {
+  color: var(--color-on-surface-muted);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.duration {
+  color: var(--color-on-surface-dim);
+  font-size: 11px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.resultSummary {
+  color: var(--color-on-surface-dim);
+  font-size: 11px;
+  padding-left: 24px;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}

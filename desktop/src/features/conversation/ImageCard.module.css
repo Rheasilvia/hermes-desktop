@@ -1,0 +1,36 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.frame {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-border);
+}
+
+.image {
+  max-height: 300px;
+  width: 100%;
+  object-fit: cover;
+  display: block;
+  cursor: pointer;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 140px;
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-dim);
+}
+
+.caption {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-dim);
+}

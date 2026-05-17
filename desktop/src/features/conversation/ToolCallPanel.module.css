@@ -1,0 +1,27 @@
+.container {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-light);
+  border-radius: 10px;
+  padding: 14px 18px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.collapseButton {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.collapseButton:hover {
+  color: var(--color-on-surface);
+}

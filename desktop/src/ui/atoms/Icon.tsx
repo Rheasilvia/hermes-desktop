@@ -61,6 +61,14 @@ import {
   Leaf,
   Eye,
   EyeOff,
+  Image,
+  Download,
+  ExternalLink,
+  File,
+  FileCode,
+  ArrowUp,
+  GitPullRequest,
+  Lightbulb,
 } from 'lucide-solid';
 
 export type IconName =
@@ -123,7 +131,15 @@ export type IconName =
   | 'save'
   | 'leaf'
   | 'eye'
-  | 'eye-off';
+  | 'eye-off'
+  | 'image'
+  | 'download'
+  | 'external-link'
+  | 'file'
+  | 'file-code'
+  | 'arrow-up'
+  | 'git-pull-request'
+  | 'lightbulb';
 
 interface IconProps {
   name: IconName;
@@ -193,6 +209,14 @@ const LUCIDE_ICONS: Record<IconName, Component<{ size?: number; strokeWidth?: nu
   'leaf': Leaf,
   'eye': Eye,
   'eye-off': EyeOff,
+  'image': Image,
+  'download': Download,
+  'external-link': ExternalLink,
+  'file': File,
+  'file-code': FileCode,
+  'arrow-up': ArrowUp,
+  'git-pull-request': GitPullRequest,
+  'lightbulb': Lightbulb,
 };
 
 export const Icon: Component<IconProps> = (props) => {

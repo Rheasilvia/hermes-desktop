@@ -28,3 +28,6 @@ export { BrailleSpinner } from './BrailleSpinner.js';
 
 export { Tooltip } from './Tooltip.js';
 export type { TooltipProps } from './Tooltip.js';
+
+export { Avatar } from './Avatar.js';
+export { HermesAvatar } from './HermesAvatar.js';
