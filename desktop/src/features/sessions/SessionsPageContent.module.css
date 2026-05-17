@@ -1,0 +1,10 @@
+.page {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.rightPanel {
+  flex: 1;
+  overflow: hidden;
+}

@@ -1,6 +1,6 @@
 import { Component } from 'solid-js';
-import { ModuleLayout } from '@/layouts/ModuleLayout';
-import { PluginsView } from '@/modules/plugins/PluginsView.js';
+import { ModuleLayout } from '@/shell/ModuleLayout';
+import { PluginsView } from '@/features/plugins/PluginsView.js';
 
 export const PluginsPage: Component = () => (
   <ModuleLayout

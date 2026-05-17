@@ -1,6 +1,6 @@
 import { Component } from 'solid-js';
-import { ModuleLayout } from '@/layouts/ModuleLayout';
-import { SkillsView } from '@/modules/skills/SkillsView.js';
+import { ModuleLayout } from '@/shell/ModuleLayout';
+import { SkillsView } from '@/features/skills/SkillsView.js';
 
 export const SkillsPage: Component = () => (
   <ModuleLayout title="Skills" description="Manage agent skills">
