@@ -19,6 +19,8 @@ interface MessageInputProps {
   placeholder?: string;
   modelSlot?: (dimmed: boolean) => any;
   workspacePath?: string | null;
+  isNewConversation?: boolean;
+  onWorkspaceChange?: (path: string) => void;
 }
 
 function formatFileSize(bytes: number): string {
@@ -163,7 +165,12 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
             <Show when={props.modelSlot}>
               <div class={styles.modelPill}>{props.modelSlot!(Boolean(props.disabled && !props.isStreaming))}</div>
             </Show>
-            <WorkspacePicker workspacePath={props.workspacePath} />
+            <WorkspacePicker
+              workspacePath={props.workspacePath}
+              editable={props.isNewConversation}
+              disabled={!props.isNewConversation}
+              onChange={props.onWorkspaceChange}
+            />
           </div>
 
           <Show

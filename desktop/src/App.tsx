@@ -8,7 +8,6 @@ import { initializeStores } from '@/stores/context.js';
 import { createMockGateway } from '@/services/gateway/index.js';
 import { initBootstrap } from '@/shell/bootstrap.js';
 
-const WelcomePage = lazy(() => import('@/pages/WelcomePage'));
 const ConversationPage = lazy(() => import('@/pages/ConversationPage'));
 const SessionsPage = lazy(() => import('@/pages/SessionsPage'));
 const SessionDetailPage = lazy(() => import('@/pages/SessionDetailPage'));
@@ -39,9 +38,6 @@ const App: Component = () => {
 
   return (
     <Router root={AppLayout}>
-      <Route path="/" component={() => (
-        <ModuleSuspense moduleName="Welcome"><WelcomePage /></ModuleSuspense>
-      )} />
       <Route path="/conversation/:id" component={() => (
         <ModuleSuspense moduleName="Conversation"><ConversationPage /></ModuleSuspense>
       )} />

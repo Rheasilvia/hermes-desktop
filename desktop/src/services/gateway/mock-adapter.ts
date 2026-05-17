@@ -134,7 +134,7 @@ const MOCK_SESSIONS: SessionListItem[] = [
     message_count: 12,
     tool_call_count: 5,
     last_message: 'The issue was with the event loop not being properly awaited...',
-    workspace_path: '/home/dev/project',
+    workspace_path: '~/HermesWorkspace',
   },
   {
     id: 'sess_def456',

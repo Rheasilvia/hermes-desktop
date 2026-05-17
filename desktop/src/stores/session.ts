@@ -28,6 +28,20 @@ export const sessionStore = {
     setActiveSessionId(id);
   },
 
+  getLastWorkspace(): string | undefined {
+    const all = sessions();
+    for (const s of all) {
+      if (s.workspace_path) return s.workspace_path;
+    }
+    return undefined;
+  },
+
+  updateWorkspace(sessionId: string, workspacePath: string) {
+    setSessions(prev => prev.map(s =>
+      s.id === sessionId ? { ...s, workspace_path: workspacePath } : s
+    ));
+  },
+
   async loadSessions(): Promise<void> {
     const gateway = getGateway();
     if (!gateway) {
@@ -52,7 +66,11 @@ export const sessionStore = {
     setIsLoading(true);
     setError(null);
     try {
-      const meta = await gateway.session.create(params);
+      const resolvedParams = {
+        ...params,
+        workspace_path: params.workspace_path ?? this.getLastWorkspace() ?? '~/HermesWorkspace',
+      };
+      const meta = await gateway.session.create(resolvedParams);
       await this.loadSessions();
       setActiveSessionId(meta.id);
       return meta;

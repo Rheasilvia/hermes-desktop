@@ -2,6 +2,7 @@ import { Component, For, Show } from 'solid-js';
 import { A, useLocation, useNavigate } from '@solidjs/router';
 import { ROUTES } from '@/routes';
 import { sessionStore } from '@/stores/session.js';
+import { chatStore } from '@/stores/chat.js';
 import { Icon } from '@/ui/atoms/Icon';
 import { HermesLogo } from '@/ui/organisms/HermesLogo';
 import styles from './Sidebar.module.css';
@@ -56,8 +57,35 @@ export const Sidebar: Component = () => {
     return location.pathname === `/conversation/${sessionId}`;
   };
 
-  const handleNewConversation = () => {
-    navigate(ROUTES.HOME);
+  const handleNewConversation = async () => {
+    try {
+      const meta = await sessionStore.createSession({});
+      if (meta) {
+        navigate(`/conversation/${meta.id}`);
+      }
+    } catch {
+      // silently ignore errors
+    }
+  };
+
+  const handleDeleteSession = async (id: string, e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const wasActive = location.pathname === `/conversation/${id}`;
+    await sessionStore.deleteSession(id);
+    if (wasActive) {
+      const remaining = sessionStore.sessions;
+      if (remaining.length > 0) {
+        navigate(`/conversation/${remaining[0].id}`);
+      } else {
+        try {
+          const meta = await sessionStore.createSession({});
+          if (meta) navigate(`/conversation/${meta.id}`);
+        } catch {
+          // silently ignore
+        }
+      }
+    }
   };
 
   const recentSessions = () => {
@@ -87,14 +115,28 @@ export const Sidebar: Component = () => {
             <span class={styles.groupLabel}>Conversations</span>
             <For each={recentSessions()}>
               {(session) => (
-                <A
-                  href={`/conversation/${session.id}`}
-                  class={`${styles.navItem} ${isConversationActive(session.id) ? styles.active : ''}`}
-                  title={session.title || 'Untitled conversation'}
-                >
-                  <Icon name="message-square" size={14} />
-                  <span class={styles.navLabel}>{session.title || 'Untitled'}</span>
-                </A>
+                <div class={`${styles.navItem} ${styles.navItemWithDelete} ${isConversationActive(session.id) ? styles.active : ''}`}>
+                  <A
+                    href={`/conversation/${session.id}`}
+                    class={styles.navItemLink}
+                    title={session.title || 'Untitled conversation'}
+                  >
+                    <span classList={{
+                      [styles.statusDot]: true,
+                      [styles.statusDotActive]: chatStore.isStreaming(session.id),
+                    }} />
+                    <span class={styles.navLabel}>{session.title || 'Untitled'}</span>
+                  </A>
+                  <button
+                    type="button"
+                    class={styles.deleteBtn}
+                    onClick={(e) => handleDeleteSession(session.id, e)}
+                    aria-label={`Delete ${session.title || 'Untitled conversation'}`}
+                    title="Delete conversation"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </div>
               )}
             </For>
             <A
