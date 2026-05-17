@@ -66,20 +66,22 @@ State management uses SolidJS `createSignal` in module-level stores under `src/s
 - `ui.ts` — sidebar, theme, connection state (persists to localStorage)
 - `models.ts` — model state, active provider/model selection
 - `analytics.ts` — usage statistics, cost tracking, period management
+- `cron.ts` — scheduled job management
 
 ### Application Shell
 
 - `src/index.tsx` — entry point
 - `src/App.tsx` — root component with `@solidjs/router`, lazy-loaded pages, and `AppLayout`
-- `src/layouts/AppLayout.tsx` — main shell (sidebar + content area)
+- `src/shell/AppLayout.tsx` — main shell (sidebar + content area)
+- `src/shell/bootstrap.ts` — initialization logic (theme, settings, sidecar)
 - `src/routes.ts` — route path constants
 
 Pages are lazy-loaded with `Suspense` and wrapped in `ModuleErrorBoundary`.
 
 ### Feature Modules
 
-Each major feature lives in `src/modules/<feature>/` containing view components and CSS modules:
-- `chat/` — streaming chat interface, message bubbles, input, tool call rendering
+Each major feature lives in `src/features/<feature>/` containing view components and CSS modules:
+- `conversation/` — streaming chat interface, message bubbles, input, tool call rendering
 - `sessions/` — session list, cards, detail views
 - `settings/` — settings tabs (General, Agent, Security, Memory, Voice, Browser, YAML)
 - `model/` — model selection, provider management, **usage analytics dashboard**
@@ -91,14 +93,20 @@ Each major feature lives in `src/modules/<feature>/` containing view components 
 
 #### Analytics Module
 
-The `model/` module now includes comprehensive usage analytics:
+The `model/` feature now includes comprehensive usage analytics:
 - **ModelUsageView** — main analytics dashboard with period selection (7/30/90 days)
 - **ModelUsageCard** — individual model statistics with session counts, token usage, costs
 - **UsageSummaryBar** - aggregated totals across all models with period switching
 - Data includes: session counts, input/output tokens, costs, last used timestamps, model capabilities
 - Integrates with `analyticsStore` for state management and API communication
 
-### Design System and Theming
+### UI Components and Design System
+
+UI components follow Atomic Design in `src/ui/`:
+- `ui/atoms/` — minimal primitives (Button, Input, Select, Toggle, Badge, Pill, Icon, LoadingSpinner, etc.)
+- `ui/molecules/` — composed components (Card, Modal, Tabs, Toast, SearchInput, EmptyState)
+- `ui/organisms/` — complex visual components (AsciiBanner, HermesLogo)
+- `shell/` — app-level components (AppLayout, Sidebar, CommandPalette, StatusBar, TitleBar)
 
 Styles use CSS Modules for components and global CSS custom properties for the design system (`src/styles/tokens.css`). Three themes (`light`, `dark`, `earth`) are toggled via the `data-theme` attribute on `<html>`. The default theme is `earth`. Typography uses Newsreader (serif headings), Inter (body), and IBM Plex Mono (code). See `DESIGN.md` for the full design specification.
 

@@ -1,6 +1,6 @@
 import { Component } from 'solid-js';
-import { ModuleLayout } from '@/layouts/ModuleLayout';
-import { MemoryView } from '@/modules/memory/MemoryView.js';
+import { ModuleLayout } from '@/shell/ModuleLayout';
+import { MemoryView } from '@/features/memory/MemoryView.js';
 
 export const MemoryPage: Component = () => (
   <ModuleLayout title="Memory" description="Persistent memory and user profiles">
