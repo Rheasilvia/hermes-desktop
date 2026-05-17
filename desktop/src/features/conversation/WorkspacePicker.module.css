@@ -21,12 +21,20 @@
   background: #e8e6dc;
 }
 
+.pillDisabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pillDisabled:hover {
+  background: #f0eee6;
+}
+
 .pill span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
+  max-width: 140px;
 }
 
 .popover {

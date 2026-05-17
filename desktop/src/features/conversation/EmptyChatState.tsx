@@ -2,6 +2,7 @@ import type { Component } from 'solid-js';
 import type { IconName } from '@/ui/atoms/Icon.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { HermesAvatar } from '@/ui/atoms/HermesAvatar.js';
+import { AsciiBanner } from '@/ui/organisms/AsciiBanner.js';
 import styles from './EmptyChatState.module.css';
 
 export interface SuggestionCard {
@@ -26,6 +27,7 @@ export const EmptyChatState: Component<EmptyChatStateProps> = (props) => {
 
   return (
     <div class={styles.wrapper}>
+      <AsciiBanner class={styles.banner} />
       <HermesAvatar size={52} />
       <h2 class={styles.heading}>How can I help you today?</h2>
       <p class={styles.subtitle}>Ask anything about your codebase, tasks, or ideas.</p>

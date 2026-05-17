@@ -5,6 +5,9 @@ import styles from './WorkspacePicker.module.css';
 
 interface WorkspacePickerProps {
   workspacePath: string | null | undefined;
+  editable?: boolean;
+  disabled?: boolean;
+  onChange?: (path: string) => void;
 }
 
 export const WorkspacePicker: Component<WorkspacePickerProps> = (props) => {
@@ -18,7 +21,29 @@ export const WorkspacePicker: Component<WorkspacePickerProps> = (props) => {
     return normalized.split('/').pop() || path;
   };
 
-  const toggle = () => setOpen(!open());
+  const isDisabled = () => props.disabled ?? false;
+  const isEditable = () => (props.editable ?? false) && !isDisabled();
+
+  const handleClick = async () => {
+    if (isDisabled()) return;
+
+    if (isEditable()) {
+      try {
+        const { open: openDialog } = await import('@tauri-apps/plugin-dialog');
+        const selected = await openDialog({
+          directory: true,
+          title: 'Select Workspace',
+        });
+        if (selected && typeof selected === 'string') {
+          props.onChange?.(selected);
+        }
+      } catch {
+        // dialog plugin may not be available
+      }
+    } else {
+      setOpen(!open());
+    }
+  };
 
   const handleClickOutside = (e: MouseEvent) => {
     if (!pillRef || !pillRef.contains(e.target as Node)) {
@@ -37,15 +62,19 @@ export const WorkspacePicker: Component<WorkspacePickerProps> = (props) => {
   return (
     <Show when={workspaceName()}>
       <button
-        class={styles.pill}
+        classList={{
+          [styles.pill]: true,
+          [styles.pillDisabled]: isDisabled(),
+        }}
         ref={(el) => { pillRef = el; }}
-        onClick={toggle}
+        onClick={handleClick}
         type="button"
-        aria-label="Show full workspace path"
+        disabled={isDisabled()}
+        aria-label={isEditable() ? 'Change workspace folder' : 'Show full workspace path'}
       >
         <Icon name="folder-open" size={10} />
         <span>{workspaceName()}</span>
-        <Show when={open()}>
+        <Show when={!isEditable() && open()}>
           <div class={styles.popover}>
             <div class={styles.popoverContent}>
               <Icon name="folder-open" size={12} />

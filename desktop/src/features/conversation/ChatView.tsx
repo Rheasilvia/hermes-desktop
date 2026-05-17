@@ -275,6 +275,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
             isStreaming={isStreaming()}
             modelSlot={(dimmed) => <ModelSelector dimmed={dimmed} />}
             workspacePath={workspacePath()}
+            isNewConversation={isEmpty()}
+            onWorkspaceChange={(path) => {
+              const sid = sessionId();
+              if (sid) sessionStore.updateWorkspace(sid, path);
+            }}
           />
         </div>
 

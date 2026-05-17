@@ -19,12 +19,21 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
   const location = useLocation();
   const [initializing, setInitializing] = createSignal(true);
 
+  const handleNewSession = async () => {
+    try {
+      const meta = await sessionStore.createSession({});
+      if (meta) {
+        navigate(`/conversation/${meta.id}`);
+      }
+    } catch {
+      // silently ignore errors
+    }
+  };
+
   const paletteActions = (): PaletteAction[] =>
     buildDefaultActions({
       onNavigate: (route: string) => navigate(route),
-      onNewSession: () => {
-        navigate('/');
-      },
+      onNewSession: handleNewSession,
       onToggleSidebar: () => uiStore.toggleSidebar(),
       onCompressContext: () => {},
       onClearHistory: () => {},
@@ -35,9 +44,7 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
     initKeyboardShortcuts({
       onToggleSidebar: () => uiStore.toggleSidebar(),
       onNavigate: (route: string) => navigate(route),
-      onNewSession: () => {
-        navigate('/');
-      },
+      onNewSession: handleNewSession,
       onToggleCommandPalette: () => {},
     });
 
@@ -46,20 +53,32 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
     const sessions = sessionStore.sessions;
     const isHome = location.pathname === '/' || location.pathname === '';
 
-    if (sessions.length > 0 && isHome) {
-      try {
-        const state = await loadState();
-        const lastSessionId = state.last_session_id;
-        if (lastSessionId && sessions.some((s) => s.id === lastSessionId)) {
-          navigate(`/conversation/${lastSessionId}`, { replace: true });
-          setInitializing(false);
-          return;
+    if (isHome) {
+      if (sessions.length > 0) {
+        try {
+          const state = await loadState();
+          const lastSessionId = state.last_session_id;
+          if (lastSessionId && sessions.some((s) => s.id === lastSessionId)) {
+            navigate(`/conversation/${lastSessionId}`, { replace: true });
+            setInitializing(false);
+            return;
+          }
+        } catch {
+          // state load failed, fall through
         }
-      } catch {
-        // state load failed, fall through
+        const mostRecent = sessions[0];
+        navigate(`/conversation/${mostRecent.id}`, { replace: true });
+      } else {
+        // No sessions exist — auto-create one
+        try {
+          const meta = await sessionStore.createSession({});
+          if (meta) {
+            navigate(`/conversation/${meta.id}`, { replace: true });
+          }
+        } catch {
+          // silently ignore
+        }
       }
-      const mostRecent = sessions[0];
-      navigate(`/conversation/${mostRecent.id}`, { replace: true });
     }
 
     setInitializing(false);
