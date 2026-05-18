@@ -12,6 +12,7 @@
 import type { ConversationMessage, ParsedToolCall } from '../types/domain/message.js';
 import type {
   MessageBlock, TextBlock, CodeBlock, ReasoningBlock, ToolCallBlock,
+  RichContentBlock, RichContentKind,
 } from '../types/ui/blocks.js';
 import type { RenderedMessage } from '../types/ui/message.js';
 
@@ -20,9 +21,17 @@ function nextId(): string {
   return `b${++_blockIdCounter}`;
 }
 
-/** Split a markdown string into TextBlock / CodeBlock segments. */
-export function parseBlocks(content: string): Array<TextBlock | CodeBlock> {
-  const blocks: Array<TextBlock | CodeBlock> = [];
+const RICH_LANG_MAP: Record<string, RichContentKind> = {
+  rich_chart: 'chart',
+  rich_web_search: 'web_search',
+  rich_image: 'image',
+  rich_file: 'file',
+  rich_image_text: 'image_text',
+};
+
+/** Split a markdown string into TextBlock / CodeBlock / RichContentBlock segments. */
+export function parseBlocks(content: string): Array<TextBlock | CodeBlock | RichContentBlock> {
+  const blocks: Array<TextBlock | CodeBlock | RichContentBlock> = [];
   // Match fenced code blocks: ```[lang][space][filename?]\n...\n```
   const fenceRe = /```([^\n`]*)\n([\s\S]*?)```/g;
   let lastIndex = 0;
@@ -36,6 +45,17 @@ export function parseBlocks(content: string): Array<TextBlock | CodeBlock> {
 
     const meta = match[1].trim();
     const [langPart, filenamePart] = meta.split(/\s+/, 2);
+
+    const richKind = RICH_LANG_MAP[langPart];
+    if (richKind) {
+      try {
+        const data = JSON.parse(match[2].trim()) as unknown;
+        blocks.push({ type: 'rich_content', id: nextId(), kind: richKind, data });
+        lastIndex = match.index + match[0].length;
+        continue;
+      } catch { /* fall through to CodeBlock */ }
+    }
+
     blocks.push({
       type: 'code',
       id: nextId(),

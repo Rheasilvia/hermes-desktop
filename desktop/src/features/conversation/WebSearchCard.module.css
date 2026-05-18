@@ -23,13 +23,13 @@
 }
 
 .itemTitle {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--color-on-surface);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
 }
 
 .snippet {
-  font-size: var(--text-xs);
+  font-size: 12px;
   color: var(--color-on-surface-muted);
   line-height: 1.4;
 }

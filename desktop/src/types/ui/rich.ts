@@ -28,8 +28,17 @@ export interface WebSearchResult {
 export interface ImageContent {
   url: string;
   altText: string | null;
+  caption?: string;
   width?: number;
   height?: number;
+}
+
+export interface ImageTextContent {
+  url: string;
+  altText: string | null;
+  title: string;
+  body: string;
+  tags?: string[];
 }
 
 export interface FileContent {

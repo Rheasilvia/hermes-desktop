@@ -13,8 +13,8 @@ export const WebSearchCard: Component<WebSearchCardProps> = (props) => {
       <For each={props.data.results}>
         {(item) => (
           <div class={styles.item}>
-            <span class={styles.url}>{item.url}</span>
             <span class={styles.itemTitle}>{item.title}</span>
+            <span class={styles.url}>{item.url}</span>
             <span class={styles.snippet}>{item.snippet}</span>
           </div>
         )}
