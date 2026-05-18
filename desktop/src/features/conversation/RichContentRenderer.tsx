@@ -1,9 +1,10 @@
 import type { Component } from 'solid-js';
 import { Switch, Match } from 'solid-js';
-import type { RichContentBlock, ChartData, WebSearchResult, ImageContent, FileContent } from '@/types/index.js';
+import type { RichContentBlock, ChartData, WebSearchResult, ImageContent, ImageTextContent, FileContent } from '@/types/index.js';
 import { ChartCard } from './ChartCard.js';
 import { WebSearchCard } from './WebSearchCard.js';
 import { ImageCard } from './ImageCard.js';
+import { ImageTextCard } from './ImageTextCard.js';
 import { FileAttachmentCard } from './FileAttachmentCard.js';
 
 interface RichContentRendererProps {
@@ -22,7 +23,13 @@ export const RichContentRenderer: Component<RichContentRendererProps> = (props) 
       <Match when={props.block.kind === 'image'}>
         {(() => {
           const img = props.block.data as ImageContent;
-          return <ImageCard url={img.url} altText={img.altText} />;
+          return <ImageCard url={img.url} altText={img.altText} caption={img.caption} />;
+        })()}
+      </Match>
+      <Match when={props.block.kind === 'image_text'}>
+        {(() => {
+          const d = props.block.data as ImageTextContent;
+          return <ImageTextCard url={d.url} altText={d.altText} title={d.title} body={d.body} tags={d.tags} />;
         })()}
       </Match>
       <Match when={props.block.kind === 'file'}>
@@ -34,6 +41,7 @@ export const RichContentRenderer: Component<RichContentRendererProps> = (props) 
               size={file.size}
               mimeType={file.mimeType}
               preview={file.preview}
+              onDownload={() => {}}
             />
           );
         })()}

@@ -79,7 +79,7 @@ export type {
 } from './ui/blocks.js';
 export type {
   ChartData, ChartDataset, WebSearchResult, WebSearchResultItem,
-  ImageContent, FileContent,
+  ImageContent, ImageTextContent, FileContent,
 } from './ui/rich.js';
 export type { RenderedMessage, MessageAction } from './ui/message.js';
 export type { TurnStatus, LiveTurnState, LiveToolCall } from './ui/turn.js';

@@ -47,7 +47,7 @@ export interface ToolCallBlock {
   durationMs: number | null;
 }
 
-export type RichContentKind = 'chart' | 'web_search' | 'image' | 'file';
+export type RichContentKind = 'chart' | 'web_search' | 'image' | 'file' | 'image_text';
 
 export interface RichContentBlock {
   type: 'rich_content';
