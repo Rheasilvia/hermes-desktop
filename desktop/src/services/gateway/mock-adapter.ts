@@ -243,7 +243,7 @@ function createSection02Messages(sessionId: string): SessionMessage[] {
       timestamp: t(590000), token_count: 120, finish_reason: 'stop',
       reasoning: null, reasoning_details: null, codex_reasoning_items: null,
     },
-    // Second exchange: demonstrates error status alongside complete
+    // Second exchange: error + complete statuses
     {
       session_id: sessionId,
       role: 'user',
@@ -263,6 +263,29 @@ function createSection02Messages(sessionId: string): SessionMessage[] {
       ],
       tool_name: null,
       timestamp: t(290000), token_count: 30, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+    // Third exchange: running status (snapshot mid-execution)
+    {
+      session_id: sessionId,
+      role: 'user',
+      content: 'Now check all the test files.',
+      tool_call_id: null, tool_calls: null, tool_name: null,
+      timestamp: t(120000), token_count: 8, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+    {
+      session_id: sessionId,
+      role: 'assistant',
+      content: null,
+      tool_call_id: null,
+      tool_calls: [
+        { id: 'tc_08', status: 'complete', function: { name: 'read_file',   arguments: '{"path":"tests/test_api.py"}' } },
+        { id: 'tc_09', status: 'running',  function: { name: 'read_file',   arguments: '{"path":"tests/test_models.py"}' } },
+        { id: 'tc_10', status: 'running',  function: { name: 'search_code', arguments: '{"query":"assert"}' } },
+      ],
+      tool_name: null,
+      timestamp: t(110000), token_count: 0, finish_reason: 'tool_use',
       reasoning: null, reasoning_details: null, codex_reasoning_items: null,
     },
   ];
@@ -659,7 +682,7 @@ export class MockGatewayAdapter implements GatewayAdapter {
             { id: 'ltc_01', name: 'read_file',   kind: 'complete', summary: '247 lines', duration_s: 0.2 },
             { id: 'ltc_02', name: 'search_code', kind: 'complete', summary: '3 matches',  duration_s: 0.21 },
             { id: 'ltc_03', name: 'read_file',   kind: 'error',    error: 'Permission denied: /src/secrets.py', duration_s: 0.1 },
-            { id: 'ltc_04', name: 'web_search',  kind: 'running',  pauseMs: 900 },
+            { id: 'ltc_04', name: 'web_search',  kind: 'running',  pauseMs: 3000 },
           ];
 
           for (const tc of tools) {

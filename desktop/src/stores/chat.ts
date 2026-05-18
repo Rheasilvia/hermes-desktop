@@ -88,7 +88,7 @@ function sessionMsgToDomain(msg: SessionMessage, sessionId: string): Conversatio
   let toolCalls: ParsedToolCall[] | null = null;
   const rawCalls = msg.tool_calls;
   if (rawCalls && Array.isArray(rawCalls)) {
-    toolCalls = (rawCalls as Array<{ id: string; status?: 'complete' | 'error'; function: { name: string; arguments: string } }>)
+    toolCalls = (rawCalls as Array<{ id: string; status?: 'complete' | 'error' | 'running'; function: { name: string; arguments: string } }>)
       .map((tc) => ({
         id: tc.id,
         name: tc.function.name,
