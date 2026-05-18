@@ -251,6 +251,14 @@ export interface ToolGeneratingPayload {
   text: string;
 }
 
+/** Tool error event payload. */
+export interface ToolErrorPayload {
+  tool_id: string;
+  name: string;
+  error: string;
+  duration_s?: number;
+}
+
 /** Approval request event payload. */
 export interface ApprovalRequestPayload {
   command: string;

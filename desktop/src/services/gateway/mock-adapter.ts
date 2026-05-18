@@ -127,6 +127,26 @@ const MOCK_MCP_SERVERS: McpServer[] = [
 
 const MOCK_SESSIONS: SessionListItem[] = [
   {
+    id: 'sess_verify_01',
+    title: '[Design] 01 — Message Components',
+    model: 'anthropic/claude-opus-4.5',
+    started_at: new Date(Date.now() - 3600000 * 1).toISOString(),
+    message_count: 8,
+    tool_call_count: 0,
+    last_message: 'async def handler(req): return await asyncio.wait_for(...)',
+    workspace_path: '~/HermesWorkspace',
+  },
+  {
+    id: 'sess_verify_02',
+    title: '[Design] 02 — Tool Calls',
+    model: 'anthropic/claude-opus-4.5',
+    started_at: new Date(Date.now() - 3600000 * 2).toISOString(),
+    message_count: 6,
+    tool_call_count: 5,
+    last_message: "I've reviewed the codebase. Here are the performance issues I found.",
+    workspace_path: '~/HermesWorkspace',
+  },
+  {
     id: 'sess_abc123',
     title: 'Debugging Python async issues',
     model: 'anthropic/claude-opus-4.5',
@@ -193,7 +213,147 @@ function createMockSessionMeta(id: string, model: string, workspace_path?: strin
   };
 }
 
+// ─── Design Verification: 02 — Tool Calls ────────────────────────────────────
+// Exercises: Tool Calls Collapsed (initial), Expanded (click "Details ▾"), Streaming (send a message).
+// The 5 tool calls match the design spec exactly: read_file×3, search_code×1, web_search×1.
+function createSection02Messages(sessionId: string): SessionMessage[] {
+  const t = (offsetMs: number) => new Date(Date.now() - offsetMs).toISOString();
+  return [
+    {
+      session_id: sessionId,
+      role: 'user',
+      content: 'Review my async handler and fix any performance issues.',
+      tool_call_id: null, tool_calls: null, tool_name: null,
+      timestamp: t(600000), token_count: 10, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+    {
+      session_id: sessionId,
+      role: 'assistant',
+      content: `I've reviewed the codebase. Here are the performance issues I found:\n\n- \`handle_request\` in \`src/handler.py\` lacks a timeout guard — wraps an unbounded coroutine\n- \`src/utils.py\` calls \`asyncio.sleep(0)\` in a tight loop, which yields unnecessarily\n- Tests in \`tests/test_handler.py\` mock the event loop, masking real latency\n\nRecommendation: wrap the handler with \`asyncio.wait_for(coro, timeout=30)\` and remove the busy-yield in utils.`,
+      tool_call_id: null,
+      tool_calls: [
+        { id: 'tc_01', function: { name: 'read_file',   arguments: '{"path":"src/handler.py"}' } },
+        { id: 'tc_02', function: { name: 'search_code', arguments: '{"query":"handle_request"}' } },
+        { id: 'tc_03', function: { name: 'read_file',   arguments: '{"path":"src/utils.py"}' } },
+        { id: 'tc_04', function: { name: 'read_file',   arguments: '{"path":"tests/test_handler.py"}' } },
+        { id: 'tc_05', function: { name: 'web_search',  arguments: '{"query":"aiohttp install python"}' } },
+      ],
+      tool_name: null,
+      timestamp: t(590000), token_count: 120, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+    // Second exchange: demonstrates error status alongside complete
+    {
+      session_id: sessionId,
+      role: 'user',
+      content: 'Can you also check the secrets config?',
+      tool_call_id: null, tool_calls: null, tool_name: null,
+      timestamp: t(300000), token_count: 10, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+    {
+      session_id: sessionId,
+      role: 'assistant',
+      content: 'I found one accessible config file. The secrets file was permission-denied.',
+      tool_call_id: null,
+      tool_calls: [
+        { id: 'tc_06', status: 'error',    function: { name: 'read_file', arguments: '{"path":"config/secrets.py"}' } },
+        { id: 'tc_07', status: 'complete', function: { name: 'read_file', arguments: '{"path":"config/settings.py"}' } },
+      ],
+      tool_name: null,
+      timestamp: t(290000), token_count: 30, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+  ];
+}
+
+// ─── Design Verification: 01 — Message Components ───────────────────────────
+// Exercises: User bubble, AI plain text, AI markdown (h2+bullets+callout), AI code block.
+function createSection01Messages(sessionId: string): SessionMessage[] {
+  const t = (offsetMs: number) => new Date(Date.now() - offsetMs).toISOString();
+  return [
+    // 1. User Message — dark bubble, right-aligned, [12,12,2,12] corners
+    {
+      session_id: sessionId,
+      role: 'user',
+      content: 'How do I fix this async bug?',
+      tool_call_id: null, tool_calls: null, tool_name: null,
+      timestamp: t(500000), token_count: 14, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+    {
+      session_id: sessionId,
+      role: 'user',
+      content: 'It throws TimeoutError on line 42.',
+      tool_call_id: null, tool_calls: null, tool_name: null,
+      timestamp: t(490000), token_count: 11, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+    // 2. AI Text Message — avatar row (H, Hermes, timestamp) + plain prose
+    {
+      session_id: sessionId,
+      role: 'assistant',
+      content: 'Let me check the handler file to understand the context. The TimeoutError likely comes from the coroutine not having a proper deadline set.',
+      tool_call_id: null, tool_calls: null, tool_name: null,
+      timestamp: t(480000), token_count: 38, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+    // 3. User follow-up
+    {
+      session_id: sessionId,
+      role: 'user',
+      content: 'What exactly is the root cause?',
+      tool_call_id: null, tool_calls: null, tool_name: null,
+      timestamp: t(460000), token_count: 8, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+    // 3. AI Markdown — h2 heading + bullets + inline callout hint
+    {
+      session_id: sessionId,
+      role: 'assistant',
+      content: `## Root Cause Analysis
+
+- The coroutine lacks an explicit timeout guard
+- \`asyncio.wait_for()\` is not wrapping the handler
+- Default timeout resolves to \`None\` (unlimited)
+
+> **Fix:** \`asyncio.wait_for(coro, timeout=30)\``,
+      tool_call_id: null, tool_calls: null, tool_name: null,
+      timestamp: t(440000), token_count: 72, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+    // 4. User asks for code
+    {
+      session_id: sessionId,
+      role: 'user',
+      content: 'Can you show me the corrected handler?',
+      tool_call_id: null, tool_calls: null, tool_name: null,
+      timestamp: t(420000), token_count: 9, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+    // 4. AI Code Block — dark bg #30302e, language label, Copy button, mono font
+    {
+      session_id: sessionId,
+      role: 'assistant',
+      content: `Here is the corrected implementation:
+
+\`\`\`python
+async def handler(req):
+    return await asyncio.wait_for(
+        process(req), timeout=30
+    )
+\`\`\``,
+      tool_call_id: null, tool_calls: null, tool_name: null,
+      timestamp: t(400000), token_count: 55, finish_reason: 'stop',
+      reasoning: null, reasoning_details: null, codex_reasoning_items: null,
+    },
+  ];
+}
+
 function createMockSessionMessages(sessionId: string): SessionMessage[] {
+  if (sessionId === 'sess_verify_02') return createSection02Messages(sessionId);
+  if (sessionId === 'sess_verify_01') return createSection01Messages(sessionId);
   return [
     {
       session_id: sessionId,
@@ -486,6 +646,38 @@ export class MockGatewayAdapter implements GatewayAdapter {
         const sessionId = params.session_id ?? MOCK_SESSIONS[0].id;
 
         this.emit('message.start', { message_id: generateId() });
+
+        // ── Section 02 streaming simulation ──────────────────────────────────
+        // Demonstrates all 3 tool statuses: complete (✓), error (✗), running (●).
+        if (sessionId === 'sess_verify_02') {
+          type MockTool =
+            | { id: string; name: string; kind: 'complete'; summary: string; duration_s: number }
+            | { id: string; name: string; kind: 'error'; error: string; duration_s: number }
+            | { id: string; name: string; kind: 'running'; pauseMs: number };
+
+          const tools: MockTool[] = [
+            { id: 'ltc_01', name: 'read_file',   kind: 'complete', summary: '247 lines', duration_s: 0.2 },
+            { id: 'ltc_02', name: 'search_code', kind: 'complete', summary: '3 matches',  duration_s: 0.21 },
+            { id: 'ltc_03', name: 'read_file',   kind: 'error',    error: 'Permission denied: /src/secrets.py', duration_s: 0.1 },
+            { id: 'ltc_04', name: 'web_search',  kind: 'running',  pauseMs: 900 },
+          ];
+
+          for (const tc of tools) {
+            this.emit('tool.start', { tool_id: tc.id, name: tc.name });
+            if (tc.kind === 'complete') {
+              await delay(200, 300);
+              this.emit('tool.complete', { tool_id: tc.id, name: tc.name, summary: tc.summary, duration_s: tc.duration_s });
+            } else if (tc.kind === 'error') {
+              await delay(150, 200);
+              this.emit('tool.error', { tool_id: tc.id, name: tc.name, error: tc.error, duration_s: tc.duration_s });
+            } else {
+              // running — pause to make the running state visible, then complete
+              await delay(tc.pauseMs, tc.pauseMs + 200);
+              this.emit('tool.complete', { tool_id: tc.id, name: tc.name, summary: '5 results', duration_s: 0.9 });
+            }
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────────
 
         const responseText =
           "I'm currently running in mock mode. In a real session, I'd be processing your message through the Hermes agent with full tool-calling capabilities. The gateway adapter pattern lets the UI stay clean while delegating to the Python backend.";

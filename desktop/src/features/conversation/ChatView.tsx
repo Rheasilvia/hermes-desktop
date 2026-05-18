@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { Show, For, createEffect, onMount, onCleanup, createMemo, createSignal, Switch, Match } from 'solid-js';
+import { Show, For, createEffect, onMount, onCleanup, createMemo, createSignal, Switch, Match, untrack } from 'solid-js';
 import type {
   MessageDeltaPayload,
   MessageCompletePayload,
@@ -7,6 +7,7 @@ import type {
   ToolProgressPayload,
   ToolCompletePayload,
   ToolGeneratingPayload,
+  ToolErrorPayload,
   ReasoningDeltaPayload,
 } from '@/types/gateway.js';
 import type { RenderedMessage } from '@/types/index.js';
@@ -125,6 +126,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     chatStore.handleToolGenerating(sessionId(), payload);
   };
 
+  const onToolError = (payload: ToolErrorPayload) => {
+    chatStore.handleToolError(sessionId(), payload);
+  };
+
   const handleDragStart = (e: MouseEvent) => {
     e.preventDefault();
     setDragging(true);
@@ -183,10 +188,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     document.addEventListener('mouseup', onUp);
   };
 
+  createEffect(() => {
+    const sid = sessionId();
+    if (!sid) return;
+    sessionStore.setActiveSession(sid);
+    untrack(() => { void chatStore.loadMessages(sid); });
+  });
+
   onMount(() => {
-    if (!props.sessionId) return;
-    sessionStore.setActiveSession(props.sessionId);
-    diffStore.setWorkspacePath(workspacePath());
     const gateway = getGateway();
     if (!gateway) return;
 
@@ -197,8 +206,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     gateway.on('tool.progress', onToolProgress);
     gateway.on('tool.complete', onToolComplete);
     gateway.on('tool.generating', onToolGenerating);
-
-    void chatStore.loadMessages(sessionId());
+    gateway.on('tool.error', onToolError);
   });
 
   onCleanup(() => {
@@ -212,6 +220,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     gateway.off('tool.progress', onToolProgress);
     gateway.off('tool.complete', onToolComplete);
     gateway.off('tool.generating', onToolGenerating);
+    gateway.off('tool.error', onToolError);
   });
 
   return (

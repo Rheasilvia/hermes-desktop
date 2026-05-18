@@ -12,6 +12,7 @@ import type {
   ToolProgressPayload,
   ToolCompletePayload,
   ToolGeneratingPayload,
+  ToolErrorPayload,
 } from '@/types/gateway.js';
 import type { SessionMessage } from '@/types/session.js';
 import type { RenderedMessage } from '@/types/ui/message.js';
@@ -87,10 +88,11 @@ function sessionMsgToDomain(msg: SessionMessage, sessionId: string): Conversatio
   let toolCalls: ParsedToolCall[] | null = null;
   const rawCalls = msg.tool_calls;
   if (rawCalls && Array.isArray(rawCalls)) {
-    toolCalls = (rawCalls as Array<{ id: string; function: { name: string; arguments: string } }>)
+    toolCalls = (rawCalls as Array<{ id: string; status?: 'complete' | 'error'; function: { name: string; arguments: string } }>)
       .map((tc) => ({
         id: tc.id,
         name: tc.function.name,
+        status: tc.status,
         arguments: (() => {
           try { return JSON.parse(tc.function.arguments) as Record<string, unknown>; }
           catch { return { raw: tc.function.arguments }; }
@@ -275,6 +277,20 @@ export const chatStore = {
           t.id === payload.tool_id
             ? { ...t, status: 'generating', inputPreview: (t.inputPreview ?? '') + payload.text }
             : t
+        ),
+      },
+    }));
+  },
+
+  handleToolError(sessionId: string, payload: ToolErrorPayload): void {
+    const durationMs = payload.duration_s != null ? Math.round(payload.duration_s * 1000) : null;
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: {
+        ...state.liveState,
+        status: 'streaming',
+        activeTools: state.liveState.activeTools.map((t) =>
+          t.id === payload.tool_id ? { ...t, status: 'error', durationMs } : t
         ),
       },
     }));

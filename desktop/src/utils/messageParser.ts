@@ -61,7 +61,7 @@ function toolCallToBlock(tc: ParsedToolCall): ToolCallBlock {
     id: nextId(),
     toolId: tc.id,
     name: tc.name,
-    status: 'complete',
+    status: tc.status ?? 'complete',
     inputPreview: JSON.stringify(tc.arguments, null, 2),
     outputSummary: null,
     inlineDiff: null,
@@ -90,14 +90,14 @@ export function parseMessage(msg: ConversationMessage): RenderedMessage {
     blocks.push(reasoningBlock);
   }
 
-  if (msg.content) {
-    blocks.push(...parseBlocks(msg.content));
-  }
-
   if (msg.toolCalls) {
     for (const tc of msg.toolCalls) {
       blocks.push(toolCallToBlock(tc));
     }
+  }
+
+  if (msg.content) {
+    blocks.push(...parseBlocks(msg.content));
   }
 
   return {
