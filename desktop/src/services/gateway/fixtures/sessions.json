@@ -1,0 +1,62 @@
+[
+  {
+    "id": "sess_verify_01",
+    "title": "[Design] 01 — Message Components",
+    "model": "anthropic/claude-opus-4.5",
+    "started_at_offset_ms": 3600000,
+    "message_count": 8,
+    "tool_call_count": 0,
+    "last_message": "async def handler(req): return await asyncio.wait_for(...)",
+    "workspace_path": "~/HermesWorkspace"
+  },
+  {
+    "id": "sess_verify_02",
+    "title": "[Design] 02 — Tool Calls",
+    "model": "anthropic/claude-opus-4.5",
+    "started_at_offset_ms": 7200000,
+    "message_count": 6,
+    "tool_call_count": 5,
+    "last_message": "I've reviewed the codebase. Here are the performance issues I found.",
+    "workspace_path": "~/HermesWorkspace"
+  },
+  {
+    "id": "sess_verify_03",
+    "title": "[Design] 03 — Rich Content Cards",
+    "model": "anthropic/claude-opus-4.5",
+    "started_at_offset_ms": 10800000,
+    "message_count": 4,
+    "tool_call_count": 0,
+    "last_message": "To fix this, add a null-guard before the timeout call.",
+    "workspace_path": "~/HermesWorkspace"
+  },
+  {
+    "id": "sess_abc123",
+    "title": "Debugging Python async issues",
+    "model": "anthropic/claude-opus-4.5",
+    "started_at_offset_ms": 7200000,
+    "message_count": 12,
+    "tool_call_count": 5,
+    "last_message": "The issue was with the event loop not being properly awaited...",
+    "workspace_path": "~/HermesWorkspace"
+  },
+  {
+    "id": "sess_def456",
+    "title": "Planning new feature architecture",
+    "model": "openrouter/openai/gpt-4o",
+    "started_at_offset_ms": 86400000,
+    "message_count": 28,
+    "tool_call_count": 14,
+    "last_message": "We should use the adapter pattern for the new module...",
+    "workspace_path": "/home/dev/hermes"
+  },
+  {
+    "id": "sess_ghi789",
+    "title": "Reviewing pull requests",
+    "model": "anthropic/claude-opus-4.5",
+    "started_at_offset_ms": 172800000,
+    "message_count": 7,
+    "tool_call_count": 2,
+    "last_message": "LGTM! Just a few nits about naming conventions.",
+    "workspace_path": null
+  }
+]

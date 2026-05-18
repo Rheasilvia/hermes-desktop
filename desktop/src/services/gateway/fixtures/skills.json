@@ -1,0 +1,12 @@
+[
+  { "name": "code-review",    "description": "Perform a thorough code review of any diff or PR.",           "category": "Development",   "enabled": true  },
+  { "name": "refactor",       "description": "Suggest and apply refactoring improvements to code.",          "category": "Development",   "enabled": true  },
+  { "name": "debug",          "description": "Help debug issues with detailed root-cause analysis.",         "category": "Development",   "enabled": true  },
+  { "name": "deep-research",  "description": "Multi-source research with citation and synthesis.",           "category": "Research",      "enabled": true  },
+  { "name": "web-summarize",  "description": "Fetch and summarize web pages or articles.",                   "category": "Research",      "enabled": false },
+  { "name": "doc-writer",     "description": "Generate documentation from code and comments.",              "category": "Productivity",  "enabled": true  },
+  { "name": "task-planner",   "description": "Break down complex tasks into actionable steps.",             "category": "Productivity",  "enabled": false },
+  { "name": "shell-expert",   "description": "Advanced shell command generation and explanation.",          "category": "System",        "enabled": true  },
+  { "name": "git-wizard",     "description": "Smart Git operations: rebase, conflict resolution, history.", "category": "System",        "enabled": true  },
+  { "name": "email-assistant","description": "Draft and manage emails with tone analysis.",                 "category": "Communication", "enabled": false }
+]
