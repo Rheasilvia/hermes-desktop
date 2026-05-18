@@ -1,0 +1,10 @@
+[
+  {
+    "id": "mem_abc",
+    "content": "User prefers detailed explanations over brief answers.",
+    "created_at_offset_ms": 86400000,
+    "updated_at_offset_ms": 3600000,
+    "tags": ["user-preference"],
+    "source": "context"
+  }
+]

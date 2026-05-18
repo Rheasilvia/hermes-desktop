@@ -1,0 +1,33 @@
+[
+  {
+    "id": "cron_abc",
+    "name": "Daily standup report",
+    "prompt": "Generate a summary of all completed tasks and send it to me.",
+    "skills": [],
+    "skill": null,
+    "model": null,
+    "provider": null,
+    "base_url": null,
+    "api_key": null,
+    "script": null,
+    "schedule": {
+      "kind": "cron",
+      "expr": "0 9 * * *",
+      "display": "Every day at 09:00"
+    },
+    "schedule_display": "Every day at 09:00",
+    "repeat": { "times": null, "completed": 0 },
+    "enabled": true,
+    "state": "scheduled",
+    "paused_at": null,
+    "paused_reason": null,
+    "created_at_offset_ms": 604800000,
+    "next_run_at_offset_ms": -86400000,
+    "last_run_at": null,
+    "last_status": null,
+    "last_error": null,
+    "last_delivery_error": null,
+    "deliver": "origin",
+    "origin": null
+  }
+]

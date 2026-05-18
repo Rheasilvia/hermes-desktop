@@ -1,0 +1,47 @@
+[
+  {
+    "name": "web_search",
+    "toolset": "web",
+    "schema": {
+      "name": "web_search",
+      "description": "Search the web",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": { "name": "query", "type": "string", "description": "Search query", "required": true }
+        }
+      }
+    },
+    "emoji": "search"
+  },
+  {
+    "name": "terminal",
+    "toolset": "terminal",
+    "schema": {
+      "name": "terminal",
+      "description": "Run shell commands",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": { "name": "command", "type": "string", "description": "Shell command", "required": true }
+        }
+      }
+    },
+    "emoji": "terminal"
+  },
+  {
+    "name": "file_read",
+    "toolset": "filesystem",
+    "schema": {
+      "name": "file_read",
+      "description": "Read a file",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": { "name": "path", "type": "string", "description": "File path", "required": true }
+        }
+      }
+    },
+    "emoji": "file-text"
+  }
+]
