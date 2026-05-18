@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { Show, For } from 'solid-js';
+import { Show, For, createMemo } from 'solid-js';
 import { HermesAvatar } from '@/ui/atoms/HermesAvatar.js';
 import type {
   MessageBlock,
@@ -26,6 +26,10 @@ interface AssistantMessageProps {
   actions?: MessageAction[];
 }
 
+type BlockGroup =
+  | { type: 'tool_group'; blocks: ToolCallBlock[] }
+  | { type: 'single'; block: MessageBlock };
+
 function formatTimestamp(ts: number): string {
   try {
     return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -43,10 +47,6 @@ const ReasoningBlockView: Component<{ block: ReasoningBlock }> = (props) => (
   <div class={styles.reasoningBlock}>{props.block.content}</div>
 );
 
-const ToolCallBlockView: Component<{ block: ToolCallBlock }> = (props) => (
-  <ToolCallPanel rows={[blockToRow(props.block)]} isLive={props.block.status === 'streaming'} />
-);
-
 const RichContentBlockView: Component<{ block: RichContentBlock }> = (props) => (
   <RichContentRenderer block={props.block} />
 );
@@ -56,6 +56,23 @@ const AttachmentBlockView: Component<{ block: AttachmentBlock }> = (props) => (
 );
 
 export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
+  const blockGroups = createMemo(() => {
+    const groups: BlockGroup[] = [];
+    for (const block of props.blocks) {
+      if (block.type === 'tool_call') {
+        const last = groups[groups.length - 1];
+        if (last?.type === 'tool_group') {
+          last.blocks.push(block as ToolCallBlock);
+        } else {
+          groups.push({ type: 'tool_group', blocks: [block as ToolCallBlock] });
+        }
+      } else {
+        groups.push({ type: 'single', block });
+      }
+    }
+    return groups;
+  });
+
   return (
     <div class={styles.row}>
       <HermesAvatar size={40} />
@@ -66,8 +83,20 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
             <span class={styles.timestamp}>{formatTimestamp(props.timestamp!)}</span>
           </Show>
         </div>
-        <For each={props.blocks}>
-          {(block) => {
+        <For each={blockGroups()}>
+          {(group) => {
+            if (group.type === 'tool_group') {
+              const isLive = group.blocks.some(
+                (b) => b.status === 'streaming' || b.status === 'running'
+              );
+              return (
+                <ToolCallPanel
+                  rows={group.blocks.map(blockToRow)}
+                  isLive={isLive}
+                />
+              );
+            }
+            const block = group.block;
             switch (block.type) {
               case 'text':
                 return <TextBlockView block={block as TextBlock} />;
@@ -81,8 +110,6 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
                 );
               case 'reasoning':
                 return <ReasoningBlockView block={block as ReasoningBlock} />;
-              case 'tool_call':
-                return <ToolCallBlockView block={block as ToolCallBlock} />;
               case 'rich_content':
                 return <RichContentBlockView block={block as RichContentBlock} />;
               case 'attachment':

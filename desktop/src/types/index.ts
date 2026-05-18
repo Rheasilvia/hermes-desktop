@@ -34,7 +34,7 @@ export type {
   MessageStartPayload, MessageDeltaPayload, MessageCompletePayload, MessageStatusPayload,
   ThinkingDeltaPayload, ReasoningDeltaPayload, ReasoningAvailablePayload,
   StatusUpdatePayload, ToolStartPayload, ToolProgressPayload, ToolCompletePayload,
-  ToolGeneratingPayload, ApprovalRequestPayload, ClarifyRequestPayload,
+  ToolGeneratingPayload, ToolErrorPayload, ApprovalRequestPayload, ClarifyRequestPayload,
   SudoRequestPayload, SecretRequestPayload, BackgroundCompletePayload, BtwCompletePayload,
   ErrorPayload, GatewayStderrPayload, ProtocolErrorPayload
 } from './gateway.js';

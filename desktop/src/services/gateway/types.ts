@@ -35,6 +35,7 @@ import type {
   ToolProgressPayload,
   ToolCompletePayload,
   ToolGeneratingPayload,
+  ToolErrorPayload,
   ApprovalRequestPayload,
   ClarifyRequestPayload,
   SudoRequestPayload,
@@ -64,6 +65,7 @@ export interface GatewayEventMap {
   'tool.progress': ToolProgressPayload;
   'tool.complete': ToolCompletePayload;
   'tool.generating': ToolGeneratingPayload;
+  'tool.error': ToolErrorPayload;
   'approval.request': ApprovalRequestPayload;
   'clarify.request': ClarifyRequestPayload;
   'sudo.request': SudoRequestPayload;
