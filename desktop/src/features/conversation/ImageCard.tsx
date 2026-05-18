@@ -1,6 +1,7 @@
 import type { Component } from 'solid-js';
 import { Show, createSignal } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { Modal } from '@/ui/molecules/Modal.js';
 import styles from './ImageCard.module.css';
 
 interface ImageCardProps {
@@ -13,6 +14,7 @@ interface ImageCardProps {
 export const ImageCard: Component<ImageCardProps> = (props) => {
   const [loaded, setLoaded] = createSignal(false);
   const [errored, setErrored] = createSignal(false);
+  const [lightbox, setLightbox] = createSignal(false);
 
   const showImage = () => loaded() && !errored();
 
@@ -31,7 +33,7 @@ export const ImageCard: Component<ImageCardProps> = (props) => {
             class={styles.image}
             src={props.url}
             alt={props.altText ?? ''}
-            onClick={() => props.onPreview?.()}
+            onClick={() => setLightbox(true)}
             onLoad={() => setLoaded(true)}
             onError={() => setErrored(true)}
           />
@@ -53,6 +55,18 @@ export const ImageCard: Component<ImageCardProps> = (props) => {
           <span>{props.caption}</span>
         </div>
       </Show>
+      <Modal
+        open={lightbox()}
+        title={props.altText ?? '图片预览'}
+        onClose={() => setLightbox(false)}
+        style={{ 'max-width': 'min(90vw, 1000px)', width: 'fit-content' }}
+      >
+        <img
+          class={styles.lightboxImage}
+          src={props.url}
+          alt={props.altText ?? ''}
+        />
+      </Modal>
     </div>
   );
 };

@@ -8,14 +8,26 @@
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--color-border);
+  width: fit-content;
+  max-width: 100%;
 }
 
 .image {
-  max-height: 300px;
-  width: 100%;
-  object-fit: cover;
   display: block;
+  max-width: min(100%, 480px);
+  max-height: min(260px, 30vh);
+  width: auto;
+  height: auto;
   cursor: pointer;
+}
+
+.lightboxImage {
+  display: block;
+  max-width: min(90vw, 960px);
+  max-height: 80vh;
+  width: auto;
+  height: auto;
+  margin: 0 auto;
 }
 
 .placeholder {

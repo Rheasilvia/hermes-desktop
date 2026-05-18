@@ -45,3 +45,10 @@
   white-space: nowrap;
   padding: 0 2px;
 }
+
+.expandedBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}

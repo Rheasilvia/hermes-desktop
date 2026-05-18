@@ -11,6 +11,7 @@ export interface ModalProps {
   onClose: () => void;
   children: JSX.Element;
   footer?: JSX.Element;
+  style?: JSX.CSSProperties;
 }
 
 export const Modal: Component<ModalProps> = (props) => {
@@ -44,7 +45,7 @@ export const Modal: Component<ModalProps> = (props) => {
         role="dialog"
         aria-modal="true"
       >
-        <div class={styles.modal} ref={setContentRef}>
+        <div class={styles.modal} style={props.style} ref={setContentRef}>
           <div class={styles.header}>
             <Show when={props.title}>
               <h2 class={styles.title}>{props.title}</h2>
