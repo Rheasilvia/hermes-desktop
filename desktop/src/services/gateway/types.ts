@@ -95,6 +95,7 @@ export interface SessionMethods {
   info(sessionId: string): Promise<SessionInfoPayload>;
   create(params: { model?: string; system_prompt?: string; workspace_path?: string }): Promise<SessionMeta>;
   delete(sessionId: string): Promise<void>;
+  rename(sessionId: string, title: string): Promise<void>;
   branch(sessionId: string): Promise<SessionMeta>;
   resume(sessionId: string): Promise<void>;
   interrupt(): Promise<void>;
