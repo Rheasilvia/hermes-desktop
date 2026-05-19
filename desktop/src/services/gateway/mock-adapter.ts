@@ -189,6 +189,12 @@ export class MockGatewayAdapter implements GatewayAdapter {
         const idx = MOCK_SESSIONS.findIndex(s => s.id === sessionId);
         if (idx === -1) throw new Error(`Session not found: ${sessionId}`);
       },
+      rename: async (sessionId: string, title: string): Promise<void> => {
+        await delay(this.delayMin, this.delayMax);
+        const s = [...MOCK_SESSIONS, ...dynamicSessions].find(s => s.id === sessionId);
+        if (!s) throw new Error(`Session not found: ${sessionId}`);
+        s.title = title;
+      },
       branch: async (sessionId: string): Promise<SessionMeta> => {
         await delay(this.delayMin, this.delayMax);
         const newId = `sess_${generateId()}`;

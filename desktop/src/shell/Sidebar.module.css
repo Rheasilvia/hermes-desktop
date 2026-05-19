@@ -7,6 +7,28 @@
   flex-direction: column;
   flex-shrink: 0;
   overflow: hidden;
+  position: relative;
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+}
+
+.resizeHandle:hover {
+  background: var(--color-primary);
+  opacity: 0.3;
+}
+
+.resizeHandle:active {
+  background: var(--color-primary);
+  opacity: 0.5;
 }
 
 .header {
@@ -186,7 +208,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 28px 0 8px;
+  padding: 0 8px;
   height: 28px;
   flex: 1;
   min-width: 0;
@@ -194,34 +216,58 @@
   color: inherit;
   text-decoration: none;
   border-radius: var(--radius-sm);
+  position: relative;
+  z-index: 2;
 }
 
-.deleteBtn {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-  border: none;
-  background: transparent;
-  color: var(--color-on-surface-muted);
-  cursor: pointer;
+.navItemWithMenu {
+  position: relative;
+  padding: 0;
+}
+
+/* Context dropdown menu */
+.contextDropdown {
+  position: fixed;
+  min-width: 148px;
+  background: var(--color-cream);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--color-border-light);
+  z-index: 1000;
+  overflow: hidden;
+  padding: 4px 0;
+}
+
+.dropdownItem {
   display: flex;
   align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast);
-  flex-shrink: 0;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--color-charcoal-warm);
+  cursor: pointer;
+  transition: background 150ms ease;
+  text-align: left;
 }
 
-.navItemWithDelete:hover .deleteBtn {
-  opacity: 0.6;
+.dropdownItem:hover {
+  background: rgba(20, 20, 19, 0.04);
 }
 
-.deleteBtn:hover {
-  opacity: 1 !important;
-  background: rgba(20, 20, 19, 0.08);
-  color: var(--color-on-surface);
+.dropdownDivider {
+  height: 1px;
+  background: var(--color-border-light);
+  margin: 2px 0;
+}
+
+.dropdownDanger {
+  color: #b53333;
+}
+
+.dropdownDanger:hover {
+  background: rgba(181, 51, 51, 0.05);
 }

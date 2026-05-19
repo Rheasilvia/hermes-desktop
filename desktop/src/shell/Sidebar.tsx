@@ -1,11 +1,25 @@
-import { Component, For, Show } from 'solid-js';
+import { Component, For, Show, createSignal, onMount, onCleanup } from 'solid-js';
 import { A, useLocation, useNavigate } from '@solidjs/router';
 import { ROUTES } from '@/routes';
 import { sessionStore } from '@/stores/session.js';
 import { chatStore } from '@/stores/chat.js';
+import { uiStore } from '@/stores/ui.js';
 import { Icon } from '@/ui/atoms/Icon';
 import { HermesLogo } from '@/ui/organisms/HermesLogo';
+import { Modal } from '@/ui/molecules/Modal.js';
+import { Input } from '@/ui/atoms/Input.js';
+import { Button } from '@/ui/atoms/Button.js';
 import styles from './Sidebar.module.css';
+
+/**
+ * Truncate text in the middle, preserving start and end.
+ * Example: "Very Long Title Here" → "Very Lo...tle Here"
+ */
+function middleEllipsis(text: string, maxLength: number = 28): string {
+  if (text.length <= maxLength) return text;
+  const half = Math.floor((maxLength - 3) / 2); // -3 for "..."
+  return `${text.slice(0, half)}...${text.slice(-half)}`;
+}
 
 interface NavItem {
   label: string;
@@ -45,6 +59,12 @@ const NAV_GROUPS: NavGroup[] = [
 export const Sidebar: Component = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const [renameModalOpen, setRenameModalOpen] = createSignal(false);
+  const [renamingSessionId, setRenamingSessionId] = createSignal('');
+  const [renameValue, setRenameValue] = createSignal('');
+  const [contextMenuOpen, setContextMenuOpen] = createSignal(false);
+  const [contextMenuPosition, setContextMenuPosition] = createSignal({ x: 0, y: 0 });
+  const [contextMenuSession, setContextMenuSession] = createSignal<{ id: string; title: string } | null>(null);
 
   const isActive = (route: string) => {
     if (route === ROUTES.HOME) {
@@ -68,9 +88,7 @@ export const Sidebar: Component = () => {
     }
   };
 
-  const handleDeleteSession = async (id: string, e: MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDeleteSession = async (id: string) => {
     const wasActive = location.pathname === `/conversation/${id}`;
     await sessionStore.deleteSession(id);
     if (wasActive) {
@@ -88,12 +106,73 @@ export const Sidebar: Component = () => {
     }
   };
 
+  const handleOpenRename = (sessionId: string, currentTitle: string) => {
+    setRenamingSessionId(sessionId);
+    setRenameValue(currentTitle);
+    setRenameModalOpen(true);
+    setContextMenuOpen(false);
+  };
+
+  const handleRenameSubmit = async () => {
+    const title = renameValue().trim();
+    if (title) {
+      await sessionStore.renameSession(renamingSessionId(), title);
+    }
+    setRenameModalOpen(false);
+  };
+
+  const closeContextMenu = () => {
+    setContextMenuOpen(false);
+    setContextMenuSession(null);
+  };
+
+  const handleClickOutside = (e: MouseEvent) => {
+    if (contextMenuOpen() && !(e.target as HTMLElement).closest('[data-context-menu]')) {
+      closeContextMenu();
+    }
+  };
+
+  const handleEscape = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') closeContextMenu();
+  };
+
+  onMount(() => {
+    document.addEventListener('click', handleClickOutside, true);
+    document.addEventListener('keydown', handleEscape);
+  });
+
+  onCleanup(() => {
+    document.removeEventListener('click', handleClickOutside, true);
+    document.removeEventListener('keydown', handleEscape);
+  });
+
   const recentSessions = () => {
     return sessionStore.sessions.slice(0, 10);
   };
 
   return (
-    <aside class={styles.sidebar}>
+    <aside class={styles.sidebar} style={{ width: `${uiStore.sidebarWidth}px` }}>
+      <div class={styles.resizeHandle}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          const startX = e.clientX;
+          const startWidth = uiStore.sidebarWidth;
+
+          const handleMouseMove = (moveEvent: MouseEvent) => {
+            const delta = moveEvent.clientX - startX;
+            const newWidth = startWidth + delta;
+            uiStore.setSidebarWidth(newWidth);
+          };
+
+          const handleMouseUp = () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+          };
+
+          document.addEventListener('mousemove', handleMouseMove);
+          document.addEventListener('mouseup', handleMouseUp);
+        }}
+      />
       <div class={styles.header}>
         <div class={styles.brand}>
           <HermesLogo class={styles.brandIcon} />
@@ -115,27 +194,31 @@ export const Sidebar: Component = () => {
             <span class={styles.groupLabel}>Conversations</span>
             <For each={recentSessions()}>
               {(session) => (
-                <div class={`${styles.navItem} ${styles.navItemWithDelete} ${isConversationActive(session.id) ? styles.active : ''}`}>
+                <div class={`${styles.navItem} ${styles.navItemWithMenu} ${isConversationActive(session.id) ? styles.active : ''}`}>
                   <A
                     href={`/conversation/${session.id}`}
                     class={styles.navItemLink}
                     title={session.title || 'Untitled conversation'}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const menuWidth = 148;
+                      const menuHeight = 90;
+                      let x = e.clientX;
+                      let y = e.clientY;
+                      if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 8;
+                      if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 8;
+                      setContextMenuPosition({ x, y });
+                      setContextMenuSession({ id: session.id, title: session.title || 'Untitled' });
+                      setContextMenuOpen(true);
+                    }}
                   >
                     <span classList={{
                       [styles.statusDot]: true,
                       [styles.statusDotActive]: chatStore.isStreaming(session.id),
                     }} />
-                    <span class={styles.navLabel}>{session.title || 'Untitled'}</span>
+                    <span class={styles.navLabel}>{middleEllipsis(session.title || 'Untitled')}</span>
                   </A>
-                  <button
-                    type="button"
-                    class={styles.deleteBtn}
-                    onClick={(e) => handleDeleteSession(session.id, e)}
-                    aria-label={`Delete ${session.title || 'Untitled conversation'}`}
-                    title="Delete conversation"
-                  >
-                    <Icon name="x" size={12} />
-                  </button>
                 </div>
               )}
             </For>
@@ -179,6 +262,42 @@ export const Sidebar: Component = () => {
         </For>
       </nav>
 
+      <Show when={contextMenuOpen() && contextMenuSession()}>
+        <div
+          data-context-menu
+          class={styles.contextDropdown}
+          style={{
+            left: `${contextMenuPosition().x}px`,
+            top: `${contextMenuPosition().y}px`,
+          }}
+        >
+          <button
+            type="button"
+            class={styles.dropdownItem}
+            onClick={() => {
+              const s = contextMenuSession()!;
+              handleOpenRename(s.id, s.title);
+            }}
+          >
+            <Icon name="file-text" size={13} />
+            <span>Rename</span>
+          </button>
+          <div class={styles.dropdownDivider} />
+          <button
+            type="button"
+            class={`${styles.dropdownItem} ${styles.dropdownDanger}`}
+            onClick={() => {
+              const s = contextMenuSession()!;
+              handleDeleteSession(s.id);
+              closeContextMenu();
+            }}
+          >
+            <Icon name="x" size={13} />
+            <span>Delete</span>
+          </button>
+        </div>
+      </Show>
+
       <div class={styles.footer}>
         <A
           href={ROUTES.SETTINGS}
@@ -188,6 +307,25 @@ export const Sidebar: Component = () => {
           <span class={styles.navLabel}>Settings</span>
         </A>
       </div>
+
+      <Modal
+        open={renameModalOpen()}
+        title="Rename conversation"
+        onClose={() => setRenameModalOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRenameModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleRenameSubmit} disabled={!renameValue().trim()}>Save</Button>
+          </>
+        }
+      >
+        <Input
+          value={renameValue()}
+          placeholder="Conversation name"
+          onInput={(e) => setRenameValue(e.currentTarget.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleRenameSubmit(); }}
+        />
+      </Modal>
     </aside>
   );
 };

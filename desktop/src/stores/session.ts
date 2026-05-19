@@ -82,6 +82,20 @@ export const sessionStore = {
     }
   },
 
+  async renameSession(id: string, title: string): Promise<boolean> {
+    const gateway = getGateway();
+    if (!gateway) return false;
+    setError(null);
+    try {
+      await gateway.session.rename(id, title);
+      await this.loadSessions();
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to rename session');
+      return false;
+    }
+  },
+
   async deleteSession(id: string): Promise<boolean> {
     const gateway = getGateway();
     if (!gateway) return false;

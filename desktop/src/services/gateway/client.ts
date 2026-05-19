@@ -105,6 +105,8 @@ export class GatewayClient {
       this.call('session.create', params),
     delete: (sessionId: string): Promise<void> =>
       this.call('session.delete', { session_id: sessionId }),
+    rename: (sessionId: string, title: string): Promise<void> =>
+      this.call('session.rename', { session_id: sessionId, title }),
     branch: (sessionId: string): Promise<SessionMeta> =>
       this.call('session.branch', { session_id: sessionId }),
     resume: (sessionId: string): Promise<void> =>
