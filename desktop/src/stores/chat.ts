@@ -38,6 +38,7 @@ const [panelWidth, setPanelWidth] = createSignal(500);
 interface ChatState {
   messages: RenderedMessage[];
   liveState: LiveTurnState;
+  isLoadingMessages: boolean;
 }
 
 function makeLiveTurnState(sessionId: string): LiveTurnState {
@@ -57,7 +58,7 @@ function getOrCreateChatState(sessionId: string): ChatState {
   const states = chatStates();
   let state = states.get(sessionId);
   if (!state) {
-    state = { messages: [], liveState: makeLiveTurnState(sessionId) };
+    state = { messages: [], liveState: makeLiveTurnState(sessionId), isLoadingMessages: false };
     const newStates = new Map(states);
     newStates.set(sessionId, state);
     setChatStates(newStates);
@@ -136,17 +137,23 @@ export const chatStore = {
     return chatStates().get(sessionId)?.liveState.errorMessage ?? null;
   },
 
+  isLoadingMessages(sessionId: string): boolean {
+    return chatStates().get(sessionId)?.isLoadingMessages ?? false;
+  },
+
   async loadMessages(sessionId: string): Promise<void> {
     const gateway = getGateway();
     if (!gateway) return;
     getOrCreateChatState(sessionId);
+    updateChatState(sessionId, (state) => ({ ...state, isLoadingMessages: true }));
     try {
       const rawMessages = await gateway.session.messages(sessionId);
       const rendered = rawMessages.map((m) => parseMessage(sessionMsgToDomain(m, sessionId)));
-      updateChatState(sessionId, (state) => ({ ...state, messages: rendered }));
+      updateChatState(sessionId, (state) => ({ ...state, messages: rendered, isLoadingMessages: false }));
     } catch {
       updateChatState(sessionId, (state) => ({
         ...state,
+        isLoadingMessages: false,
         liveState: { ...state.liveState, errorMessage: 'Failed to load messages' },
       }));
     }
@@ -339,6 +346,7 @@ export const chatStore = {
       return {
         messages: [...state.messages, finalMsg],
         liveState: makeLiveTurnState(sessionId),
+        isLoadingMessages: false,
       };
     });
   },
@@ -355,6 +363,7 @@ export const chatStore = {
     updateChatState(sessionId, () => ({
       messages: [],
       liveState: makeLiveTurnState(sessionId),
+      isLoadingMessages: false,
     }));
   },
 

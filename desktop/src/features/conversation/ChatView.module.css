@@ -64,6 +64,35 @@
   padding: var(--space-8);
 }
 
+.loadingState {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loadingRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.loadingIcon {
+  color: var(--color-terracotta);
+  animation: spin 1.8s ease-in-out infinite;
+}
+
+.loadingLabel {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: #87867f;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .emptyIcon {
   color: var(--color-on-surface-dim);
   opacity: 0.5;
