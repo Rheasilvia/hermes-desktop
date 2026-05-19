@@ -24,6 +24,7 @@ import { DiffPanel } from '@/features/diff/DiffPanel.js';
 import { EmptyChatState } from './EmptyChatState.js';
 import { ErrorBanner } from './ErrorBanner.js';
 import { WorkspaceBanner } from './WorkspaceBanner.js';
+import { Icon } from '@/ui/atoms/Icon.js';
 import { ToolCallPanel } from './ToolCallPanel.js';
 import { liveToRow } from './toolCallMappers.js';
 import styles from './ChatView.module.css';
@@ -48,6 +49,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const error = (): string | null => chatStore.getError(sessionId());
 
   const isEmpty = createMemo(() => messages().length === 0);
+  const isLoading = () => chatStore.isLoadingMessages(sessionId());
 
   function computeDateSeparators(msgs: RenderedMessage[]): Map<number, string> {
     const separators = new Map<number, string>();
@@ -246,6 +248,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       <div class={styles.chatBody} ref={chatBodyRef}>
         <div class={styles.chatPane}>
           <Switch>
+            <Match when={isLoading()}>
+              <div class={styles.loadingState}>
+                <div class={styles.loadingRow}>
+                  <Icon name="loader" size={20} class={styles.loadingIcon} />
+                  <span class={styles.loadingLabel}>Loading messages...</span>
+                </div>
+              </div>
+            </Match>
             <Match when={isEmpty()}>
               <EmptyChatState onSuggestionClick={(idx) => {
                 const suggestions = ['Debug my code', 'Review my PR', 'Plan a feature'];

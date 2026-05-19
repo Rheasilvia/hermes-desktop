@@ -209,6 +209,10 @@ export class MockGatewayAdapter implements GatewayAdapter {
         this.activeStreams = [];
       },
       messages: async (sessionId: string): Promise<SessionMessage[]> => {
+        if (sessionId === 'sess_verify_04_loading') {
+          await delay(2000, 2500);
+          return [];
+        }
         await delay(this.delayMin, this.delayMax);
         if (sessionId === 'sess_verify_04_err') {
           throw new Error('Unable to reach the Hermes gateway. Check your connection.');

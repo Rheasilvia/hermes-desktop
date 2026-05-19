@@ -69,6 +69,7 @@ import {
   ArrowUp,
   GitPullRequest,
   Lightbulb,
+  Loader,
 } from 'lucide-solid';
 
 export type IconName =
@@ -139,7 +140,8 @@ export type IconName =
   | 'file-code'
   | 'arrow-up'
   | 'git-pull-request'
-  | 'lightbulb';
+  | 'lightbulb'
+  | 'loader';
 
 interface IconProps {
   name: IconName;
@@ -217,6 +219,7 @@ const LUCIDE_ICONS: Record<IconName, Component<{ size?: number; strokeWidth?: nu
   'arrow-up': ArrowUp,
   'git-pull-request': GitPullRequest,
   'lightbulb': Lightbulb,
+  'loader': Loader,
 };
 
 export const Icon: Component<IconProps> = (props) => {

@@ -88,5 +88,15 @@
     "tool_call_count": 0,
     "last_message": "Connection lost.",
     "workspace_path": "~/Projects/hermes-agent"
+  },
+  {
+    "id": "sess_verify_04_loading",
+    "title": "[Design] 04 — Loading State",
+    "model": "anthropic/claude-sonnet-4-6",
+    "started_at_offset_ms": 93000000,
+    "message_count": 0,
+    "tool_call_count": 0,
+    "last_message": null,
+    "workspace_path": null
   }
 ]
