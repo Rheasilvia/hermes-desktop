@@ -23,6 +23,7 @@ import { ChatToolbar } from './ChatToolbar.js';
 import { DiffPanel } from '@/features/diff/DiffPanel.js';
 import { EmptyChatState } from './EmptyChatState.js';
 import { ErrorBanner } from './ErrorBanner.js';
+import { WorkspaceBanner } from './WorkspaceBanner.js';
 import { ToolCallPanel } from './ToolCallPanel.js';
 import { liveToRow } from './toolCallMappers.js';
 import styles from './ChatView.module.css';
@@ -239,6 +240,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           onDismiss={() => { chatStore.clearError(sessionId()); }}
         />
       </Show>
+
+      <WorkspaceBanner workspacePath={workspacePath()} />
 
       <div class={styles.chatBody} ref={chatBodyRef}>
         <div class={styles.chatPane}>

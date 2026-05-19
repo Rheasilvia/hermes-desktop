@@ -349,6 +349,93 @@
       "codex_reasoning_items": null
     }
   ],
+  "sess_verify_04": [
+    {
+      "session_id": "sess_verify_04",
+      "role": "user",
+      "content": "Let's review the async handler project.",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 90000000,
+      "token_count": 8,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_04",
+      "role": "assistant",
+      "content": "I can see your project at `~/Projects/hermes-agent`. Ready to start — what would you like to tackle first?",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 88000000,
+      "token_count": 24,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_04",
+      "role": "system",
+      "content": "Session paused · 23:45",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 87500000,
+      "token_count": 0,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_04",
+      "role": "system",
+      "content": "Session resumed · 14:20",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 3600000,
+      "token_count": 0,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_04",
+      "role": "user",
+      "content": "I found a timeout issue in the handler. Can you investigate?",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 3400000,
+      "token_count": 14,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_04",
+      "role": "assistant",
+      "content": "The timeout guard is now properly set. Wrap the coroutine with `asyncio.wait_for(coro, timeout=30)` to prevent unbounded waits.",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 3000000,
+      "token_count": 30,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    }
+  ],
+  "sess_verify_04_empty": [],
   "default": [
     {
       "session_id": "__SESSION_ID__",
