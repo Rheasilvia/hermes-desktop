@@ -5,6 +5,7 @@ import type { TextBlock } from '@/types/ui/blocks.js';
 import { UserMessage } from './UserMessage.js';
 import { AssistantMessage } from './AssistantMessage.js';
 import { ToolMessage } from './ToolMessage.js';
+import { SystemMessage } from './SystemMessage.js';
 import { DateSeparator } from './DateSeparator.js';
 import styles from './MessageBubble.module.css';
 
@@ -42,6 +43,14 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
       <Show when={role() === 'tool'}>
         <ToolMessage
           toolName={props.message.toolName ?? 'tool'}
+          content={props.message.blocks
+            .filter((b): b is TextBlock => b.type === 'text')
+            .map((b) => b.content)
+            .join('\n')}
+        />
+      </Show>
+      <Show when={role() === 'system'}>
+        <SystemMessage
           content={props.message.blocks
             .filter((b): b is TextBlock => b.type === 'text')
             .map((b) => b.content)

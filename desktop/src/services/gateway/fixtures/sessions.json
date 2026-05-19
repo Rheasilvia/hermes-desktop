@@ -58,5 +58,35 @@
     "tool_call_count": 2,
     "last_message": "LGTM! Just a few nits about naming conventions.",
     "workspace_path": null
+  },
+  {
+    "id": "sess_verify_04",
+    "title": "[Design] 04 — System States",
+    "model": "anthropic/claude-sonnet-4-6",
+    "started_at_offset_ms": 90000000,
+    "message_count": 6,
+    "tool_call_count": 0,
+    "last_message": "The timeout guard is now properly set.",
+    "workspace_path": "~/Projects/hermes-agent"
+  },
+  {
+    "id": "sess_verify_04_empty",
+    "title": "[Design] 04 — Empty Thread",
+    "model": "anthropic/claude-sonnet-4-6",
+    "started_at_offset_ms": 91000000,
+    "message_count": 0,
+    "tool_call_count": 0,
+    "last_message": null,
+    "workspace_path": "~/Projects/hermes-agent"
+  },
+  {
+    "id": "sess_verify_04_err",
+    "title": "[Design] 04 — Error State",
+    "model": "anthropic/claude-sonnet-4-6",
+    "started_at_offset_ms": 92000000,
+    "message_count": 3,
+    "tool_call_count": 0,
+    "last_message": "Connection lost.",
+    "workspace_path": "~/Projects/hermes-agent"
   }
 ]

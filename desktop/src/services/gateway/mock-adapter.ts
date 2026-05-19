@@ -204,6 +204,9 @@ export class MockGatewayAdapter implements GatewayAdapter {
       },
       messages: async (sessionId: string): Promise<SessionMessage[]> => {
         await delay(this.delayMin, this.delayMax);
+        if (sessionId === 'sess_verify_04_err') {
+          throw new Error('Unable to reach the Hermes gateway. Check your connection.');
+        }
         return createMockSessionMessages(sessionId);
       },
     };
