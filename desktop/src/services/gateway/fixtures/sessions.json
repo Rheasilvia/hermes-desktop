@@ -98,5 +98,25 @@
     "tool_call_count": 0,
     "last_message": null,
     "workspace_path": null
+  },
+  {
+    "id": "sess_verify_07",
+    "title": "[Design] 07-A — Approval Request",
+    "model": "anthropic/claude-sonnet-4-6",
+    "started_at_offset_ms": 259200000,
+    "message_count": 4,
+    "tool_call_count": 0,
+    "last_message": "Done. File written successfully.",
+    "workspace_path": "~/Projects/hermes-agent"
+  },
+  {
+    "id": "sess_verify_07b",
+    "title": "[Design] 07-B — Clarification",
+    "model": "anthropic/claude-sonnet-4-6",
+    "started_at_offset_ms": 260000000,
+    "message_count": 4,
+    "tool_call_count": 0,
+    "last_message": "Done. Deployed to staging.",
+    "workspace_path": "~/Projects/hermes-agent"
   }
 ]

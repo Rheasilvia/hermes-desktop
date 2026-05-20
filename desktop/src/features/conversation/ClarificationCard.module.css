@@ -1,0 +1,113 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-terracotta);
+  border-radius: var(--radius-sm);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+.dot1 { background-color: var(--color-terracotta); }
+.dot2 { background-color: #d97757; animation-delay: 0.2s; }
+.dot3 { background-color: var(--color-on-surface-dim); animation-delay: 0.4s; }
+
+.title {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface);
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding-left: calc(15px + var(--space-2));
+}
+
+.choiceBtn {
+  padding: 4px var(--space-2);
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-warm-gray);
+  color: var(--color-on-surface);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.choiceBtn:hover {
+  background: var(--color-border);
+}
+
+.choiceBtnSelected {
+  background: var(--color-terracotta);
+  color: #fff;
+  border-color: var(--color-terracotta);
+}
+
+.choiceBtnSelected:hover {
+  background: var(--color-primary-hover);
+}
+
+.freeTextWrapper {
+  padding-left: calc(15px + var(--space-2));
+}
+
+.freeText {
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--color-on-surface);
+  box-sizing: border-box;
+  outline: none;
+}
+
+.freeText::placeholder {
+  color: var(--color-on-surface-dim);
+}
+
+.freeText:focus {
+  border-color: var(--color-border-focus);
+}
+
+@keyframes dotPulse {
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
