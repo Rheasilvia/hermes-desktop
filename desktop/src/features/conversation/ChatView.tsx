@@ -9,6 +9,8 @@ import type {
   ToolGeneratingPayload,
   ToolErrorPayload,
   ReasoningDeltaPayload,
+  ApprovalRequestPayload,
+  ClarifyRequestPayload,
 } from '@/types/gateway.js';
 import type { RenderedMessage } from '@/types/index.js';
 import { chatStore } from '@/stores/chat.js';
@@ -17,7 +19,6 @@ import { sessionStore } from '@/stores/session.js';
 import { getGateway } from '@/stores/context.js';
 import { MessageBubble } from './MessageBubble.js';
 import { MessageInput } from './MessageInput.js';
-import { StreamingIndicator } from './StreamingIndicator.js';
 import { ModelSelector } from './ModelSelector.js';
 import { ChatToolbar } from './ChatToolbar.js';
 import { DiffPanel } from '@/features/diff/DiffPanel.js';
@@ -26,6 +27,9 @@ import { ErrorBanner } from './ErrorBanner.js';
 import { WorkspaceBanner } from './WorkspaceBanner.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { ToolCallPanel } from './ToolCallPanel.js';
+import { ApprovalCard } from './ApprovalCard.js';
+import { ClarificationCard } from './ClarificationCard.js';
+import { MemoryContextCard } from './MemoryContextCard.js';
 import { liveToRow } from './toolCallMappers.js';
 import styles from './ChatView.module.css';
 
@@ -86,6 +90,13 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   });
 
   createEffect(() => {
+    const hasCard = !!(liveState().pendingApproval || liveState().pendingClarify);
+    if (hasCard) {
+      scrollToBottom();
+    }
+  });
+
+  createEffect(() => {
     const path = workspacePath();
     diffStore.setWorkspacePath(path);
   });
@@ -131,6 +142,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const onToolError = (payload: ToolErrorPayload) => {
     chatStore.handleToolError(sessionId(), payload);
+  };
+
+  const onApprovalRequest = (payload: ApprovalRequestPayload) => {
+    chatStore.handleApprovalRequest(sessionId(), payload);
+  };
+
+  const onClarifyRequest = (payload: ClarifyRequestPayload) => {
+    chatStore.handleClarifyRequest(sessionId(), payload);
   };
 
   const handleDragStart = (e: MouseEvent) => {
@@ -210,6 +229,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     gateway.on('tool.complete', onToolComplete);
     gateway.on('tool.generating', onToolGenerating);
     gateway.on('tool.error', onToolError);
+    gateway.on('approval.request', onApprovalRequest);
+    gateway.on('clarify.request', onClarifyRequest);
   });
 
   onCleanup(() => {
@@ -224,6 +245,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     gateway.off('tool.complete', onToolComplete);
     gateway.off('tool.generating', onToolGenerating);
     gateway.off('tool.error', onToolError);
+    gateway.off('approval.request', onApprovalRequest);
+    gateway.off('clarify.request', onClarifyRequest);
   });
 
   return (
@@ -245,6 +268,13 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
       <WorkspaceBanner workspacePath={workspacePath()} />
 
+      <Show when={liveState().memoryContext}>
+        <MemoryContextCard
+          items={liveState().memoryContext!}
+          onEdit={() => {}}
+        />
+      </Show>
+
       <div class={styles.chatBody} ref={chatBodyRef}>
         <div class={styles.chatPane}>
           <Switch>
@@ -263,7 +293,12 @@ export const ChatView: Component<ChatViewProps> = (props) => {
               }} />
             </Match>
             <Match when={true}>
-              <div class={styles.messageList}>
+              <div
+                class={styles.messageList}
+                style={{
+                  "padding-bottom": (liveState().pendingApproval || liveState().pendingClarify) ? '60px' : undefined,
+                }}
+              >
                 <For each={messages()}>
                   {(message, getIndex) => {
                     const idx = getIndex();
@@ -282,27 +317,46 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                     isLive={true}
                   />
                 </Show>
-                <Show when={isStreaming() && liveState().activeTools.length === 0}>
-                  <StreamingIndicator />
-                </Show>
                 <div ref={messagesEndRef} />
               </div>
             </Match>
           </Switch>
 
-          <MessageInput
-            onSend={handleSend}
-            onStop={() => chatStore.cancelMessage(sessionId())}
-            disabled={isStreaming()}
-            isStreaming={isStreaming()}
-            modelSlot={(dimmed) => <ModelSelector dimmed={dimmed} />}
-            workspacePath={workspacePath()}
-            isNewConversation={isEmpty()}
-            onWorkspaceChange={(path) => {
-              const sid = sessionId();
-              if (sid) sessionStore.updateWorkspace(sid, path);
-            }}
-          />
+          <div class={styles.inputArea}>
+            <Show when={liveState().pendingApproval || liveState().pendingClarify}>
+              <div class={styles.cardDock}>
+                <Show when={liveState().pendingApproval}>
+                  <ApprovalCard
+                    command={liveState().pendingApproval!.command}
+                    description={liveState().pendingApproval!.description}
+                    onAllow={() => void chatStore.respondApproval(sessionId(), true)}
+                    onDeny={() => void chatStore.respondApproval(sessionId(), false)}
+                  />
+                </Show>
+                <Show when={liveState().pendingClarify}>
+                  <ClarificationCard
+                    question={liveState().pendingClarify!.question}
+                    choices={liveState().pendingClarify!.choices}
+                    onRespond={(text) => void chatStore.respondClarify(sessionId(), liveState().pendingClarify!.requestId, text)}
+                  />
+                </Show>
+              </div>
+            </Show>
+
+            <MessageInput
+              onSend={handleSend}
+              onStop={() => chatStore.cancelMessage(sessionId())}
+              disabled={isStreaming()}
+              isStreaming={isStreaming()}
+              modelSlot={(dimmed) => <ModelSelector dimmed={dimmed} />}
+              workspacePath={workspacePath()}
+              isNewConversation={isEmpty()}
+              onWorkspaceChange={(path) => {
+                const sid = sessionId();
+                if (sid) sessionStore.updateWorkspace(sid, path);
+              }}
+            />
+          </div>
         </div>
 
         <Show when={diffStore.isDiffOpen()}>

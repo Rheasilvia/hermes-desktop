@@ -82,5 +82,5 @@ export type {
   ImageContent, ImageTextContent, FileContent,
 } from './ui/rich.js';
 export type { RenderedMessage, MessageAction } from './ui/message.js';
-export type { TurnStatus, LiveTurnState, LiveToolCall } from './ui/turn.js';
+export type { TurnStatus, LiveTurnState, LiveToolCall, PendingApproval, PendingClarify, MemoryContextItem } from './ui/turn.js';
 export type { ToolCallRow } from './ui/tool-presentation.js';

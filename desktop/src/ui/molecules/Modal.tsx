@@ -16,11 +16,17 @@ export interface ModalProps {
 
 export const Modal: Component<ModalProps> = (props) => {
   const [contentRef, setContentRef] = createSignal<HTMLDivElement>();
+  const [mousedownOnOverlay, setMousedownOnOverlay] = createSignal(false);
+
+  const handleMouseDown = (e: MouseEvent) => {
+    setMousedownOnOverlay(e.target === e.currentTarget);
+  };
 
   const handleBackdropClick = (e: MouseEvent) => {
-    if (e.target === e.currentTarget) {
+    if (e.target === e.currentTarget && mousedownOnOverlay()) {
       props.onClose();
     }
+    setMousedownOnOverlay(false);
   };
 
   const handleEscape = (e: KeyboardEvent) => {
@@ -41,6 +47,7 @@ export const Modal: Component<ModalProps> = (props) => {
     <Show when={props.open}>
       <div
         class={styles.overlay}
+        onMouseDown={handleMouseDown}
         onClick={handleBackdropClick}
         role="dialog"
         aria-modal="true"

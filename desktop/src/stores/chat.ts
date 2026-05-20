@@ -13,10 +13,12 @@ import type {
   ToolCompletePayload,
   ToolGeneratingPayload,
   ToolErrorPayload,
+  ApprovalRequestPayload,
+  ClarifyRequestPayload,
 } from '@/types/gateway.js';
 import type { SessionMessage } from '@/types/session.js';
 import type { RenderedMessage } from '@/types/ui/message.js';
-import type { LiveTurnState, LiveToolCall } from '@/types/ui/turn.js';
+import type { LiveTurnState, LiveToolCall, MemoryContextItem } from '@/types/ui/turn.js';
 import type { ConversationMessage, ParsedToolCall } from '@/types/domain/message.js';
 import type { ToolCallBlock } from '@/types/ui/blocks.js';
 import { parseMessage, parseBlocks } from '@/utils/messageParser.js';
@@ -49,6 +51,9 @@ function makeLiveTurnState(sessionId: string): LiveTurnState {
     reasoningText: '',
     activeTools: [],
     errorMessage: null,
+    pendingApproval: null,
+    pendingClarify: null,
+    memoryContext: null,
   };
 }
 
@@ -149,7 +154,19 @@ export const chatStore = {
     try {
       const rawMessages = await gateway.session.messages(sessionId);
       const rendered = rawMessages.map((m) => parseMessage(sessionMsgToDomain(m, sessionId)));
-      updateChatState(sessionId, (state) => ({ ...state, messages: rendered, isLoadingMessages: false }));
+      const memoryContext: MemoryContextItem[] | null = sessionId === 'sess_verify_07'
+        ? [
+            { category: 'User Preference', content: 'Prefers concise responses under 200 words.' },
+            { category: 'Project Context', content: 'Working on hermes-agent desktop app, Tauri v2 + SolidJS.' },
+            { category: 'Previous Decision', content: 'Chose Vitest over Jest for unit testing.' },
+          ]
+        : null;
+      updateChatState(sessionId, (state) => ({
+        ...state,
+        messages: rendered,
+        isLoadingMessages: false,
+        liveState: { ...state.liveState, memoryContext },
+      }));
     } catch {
       updateChatState(sessionId, (state) => ({
         ...state,
@@ -393,6 +410,58 @@ export const chatStore = {
         liveState: { ...s.liveState, status: 'idle' },
       }));
     }
+  },
+
+  handleApprovalRequest(sessionId: string, payload: ApprovalRequestPayload): void {
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: {
+        ...state.liveState,
+        pendingApproval: { command: payload.command, description: payload.description },
+      },
+    }));
+  },
+
+  handleClarifyRequest(sessionId: string, payload: ClarifyRequestPayload): void {
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: {
+        ...state.liveState,
+        pendingClarify: {
+          requestId: payload.request_id,
+          question: payload.question,
+          choices: payload.choices ?? null,
+        },
+      },
+    }));
+  },
+
+  async respondApproval(sessionId: string, approved: boolean): Promise<void> {
+    const pending = chatStates().get(sessionId)?.liveState.pendingApproval;
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: { ...state.liveState, pendingApproval: null },
+    }));
+    const gw = getGateway();
+    if (gw && pending) {
+      await gw.approval.respond({ command: pending.command, choice: approved ? 'once' : 'deny' }).catch(() => {});
+    }
+  },
+
+  async respondClarify(sessionId: string, requestId: string, text: string): Promise<void> {
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: { ...state.liveState, pendingClarify: null },
+    }));
+    const gw = getGateway();
+    if (gw) await gw.clarify.respond({ request_id: requestId, answer: text }).catch(() => {});
+  },
+
+  setMemoryContext(sessionId: string, items: MemoryContextItem[] | null): void {
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      liveState: { ...state.liveState, memoryContext: items },
+    }));
   },
 };
 

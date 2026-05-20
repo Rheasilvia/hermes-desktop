@@ -102,8 +102,114 @@
 
 .nav {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Scrollable conversations zone */
+.conversationsSection {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.conversationsHeader {
+  flex-shrink: 0;
+}
+
+.searchWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 0 4px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 8px;
+  color: var(--color-on-surface-dim);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  height: 26px;
+  padding: 0 24px 0 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: rgba(20, 20, 19, 0.05);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--color-on-surface);
+  outline: none;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.searchInput::placeholder {
+  color: var(--color-on-surface-dim);
+}
+
+.searchInput:focus {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+.searchClear {
+  position: absolute;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-on-surface-dim);
+  border-radius: 50%;
+  padding: 0;
+}
+
+.searchClear:hover {
+  color: var(--color-on-surface);
+  background: rgba(20, 20, 19, 0.08);
+}
+
+.sessionsList {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 4px;
+}
+
+.sessionsList::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sessionsList::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sessionsList::-webkit-scrollbar-thumb {
+  background: rgba(20, 20, 19, 0.15);
+  border-radius: 2px;
+}
+
+.sessionsList::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 20, 19, 0.25);
+}
+
+/* Fixed bottom nav */
+.bottomNav {
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;

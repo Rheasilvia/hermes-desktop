@@ -142,6 +142,8 @@ export class MockGatewayAdapter implements GatewayAdapter {
   private mockActiveProvider = 'openai';
   private mockActiveModel = 'gpt-4o';
   private mockConfigMtime = Math.floor(Date.now() / 1000);
+  private resolveApproval?: () => void;
+  private resolveClarify?: () => void;
 
   constructor(options: GatewayAdapterOptions = {}) {
     this.delayMin = options.delayMin ?? DEFAULT_DELAY_MIN;
@@ -260,6 +262,30 @@ export class MockGatewayAdapter implements GatewayAdapter {
         }
         // ─────────────────────────────────────────────────────────────────────
 
+        // ── Section 07 special-flows simulation ──────────────────────────────
+        // 07-A: approval request — card stays until user clicks Allow/Deny.
+        if (sessionId === 'sess_verify_07') {
+          await delay(400, 600);
+          this.emit('approval.request', {
+            command: 'write_file("/Users/me/release.txt")',
+            description: 'This will overwrite any existing content.',
+          });
+          await new Promise<void>(resolve => { this.resolveApproval = resolve; });
+          this.resolveApproval = undefined;
+        }
+        // 07-B: clarification request — card stays until user responds.
+        if (sessionId === 'sess_verify_07b') {
+          await delay(400, 600);
+          this.emit('clarify.request', {
+            request_id: generateId(),
+            question: 'Which environment should I deploy to?',
+            choices: ['Production', 'Staging', 'Local dev'],
+          });
+          await new Promise<void>(resolve => { this.resolveClarify = resolve; });
+          this.resolveClarify = undefined;
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         const responseText =
           "I'm currently running in mock mode. In a real session, I'd be processing your message through the Hermes agent with full tool-calling capabilities. The gateway adapter pattern lets the UI stay clean while delegating to the Python backend.";
 
@@ -364,12 +390,14 @@ export class MockGatewayAdapter implements GatewayAdapter {
     this.approval = {
       respond: async (_params): Promise<void> => {
         await delay(this.delayMin, this.delayMax);
+        this.resolveApproval?.();
       },
     };
 
     this.clarify = {
       respond: async (_params): Promise<void> => {
         await delay(this.delayMin, this.delayMax);
+        this.resolveClarify?.();
       },
     };
 

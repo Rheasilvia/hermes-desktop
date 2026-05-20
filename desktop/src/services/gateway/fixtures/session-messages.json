@@ -436,6 +436,122 @@
     }
   ],
   "sess_verify_04_empty": [],
+  "sess_verify_07": [
+    {
+      "session_id": "sess_verify_07",
+      "role": "user",
+      "content": "Write the release notes to release.txt",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 300000,
+      "token_count": 10,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_07",
+      "role": "assistant",
+      "content": "I need your approval to write the release notes file.",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 280000,
+      "token_count": 15,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_07",
+      "role": "user",
+      "content": "Go ahead",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 250000,
+      "token_count": 2,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_07",
+      "role": "assistant",
+      "content": "Done. File written successfully.",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 220000,
+      "token_count": 8,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    }
+  ],
+  "sess_verify_07b": [
+    {
+      "session_id": "sess_verify_07b",
+      "role": "user",
+      "content": "Deploy to an environment",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 300000,
+      "token_count": 6,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_07b",
+      "role": "assistant",
+      "content": "Which environment should I deploy to?",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 280000,
+      "token_count": 10,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_07b",
+      "role": "user",
+      "content": "Staging",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 250000,
+      "token_count": 1,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_07b",
+      "role": "assistant",
+      "content": "Done. Deployed to staging.",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 220000,
+      "token_count": 8,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    }
+  ],
   "default": [
     {
       "session_id": "__SESSION_ID__",

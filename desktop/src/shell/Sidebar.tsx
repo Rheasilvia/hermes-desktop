@@ -146,8 +146,14 @@ export const Sidebar: Component = () => {
     document.removeEventListener('keydown', handleEscape);
   });
 
-  const recentSessions = () => {
-    return sessionStore.sessions.slice(0, 10);
+  const [sessionSearch, setSessionSearch] = createSignal('');
+
+  const filteredSessions = () => {
+    const q = sessionSearch().toLowerCase().trim();
+    if (!q) return sessionStore.sessions;
+    return sessionStore.sessions.filter((s) =>
+      (s.title || 'Untitled').toLowerCase().includes(q)
+    );
   };
 
   return (
@@ -189,77 +195,99 @@ export const Sidebar: Component = () => {
       </div>
 
       <nav class={styles.nav}>
-        <Show when={recentSessions().length > 0}>
-          <div class={styles.group}>
+        {/* ── Conversations: scrollable zone ───────────────────────────── */}
+        <div class={styles.conversationsSection}>
+          <div class={styles.conversationsHeader}>
             <span class={styles.groupLabel}>Conversations</span>
-            <For each={recentSessions()}>
-              {(session) => (
-                <div class={`${styles.navItem} ${styles.navItemWithMenu} ${isConversationActive(session.id) ? styles.active : ''}`}>
-                  <A
-                    href={`/conversation/${session.id}`}
-                    class={styles.navItemLink}
-                    title={session.title || 'Untitled conversation'}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      const menuWidth = 148;
-                      const menuHeight = 90;
-                      let x = e.clientX;
-                      let y = e.clientY;
-                      if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 8;
-                      if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 8;
-                      setContextMenuPosition({ x, y });
-                      setContextMenuSession({ id: session.id, title: session.title || 'Untitled' });
-                      setContextMenuOpen(true);
-                    }}
-                  >
-                    <span classList={{
-                      [styles.statusDot]: true,
-                      [styles.statusDotActive]: chatStore.isStreaming(session.id),
-                    }} />
-                    <span class={styles.navLabel}>{middleEllipsis(session.title || 'Untitled')}</span>
-                  </A>
-                </div>
-              )}
-            </For>
-            <A
-              href={ROUTES.SESSIONS}
-              class={`${styles.navItem} ${styles.viewAll}`}
-            >
-              <Icon name="chevron-right" size={14} />
-              <span class={styles.navLabel}>View all</span>
-            </A>
           </div>
-        </Show>
-
-        <Show when={recentSessions().length === 0}>
-          <div class={styles.group}>
-            <span class={styles.groupLabel}>Conversations</span>
-            <div class={`${styles.navItem} ${styles.emptyHint}`}>
-              <Icon name="message-square" size={14} />
-              <span class={styles.navLabel}>No conversations yet</span>
-            </div>
+          <div class={styles.searchWrapper}>
+            <Icon name="search" size={12} class={styles.searchIcon} />
+            <input
+              class={styles.searchInput}
+              type="text"
+              placeholder="Search…"
+              value={sessionSearch()}
+              onInput={(e) => setSessionSearch(e.currentTarget.value)}
+            />
+            <Show when={sessionSearch()}>
+              <button
+                class={styles.searchClear}
+                type="button"
+                onClick={() => setSessionSearch('')}
+                title="Clear search"
+              >
+                <Icon name="x" size={10} />
+              </button>
+            </Show>
           </div>
-        </Show>
-
-        <For each={NAV_GROUPS}>
-          {(group) => (
-            <div class={styles.group}>
-              <span class={styles.groupLabel}>{group.label}</span>
-              <For each={group.items}>
-                {(item) => (
-                  <A
-                    href={item.route}
-                    class={`${styles.navItem} ${isActive(item.route) ? styles.active : ''}`}
-                  >
-                    <Icon name={item.icon} size={16} />
-                    <span class={styles.navLabel}>{item.label}</span>
-                  </A>
+          <div class={styles.sessionsList}>
+            <Show when={filteredSessions().length > 0}>
+              <For each={filteredSessions()}>
+                {(session) => (
+                  <div class={`${styles.navItem} ${styles.navItemWithMenu} ${isConversationActive(session.id) ? styles.active : ''}`}>
+                    <A
+                      href={`/conversation/${session.id}`}
+                      class={styles.navItemLink}
+                      title={session.title || 'Untitled conversation'}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const menuWidth = 148;
+                        const menuHeight = 90;
+                        let x = e.clientX;
+                        let y = e.clientY;
+                        if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 8;
+                        if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 8;
+                        setContextMenuPosition({ x, y });
+                        setContextMenuSession({ id: session.id, title: session.title || 'Untitled' });
+                        setContextMenuOpen(true);
+                      }}
+                    >
+                      <span classList={{
+                        [styles.statusDot]: true,
+                        [styles.statusDotActive]: chatStore.isStreaming(session.id),
+                      }} />
+                      <span class={styles.navLabel}>{middleEllipsis(session.title || 'Untitled')}</span>
+                    </A>
+                  </div>
                 )}
               </For>
-            </div>
-          )}
-        </For>
+            </Show>
+            <Show when={filteredSessions().length === 0 && sessionSearch()}>
+              <div class={`${styles.navItem} ${styles.emptyHint}`}>
+                <span class={styles.navLabel}>No results</span>
+              </div>
+            </Show>
+            <Show when={sessionStore.sessions.length === 0}>
+              <div class={`${styles.navItem} ${styles.emptyHint}`}>
+                <Icon name="message-square" size={14} />
+                <span class={styles.navLabel}>No conversations yet</span>
+              </div>
+            </Show>
+          </div>
+        </div>
+
+        {/* ── Bottom nav: tools + links ────────────────────────────────── */}
+        <div class={styles.bottomNav}>
+          <For each={NAV_GROUPS}>
+            {(group) => (
+              <div class={styles.group}>
+                <span class={styles.groupLabel}>{group.label}</span>
+                <For each={group.items}>
+                  {(item) => (
+                    <A
+                      href={item.route}
+                      class={`${styles.navItem} ${isActive(item.route) ? styles.active : ''}`}
+                    >
+                      <Icon name={item.icon} size={16} />
+                      <span class={styles.navLabel}>{item.label}</span>
+                    </A>
+                  )}
+                </For>
+              </div>
+            )}
+          </For>
+        </div>
       </nav>
 
       <Show when={contextMenuOpen() && contextMenuSession()}>
