@@ -70,6 +70,11 @@ import {
   GitPullRequest,
   Lightbulb,
   Loader,
+  ThumbsUp,
+  ThumbsDown,
+  Pencil,
+  Trash2,
+  Ellipsis,
 } from 'lucide-solid';
 
 export type IconName =
@@ -141,7 +146,12 @@ export type IconName =
   | 'arrow-up'
   | 'git-pull-request'
   | 'lightbulb'
-  | 'loader';
+  | 'loader'
+  | 'thumbs-up'
+  | 'thumbs-down'
+  | 'pencil'
+  | 'trash-2'
+  | 'ellipsis';
 
 interface IconProps {
   name: IconName;
@@ -220,6 +230,11 @@ const LUCIDE_ICONS: Record<IconName, Component<{ size?: number; strokeWidth?: nu
   'git-pull-request': GitPullRequest,
   'lightbulb': Lightbulb,
   'loader': Loader,
+  'thumbs-up': ThumbsUp,
+  'thumbs-down': ThumbsDown,
+  'pencil': Pencil,
+  'trash-2': Trash2,
+  'ellipsis': Ellipsis,
 };
 
 export const Icon: Component<IconProps> = (props) => {
