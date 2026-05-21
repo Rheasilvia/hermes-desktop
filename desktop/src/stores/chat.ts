@@ -207,7 +207,7 @@ export const chatStore = {
       tokenCount: null,
       finishReason: null,
       isStreaming: false,
-      actions: ['copy', 'edit'],
+      actions: ['copy', 'edit', 'delete'],
       toolName: null,
     };
     updateChatState(sessionId, (state) => ({
@@ -356,7 +356,7 @@ export const chatStore = {
         tokenCount: payload.usage?.total ?? null,
         finishReason: null,
         isStreaming: false,
-        actions: ['copy', 'retry', 'branch'],
+        actions: ['copy', 'retry', 'like', 'dislike', 'more'],
         toolName: null,
       };
 

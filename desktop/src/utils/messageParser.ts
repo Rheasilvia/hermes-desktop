@@ -90,8 +90,8 @@ function toolCallToBlock(tc: ParsedToolCall): ToolCallBlock {
 }
 
 function actionsFor(role: ConversationMessage['role']): RenderedMessage['actions'] {
-  if (role === 'user') return ['copy', 'edit'];
-  if (role === 'assistant') return ['copy', 'retry', 'branch'];
+  if (role === 'user') return ['copy', 'edit', 'delete'];
+  if (role === 'assistant') return ['copy', 'retry', 'like', 'dislike', 'more'];
   return [];
 }
 

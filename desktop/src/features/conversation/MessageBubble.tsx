@@ -1,6 +1,7 @@
 import type { Component } from 'solid-js';
 import { Show } from 'solid-js';
 import type { RenderedMessage } from '@/types/index.js';
+import type { MessageActionType } from '@/types/ui/message.js';
 import type { TextBlock } from '@/types/ui/blocks.js';
 import { UserMessage } from './UserMessage.js';
 import { AssistantMessage } from './AssistantMessage.js';
@@ -13,6 +14,7 @@ interface MessageBubbleProps {
   message: RenderedMessage;
   showDateSeparator?: boolean;
   dateSeparatorLabel?: string;
+  onAction?: (action: MessageActionType) => void;
 }
 
 export const MessageBubble: Component<MessageBubbleProps> = (props) => {
@@ -30,6 +32,7 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
             .map((b) => b.content)
             .join('\n')}
           timestamp={props.message.timestamp || undefined}
+          onAction={props.onAction}
         />
       </Show>
       <Show when={role() === 'assistant'}>
@@ -38,6 +41,7 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
           timestamp={props.message.timestamp || undefined}
           isStreaming={props.message.isStreaming}
           actions={props.message.actions}
+          onAction={props.onAction}
         />
       </Show>
       <Show when={role() === 'tool'}>

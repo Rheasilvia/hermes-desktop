@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { Show, For, createMemo } from 'solid-js';
+import { Show, For, createMemo, createSignal } from 'solid-js';
 import { HermesAvatar } from '@/ui/atoms/HermesAvatar.js';
 import type {
   MessageBlock,
@@ -17,6 +17,7 @@ import { ToolCallPanel } from './ToolCallPanel.js';
 import { RichContentRenderer } from './RichContentRenderer.js';
 import { AttachmentRenderer } from './AttachmentRenderer.js';
 import { blockToRow } from './toolCallMappers.js';
+import { MessageActionBar, type MessageActionType } from './MessageActionBar.js';
 import styles from './AssistantMessage.module.css';
 
 interface AssistantMessageProps {
@@ -24,6 +25,7 @@ interface AssistantMessageProps {
   timestamp?: number;
   isStreaming?: boolean;
   actions?: MessageAction[];
+  onAction?: (action: MessageActionType) => void;
 }
 
 type BlockGroup =
@@ -56,6 +58,8 @@ const AttachmentBlockView: Component<{ block: AttachmentBlock }> = (props) => (
 );
 
 export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
+  const [showActions, setShowActions] = createSignal(false);
+
   const blockGroups = createMemo(() => {
     const groups: BlockGroup[] = [];
     for (const block of props.blocks) {
@@ -74,7 +78,11 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
   });
 
   return (
-    <div class={styles.row}>
+    <div
+      class={styles.row}
+      onMouseEnter={() => setShowActions(true)}
+      onMouseLeave={() => setShowActions(false)}
+    >
       <HermesAvatar size={40} />
       <div class={styles.content}>
         <div class={styles.header}>
@@ -121,6 +129,9 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
         </For>
         <Show when={props.isStreaming}>
           <span class={styles.streamingCursor} />
+        </Show>
+        <Show when={showActions() && props.onAction}>
+          <MessageActionBar variant="ai" onAction={props.onAction!} />
         </Show>
       </div>
     </div>
