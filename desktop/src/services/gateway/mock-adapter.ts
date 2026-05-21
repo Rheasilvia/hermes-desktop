@@ -286,6 +286,57 @@ export class MockGatewayAdapter implements GatewayAdapter {
         }
         // ─────────────────────────────────────────────────────────────────────
 
+        // ── Section 09 reasoning simulation ──────────────────────────────────
+        if (sessionId === 'sess_verify_09') {
+          const reasoningText = 'Analyzing user code structure, checking loop-internal object allocation patterns...\nConsidering Python memory allocation behavior and GC pressure...\nThe user\'s code creates a new object instance on every loop iteration.\nIn Python, frequent small-object allocation adds pressure to the garbage collector.\nThe optimal fix is to extract invariant objects outside the loop or use an object pool.\nAlso need to check for unnecessary nested list comprehensions...';
+          const responseText = 'The main issue is object creation inside the loop causing GC pressure.\n\n**Fix:** Move invariant objects outside the loop or use an object pool.';
+
+          // Stream reasoning first — slower delay for demo visibility
+          const reasoningDelayMin = 100;
+          const reasoningDelayMax = 220;
+          const stopReasoning = streamText(reasoningText, delta => {
+            this.emit('reasoning.delta', { text: delta });
+          }, reasoningDelayMin, reasoningDelayMax);
+          this.activeStreams.push(stopReasoning);
+
+          await delay(reasoningText.length * (reasoningDelayMin + reasoningDelayMax) / 2 + 400, reasoningText.length * (reasoningDelayMin + reasoningDelayMax) / 2 + 800);
+          stopReasoning();
+          this.activeStreams = this.activeStreams.filter(s => s !== stopReasoning);
+
+          // Brief pause between reasoning and response
+          await delay(600, 1000);
+
+          // Then stream the response
+          const stopResponse = streamText(responseText, delta => {
+            this.emit('message.delta', { text: delta });
+          }, this.delayMin, this.delayMax);
+          this.activeStreams.push(stopResponse);
+
+          await delay(responseText.length * (this.delayMin + this.delayMax) / 2 + 200, responseText.length * (this.delayMin + this.delayMax) / 2 + 400);
+          stopResponse();
+          this.activeStreams = this.activeStreams.filter(s => s !== stopResponse);
+
+          this.emit('message.complete', {
+            text: responseText,
+            rendered: false,
+            usage: {
+              calls: 1,
+              input: 12,
+              output: responseText.length,
+              total: 12 + responseText.length,
+              cost_usd: 0.001,
+            },
+            status: {
+              cost_usd: 0.001,
+              cache_read_tokens: 0,
+              cache_write_tokens: 0,
+              reasoning_tokens: 180,
+            },
+          });
+          return;
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         const responseText =
           "I'm currently running in mock mode. In a real session, I'd be processing your message through the Hermes agent with full tool-calling capabilities. The gateway adapter pattern lets the UI stay clean while delegating to the Python backend.";
 

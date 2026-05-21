@@ -24,4 +24,5 @@ export { ToolCallTree } from './ToolCallTree.js';
 export { ToolCallSummary } from './ToolCallSummary.js';
 export { EmptyChatState } from './EmptyChatState.js';
 export { ErrorBanner } from './ErrorBanner.js';
+export { ReasoningPanel } from './ReasoningPanel.js';
 export { blockToRow, liveToRow, buildSummary } from './toolCallMappers.js';

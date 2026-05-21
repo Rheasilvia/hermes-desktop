@@ -19,6 +19,8 @@ import { diffStore } from '@/stores/chat.js';
 import { sessionStore } from '@/stores/session.js';
 import { getGateway } from '@/stores/context.js';
 import { MessageBubble } from './MessageBubble.js';
+import { AssistantMessage } from './AssistantMessage.js';
+import type { MessageBlock } from '@/types/index.js';
 import { MessageInput } from './MessageInput.js';
 import { ModelSelector } from './ModelSelector.js';
 import { ChatToolbar } from './ChatToolbar.js';
@@ -56,6 +58,28 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const isEmpty = createMemo(() => messages().length === 0);
   const isLoading = () => chatStore.isLoadingMessages(sessionId());
+
+  const liveBlocks = createMemo((): MessageBlock[] => {
+    const live = liveState();
+    const blocks: MessageBlock[] = [];
+    if (live.reasoningText) {
+      blocks.push({
+        type: 'reasoning',
+        id: 'live-reasoning',
+        content: live.reasoningText,
+        isStreaming: true,
+        tokenCount: null,
+      });
+    }
+    if (live.streamingText) {
+      blocks.push({
+        type: 'text',
+        id: 'live-text',
+        content: live.streamingText,
+      });
+    }
+    return blocks;
+  });
 
   function computeDateSeparators(msgs: RenderedMessage[]): Map<number, string> {
     const separators = new Map<number, string>();
@@ -355,6 +379,12 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                     );
                   }}
                 </For>
+                <Show when={liveBlocks().length > 0}>
+                  <AssistantMessage
+                    blocks={liveBlocks()}
+                    isStreaming={true}
+                  />
+                </Show>
                 <Show when={liveState().activeTools.length > 0}>
                   <ToolCallPanel
                     rows={liveState().activeTools.map(liveToRow)}
