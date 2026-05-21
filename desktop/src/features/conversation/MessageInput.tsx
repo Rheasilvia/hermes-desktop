@@ -1,4 +1,4 @@
-import type { Component } from 'solid-js';
+import type { Accessor, Component } from 'solid-js';
 import { createSignal, createEffect, Show, For } from 'solid-js';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Icon } from '@/ui/atoms/Icon';
@@ -21,6 +21,8 @@ interface MessageInputProps {
   workspacePath?: string | null;
   isNewConversation?: boolean;
   onWorkspaceChange?: (path: string) => void;
+  editDraft?: Accessor<string | null>;
+  clearEditDraft?: () => void;
 }
 
 function formatFileSize(bytes: number): string {
@@ -94,6 +96,18 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   createEffect(() => {
     if (textareaRef && text() === '') {
       textareaRef.style.height = 'auto';
+    }
+  });
+
+  createEffect(() => {
+    const draft = props.editDraft?.();
+    if (draft != null) {
+      setText(draft);
+      props.clearEditDraft?.();
+      if (textareaRef) {
+        autoResize(textareaRef);
+        textareaRef.focus();
+      }
     }
   });
 

@@ -1,0 +1,50 @@
+.actionBar {
+  position: absolute;
+  bottom: -36px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: #faf9f5;
+  border: 1px solid #e8e6dc;
+  border-radius: 8px;
+  z-index: 10;
+}
+
+.actionButton {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #87867f;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.actionButton:hover {
+  background: #f5f4ed;
+  color: #5e5d59;
+}
+
+.actionButton:active {
+  background: #f5f4ed;
+  color: #5e5d59;
+}
+
+.divider {
+  width: 1px;
+  height: 16px;
+  background: #e8e6dc;
+}
+
+.alignLeft {
+  left: 0;
+}
+
+.alignRight {
+  right: 0;
+}
