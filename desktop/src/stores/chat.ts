@@ -405,10 +405,56 @@ export const chatStore = {
       } catch {
         // interrupt may fail if already completed — ignore
       }
-      updateChatState(sessionId, (s) => ({
-        ...s,
-        liveState: { ...s.liveState, status: 'idle' },
-      }));
+      updateChatState(sessionId, (s) => {
+        const live = s.liveState;
+        const hasContent = live.reasoningText || live.streamingText || live.activeTools.length > 0;
+        if (!hasContent) {
+          return { ...s, liveState: makeLiveTurnState(sessionId) };
+        }
+        const toolBlocks: ToolCallBlock[] = live.activeTools.map((t) => ({
+          type: 'tool_call' as const,
+          id: `tc-${t.id}`,
+          toolId: t.id,
+          name: t.name,
+          status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
+          inputPreview: t.inputPreview,
+          outputSummary: null,
+          inlineDiff: null,
+          durationMs: t.durationMs,
+        }));
+        const blocks = [
+          ...(live.reasoningText ? [{
+            type: 'reasoning' as const,
+            id: nextBlockId(),
+            content: live.reasoningText,
+            isStreaming: false,
+            tokenCount: null,
+          }] : []),
+          ...(live.streamingText ? [{
+            type: 'text' as const,
+            id: nextBlockId(),
+            content: live.streamingText,
+          }] : []),
+          ...toolBlocks,
+        ];
+        const partialMsg: RenderedMessage = {
+          id: nextEphemeralId(),
+          sessionId,
+          role: 'assistant',
+          blocks,
+          timestamp: Date.now() / 1000,
+          tokenCount: null,
+          finishReason: null,
+          isStreaming: false,
+          actions: ['copy', 'retry', 'like', 'dislike', 'more'],
+          toolName: null,
+        };
+        return {
+          messages: [...s.messages, partialMsg],
+          liveState: makeLiveTurnState(sessionId),
+          isLoadingMessages: false,
+        };
+      });
     }
   },
 

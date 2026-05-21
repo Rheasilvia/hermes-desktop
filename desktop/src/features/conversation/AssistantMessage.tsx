@@ -14,6 +14,7 @@ import type {
 import { parseMarkdown } from '@/utils/markdown.js';
 import { CodeBlock } from './CodeBlock.js';
 import { ToolCallPanel } from './ToolCallPanel.js';
+import { ReasoningPanel } from './ReasoningPanel.js';
 import { RichContentRenderer } from './RichContentRenderer.js';
 import { AttachmentRenderer } from './AttachmentRenderer.js';
 import { blockToRow } from './toolCallMappers.js';
@@ -45,10 +46,6 @@ const TextBlockView: Component<{ block: TextBlock }> = (props) => {
   return <div class={styles.markdownContent} innerHTML={html()} />;
 };
 
-const ReasoningBlockView: Component<{ block: ReasoningBlock }> = (props) => (
-  <div class={styles.reasoningBlock}>{props.block.content}</div>
-);
-
 const RichContentBlockView: Component<{ block: RichContentBlock }> = (props) => (
   <RichContentRenderer block={props.block} />
 );
@@ -60,9 +57,16 @@ const AttachmentBlockView: Component<{ block: AttachmentBlock }> = (props) => (
 export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
   const [showActions, setShowActions] = createSignal(false);
 
+  // Reasoning blocks rendered outside <For> — prevents ThinkingIndicator remounts
+  // on every streaming delta (new block objects would otherwise cause <For> to remount).
+  const reasoningBlock = createMemo(() =>
+    props.blocks.find((b) => b.type === 'reasoning') as ReasoningBlock | undefined
+  );
+
   const blockGroups = createMemo(() => {
     const groups: BlockGroup[] = [];
     for (const block of props.blocks) {
+      if (block.type === 'reasoning') continue;
       if (block.type === 'tool_call') {
         const last = groups[groups.length - 1];
         if (last?.type === 'tool_group') {
@@ -91,6 +95,16 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
             <span class={styles.timestamp}>{formatTimestamp(props.timestamp!)}</span>
           </Show>
         </div>
+        {/* Reasoning rendered outside <For> so ThinkingIndicator never remounts on delta */}
+        <Show when={reasoningBlock()}>
+          {(rb) => (
+            <ReasoningPanel
+              content={rb().content}
+              isStreaming={rb().isStreaming}
+              tokenCount={rb().tokenCount}
+            />
+          )}
+        </Show>
         <For each={blockGroups()}>
           {(group) => {
             if (group.type === 'tool_group') {
@@ -116,8 +130,6 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
                     filename={(block as CodeBlockType).filename}
                   />
                 );
-              case 'reasoning':
-                return <ReasoningBlockView block={block as ReasoningBlock} />;
               case 'rich_content':
                 return <RichContentBlockView block={block as RichContentBlock} />;
               case 'attachment':
@@ -127,7 +139,7 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
             }
           }}
         </For>
-        <Show when={props.isStreaming}>
+        <Show when={props.isStreaming && props.blocks.some((b) => b.type !== 'reasoning')}>
           <span class={styles.streamingCursor} />
         </Show>
         <Show when={showActions() && props.onAction}>
