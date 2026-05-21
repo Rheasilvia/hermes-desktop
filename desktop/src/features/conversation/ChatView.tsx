@@ -13,6 +13,7 @@ import type {
   ClarifyRequestPayload,
 } from '@/types/gateway.js';
 import type { RenderedMessage } from '@/types/index.js';
+import type { MessageActionType } from '@/types/ui/message.js';
 import { chatStore } from '@/stores/chat.js';
 import { diffStore } from '@/stores/chat.js';
 import { sessionStore } from '@/stores/session.js';
@@ -44,6 +45,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let diffPanelEl: HTMLDivElement | undefined;
   let dragHandleEl: HTMLDivElement | undefined;
   const [dragging, setDragging] = createSignal(false);
+  const [editDraft, setEditDraft] = createSignal<string | null>(null);
 
   const workspacePath = () => sessionStore.activeSession?.workspace_path ?? null;
 
@@ -110,6 +112,45 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const handleSend = async (text: string, _attachments?: any[]) => {
     chatStore.appendUserMessage(sessionId(), text);
     await chatStore.sendMessage(sessionId(), text);
+  };
+
+  const handleMessageAction = async (sid: string, action: MessageActionType, message: RenderedMessage) => {
+    switch (action) {
+      case 'copy':
+        // Copy message content to clipboard
+        const content = message.blocks
+          .filter((b) => b.type === 'text')
+          .map((b) => b.content)
+          .join('\n');
+        await navigator.clipboard.writeText(content);
+        break;
+      case 'edit': {
+        const textContent = message.blocks
+          .filter((b) => b.type === 'text')
+          .map((b) => (b as any).content as string)
+          .join('\n')
+          .trim();
+        setEditDraft(textContent);
+        break;
+      }
+      case 'retry':
+        // Retry regenerates from this point
+        console.log('Retry action for message:', message);
+        break;
+      case 'branch':
+        // Branch conversation
+        console.log('Branch action for message:', message);
+        break;
+      case 'like':
+      case 'dislike':
+        // Feedback mechanism
+        console.log('Feedback action:', action, 'for message:', message);
+        break;
+      case 'more':
+        // More options (export, etc.)
+        console.log('More action for message:', message);
+        break;
+    }
   };
 
   const onMessageDelta = (payload: MessageDeltaPayload) => {
@@ -302,11 +343,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 <For each={messages()}>
                   {(message, getIndex) => {
                     const idx = getIndex();
+                    const onAction = (action: MessageActionType) =>
+                      void handleMessageAction(sessionId(), action, message);
                     return (
                       <MessageBubble
                         message={message}
                         showDateSeparator={dateSeparators().has(idx)}
                         dateSeparatorLabel={dateSeparators().get(idx)}
+                        onAction={onAction}
                       />
                     );
                   }}
@@ -355,6 +399,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 const sid = sessionId();
                 if (sid) sessionStore.updateWorkspace(sid, path);
               }}
+              editDraft={editDraft}
+              clearEditDraft={() => setEditDraft(null)}
             />
           </div>
         </div>
