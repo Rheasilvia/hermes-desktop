@@ -27,6 +27,9 @@ def client(tmp_path):
     """TestClient with isolated hermes_home."""
     home = tmp_path / ".hermes"
     home.mkdir(parents=True)
+    # Write a minimal config.yaml so _resolve_default_model has a fallback
+    config_yaml = home / "config.yaml"
+    config_yaml.write_text("model:\n  provider: openai\n  default: gpt-4\n")
     cfg = Config(hermes_home=home, port=18080, token=None)
     app = build_app(cfg)
     return TestClient(app)
@@ -84,6 +87,45 @@ class TestSessionCRUD:
 
         # Verify it's gone
         resp = client.get(f"/desktop/api/sessions/{sid}")
+        assert resp.status_code == 404
+
+    def test_delete_session_removes_from_list(self, client):
+        """Deleted session must not appear in list_sessions."""
+        r = client.post("/desktop/api/sessions", json={})
+        sid = r.json()["session_id"]
+
+        # Verify it's in the list
+        resp = client.get("/desktop/api/sessions")
+        assert any(s["id"] == sid for s in resp.json())
+
+        # Delete it
+        resp = client.delete(f"/desktop/api/sessions/{sid}")
+        assert resp.status_code == 200
+
+        # Verify it's gone from the list
+        resp = client.get("/desktop/api/sessions")
+        assert not any(s["id"] == sid for s in resp.json())
+
+    def test_delete_session_clears_messages(self, client):
+        """Deleted session's ui_messages and get_session_messages return 404."""
+        r = client.post("/desktop/api/sessions", json={})
+        sid = r.json()["session_id"]
+
+        # Add a message
+        from desktop_backend.db.ui_messages import append
+        append(client.app.state.cfg.hermes_home, sid, "user", {"text": "hi"})
+
+        # Verify messages exist
+        resp = client.get(f"/desktop/api/sessions/{sid}/messages")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 1
+
+        # Delete session
+        resp = client.delete(f"/desktop/api/sessions/{sid}")
+        assert resp.status_code == 200
+
+        # Messages should now 404
+        resp = client.get(f"/desktop/api/sessions/{sid}/messages")
         assert resp.status_code == 404
 
 

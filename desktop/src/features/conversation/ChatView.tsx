@@ -1,5 +1,6 @@
 import type { Component } from 'solid-js';
 import { Show, For, createEffect, onMount, onCleanup, createMemo, createSignal, Switch, Match, untrack } from 'solid-js';
+import { useNavigate } from '@solidjs/router';
 import type {
   MessageDeltaPayload,
   MessageCompletePayload,
@@ -45,6 +46,7 @@ const NEAR_BOTTOM_THRESHOLD = 100;
 const SCROLL_PAUSE_THRESHOLD = 80;
 
 export const ChatView: Component<ChatViewProps> = (props) => {
+  const navigate = useNavigate();
   const sessionId = () => props.sessionId ?? '';
   let messagesEndRef: HTMLDivElement | undefined;
   let chatBodyRef: HTMLDivElement | undefined;
@@ -323,7 +325,24 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     const sid = sessionId();
     if (!sid) return;
     sessionStore.setActiveSession(sid);
-    untrack(() => { void chatStore.loadMessages(sid); });
+    untrack(async () => {
+      await chatStore.loadMessages(sid);
+      // If the session no longer exists (e.g. was deleted), redirect
+      const exists = sessionStore.sessions.some((s) => s.id === sid);
+      if (!exists) {
+        const remaining = sessionStore.sessions;
+        if (remaining.length > 0) {
+          navigate(`/conversation/${remaining[0].id}`);
+        } else {
+          try {
+            const meta = await sessionStore.createSession({});
+            if (meta) navigate(`/conversation/${meta.id}`);
+          } catch {
+            // silently ignore
+          }
+        }
+      }
+    });
     // Reset scroll state when switching sessions
     setIsNearBottom(true);
     setUserScrolledUp(false);
