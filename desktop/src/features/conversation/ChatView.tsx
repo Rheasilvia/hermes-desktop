@@ -324,6 +324,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     if (!sid) return;
     sessionStore.setActiveSession(sid);
     untrack(() => { void chatStore.loadMessages(sid); });
+    // Reset scroll state when switching sessions
+    setIsNearBottom(true);
+    setUserScrolledUp(false);
+    setUnreadCount(0);
+    setLastMessageCount(0);
   });
 
   onMount(() => {
