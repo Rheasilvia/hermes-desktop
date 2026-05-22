@@ -142,3 +142,17 @@ def latest_seq(hermes_home: Path, session_id: str) -> int:
         return row["max_seq"]
     finally:
         conn.close()
+
+
+def clear_session(hermes_home: Path, session_id: str) -> None:
+    """Delete all ui_messages rows for a session."""
+    conn = _connect(hermes_home)
+    try:
+        _ensure_schema(conn)
+        conn.execute(
+            "DELETE FROM ui_messages WHERE session_id = ?",
+            (session_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()

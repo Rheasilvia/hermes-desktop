@@ -247,7 +247,7 @@ async def rename_session(session_id: str, body: RenameSessionRequest, request: R
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str, request: Request):
-    """Delete a session."""
+    """Delete a session and all associated data."""
     db = _get_session_db(request)
     pool = _get_agent_pool(request)
     row = db.get_session(session_id)
@@ -256,6 +256,21 @@ async def delete_session(session_id: str, request: Request):
 
     db.delete_session(session_id)
     pool.evict(session_id)
+
+    # Also delete desktop_meta row and ui_messages for this session
+    from ..db.connection import connect as desktop_connect, ensure_schema
+    from ..db.ui_messages import clear_session as clear_ui_messages
+
+    home = request.app.state.cfg.hermes_home
+    conn = desktop_connect(home)
+    try:
+        ensure_schema(conn)
+        conn.execute("DELETE FROM session_desktop_meta WHERE session_id = ?", (session_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    clear_ui_messages(home, session_id)
     return {"ok": True}
 
 
@@ -272,6 +287,11 @@ async def get_session_messages(
 
     Each row is shaped like an SSE event: { session_id, seq, type, payload }.
     """
+    # Verify session exists before returning messages
+    db = _get_session_db(request)
+    if db.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+
     from ..db.ui_messages import list_messages
 
     home = request.app.state.cfg.hermes_home
