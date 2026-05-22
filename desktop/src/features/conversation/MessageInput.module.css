@@ -160,27 +160,19 @@
   gap: 6px;
   border-radius: 8px;
   border: none;
-  background: #141413;
-  color: #faf9f5;
+  background: #fdecea;
+  color: #c0392b;
   cursor: pointer;
-  padding: 6px 14px;
+  padding: 6px 12px;
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   transition: all var(--transition-fast);
   flex-shrink: 0;
 }
 
 .stopButton:hover {
-  background: #2a2a29;
-}
-
-.stopIcon {
-  width: 8px;
-  height: 8px;
-  background: currentColor;
-  border-radius: 1px;
-  display: block;
+  background: #f5d5d0;
 }
 
 .actionBtn {
