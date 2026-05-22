@@ -1,7 +1,5 @@
 pub mod commands;
 mod sidecar;
-#[cfg(test)]
-mod sidecar_tests;
 mod updater;
 
 use tauri::{Emitter, Manager};

@@ -13,11 +13,13 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
   const [isOpen, setIsOpen] = createSignal(false);
   let wrapperRef: HTMLDivElement | undefined;
 
+  const hasModel = createMemo(() => {
+    return !!modelStore.activeProvider && !!modelStore.activeModel;
+  });
+
   const activeLabel = createMemo(() => {
-    const provider = modelStore.activeProvider;
-    const model = modelStore.activeModel;
-    if (!provider || !model) return 'Select model';
-    const displayName = modelStore.activeModelOption?.display_name ?? model;
+    if (!hasModel()) return '⚠ Select model';
+    const displayName = modelStore.activeModelOption?.display_name ?? modelStore.activeModel!;
     return displayName.length > 24 ? `${displayName.slice(0, 24)}…` : displayName;
   });
 

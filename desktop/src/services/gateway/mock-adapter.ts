@@ -205,7 +205,7 @@ export class MockGatewayAdapter implements GatewayAdapter {
       resume: async (_sessionId): Promise<void> => {
         await delay(this.delayMin, this.delayMax);
       },
-      interrupt: async (): Promise<void> => {
+      interrupt: async (_sessionId: string): Promise<void> => {
         await delay(10, 30);
         this.activeStreams.forEach(stop => stop());
         this.activeStreams = [];

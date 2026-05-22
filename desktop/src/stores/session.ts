@@ -5,6 +5,7 @@
 import { createSignal, createMemo } from 'solid-js';
 import type { SessionListItem, SessionMeta } from '@/types/index.js';
 import { getGateway } from './context.js';
+import { modelStore } from './models.js';
 
 const [sessions, setSessions] = createSignal<SessionListItem[]>([]);
 const [activeSessionId, setActiveSessionId] = createSignal<string | null>(null);
@@ -68,6 +69,7 @@ export const sessionStore = {
     try {
       const resolvedParams = {
         ...params,
+        model: params.model ?? modelStore.activeModel ?? undefined,
         workspace_path: params.workspace_path ?? this.getLastWorkspace() ?? '~/HermesWorkspace',
       };
       const meta = await gateway.session.create(resolvedParams);
@@ -155,7 +157,9 @@ export const sessionStore = {
     const gateway = getGateway();
     if (!gateway) return false;
     try {
-      await gateway.session.interrupt();
+      const sid = activeSessionId();
+      if (!sid) return false;
+      await gateway.session.interrupt(sid);
       return true;
     } catch {
       return false;

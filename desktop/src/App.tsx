@@ -5,8 +5,9 @@ import { AppLayout } from '@/shell/AppLayout';
 import { ModuleErrorBoundary } from '@/shell/ModuleErrorBoundary';
 import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner';
 import { initializeStores } from '@/stores/context.js';
-import { createMockGateway } from '@/services/gateway/index.js';
+import { createMockGateway, createHttpGateway } from '@/services/gateway/index.js';
 import { initBootstrap } from '@/shell/bootstrap.js';
+import { modelsStore } from '@/stores/models.js';
 
 const ConversationPage = lazy(() => import('@/pages/ConversationPage'));
 const SessionsPage = lazy(() => import('@/pages/SessionsPage'));
@@ -29,10 +30,14 @@ const ModuleSuspense: Component<{ moduleName: string; children: any }> = (props)
 
 const App: Component = () => {
   const init = async () => {
-    const gateway = createMockGateway();
+    const mode = import.meta.env.VITE_GATEWAY_MODE ?? 'http';
+    const gateway = mode === 'mock'
+      ? createMockGateway()
+      : createHttpGateway();
     initializeStores(gateway);
     await gateway.connect();
     await initBootstrap();
+    await modelsStore.loadActive();
   };
   void init();
 

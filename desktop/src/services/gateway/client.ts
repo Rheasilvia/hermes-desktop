@@ -153,13 +153,14 @@ export class GatewayClient {
 
   approval = {
     respond: (params: {
+      session_id: string;
       command: string;
       choice: 'once' | 'session' | 'always' | 'deny';
     }): Promise<void> => this.call('approval.respond', params),
   };
 
   clarify = {
-    respond: (params: { request_id: string; answer: string }): Promise<void> =>
+    respond: (params: { session_id: string; request_id: string; answer: string }): Promise<void> =>
       this.call('clarify.respond', params),
   };
 

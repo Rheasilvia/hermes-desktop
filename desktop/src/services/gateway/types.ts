@@ -48,7 +48,7 @@ import type {
 } from '@/types/index.js';
 
 /** Connection state of the gateway adapter. */
-export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
+export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
 /** All gateway event types mapped to their payloads. */
 export interface GatewayEventMap {
@@ -98,7 +98,7 @@ export interface SessionMethods {
   rename(sessionId: string, title: string): Promise<void>;
   branch(sessionId: string): Promise<SessionMeta>;
   resume(sessionId: string): Promise<void>;
-  interrupt(): Promise<void>;
+  interrupt(sessionId: string): Promise<void>;
   messages(sessionId: string): Promise<SessionMessage[]>;
 }
 
@@ -161,12 +161,12 @@ export interface ProviderMethods {
 
 /** Approval method group. */
 export interface ApprovalMethods {
-  respond(params: { command: string; choice: 'once' | 'session' | 'always' | 'deny' }): Promise<void>;
+  respond(params: { session_id: string; command: string; choice: 'once' | 'session' | 'always' | 'deny' }): Promise<void>;
 }
 
 /** Clarify method group. */
 export interface ClarifyMethods {
-  respond(params: { request_id: string; answer: string }): Promise<void>;
+  respond(params: { session_id: string; request_id: string; answer: string }): Promise<void>;
 }
 
 /** Sudo method group. */

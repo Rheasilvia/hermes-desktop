@@ -401,7 +401,7 @@ export const chatStore = {
     if (state && (state.liveState.status === 'streaming' || state.liveState.status === 'tool_running')) {
       try {
         const gw = getGateway();
-        if (gw) await gw.session.interrupt();
+        if (gw) await gw.session.interrupt(sessionId);
       } catch {
         // interrupt may fail if already completed — ignore
       }
@@ -490,7 +490,7 @@ export const chatStore = {
     }));
     const gw = getGateway();
     if (gw && pending) {
-      await gw.approval.respond({ command: pending.command, choice: approved ? 'once' : 'deny' }).catch(() => {});
+      await gw.approval.respond({ session_id: sessionId, command: pending.command, choice: approved ? 'once' : 'deny' }).catch(() => {});
     }
   },
 
@@ -500,7 +500,7 @@ export const chatStore = {
       liveState: { ...state.liveState, pendingClarify: null },
     }));
     const gw = getGateway();
-    if (gw) await gw.clarify.respond({ request_id: requestId, answer: text }).catch(() => {});
+    if (gw) await gw.clarify.respond({ session_id: sessionId, request_id: requestId, answer: text }).catch(() => {});
   },
 
   setMemoryContext(sessionId: string, items: MemoryContextItem[] | null): void {
