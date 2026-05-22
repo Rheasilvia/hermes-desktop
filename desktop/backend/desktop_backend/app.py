@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from .config import Config
 from .readers.cron_reader import L1CorruptError
 from .schemas.error import ErrorEnvelope
+from .services.event_bus import EventBus
 
 log = logging.getLogger(__name__)
 
@@ -22,6 +23,11 @@ PUBLIC_PATHS = {f"{API_PREFIX}/health"}
 
 def build_app(cfg: Config) -> FastAPI:
     app = FastAPI(title="Hermes Desktop Sidecar", openapi_url=None)
+
+    # Initialize event bus on app state — used by SSE stream and
+    # the agent pool to fan out ui_messages events to all connected windows.
+    app.state.event_bus = EventBus()
+
     app.state.cfg = cfg
 
     app.add_middleware(
@@ -106,6 +112,7 @@ def build_app(cfg: Config) -> FastAPI:
         skills,
         plugins as plugins_router,
         conversations as conversations_router,
+        events as events_router,
     )
 
     app.include_router(health.router, prefix=API_PREFIX)
@@ -119,8 +126,67 @@ def build_app(cfg: Config) -> FastAPI:
     app.include_router(skills.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(plugins_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(conversations_router.router, prefix=API_PREFIX, dependencies=deps)
+    # SSE stream — auth handled via query param token (browsers can't set Authorization on EventSource)
+    app.include_router(events_router.router, prefix=API_PREFIX)
+
+    # ── Startup: sync overlay API keys → .env so TUI/CLI can see them ──
+    @app.on_event("startup")
+    def _sync_overlay_keys_to_env():
+        _sync_provider_keys(cfg.hermes_home)
 
     return app
+
+
+def _sync_provider_keys(hermes_home: Path) -> None:
+    """Copy every API key from desktop overlays into ~/.hermes/.env.
+
+    Ensures TUI/CLI (which reads .env, not overlays) sees keys stored via
+    the desktop model config page.
+    """
+    import os
+    from pathlib import Path
+
+    try:
+        from .overlays import loader as overlays_loader
+        overlay = overlays_loader.load(hermes_home, "model")
+    except Exception:
+        return
+
+    try:
+        from hermes_cli.auth import PROVIDER_REGISTRY
+        from hermes_cli.config import save_env_value, get_env_value
+    except Exception:
+        return
+
+    # Provider siblings that share the same key
+    _SIBLING_PROVIDERS = (
+        ("kimi-coding", "kimi-coding-cn"),
+    )
+
+    for provider_id, entry in overlay.items():
+        api_key = str(entry.get("api_key") or "").strip()
+        if not api_key:
+            continue
+
+        # Collect all providers that should get this key (self + siblings)
+        ids_to_sync = {provider_id}
+        for group in _SIBLING_PROVIDERS:
+            if provider_id in group:
+                ids_to_sync.update(group)
+
+        for pid in ids_to_sync:
+            pconfig = PROVIDER_REGISTRY.get(pid)
+            if not pconfig or not pconfig.api_key_env_vars:
+                continue
+            for env_var in pconfig.api_key_env_vars:
+                existing = (get_env_value(env_var) or "").strip()
+                if existing != api_key:
+                    try:
+                        os.environ["HERMES_HOME"] = str(hermes_home)
+                        save_env_value(env_var, api_key)
+                        log.info("Synced %s key to .env as %s", provider_id, env_var)
+                    except Exception:
+                        log.warning("Failed to sync %s to .env", provider_id)
 
 
 def _domain_from_path(path: str) -> Optional[str]:

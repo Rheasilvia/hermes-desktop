@@ -11,8 +11,10 @@ export {
 export { GatewayClient } from './client.js';
 
 export { MockGatewayAdapter } from './mock-adapter.js';
+export { HttpGatewayAdapter, createHttpGateway } from './http-adapter.js';
 
 import { MockGatewayAdapter } from './mock-adapter.js';
+import { HttpGatewayAdapter } from './http-adapter.js';
 import type { GatewayAdapterOptions, GatewayAdapter } from './types.js';
 
 export function createMockGateway(options?: GatewayAdapterOptions): GatewayAdapter {

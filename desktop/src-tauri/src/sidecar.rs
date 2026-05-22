@@ -40,7 +40,9 @@ pub fn state() -> Arc<SidecarState> {
 pub async fn spawn_dev() -> Result<SidecarInfo> {
     let base_url = std::env::var("HERMES_BACKEND_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:18080".into());
-    let token = std::env::var("HERMES_BACKEND_TOKEN").unwrap_or_default();
+    let token = std::env::var("HERMES_BACKEND_TOKEN")
+        .or_else(|_| std::env::var("DESKTOP_BACKEND_TOKEN"))
+        .unwrap_or_else(|_| "dev-secret".into());
     let info = SidecarInfo { base_url, token };
     let s = state();
     *s.info.lock().await = Some(info.clone());
