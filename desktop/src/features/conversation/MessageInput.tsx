@@ -3,6 +3,8 @@ import { createSignal, createEffect, Show, For } from 'solid-js';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Icon } from '@/ui/atoms/Icon';
 import { WorkspacePicker } from './WorkspacePicker';
+import { SlashCommandPanel, type SlashCommand } from './SlashCommandPanel';
+import { getGateway } from '@/stores/context.js';
 import styles from './MessageInput.module.css';
 
 interface AttachmentChip {
@@ -35,12 +37,26 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const [text, setText] = createSignal('');
   const [focused, setFocused] = createSignal(false);
   const [attachments, setAttachments] = createSignal<AttachmentChip[]>([]);
+  const [slashCommands, setSlashCommands] = createSignal<SlashCommand[]>([]);
+  const [slashPanelOpen, setSlashPanelOpen] = createSignal(false);
+  const [manuallyClosed, setManuallyClosed] = createSignal(false);
   let textareaRef: HTMLTextAreaElement | undefined;
 
   const canSend = () => (text().trim().length > 0 || attachments().length > 0) && !props.disabled;
   const isActive = () => canSend() && focused();
   const hasAttachments = () => attachments().length > 0;
   const showPaperclip = () => !props.isStreaming;
+
+  const slashFilter = (): string => {
+    const t = text();
+    if (!t.startsWith('/')) return '';
+    return t.slice(1);
+  };
+
+  const isSlashMode = () => {
+    const t = text();
+    return t.startsWith('/') && !t.includes(' ') && !t.includes('\n') && slashPanelOpen();
+  };
 
   const handleSend = () => {
     const value = text().trim();
@@ -54,7 +70,55 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     }
   };
 
+  const loadSlashCommands = async () => {
+    const gateway = getGateway();
+    if (!gateway) return;
+    try {
+      const results = await gateway.complete.slash({ partial: '' });
+      setSlashCommands(results.map((r) => ({
+        command: r.command,
+        description: r.description,
+        category: r.category,
+        icon: r.icon,
+      })));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSlashSelect = (cmd: SlashCommand) => {
+    setText(`/${cmd.command} `);
+    setSlashPanelOpen(false);
+    if (textareaRef) {
+      textareaRef.focus();
+      autoResize(textareaRef);
+    }
+  };
+
+  const handleSlashClose = () => {
+    setManuallyClosed(true);
+    setSlashPanelOpen(false);
+  };
+
+  createEffect(() => {
+    const t = text();
+    if (t.startsWith('/') && !t.includes(' ') && !t.includes('\n')) {
+      if (!slashPanelOpen() && !manuallyClosed()) {
+        setSlashPanelOpen(true);
+        void loadSlashCommands();
+      }
+    } else {
+      setSlashPanelOpen(false);
+      setManuallyClosed(false);
+    }
+  });
+
   const handleKeyDown = (e: KeyboardEvent) => {
+    if (isSlashMode() && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab')) {
+      // Let SlashCommandPanel handle navigation, escape, Enter, and Tab selection
+      if (e.key === 'Enter' || e.key === 'Tab') e.preventDefault();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -121,6 +185,13 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
           [styles.inputContainerWithAttachments]: hasAttachments(),
         }}
       >
+        <SlashCommandPanel
+          commands={slashCommands()}
+          filter={slashFilter()}
+          visible={isSlashMode() && !props.disabled}
+          onSelect={handleSlashSelect}
+          onClose={handleSlashClose}
+        />
         {/* Attachment chips */}
         <Show when={hasAttachments()}>
           <div class={styles.chipsRow}>

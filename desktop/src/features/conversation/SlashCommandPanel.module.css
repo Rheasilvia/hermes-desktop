@@ -1,0 +1,144 @@
+.panel {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 8px;
+  background: #faf9f5;
+  border: 1px solid #e8e6dc;
+  border-radius: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(20, 20, 19, 0.08);
+  z-index: var(--z-dropdown, 50);
+}
+
+.panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.panel::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-pill);
+}
+
+/* ── Browse Mode ── */
+
+.browseHeader {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: #87867f;
+  padding: 8px 12px;
+}
+
+.browseRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.browseRow:hover,
+.commandRowSelected {
+  background: #f5f4ed;
+}
+
+.categoryDivider {
+  width: 100%;
+  height: 1px;
+  background: #f0eee6;
+}
+
+/* ── Filter Mode ── */
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  color: #87867f;
+}
+
+.panelHeaderText {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: normal;
+}
+
+.divider {
+  width: 100%;
+  height: 1px;
+  background: #e8e6dc;
+}
+
+.commandRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.commandRow:hover {
+  background: #f5f4ed;
+}
+
+.iconWrapper {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ede9e0;
+  border-radius: 6px;
+  color: #5e5d59;
+  flex-shrink: 0;
+}
+
+.commandInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.commandName {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: #141413;
+}
+
+.commandDesc {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: normal;
+  color: #87867f;
+}
+
+.categoryBadge {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.categoryCommands {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: normal;
+  color: #5e5d59;
+}

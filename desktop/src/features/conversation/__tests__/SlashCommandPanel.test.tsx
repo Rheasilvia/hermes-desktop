@@ -1,0 +1,123 @@
+import { render, screen, fireEvent } from '@solidjs/testing-library';
+import { describe, test, expect, vi } from 'vitest';
+import { SlashCommandPanel, type SlashCommand } from '../SlashCommandPanel.js';
+
+const MOCK_COMMANDS: SlashCommand[] = [
+  { command: 'help', description: 'Show available commands.', category: 'Built-in', icon: 'info' },
+  { command: 'clear', description: 'Clear conversation history.', category: 'Built-in', icon: 'x' },
+  { command: 'summarize', description: 'Summarize the conversation.', category: 'Skills', icon: 'file-text' },
+  { command: 'review', description: 'Run code review.', category: 'Skills', icon: 'file-check' },
+  { command: 'remember', description: 'Store in long-term memory.', category: 'Memory', icon: 'save' },
+];
+
+describe('SlashCommandPanel', () => {
+  test('renders browse mode with categories when filter is empty', () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    render(() => (
+      <SlashCommandPanel
+        commands={MOCK_COMMANDS}
+        filter=""
+        visible={true}
+        onSelect={onSelect}
+        onClose={onClose}
+      />
+    ));
+
+    expect(screen.getByText('BUILT-IN')).toBeDefined();
+    expect(screen.getByText('SKILLS')).toBeDefined();
+    expect(screen.getByText('MEMORY')).toBeDefined();
+  });
+
+  test('renders filter mode with results count when filter is not empty', () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    render(() => (
+      <SlashCommandPanel
+        commands={MOCK_COMMANDS}
+        filter="sum"
+        visible={true}
+        onSelect={onSelect}
+        onClose={onClose}
+      />
+    ));
+
+    expect(screen.getByText(/Commands · 1 result/)).toBeDefined();
+    expect(screen.getByText('/summarize')).toBeDefined();
+  });
+
+  test('does not render when not visible', () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    render(() => (
+      <SlashCommandPanel
+        commands={MOCK_COMMANDS}
+        filter=""
+        visible={false}
+        onSelect={onSelect}
+        onClose={onClose}
+      />
+    ));
+
+    expect(screen.queryByText('BUILT-IN')).toBeNull();
+  });
+
+  test('calls onSelect when a command row is clicked', () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    render(() => (
+      <SlashCommandPanel
+        commands={MOCK_COMMANDS}
+        filter="help"
+        visible={true}
+        onSelect={onSelect}
+        onClose={onClose}
+      />
+    ));
+
+    const row = screen.getByText('/help').closest('div[class*="commandRow"]');
+    if (row) {
+      fireEvent.click(row);
+    }
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  test('filters commands by description as well as command name', () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    render(() => (
+      <SlashCommandPanel
+        commands={MOCK_COMMANDS}
+        filter="memory"
+        visible={true}
+        onSelect={onSelect}
+        onClose={onClose}
+      />
+    ));
+
+    expect(screen.getByText('/remember')).toBeDefined();
+    expect(screen.queryByText('/help')).toBeNull();
+  });
+
+  test('shows no results when filter matches nothing', () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+
+    render(() => (
+      <SlashCommandPanel
+        commands={MOCK_COMMANDS}
+        filter="xyz"
+        visible={true}
+        onSelect={onSelect}
+        onClose={onClose}
+      />
+    ));
+
+    expect(screen.getByText(/Commands · 0 results/)).toBeDefined();
+  });
+});

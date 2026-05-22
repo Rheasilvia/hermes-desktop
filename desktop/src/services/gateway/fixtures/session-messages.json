@@ -1005,5 +1005,35 @@
       "reasoning_details": null,
       "codex_reasoning_items": null
     }
+  ],
+  "sess_verify_11": [
+    {
+      "session_id": "sess_verify_11",
+      "role": "user",
+      "content": "How do I use slash commands?",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 120000,
+      "token_count": 8,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    },
+    {
+      "session_id": "sess_verify_11",
+      "role": "assistant",
+      "content": "Type **/** in the message input to open the slash command panel. You can browse commands by category (Built-in, Skills, Memory) or type to filter. Press Enter to select a command, or Escape to close the panel.",
+      "tool_call_id": null,
+      "tool_calls": null,
+      "tool_name": null,
+      "timestamp_offset_ms": 115000,
+      "token_count": 42,
+      "finish_reason": "stop",
+      "reasoning": null,
+      "reasoning_details": null,
+      "codex_reasoning_items": null
+    }
   ]
 }

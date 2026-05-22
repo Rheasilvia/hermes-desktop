@@ -138,5 +138,15 @@
     "tool_call_count": 0,
     "last_message": "Let me know if you'd like me to elaborate on any of these points.",
     "workspace_path": "~/HermesWorkspace"
+  },
+  {
+    "id": "sess_verify_11",
+    "title": "[Design] 11 — Slash Command Panel",
+    "model": "anthropic/claude-opus-4.5",
+    "started_at_offset_ms": 120000,
+    "message_count": 2,
+    "tool_call_count": 0,
+    "last_message": "Try typing / to see the slash command panel.",
+    "workspace_path": "~/HermesWorkspace"
   }
 ]

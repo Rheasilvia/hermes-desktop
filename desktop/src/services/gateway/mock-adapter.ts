@@ -579,10 +579,12 @@ export class MockGatewayAdapter implements GatewayAdapter {
     };
 
     this.complete = {
-      slash: async (params: { partial: string }): Promise<{ command: string; description: string }[]> => {
+      slash: async (params: { partial: string }): Promise<{ command: string; description: string; category?: string; icon?: string }[]> => {
         await delay(this.delayMin / 2, this.delayMax / 2);
-        return MOCK_SKILL_INFOS.filter(s => s.name.startsWith(params.partial))
-          .map(s => ({ command: s.name, description: s.description }));
+        const q = params.partial.toLowerCase();
+        return MOCK_SKILL_INFOS
+          .filter(s => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q))
+          .map(s => ({ command: s.name, description: s.description, category: s.category, icon: s.icon }));
       },
       path: async (params: { partial: string }): Promise<string[]> => {
         await delay(this.delayMin / 2, this.delayMax / 2);

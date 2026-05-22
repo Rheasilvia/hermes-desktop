@@ -4,6 +4,7 @@
 }
 
 .inputContainer {
+  position: relative;
   background: #ffffff;
   border: 1px solid #e8e6dc;
   border-radius: 16px;

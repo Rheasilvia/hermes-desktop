@@ -2,6 +2,7 @@ export { ChatView } from './ChatView.js';
 export { ApprovalCard } from './ApprovalCard.js';
 export { ClarificationCard } from './ClarificationCard.js';
 export { MemoryContextCard } from './MemoryContextCard.js';
+export { SlashCommandPanel } from './SlashCommandPanel.js';
 export { MessageBubble } from './MessageBubble.js';
 export { MessageInput } from './MessageInput.js';
 export { ToolCard } from './ToolCard.js';

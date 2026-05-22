@@ -208,6 +208,7 @@ export interface SkillInfo {
   description: string;
   category: string;
   enabled: boolean;
+  icon?: string;
 }
 
 /** A toolset card from the toolset registry. */
@@ -227,7 +228,7 @@ export interface SkillsMethods {
 
 /** Slash command completion method group. */
 export interface CompleteMethods {
-  slash(params: { partial: string }): Promise<{ command: string; description: string }[]>;
+  slash(params: { partial: string }): Promise<{ command: string; description: string; category?: string; icon?: string }[]>;
   path(params: { partial: string }): Promise<string[]>;
 }
 
