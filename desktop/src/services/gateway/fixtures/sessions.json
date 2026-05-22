@@ -128,5 +128,15 @@
     "tool_call_count": 0,
     "last_message": "The main issue is object creation inside the loop causing GC pressure.",
     "workspace_path": "~/HermesWorkspace"
+  },
+  {
+    "id": "sess_verify_10",
+    "title": "[Design] 10 — Scroll & Navigation",
+    "model": "anthropic/claude-opus-4.5",
+    "started_at_offset_ms": 300000,
+    "message_count": 28,
+    "tool_call_count": 0,
+    "last_message": "Let me know if you'd like me to elaborate on any of these points.",
+    "workspace_path": "~/HermesWorkspace"
   }
 ]

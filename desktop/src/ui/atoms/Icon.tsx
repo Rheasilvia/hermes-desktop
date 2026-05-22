@@ -67,6 +67,7 @@ import {
   File,
   FileCode,
   ArrowUp,
+  ArrowDown,
   GitPullRequest,
   Lightbulb,
   Loader,
@@ -75,6 +76,7 @@ import {
   Pencil,
   Trash2,
   Ellipsis,
+  Square,
 } from 'lucide-solid';
 
 export type IconName =
@@ -144,6 +146,7 @@ export type IconName =
   | 'file'
   | 'file-code'
   | 'arrow-up'
+  | 'arrow-down'
   | 'git-pull-request'
   | 'lightbulb'
   | 'loader'
@@ -151,7 +154,8 @@ export type IconName =
   | 'thumbs-down'
   | 'pencil'
   | 'trash-2'
-  | 'ellipsis';
+  | 'ellipsis'
+  | 'square';
 
 interface IconProps {
   name: IconName;
@@ -227,6 +231,7 @@ const LUCIDE_ICONS: Record<IconName, Component<{ size?: number; strokeWidth?: nu
   'file': File,
   'file-code': FileCode,
   'arrow-up': ArrowUp,
+  'arrow-down': ArrowDown,
   'git-pull-request': GitPullRequest,
   'lightbulb': Lightbulb,
   'loader': Loader,
@@ -235,6 +240,7 @@ const LUCIDE_ICONS: Record<IconName, Component<{ size?: number; strokeWidth?: nu
   'pencil': Pencil,
   'trash-2': Trash2,
   'ellipsis': Ellipsis,
+  'square': Square,
 };
 
 export const Icon: Component<IconProps> = (props) => {

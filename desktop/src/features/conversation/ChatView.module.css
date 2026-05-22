@@ -38,6 +38,7 @@
   padding: var(--space-4) var(--space-6) 52px;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .messageList::-webkit-scrollbar {

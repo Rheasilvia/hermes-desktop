@@ -196,8 +196,8 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
                 type="button"
                 aria-label="Stop generation"
               >
-                <span class={styles.stopIcon} />
-                <span>Stop</span>
+                <Icon name="square" size={12} />
+                <span>Stop generating</span>
               </button>
             }
           >

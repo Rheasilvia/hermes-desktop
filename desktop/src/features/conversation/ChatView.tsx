@@ -33,6 +33,7 @@ import { ToolCallPanel } from './ToolCallPanel.js';
 import { ApprovalCard } from './ApprovalCard.js';
 import { ClarificationCard } from './ClarificationCard.js';
 import { MemoryContextCard } from './MemoryContextCard.js';
+import { JumpToBottom } from './JumpToBottom.js';
 import { liveToRow } from './toolCallMappers.js';
 import styles from './ChatView.module.css';
 
@@ -40,14 +41,22 @@ interface ChatViewProps {
   sessionId?: string;
 }
 
+const NEAR_BOTTOM_THRESHOLD = 100;
+const SCROLL_PAUSE_THRESHOLD = 80;
+
 export const ChatView: Component<ChatViewProps> = (props) => {
   const sessionId = () => props.sessionId ?? '';
   let messagesEndRef: HTMLDivElement | undefined;
   let chatBodyRef: HTMLDivElement | undefined;
+  let messageListRef: HTMLDivElement | undefined;
   let diffPanelEl: HTMLDivElement | undefined;
   let dragHandleEl: HTMLDivElement | undefined;
   const [dragging, setDragging] = createSignal(false);
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
+  const [isNearBottom, setIsNearBottom] = createSignal(true);
+  const [userScrolledUp, setUserScrolledUp] = createSignal(false);
+  const [unreadCount, setUnreadCount] = createSignal(0);
+  const [lastMessageCount, setLastMessageCount] = createSignal(0);
 
   const workspacePath = () => sessionStore.activeSession?.workspace_path ?? null;
 
@@ -108,17 +117,58 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const dateSeparators = createMemo(() => computeDateSeparators(messages()));
 
+  const scrollToBottom = (opts?: { force?: boolean; behavior?: ScrollBehavior }) => {
+    if (!opts?.force && userScrolledUp()) return;
+    requestAnimationFrame(() => {
+      messagesEndRef?.scrollIntoView({ behavior: opts?.behavior ?? 'smooth' });
+    });
+  };
+
+  const handleScroll = () => {
+    const el = messageListRef;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const near = distanceFromBottom < NEAR_BOTTOM_THRESHOLD;
+    setIsNearBottom(near);
+    if (near) {
+      setUserScrolledUp(false);
+      setUnreadCount(0);
+    } else if (distanceFromBottom > SCROLL_PAUSE_THRESHOLD) {
+      setUserScrolledUp(true);
+    }
+  };
+
   createEffect(() => {
     const msgs = messages();
-    if (msgs.length > 0) {
+    const prevCount = lastMessageCount();
+    if (msgs.length > prevCount) {
+      if (userScrolledUp()) {
+        setUnreadCount((c) => c + (msgs.length - prevCount));
+      } else {
+        scrollToBottom();
+      }
+      setLastMessageCount(msgs.length);
+    } else if (msgs.length > 0 && prevCount === 0) {
+      setLastMessageCount(msgs.length);
       scrollToBottom();
+    }
+  });
+
+  createEffect(() => {
+    const live = liveBlocks();
+    if (live.length > 0) {
+      if (userScrolledUp()) {
+        setUnreadCount((c) => c + 1);
+      } else {
+        scrollToBottom();
+      }
     }
   });
 
   createEffect(() => {
     const hasCard = !!(liveState().pendingApproval || liveState().pendingClarify);
     if (hasCard) {
-      scrollToBottom();
+      scrollToBottom({ force: true });
     }
   });
 
@@ -126,12 +176,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     const path = workspacePath();
     diffStore.setWorkspacePath(path);
   });
-
-  const scrollToBottom = () => {
-    requestAnimationFrame(() => {
-      messagesEndRef?.scrollIntoView({ behavior: 'smooth' });
-    });
-  };
 
   const handleSend = async (text: string, _attachments?: any[]) => {
     chatStore.appendUserMessage(sessionId(), text);
@@ -359,7 +403,9 @@ export const ChatView: Component<ChatViewProps> = (props) => {
             </Match>
             <Match when={true}>
               <div
+                ref={(el) => { messageListRef = el; }}
                 class={styles.messageList}
+                onScroll={handleScroll}
                 style={{
                   "padding-bottom": (liveState().pendingApproval || liveState().pendingClarify) ? '60px' : undefined,
                 }}
@@ -397,6 +443,15 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           </Switch>
 
           <div class={styles.inputArea}>
+            <JumpToBottom
+              unreadCount={unreadCount()}
+              visible={!isNearBottom() && messages().length > 0}
+              onClick={() => {
+                setUserScrolledUp(false);
+                setUnreadCount(0);
+                scrollToBottom({ force: true, behavior: 'smooth' });
+              }}
+            />
             <Show when={liveState().pendingApproval || liveState().pendingClarify}>
               <div class={styles.cardDock}>
                 <Show when={liveState().pendingApproval}>
