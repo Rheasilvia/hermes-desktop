@@ -125,6 +125,25 @@ class AgentPool:
                         pass
             self._agents.clear()
 
+    # ── public accessors ───────────────────────────────────────────────────
+
+    def is_running(self, session_id: str) -> bool:
+        """Return True if the agent for session_id exists and is currently running."""
+        with self._lock:
+            entry = self._agents.get(session_id)
+            return entry is not None and entry.running
+
+    def get_pooled_entry(self, session_id: str) -> PooledAgent | None:
+        """Return the PooledAgent for session_id, or None if not in the pool."""
+        with self._lock:
+            return self._agents.get(session_id)
+
+    def get_agent_for_session(self, session_id: str) -> Any:
+        """Return the raw AIAgent instance, or None if not in the pool."""
+        with self._lock:
+            entry = self._agents.get(session_id)
+            return entry.agent if entry else None
+
     # ── internals ─────────────────────────────────────────────────────────
 
     def _build_agent(self, session_id: str) -> Any:

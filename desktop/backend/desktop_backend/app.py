@@ -14,11 +14,20 @@ from .config import Config
 from .readers.cron_reader import L1CorruptError
 from .schemas.error import ErrorEnvelope
 from .services.event_bus import EventBus
+from .services.exceptions import ServiceError
 
 log = logging.getLogger(__name__)
 
 API_PREFIX = "/desktop/api"
 PUBLIC_PATHS = {f"{API_PREFIX}/health"}
+
+_SERVICE_ERROR_STATUS = {
+    "SESSION_NOT_FOUND": 404,
+    "SESSION_BUSY": 409,
+    "NO_RUNNING_SESSION": 409,
+    "PROVIDER_NOT_FOUND": 404,
+    "SCHEMA_VERSION_MISMATCH": 409,
+}
 
 
 def build_app(cfg: Config) -> FastAPI:
@@ -87,6 +96,16 @@ def build_app(cfg: Config) -> FastAPI:
             trace_id=getattr(request.state, "trace_id", "unknown"),
         )
         return JSONResponse(env.model_dump(exclude_none=True), status_code=503)
+
+    @app.exception_handler(ServiceError)
+    async def service_error_handler(request: Request, exc: ServiceError):
+        status = _SERVICE_ERROR_STATUS.get(exc.code, 500)
+        env = ErrorEnvelope(
+            code=exc.code,
+            detail=exc.detail,
+            trace_id=getattr(request.state, "trace_id", "unknown"),
+        )
+        return JSONResponse(env.model_dump(exclude_none=True), status_code=status)
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):

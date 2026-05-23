@@ -49,11 +49,11 @@ def test_merge_providers_default_visible():
 
 def test_filter_configured_keeps_providers_with_credentials():
     providers = [
-        MergedProvider(id="a", name="A", desktop=ProviderOverlay(api_key="sk-123")),
-        MergedProvider(id="b", name="B", desktop=ProviderOverlay(api_key_env="MY_KEY")),
-        MergedProvider(id="c", name="C", desktop=ProviderOverlay(base_url="http://localhost")),
-        MergedProvider(id="d", name="D", desktop=ProviderOverlay()),
-        MergedProvider(id="e", name="E", desktop=ProviderOverlay(api_key="")),
+        MergedProvider(id="a", name="A", desktop=ProviderOverlay(api_key="sk-123"), has_overlay=True),
+        MergedProvider(id="b", name="B", desktop=ProviderOverlay(api_key_env="MY_KEY"), has_overlay=True),
+        MergedProvider(id="c", name="C", desktop=ProviderOverlay(base_url="http://localhost"), has_overlay=True),
+        MergedProvider(id="d", name="D", desktop=ProviderOverlay(), has_overlay=True),
+        MergedProvider(id="e", name="E", desktop=ProviderOverlay(api_key=""), has_overlay=True),
     ]
     result = filter_configured(providers)
     assert [p.id for p in result] == ["a", "b", "c"]
