@@ -31,9 +31,9 @@ _QUERY = """
         COALESCE(SUM(output_tokens), 0)                             AS output_tokens,
         COALESCE(SUM(input_tokens + output_tokens), 0)              AS total_tokens,
         COALESCE(SUM(COALESCE(actual_cost_usd, estimated_cost_usd, 0)), 0) AS cost_usd,
-        MAX(started_at)                                              AS last_used_at
+        MAX(COALESCE(ended_at, started_at))                         AS last_used_at
     FROM sessions
-    WHERE started_at >= CAST(strftime('%s', 'now', :offset) AS REAL)
+    WHERE COALESCE(ended_at, started_at) >= CAST(strftime('%s', 'now', :offset) AS REAL)
       AND billing_provider IS NOT NULL
     GROUP BY model
     ORDER BY total_tokens DESC

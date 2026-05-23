@@ -51,7 +51,12 @@ export const ModelSwitcherView: Component = () => {
 
   const handleSaveProvider = (updated: ProviderEntry) => {
     modelStore.upsertProvider({ name: updated.name, is_builtin: updated.is_builtin ?? false, base_url: updated.base_url, api_key: updated.api_key, api_key_env: updated.api_key_env, display_name: updated.display_name });
+    void modelStore.setProviderEnabled(updated.name, updated.enabled !== false);
     setConfiguringProvider(null);
+  };
+
+  const handleDeleteProvider = (provider: ProviderEntry) => {
+    void modelStore.deleteProvider(provider.name, provider.is_builtin ?? false);
   };
 
   const isInitialLoading = () =>
@@ -141,6 +146,7 @@ export const ModelSwitcherView: Component = () => {
                           modelStore.openProviderDetail(provider.name)
                         }
                         onConfigure={() => handleConfigureProvider(provider)}
+                        onDelete={() => handleDeleteProvider(provider)}
                       />
                     )}
                   </For>

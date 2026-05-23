@@ -2,17 +2,25 @@ import type { HttpClient } from '../../http-client';
 import type { ListResponse, Provider } from '../../types';
 
 export interface ModelTransport {
-  listProviders(): Promise<ListResponse<Provider>>;
+  listProviders(opts?: { configuredOnly?: boolean }): Promise<ListResponse<Provider>>;
   getCatalog(): Promise<{ providers: Provider[]; fetched_at: string | null }>;
   getActiveModel(): Promise<{ provider: string | null; model: string | null }>;
   setActiveModel(provider: string, model: string): Promise<void>;
   revealProviderApiKey(provider: string): Promise<{ provider: string; api_key: string; source: string }>;
+  deleteProvider(providerId: string): Promise<void>;
 }
 
 export function makeModelTransport(c: HttpClient): ModelTransport {
   return {
-    listProviders: () =>
-      c.get<ListResponse<Provider>>('/desktop/api/model/providers'),
+    listProviders: (opts) => {
+      const params = new URLSearchParams();
+      if (opts?.configuredOnly === false) {
+        params.set('configured_only', 'false');
+      }
+      const qs = params.toString();
+      const path = '/desktop/api/model/providers' + (qs ? `?${qs}` : '');
+      return c.get<ListResponse<Provider>>(path);
+    },
     getCatalog: () =>
       c.get<{ providers: Provider[]; fetched_at: string | null }>(
         '/desktop/api/model/catalog',
@@ -28,5 +36,7 @@ export function makeModelTransport(c: HttpClient): ModelTransport {
         `/desktop/api/model/providers/${encodeURIComponent(provider)}/api-key/reveal`,
         {},
       ),
+    deleteProvider: (providerId) =>
+      c.delete<void>(`/desktop/api/model/providers/${encodeURIComponent(providerId)}`),
   };
 }

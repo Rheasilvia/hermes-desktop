@@ -1,10 +1,15 @@
 """SQLite connection manager for desktop.db."""
 from __future__ import annotations
 
+import json
+import logging
+import os
 import sqlite3
 from pathlib import Path
 
-from .schema import SCHEMA_VERSION, SESSION_DESKTOP_META_DDL
+from .schema import SCHEMA_VERSION, SESSION_DESKTOP_META_DDL, V3_DDL
+
+log = logging.getLogger(__name__)
 
 
 def get_db_path(hermes_home: Path) -> Path:
@@ -51,4 +56,98 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 def _migrate(conn: sqlite3.Connection, current_version: int) -> None:
     if current_version < 2:
         conn.executescript(SESSION_DESKTOP_META_DDL)
-        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        conn.execute("UPDATE schema_version SET version = ?", (2,))
+        current_version = 2
+
+    if current_version < 3:
+        conn.executescript(V3_DDL)
+        _import_json_overlays(conn)
+        _import_json_settings(conn)
+        conn.execute("UPDATE schema_version SET version = ?", (3,))
+
+
+def _overlay_json_path(hermes_home: str, domain: str) -> Path:
+    return Path(hermes_home) / "desktop" / "overlays" / f"{domain}.json"
+
+
+def _settings_json_path(hermes_home: str) -> Path:
+    return Path(hermes_home) / "desktop" / "settings.json"
+
+
+def _import_json_overlays(conn: sqlite3.Connection) -> None:
+    """Import model.json and cron.json overlays into SQLite, then rename to .bak."""
+    hermes_home = _resolve_hermes_home(conn)
+
+    for domain in ("model", "cron"):
+        path = _overlay_json_path(hermes_home, domain)
+        if not path.exists():
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (json.JSONDecodeError, OSError):
+            log.warning("Skipping corrupt overlay: %s", path)
+            continue
+        if not isinstance(data, dict):
+            continue
+
+        table = f"{domain}_overlays"
+        id_col = "provider_id" if domain == "model" else "job_id"
+        for entity_id, entry in data.items():
+            if not isinstance(entry, dict):
+                continue
+            cols = [id_col]
+            vals = [entity_id]
+            for key, val in entry.items():
+                cols.append(key)
+                vals.append(val)
+            placeholders = ", ".join(["?"] * len(vals))
+            col_names = ", ".join(cols)
+            conn.execute(
+                f"INSERT OR REPLACE INTO {table} ({col_names}) VALUES ({placeholders})",
+                vals,
+            )
+
+        bak = path.with_suffix(path.suffix + ".bak")
+        try:
+            os.rename(path, bak)
+            log.info("Migrated %s → %s", path.name, bak.name)
+        except OSError:
+            log.warning("Failed to rename %s to .bak", path)
+
+
+def _import_json_settings(conn: sqlite3.Connection) -> None:
+    """Import settings.json into desktop_settings table, then rename to .bak."""
+    hermes_home = _resolve_hermes_home(conn)
+    path = _settings_json_path(hermes_home)
+    if not path.exists():
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        log.warning("Skipping corrupt settings: %s", path)
+        return
+    if not isinstance(data, dict):
+        return
+
+    for key, value in data.items():
+        conn.execute(
+            "INSERT OR REPLACE INTO desktop_settings (key, value) VALUES (?, ?)",
+            (key, json.dumps(value)),
+        )
+
+    bak = path.with_suffix(path.suffix + ".bak")
+    try:
+        os.rename(path, bak)
+        log.info("Migrated %s → %s", path.name, bak.name)
+    except OSError:
+        log.warning("Failed to rename %s to .bak", path)
+
+
+def _resolve_hermes_home(conn: sqlite3.Connection) -> str:
+    """Infer HERMES_HOME from the connected database path."""
+    db_path = Path(
+        conn.execute("PRAGMA database_list").fetchone()[2] or ""
+    )
+    return str(db_path.parent.parent)

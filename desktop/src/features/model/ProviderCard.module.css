@@ -68,6 +68,31 @@
   outline-offset: 1px;
 }
 
+.deleteButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  color: var(--color-on-surface-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.deleteButton:hover {
+  color: #ef4444;
+  background: #ef44441a;
+}
+
+.deleteButton:focus-visible {
+  outline: 2px solid #ef4444;
+  outline-offset: 1px;
+}
+
 .name {
   font-size: var(--text-sm, 0.875rem);
   font-weight: var(--weight-semibold, 600);

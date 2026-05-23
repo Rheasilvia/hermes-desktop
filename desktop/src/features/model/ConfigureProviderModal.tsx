@@ -77,9 +77,11 @@ export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
     const provider = props.provider;
     const key = revealedKey() ?? provider?.api_key;
     if (key) return showKey() ? key : maskApiKey(key);
-    if (provider?.api_key_preview) return provider.api_key_preview;
-    if (provider?.api_key_env) return `Set via ${provider.api_key_env}`;
-    if (provider?.api_key_source) return `Set via ${provider.api_key_source}`;
+    if (provider?.api_key_set) {
+      if (provider?.api_key_preview) return provider.api_key_preview;
+      if (provider?.api_key_env) return `Set via ${provider.api_key_env}`;
+      if (provider?.api_key_source) return `Set via ${provider.api_key_source}`;
+    }
     return 'Not configured';
   };
 
@@ -98,7 +100,9 @@ export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
 
   const canRevealCurrentKey = () => {
     const provider = props.provider;
-    return Boolean(provider?.api_key || provider?.api_key_set || provider?.api_key_env);
+    // Only treat as "has a key" when api_key_set is true or an actual key string exists.
+    // api_key_env alone is just a hint (env var name), not proof of a configured key.
+    return Boolean(provider?.api_key || provider?.api_key_set);
   };
 
   const toggleCurrentKeyVisibility = async () => {
@@ -109,7 +113,7 @@ export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
       setShowKey(false);
       return;
     }
-    if (!revealedKey() && !provider.api_key) {
+    if (!revealedKey() && !provider.api_key && provider.api_key_set) {
       setRevealing(true);
       try {
         setRevealedKey(await modelsStore.revealProviderApiKey(provider.name));
@@ -123,17 +127,24 @@ export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
     setShowKey(true);
   };
 
+  const apiKeyPlaceholder = () => {
+    if (canRevealCurrentKey()) return undefined;
+    return 'Not configured';
+  };
+
   const apiKeyValue = () => {
     if (apiKeyDirty()) return apiKey();
-    return currentApiKeyDisplay();
+    if (canRevealCurrentKey()) return currentApiKeyDisplay();
+    return '';
   };
 
   const handleApiKeyFocus = () => {
     if (apiKeyDirty()) return;
-    if (!canRevealCurrentKey()) return;
-    setApiKey('');
     setApiKeyDirty(true);
     setShowKey(false);
+    if (canRevealCurrentKey()) {
+      setApiKey('');
+    }
   };
 
   const handleApiKeyInput = (value: string) => {
@@ -143,6 +154,7 @@ export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
 
   const apiKeyHelpText = () => {
     if (apiKeyDirty()) {
+      if (!canRevealCurrentKey()) return apiKey().trim() ? 'Enter your API key.' : '';
       return apiKey().trim()
         ? 'This new key will replace the current one when you save.'
         : 'Leave empty to keep the current key.';
@@ -186,8 +198,8 @@ export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
           <div class={styles.passwordRow}>
             <input
               class={styles.passwordInput}
-              type={showKey() || apiKeyDirty() ? 'text' : 'password'}
-              placeholder="sk-..."
+              type={showKey() || apiKeyDirty() || !canRevealCurrentKey() ? 'text' : 'password'}
+              placeholder={apiKeyPlaceholder() ?? 'sk-...'}
               value={revealing() ? 'Loading...' : apiKeyValue()}
               title={currentApiKeyTitle()}
               onFocus={handleApiKeyFocus}

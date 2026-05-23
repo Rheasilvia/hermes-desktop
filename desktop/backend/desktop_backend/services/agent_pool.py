@@ -167,6 +167,7 @@ class AgentPool:
         init_agent(
             agent,
             session_id=session_id,
+            session_db=self._session_db,
             quiet_mode=True,
             provider=provider or None,
             model=model,
@@ -179,6 +180,18 @@ class AgentPool:
             tool_gen_callback=self._make_tool_gen_cb(session_id),
             platform="desktop",
         )
+
+        # Update session model column to the actually-resolved model
+        # (session is created with a default model before agent resolution).
+        if self._session_db and model:
+            try:
+                self._session_db.conn.execute(
+                    "UPDATE sessions SET model = ? WHERE id = ?",
+                    (model, session_id),
+                )
+                self._session_db.conn.commit()
+            except Exception:
+                pass
 
         return agent
 
