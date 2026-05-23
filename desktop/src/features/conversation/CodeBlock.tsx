@@ -1,6 +1,7 @@
 import type { Component } from 'solid-js';
-import { createSignal, Show } from 'solid-js';
+import { createSignal, Show, createResource } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { highlightCode } from '@/utils/markdown.js';
 import styles from './CodeBlock.module.css';
 
 interface CodeBlockProps {
@@ -9,8 +10,21 @@ interface CodeBlockProps {
   filename?: string | null;
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 export const CodeBlock: Component<CodeBlockProps> = (props) => {
   const [copied, setCopied] = createSignal(false);
+
+  const [highlighted] = createResource(
+    () => ({ content: props.content, language: props.language }),
+    ({ content, language }) => highlightCode(content, language),
+  );
 
   const handleCopy = async () => {
     try {
@@ -18,7 +32,7 @@ export const CodeBlock: Component<CodeBlockProps> = (props) => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback: silently fail — clipboard API requires secure context
+      // silently fail
     }
   };
 
@@ -41,7 +55,9 @@ export const CodeBlock: Component<CodeBlockProps> = (props) => {
       </div>
       <div class={styles.separator} />
       <pre class={styles.code}>
-        <code>{props.content}</code>
+        <code
+          innerHTML={highlighted() ?? escapeHtml(props.content)}
+        />
       </pre>
     </div>
   );
