@@ -1,12 +1,15 @@
 import type { Component } from 'solid-js';
 import { createSignal, createMemo, Show, For, onMount, onCleanup } from 'solid-js';
 import { modelStore } from '@/stores/models.js';
+import { getGateway } from '@/stores/context.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import styles from './ModelSelector.module.css';
 
 interface ModelSelectorProps {
+  sessionId: string;
   onModelChange?: (provider: string, model: string) => void;
   dimmed?: boolean;
+  disabled?: boolean;
 }
 
 export const ModelSelector: Component<ModelSelectorProps> = (props) => {
@@ -25,13 +28,20 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
 
   const providers = () => modelStore.providers;
 
-  const toggleDropdown = () => setIsOpen(!isOpen());
+  const toggleDropdown = () => { if (!props.disabled) setIsOpen(!isOpen()); };
 
   const handleModelSelect = async (providerName: string, modelName: string) => {
     setIsOpen(false);
     const success = await modelStore.switchModel(providerName, modelName);
-    if (success && props.onModelChange) {
-      props.onModelChange(providerName, modelName);
+    if (success) {
+      // Update session-level provider in backend
+      const gateway = getGateway();
+      if (gateway) {
+        await gateway.setSessionProvider(props.sessionId, providerName, modelName);
+      }
+      if (props.onModelChange) {
+        props.onModelChange(providerName, modelName);
+      }
     }
   };
 
@@ -61,6 +71,7 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
         type="button"
         aria-label="Select model"
         aria-expanded={isOpen()}
+        disabled={props.disabled}
       >
         <Icon name="cpu" size={12} class={`${styles.triggerIcon} ${props.dimmed ? styles.triggerIconDimmed : ''}`} />
         <span class={styles.triggerText}>{activeLabel()}</span>

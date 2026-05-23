@@ -38,15 +38,23 @@ class CreateSessionRequest(BaseModel):
     model: Optional[str] = None
     system_prompt: Optional[str] = None
     workspace_path: Optional[str] = None
+    provider: Optional[str] = None  # NEW: session-level provider
 
 
 class RenameSessionRequest(BaseModel):
     title: str
 
 
+class SetSessionProviderRequest(BaseModel):
+    provider: str
+    model: Optional[str] = None
+
+
 class PromptExecuteRequest(BaseModel):
     message: str
     session_id: str
+    provider: Optional[str] = None  # NEW: frontend passes current UI provider
+    model: Optional[str] = None     # NEW: frontend passes current UI model
 
 
 class ApprovalRespondRequest(BaseModel):
@@ -155,16 +163,18 @@ async def create_session(body: CreateSessionRequest, request: Request):
     conn = desktop_connect(request.app.state.cfg.hermes_home)
     ensure_schema(conn)
     now = time.time()
+    meta_provider = body.provider or resolved_provider or ""
     conn.execute(
         """
         INSERT INTO session_desktop_meta
-            (session_id, workspace_path, pinned, archived, last_opened_at, created_at)
-        VALUES (?, ?, 0, 0, ?, ?)
+            (session_id, workspace_path, pinned, archived, last_opened_at, created_at, provider)
+        VALUES (?, ?, 0, 0, ?, ?, ?)
         ON CONFLICT(session_id) DO UPDATE SET
             workspace_path = excluded.workspace_path,
-            last_opened_at = excluded.last_opened_at
+            last_opened_at = excluded.last_opened_at,
+            provider = excluded.provider
         """,
-        (sid, body.workspace_path, now, now),
+        (sid, body.workspace_path, now, now, meta_provider),
     )
     conn.commit()
     conn.close()
@@ -275,6 +285,47 @@ async def delete_session(session_id: str, request: Request):
     return {"ok": True}
 
 
+@router.put("/sessions/{session_id}/provider")
+async def set_session_provider(
+    session_id: str,
+    body: SetSessionProviderRequest,
+    request: Request,
+):
+    """Set provider (and optionally model) for a specific session."""
+    db = _get_session_db(request)
+    if db.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+
+    home = request.app.state.cfg.hermes_home
+    from ..db.connection import connect as desktop_connect, ensure_schema
+
+    conn = desktop_connect(home)
+    try:
+        ensure_schema(conn)
+        conn.execute(
+            "UPDATE session_desktop_meta SET provider = ? WHERE session_id = ?",
+            (body.provider, session_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    if body.model:
+        def _do(c):
+            c.execute("UPDATE sessions SET model = ? WHERE id = ?", (body.model, session_id))
+        db._execute_write(_do)
+
+    pool = _get_agent_pool(request)
+    applied = True
+    entry = pool._agents.get(session_id)
+    if entry and entry.running:
+        applied = False
+    else:
+        pool.evict(session_id)
+
+    return {"ok": True, "applied": applied, "session_id": session_id, "provider": body.provider}
+
+
 # ── Messages replay (ui_messages) ─────────────────────────────────────────────
 
 
@@ -328,6 +379,34 @@ async def prompt_execute(body: PromptExecuteRequest, request: Request):
     if db.get_session(sid) is None:
         raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
 
+    # Detect provider changes from frontend
+    from ..db.connection import connect as desktop_connect, ensure_schema
+    conn = desktop_connect(home)
+    try:
+        ensure_schema(conn)
+        row = conn.execute("SELECT provider FROM session_desktop_meta WHERE session_id = ?", (sid,)).fetchone()
+        stored_provider = row["provider"] if row else None
+
+        if body.provider and stored_provider != body.provider:
+            conn.execute(
+                "UPDATE session_desktop_meta SET provider = ? WHERE session_id = ?",
+                (body.provider, sid),
+            )
+            conn.commit()
+            pool.evict(sid)
+        elif not stored_provider:
+            from ..readers.hermes_config import read_active_model
+            active = read_active_model(home)
+            fallback_provider = active.get("provider")
+            if fallback_provider:
+                conn.execute(
+                    "UPDATE session_desktop_meta SET provider = ? WHERE session_id = ?",
+                    (fallback_provider, sid),
+                )
+                conn.commit()
+    finally:
+        conn.close()
+
     entry = pool.get_or_create(sid)
     if entry.running:
         raise HTTPException(status_code=409, detail="SESSION_BUSY")
@@ -341,6 +420,44 @@ async def prompt_execute(body: PromptExecuteRequest, request: Request):
 
     # Mark running
     pool.mark_running(sid)
+
+    # ── Fire-and-forget title generation (parallel with agent turn) ──
+    # Only for first exchange. Reuses agent's client (correct credentials),
+    # just swaps to a small/fast model via TitleModelSelector.
+    try:
+        llm_history = db.get_messages_as_conversation(sid)
+        is_first_exchange = len(llm_history) <= 1
+
+        if is_first_exchange:
+            from agent.title_generator import generate_title as _gen_title
+            from ..services.title_model import TitleModelSelector
+
+            _agent = entry.agent
+            _provider = getattr(_agent, "provider", "") or ""
+            _current_model = getattr(_agent, "model", "") or ""
+            _title_provider, _title_model = TitleModelSelector.select(_provider, _current_model)
+
+            def _generate_title_bg(user_msg, agent, title_model):
+                try:
+                    title = _gen_title(
+                        user_message=user_msg,
+                        assistant_response="",
+                        agent=agent,           # reuse client (thread-safe httpx)
+                        title_model=title_model,  # small fast model
+                    )
+                    if title:
+                        db.set_session_title(sid, title)
+                        bus.publish(sid, 0, "session.title_update", {"title": title})
+                except Exception:
+                    log.debug("auto-title failed for %s", sid, exc_info=True)
+
+            threading.Thread(
+                target=_generate_title_bg,
+                args=(body.message, _agent, _title_model),
+                daemon=True, name="auto-title",
+            ).start()
+    except Exception:
+        log.debug("title trigger skipped for %s", sid, exc_info=True)
 
     def _run_turn():
         try:
@@ -415,6 +532,8 @@ async def prompt_execute(body: PromptExecuteRequest, request: Request):
                         db._execute_write(_update_model)
             except Exception:
                 log.exception("failed to backfill model for session %s", sid)
+
+            # Title generation is now fire-and-forget BEFORE agent turn (parallel)
 
         except Exception as exc:
             log.exception("agent turn failed for %s", sid)

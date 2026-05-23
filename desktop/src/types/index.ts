@@ -36,7 +36,8 @@ export type {
   StatusUpdatePayload, ToolStartPayload, ToolProgressPayload, ToolCompletePayload,
   ToolGeneratingPayload, ToolErrorPayload, ApprovalRequestPayload, ClarifyRequestPayload,
   SudoRequestPayload, SecretRequestPayload, BackgroundCompletePayload, BtwCompletePayload,
-  ErrorPayload, GatewayStderrPayload, ProtocolErrorPayload
+  ErrorPayload, GatewayStderrPayload, ProtocolErrorPayload,
+  SessionTitleUpdatePayload
 } from './gateway.js';
 export { SESSION_METHODS, PROMPT_METHODS, CONFIG_METHODS, TOOLS_METHODS, MODEL_METHODS, APPROVAL_METHODS, CLARIFY_METHODS, SUDO_METHODS, SECRET_METHODS } from './gateway.js';
 

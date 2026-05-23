@@ -310,3 +310,9 @@ export interface GatewayStderrPayload {
 export interface ProtocolErrorPayload {
   message: string;
 }
+
+/** Session title auto-update event payload (pushed via SSE after auto-title generation). */
+export interface SessionTitleUpdatePayload {
+  session_id: string;
+  title: string;
+}

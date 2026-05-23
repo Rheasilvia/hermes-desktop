@@ -134,12 +134,29 @@ class AgentPool:
 
         from ..readers.hermes_config import read_active_model
         from ..overlays import loader as overlays_loader
+        from ..db.connection import connect as desktop_connect, ensure_schema
 
-        # Read desktop's active provider/model so the agent uses the correct
-        # LLM endpoint and API format (e.g. Anthropic vs OpenAI).
-        active = read_active_model(self._hermes_home)
-        provider = active.get("provider")
-        model = active.get("model") or ""
+        # Step 1: Read provider from session_desktop_meta (session-level)
+        provider = None
+        try:
+            conn = desktop_connect(self._hermes_home)
+            ensure_schema(conn)
+            row = conn.execute("SELECT provider FROM session_desktop_meta WHERE session_id = ?", (session_id,)).fetchone()
+            if row:
+                provider = row["provider"]
+            conn.close()
+        except Exception as e:
+            log.debug(f"Failed to read provider from session_desktop_meta: {e}")
+
+        # Step 2: Read model from session record
+        session = self._session_db.get_session(session_id) if self._session_db else None
+        model = session.get("model") if session else ""
+
+        # Step 3: Fallback to config.yaml if no provider/model found
+        if not provider or not model:
+            active = read_active_model(self._hermes_home)
+            provider = provider or active.get("provider")
+            model = model or active.get("model") or ""
 
         base_url = ""
         api_key = ""

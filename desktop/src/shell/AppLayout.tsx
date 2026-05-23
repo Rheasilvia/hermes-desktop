@@ -8,6 +8,7 @@ import { uiStore } from '@/stores/ui.js';
 import { initKeyboardShortcuts, destroyKeyboardShortcuts } from '@/services/keyboard.js';
 import { loadState } from '@/services/api/state.js';
 import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner';
+import { getGateway } from '@/stores/context.js';
 import styles from './AppLayout.module.css';
 
 interface AppLayoutProps {
@@ -47,6 +48,23 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
       onNewSession: handleNewSession,
       onToggleCommandPalette: () => {},
     });
+
+    // Listen for session title updates from auto-title generation
+    const gateway = getGateway();
+    if (gateway) {
+      const onTitleUpdate = (payload: { session_id: string; title: string }) => {
+        sessionStore.updateSessionTitle(payload.session_id, payload.title);
+      };
+      const onReconnect = () => {
+        sessionStore.loadSessions();
+      };
+      gateway.on('session.title_update', onTitleUpdate);
+      gateway.on('gateway.ready', onReconnect);
+      onCleanup(() => {
+        gateway.off('session.title_update', onTitleUpdate);
+        gateway.off('gateway.ready', onReconnect);
+      });
+    }
 
     // Load sessions and determine default route
     await sessionStore.loadSessions();
