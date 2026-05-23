@@ -18,7 +18,9 @@ import type { MessageActionType } from '@/types/ui/message.js';
 import { chatStore } from '@/stores/chat.js';
 import { diffStore } from '@/stores/chat.js';
 import { sessionStore } from '@/stores/session.js';
+import { modelStore } from '@/stores/models.js';
 import { getGateway } from '@/stores/context.js';
+import { ROUTES } from '@/routes';
 import { MessageBubble } from './MessageBubble.js';
 import { AssistantMessage } from './AssistantMessage.js';
 import type { MessageBlock } from '@/types/index.js';
@@ -401,6 +403,22 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
       <WorkspaceBanner workspacePath={workspacePath()} />
 
+      <Show when={!modelStore.activeModel}>
+        <div class={styles.noModelBanner}>
+          <Icon name="alert-triangle" size={16} class={styles.noModelIcon} />
+          <span class={styles.noModelText}>
+            No model provider configured — messages cannot be sent until you add one.
+          </span>
+          <button
+            type="button"
+            class={styles.noModelBtn}
+            onClick={() => navigate(ROUTES.MODEL)}
+          >
+            Configure
+          </button>
+        </div>
+      </Show>
+
       <Show when={liveState().memoryContext}>
         <MemoryContextCard
           items={liveState().memoryContext!}
@@ -499,7 +517,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
             <MessageInput
               onSend={handleSend}
               onStop={() => chatStore.cancelMessage(sessionId())}
-              disabled={isStreaming()}
+              disabled={isStreaming() || !modelStore.activeModel}
               isStreaming={isStreaming()}
               modelSlot={(dimmed) => <ModelSelector dimmed={dimmed} />}
               workspacePath={workspacePath()}
