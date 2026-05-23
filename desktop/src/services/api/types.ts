@@ -36,6 +36,8 @@ export interface Provider {
   id: string;
   name: string;
   auth?: string | null;
+  is_current?: boolean;
+  has_overlay?: boolean;
   models: Array<Record<string, unknown>>;
   desktop: ProviderOverlay;
 }

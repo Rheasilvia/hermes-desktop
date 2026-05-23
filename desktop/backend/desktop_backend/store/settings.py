@@ -1,12 +1,11 @@
-"""Layer 3: settings.json. Schema-versioned. Atomic writes."""
+"""Layer 3: desktop settings backed by SQLite (v3)."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any
 
-from ..util.atomic_write import atomic_write_json
-from ..util.filelock import file_lock
+from ..db.connection import connect, ensure_schema
 
 SCHEMA_VERSION = 1
 
@@ -23,22 +22,24 @@ class SchemaVersionMismatch(RuntimeError):
     pass
 
 
-def _path(hermes_home: Path) -> Path:
-    return Path(hermes_home) / "desktop" / "settings.json"
-
-
 def load(hermes_home: Path) -> dict[str, Any]:
-    path = _path(hermes_home)
-    if not path.exists():
-        return json.loads(json.dumps(_DEFAULTS))  # deep copy
-    with file_lock(path, exclusive=False):
-        with open(path, "r", encoding="utf-8") as fh:
-            try:
-                payload = json.load(fh)
-            except json.JSONDecodeError:
-                return json.loads(json.dumps(_DEFAULTS))
-    if not isinstance(payload, dict):
+    conn = connect(hermes_home)
+    ensure_schema(conn)
+    try:
+        rows = conn.execute("SELECT key, value FROM desktop_settings").fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
         return json.loads(json.dumps(_DEFAULTS))
+
+    payload: dict[str, Any] = {}
+    for row in rows:
+        try:
+            payload[row["key"]] = json.loads(row["value"])
+        except (json.JSONDecodeError, TypeError):
+            payload[row["key"]] = row["value"]
+
     payload.setdefault("schema_version", SCHEMA_VERSION)
     return payload
 
@@ -48,7 +49,16 @@ def save(hermes_home: Path, payload: dict[str, Any]) -> dict[str, Any]:
         raise SchemaVersionMismatch(
             f"expected schema_version={SCHEMA_VERSION}, got {payload.get('schema_version')!r}"
         )
-    path = _path(hermes_home)
-    with file_lock(path, exclusive=True):
-        atomic_write_json(path, payload)
+    conn = connect(hermes_home)
+    ensure_schema(conn)
+    try:
+        conn.execute("DELETE FROM desktop_settings")
+        for key, value in payload.items():
+            conn.execute(
+                "INSERT INTO desktop_settings (key, value) VALUES (?, ?)",
+                (key, json.dumps(value)),
+            )
+        conn.commit()
+    finally:
+        conn.close()
     return payload

@@ -36,7 +36,28 @@ export const ProviderModelsView: Component = () => {
   const provider = (): ProviderEntry | null => {
     const name = modelStore.detailProviderName;
     if (!name) return null;
-    return modelsStore.providers().find((p) => p.name === name) ?? null;
+    const configured = modelsStore.providers().find((p) => p.name === name);
+    if (configured) return configured;
+    // Not yet saved — construct a temporary entry from the draft provider
+    // so the user can see defaults before explicitly saving.
+    const draft = modelStore.draftProvider;
+    if (draft && draft.id === name) {
+      return {
+        name: draft.id,
+        display_name: draft.display_name ?? draft.name,
+        is_builtin: true,
+        enabled: true,
+        base_url: draft.base_url,
+        api_key_env: draft.api_key_env,
+        models: [],
+        api_key: undefined,
+        api_key_set: false,
+        api_key_preview: undefined,
+        api_key_source: undefined,
+        base_url_source: undefined,
+      } satisfies ProviderEntry;
+    }
+    return null;
   };
   const models = (): ModelOption[] => provider()?.models ?? [];
 
@@ -44,9 +65,11 @@ export const ProviderModelsView: Component = () => {
     const p = provider();
     const key = revealedKey() ?? p?.api_key;
     if (key) return showKey() ? key : maskApiKey(key);
-    if (p?.api_key_preview) return p.api_key_preview;
-    if (p?.api_key_env) return `Set via ${p.api_key_env}`;
-    if (p?.api_key_source) return `Set via ${p.api_key_source}`;
+    if (p?.api_key_set) {
+      if (p?.api_key_preview) return p.api_key_preview;
+      if (p?.api_key_env) return `Set via ${p.api_key_env}`;
+      if (p?.api_key_source) return `Set via ${p.api_key_source}`;
+    }
     return 'Not configured';
   };
 
@@ -65,7 +88,7 @@ export const ProviderModelsView: Component = () => {
 
   const canRevealKey = () => {
     const p = provider();
-    return Boolean(p?.api_key || p?.api_key_set || p?.api_key_env);
+    return Boolean(p?.api_key || p?.api_key_set);
   };
 
   const toggleKeyVisibility = async () => {
@@ -100,6 +123,8 @@ export const ProviderModelsView: Component = () => {
     const p = provider();
     if (!p) return;
     modelStore.upsertProvider({ name: updated.name, is_builtin: updated.is_builtin ?? false, base_url: updated.base_url, api_key: updated.api_key, api_key_env: updated.api_key_env, display_name: updated.display_name });
+    void modelStore.setProviderEnabled(updated.name, updated.enabled !== false);
+    modelStore.setDraftProvider(null);
     setEditing(false);
   };
 

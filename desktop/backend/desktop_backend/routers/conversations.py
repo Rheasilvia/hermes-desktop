@@ -140,10 +140,10 @@ async def create_session(body: CreateSessionRequest, request: Request):
     sid = f"desktop_{uuid.uuid4().hex[:16]}"
 
     resolved_model, resolved_provider = _resolve_default_model(body.model, request)
-    if not resolved_model:
-        raise HTTPException(status_code=400, detail="NO_MODEL_CONFIGURED")
 
-    kwargs = {"model": resolved_model}
+    kwargs = {}
+    if resolved_model:
+        kwargs["model"] = resolved_model
     if body.system_prompt:
         kwargs["system_prompt"] = body.system_prompt
 
@@ -175,11 +175,12 @@ async def create_session(body: CreateSessionRequest, request: Request):
         "session_id": sid,
         "id": sid,
         "source": "desktop",
-        "model": info.get("model", resolved_model),
+        "model": info.get("model") or resolved_model or "",
         "provider": resolved_provider or "",
         "title": info.get("title", "New Session"),
         "started_at": info.get("started_at"),
         "workspace_path": body.workspace_path,
+        "model_configured": bool(resolved_model),
     }
 
 
@@ -353,6 +354,17 @@ async def prompt_execute(body: PromptExecuteRequest, request: Request):
 
             # Run the agent
             agent = entry.agent
+
+            # Update session activity timestamp
+            import time
+            try:
+                db._conn.execute(
+                    "UPDATE sessions SET ended_at = ? WHERE id = ?",
+                    (time.time(), sid),
+                )
+                db._conn.commit()
+            except Exception:
+                pass
 
             # Kimi Code (sk-kimi-* keys): api.kimi.com/coding speaks Anthropic
             # Messages, not OpenAI chat completions.  Set api_mode before the

@@ -11,6 +11,7 @@ export interface ProviderCardProps {
   isActive: boolean;
   onClick: () => void;
   onConfigure?: () => void;
+  onDelete?: () => void;
 }
 
 export const ProviderCard: Component<ProviderCardProps> = (props) => {
@@ -42,6 +43,20 @@ export const ProviderCard: Component<ProviderCardProps> = (props) => {
               title="Configure provider"
             >
               <Icon name="settings" size={14} />
+            </button>
+          </Show>
+          <Show when={props.onDelete}>
+            <button
+              type="button"
+              class={styles.deleteButton}
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onDelete?.();
+              }}
+              aria-label={`Delete ${props.provider.display_name ?? props.provider.name}`}
+              title="Delete provider"
+            >
+              <Icon name="trash-2" size={14} />
             </button>
           </Show>
         </div>

@@ -19,10 +19,14 @@ const [error, setError] = createSignal<string | null>(null);
 // View navigation state machine
 export type ModelView = 'hub' | 'add-provider' | 'provider-detail' | 'model-detail';
 const [currentView, setCurrentView] = createSignal<ModelView>('hub');
+const [previousView, setPreviousView] = createSignal<ModelView>('hub');
 const [detailProviderName, setDetailProviderName] = createSignal<string | null>(null);
 const [detailModelName, setDetailModelName] = createSignal<string | null>(null);
+// Draft provider set when navigating from Add Provider without saving.
+// ProviderModelsView uses it as fallback when the provider isn't in the configured list.
+const [draftProvider, setDraftProvider] = createSignal<CatalogProvider | null>(null);
 
-// Catalog of built-in providers available for adding
+// Catalog of built-in providers available for adding (offline fallback)
 export interface BuiltInProvider {
   name: string;
   category: 'popular' | 'local';
@@ -38,6 +42,21 @@ export const BUILT_IN_PROVIDERS: BuiltInProvider[] = [
   { name: 'LM Studio', category: 'local', description: 'Desktop LLM GUI' },
   { name: 'vLLM', category: 'local', description: 'High-throughput inference' },
 ];
+
+/** A provider entry from the full catalog (configured_only=false). */
+export interface CatalogProvider {
+  id: string;
+  name: string;
+  auth?: string | null;
+  auth_type?: string | null;
+  is_current?: boolean;
+  has_overlay?: boolean;
+  modelCount: number;
+  base_url?: string;
+  api_key_env?: string;
+  api_key_set?: boolean;
+  display_name?: string;
+}
 
 export const modelStore = {
   get providers() { return providers(); },
@@ -150,10 +169,13 @@ export const modelStore = {
   },
 
   async deleteProvider(name: string, isBuiltin: boolean): Promise<void> {
+    const id = modelsStore.resolveId(name);
+    await api.model().deleteProvider(id);
     const adapter = getModelAdapter();
-    if (!adapter) throw new Error('Gateway not connected');
-    await adapter.deleteProvider(name, isBuiltin);
-    await this.loadModels();
+    if (adapter) {
+      try { await adapter.deleteProvider(name, isBuiltin); } catch { void 0; }
+    }
+    await modelsStore.load();
   },
 
   async setProviderEnabled(name: string, enabled: boolean): Promise<void> {
@@ -190,6 +212,8 @@ export const modelStore = {
   get currentView() { return currentView(); },
   get detailProviderName() { return detailProviderName(); },
   get detailModelName() { return detailModelName(); },
+  get draftProvider() { return draftProvider(); },
+  setDraftProvider(p: CatalogProvider | null) { setDraftProvider(p); },
 
   get detailProviderEntry(): ProviderEntry | null {
     const name = detailProviderName();
@@ -205,7 +229,9 @@ export const modelStore = {
   },
 
   navigateTo(view: ModelView): void {
+    setPreviousView(currentView());
     setCurrentView(view);
+    setDraftProvider(null);
     if (view === 'hub') {
       setDetailProviderName(null);
       setDetailModelName(null);
@@ -213,12 +239,14 @@ export const modelStore = {
   },
 
   openProviderDetail(providerName: string): void {
+    setPreviousView(currentView());
     setDetailProviderName(providerName);
     setDetailModelName(null);
     setCurrentView('provider-detail');
   },
 
   openModelDetail(providerName: string, modelName: string): void {
+    setPreviousView(currentView());
     setDetailProviderName(providerName);
     setDetailModelName(modelName);
     setCurrentView('model-detail');
@@ -229,9 +257,11 @@ export const modelStore = {
       setDetailModelName(null);
       setCurrentView('provider-detail');
     } else {
-      setCurrentView('hub');
+      const prev = previousView();
+      setCurrentView(prev);
       setDetailProviderName(null);
       setDetailModelName(null);
+      setDraftProvider(null);
     }
   },
 
@@ -285,6 +315,23 @@ function mapProvider(apiProvider: Provider): ProviderEntry {
   };
 }
 
+function mapCatalogProvider(apiProvider: Provider): CatalogProvider {
+  const d = apiProvider.desktop;
+  return {
+    id: apiProvider.id,
+    name: apiProvider.name,
+    auth: apiProvider.auth ?? null,
+    auth_type: (apiProvider.auth as string) ?? null,
+    is_current: apiProvider.is_current ?? undefined,
+    has_overlay: apiProvider.has_overlay ?? false,
+    modelCount: (apiProvider.models ?? []).length,
+    base_url: d.base_url ?? undefined,
+    api_key_env: d.api_key_env ?? undefined,
+    api_key_set: d.api_key_set ?? Boolean(d.api_key || d.api_key_env),
+    display_name: d.display_name ?? undefined,
+  };
+}
+
 function readCachedProviders(): Provider[] {
   if (typeof localStorage === 'undefined') return [];
   try {
@@ -307,9 +354,33 @@ function writeCachedProviders(nextProviders: Provider[]): void {
   }
 }
 
+const CATALOG_CACHE_KEY = 'hermes.desktop.model.catalog.v1';
+
+function readCachedCatalog(): CatalogProvider[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(CATALOG_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed as CatalogProvider[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedCatalog(next: CatalogProvider[]): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(next));
+  } catch {
+    void 0;
+  }
+}
+
 /**
  * Factory for creating a models store sourced from the services/api layer.
- * Maps sidecar Provider → ProviderEntry so the UI components work without
+ * Maps sidecar Provider -> ProviderEntry so the UI components work without
  * a connected gateway.
  */
 export function createModelsStore() {
@@ -318,6 +389,12 @@ export function createModelsStore() {
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<Error | null>(null);
   const [hasLoaded, setHasLoaded] = createSignal(initialProviders.length > 0);
+
+  // Catalog state for AddProviderView (all providers, not just configured)
+  const initialCatalog = readCachedCatalog();
+  const [catalogProviders, setCatalogProviders] = createSignal<CatalogProvider[]>(initialCatalog);
+  const [catalogLoading, setCatalogLoading] = createSignal(false);
+  const [catalogHasLoaded, setCatalogHasLoaded] = createSignal(initialCatalog.length > 0);
 
   if (initialProviders.length > 0) {
     modelStore.hydrateProviders(initialProviders.map(mapProvider));
@@ -349,6 +426,24 @@ export function createModelsStore() {
     }
   };
 
+  /** Load the full provider catalog (including unconfigured providers).
+   *  Used by AddProviderView to show all available providers. */
+  const loadCatalog = async () => {
+    setCatalogLoading(true);
+    try {
+      const resp = await api.model().listProviders({ configuredOnly: false });
+      const mapped = resp.items.map(mapCatalogProvider);
+      setCatalogProviders(mapped);
+      writeCachedCatalog(mapped);
+      setCatalogHasLoaded(true);
+    } catch (e) {
+      console.error('[modelsStore] loadCatalog failed:', e);
+      setCatalogHasLoaded(true);
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
   // NOTE: modelStore.loadActiveModel() (gateway path) also writes to the same
   // activeProvider/activeModel signals. loadActive() uses the sidecar HTTP
   // transport instead. Both paths co-exist during the standalone refactor;
@@ -368,7 +463,20 @@ export function createModelsStore() {
     return response.api_key;
   };
 
-  return { providers, loading, error, hasLoaded, load, loadActive, revealProviderApiKey, resolveId };
+  return {
+    providers,
+    loading,
+    error,
+    hasLoaded,
+    load,
+    loadActive,
+    loadCatalog,
+    catalogProviders,
+    catalogLoading,
+    catalogHasLoaded,
+    revealProviderApiKey,
+    resolveId,
+  };
 }
 
 /** Singleton instance used by the model module views. */

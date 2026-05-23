@@ -136,6 +136,11 @@
   color: var(--color-primary);
 }
 
+.badgeOAuth {
+  background: #8b5cf61f;
+  color: #8b5cf6;
+}
+
 .badgeLocal {
   background: #5e5d591f;
   color: var(--color-on-surface-dim);
@@ -144,6 +149,18 @@
 .badgeCustom {
   background: #3b82f61f;
   color: #3b82f6;
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.currentLabel {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--color-primary);
 }
 
 .addedLabel {
@@ -189,4 +206,31 @@
 .customActions {
   display: flex;
   gap: var(--space-2);
+}
+
+.providerCount {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1-5);
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--color-on-surface-dim);
+  font-family: inherit;
+}
+
+.loadingHint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-muted);
 }

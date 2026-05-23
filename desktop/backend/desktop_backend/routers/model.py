@@ -1,9 +1,8 @@
 # desktop/backend/desktop_backend/routers/model.py
 from __future__ import annotations
 
-import ast
 from contextlib import contextmanager
-import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,11 +17,11 @@ from ..overlays import loader as overlays_loader
 from ..readers import model_catalog
 from ..readers.auth_reader import read_auth_providers
 from ..readers.hermes_config import read_active_model
-from ..services.merger import filter_configured, merge_providers
+from ..services.merger import filter_configured
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
-
-_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _now_iso() -> str:
@@ -103,224 +102,36 @@ def get_catalog(request: Request):
     }
 
 
-# ---------------------------------------------------------------------------
-# Model enrichment — mirrors the dashboard's list_authenticated_providers()
-# logic using the same data sources (models_dev_cache.json, hermes_cli/models.py,
-# agent/models_dev.py).
-# ---------------------------------------------------------------------------
+def _map_payload_to_merged(rows: list[dict], overlay: dict[str, dict]) -> list:
+    """Map build_models_payload() provider rows to MergedProvider list.
 
-def _parse_dict_literal(py_file: Path, var_name: str) -> dict:
-    """Extract a dict assignment from a Python source file via AST.
-
-    Handles both ast.Assign and ast.AnnAssign. Skips entries whose values
-    are function calls (e.g. _codex_curated_models()) instead of literals.
+    Merges desktop overlay data (user-saved display_name, api_key, base_url)
+    on top of the dynamically discovered provider list from the TUI data source.
     """
-    tree = ast.parse(py_file.read_text(encoding="utf-8"))
-    for node in ast.iter_child_nodes(tree):
-        value = None
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == var_name:
-                    value = node.value
-                    break
-        elif isinstance(node, ast.AnnAssign):
-            if isinstance(node.target, ast.Name) and node.target.id == var_name:
-                value = node.value
-        if value is None:
-            continue
-        if isinstance(value, ast.Dict):
-            result: dict = {}
-            for k, v in zip(value.keys, value.values):
-                if isinstance(v, (ast.Call, ast.Name)):
-                    continue
-                try:
-                    result[ast.literal_eval(k)] = ast.literal_eval(v)
-                except Exception:
-                    pass
-            return result
-        try:
-            return ast.literal_eval(value)
-        except Exception:
-            return {}
-    return {}
+    from ..schemas.model import MergedProvider, ProviderOverlay
 
-
-def _get_alias_map() -> dict[str, str]:
-    """PROVIDER_TO_MODELS_DEV from agent/models_dev.py."""
-    try:
-        from agent.models_dev import PROVIDER_TO_MODELS_DEV
-        return dict(PROVIDER_TO_MODELS_DEV)
-    except ImportError:
-        pass
-    p = _REPO_ROOT / "agent" / "models_dev.py"
-    return _parse_dict_literal(p, "PROVIDER_TO_MODELS_DEV") if p.exists() else {}
-
-
-def _get_curated_models() -> dict[str, list[str]]:
-    """_PROVIDER_MODELS from hermes_cli/models.py (curated model lists)."""
-    try:
-        from hermes_cli.models import _PROVIDER_MODELS
-        return dict(_PROVIDER_MODELS)
-    except ImportError:
-        pass
-    p = _REPO_ROOT / "hermes_cli" / "models.py"
-    return _parse_dict_literal(p, "_PROVIDER_MODELS") if p.exists() else {}
-
-
-def _load_models_dev_cache(hermes_home: Path) -> dict:
-    cache_file = hermes_home / "models_dev_cache.json"
-    if not cache_file.exists():
-        return {}
-    try:
-        return json.loads(cache_file.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def _cache_supplement_ids(
-    cache: dict, alias_map: dict[str, str], pid: str, base_ids: list[str]
-) -> list[str]:
-    """Return extra model IDs from models_dev_cache that extend a curated base.
-
-    Finds cache entries whose ID starts with one of the base IDs (e.g.
-    MiniMax-M2.7-highspeed extends MiniMax-M2.7) but aren't already in the
-    base list.  This mirrors the dashboard's _merge_with_models_dev logic.
-    """
-    cache_key = alias_map.get(pid, pid)
-    provider_data = cache.get(cache_key, {})
-    if not isinstance(provider_data, dict):
-        return []
-    models = provider_data.get("models", {})
-    if not isinstance(models, dict):
-        return []
-    base_set = set(base_ids)
-    return [
-        mid
-        for mid, mdata in models.items()
-        if isinstance(mdata, dict)
-        and mdata.get("tool_call", False)
-        and mid not in base_set
-        and any(mid.startswith(b) for b in base_ids)
-    ]
-
-
-def _cache_tool_call_ids(cache: dict, alias_map: dict[str, str], pid: str) -> list[str]:
-    """Return all tool_call model IDs from models_dev_cache for a provider."""
-    cache_key = alias_map.get(pid, pid)
-    provider_data = cache.get(cache_key, {})
-    if not isinstance(provider_data, dict):
-        return []
-    models = provider_data.get("models", {})
-    if not isinstance(models, dict):
-        return []
-    return sorted(
-        mid
-        for mid, mdata in models.items()
-        if isinstance(mdata, dict) and mdata.get("tool_call", False)
-    )
-
-
-def _enrich_models(providers: list, hermes_home: Path) -> None:
-    """Fill empty model lists using the same sources as the dashboard.
-
-    Mirrors hermes_cli/model_switch.py list_authenticated_providers():
-      1. hermes_cli.models.provider_model_ids() if available
-      2. _PROVIDER_MODELS from hermes_cli/models.py as curated base
-      3. models_dev_cache supplements with variants (e.g. highspeed)
-      4. Full models_dev_cache tool_call ids as last resort
-    """
-    try:
-        from hermes_cli.models import provider_model_ids
-        has_cli = True
-    except ImportError:
-        has_cli = False
-
-    curated = _get_curated_models() if not has_cli else {}
-    cache = _load_models_dev_cache(hermes_home)
-    alias_map = _get_alias_map()
-
-    for p in providers:
-        if p.models:
-            continue
-        if has_cli:
-            ids = provider_model_ids(p.id)
-        elif p.id in curated:
-            base_ids = curated[p.id]
-            extra = _cache_supplement_ids(cache, alias_map, p.id, base_ids)
-            ids = base_ids + extra
-        else:
-            ids = _cache_tool_call_ids(cache, alias_map, p.id)
-        p.models = [{"id": m, "name": m} for m in ids]
-
-
-def _discover_env_providers(cache: dict, alias_map: dict[str, str]) -> dict[str, str]:
-    """Return {provider_id: matched_env_var} for providers with env-based credentials.
-
-    Mirrors the dashboard's list_authenticated_providers() logic:
-    uses PROVIDER_REGISTRY (same source as dashboard) for env var names,
-    falling back to models_dev_cache.json ``env`` field when not importable.
-    """
-    # Primary: use PROVIDER_REGISTRY (has the most accurate env var names)
-    try:
-        from hermes_cli.auth import PROVIDER_REGISTRY
-
-        result: dict[str, str] = {}
-        for slug, pc in PROVIDER_REGISTRY.items():
-            if getattr(pc, "auth_type", "") != "api_key":
-                continue
-            for ev in getattr(pc, "api_key_env_vars", None) or []:
-                if os.environ.get(ev, "").strip():
-                    result[slug] = ev
-                    break
-        return result
-    except ImportError:
-        pass
-
-    # Fallback: parse PROVIDER_REGISTRY from hermes_cli/auth.py via AST
-    try:
-        reg_file = _REPO_ROOT / "hermes_cli" / "auth.py"
-        if reg_file.exists():
-            found: dict[str, str] = {}
-            tree = ast.parse(reg_file.read_text(encoding="utf-8"))
-            for node in ast.iter_child_nodes(tree):
-                if not (isinstance(node, ast.AnnAssign)
-                        and isinstance(node.target, ast.Name)
-                        and node.target.id == "PROVIDER_REGISTRY"):
-                    continue
-                if not isinstance(node.value, ast.Dict):
-                    break
-                for k, v in zip(node.value.keys, node.value.values):
-                    if not isinstance(v, ast.Call):
-                        continue
-                    slug = ast.literal_eval(k)
-                    for kw in v.keywords:
-                        if kw.arg != "api_key_env_vars":
-                            continue
-                        try:
-                            env_vars = ast.literal_eval(kw.value)
-                        except Exception:
-                            continue
-                        for ev in env_vars:
-                            if os.environ.get(ev, "").strip():
-                                found[slug] = ev
-                                break
-                break
-            return found
-    except Exception:
-        pass
-
-    # Last resort: use models_dev_cache.json ``env`` field
-    found2: dict[str, str] = {}
-    for hermes_id, mdev_id in alias_map.items():
-        pdata = cache.get(mdev_id, {})
-        env_vars = pdata.get("env", []) if isinstance(pdata, dict) else []
-        if not isinstance(env_vars, list):
-            continue
-        for ev in env_vars:
-            if os.environ.get(ev, "").strip():
-                found2[hermes_id] = ev
-                break
-    return found2
+    merged: list = []
+    for row in rows:
+        slug = row.get("slug", "")
+        entry = overlay.get(slug, {})
+        p = MergedProvider(
+            id=slug,
+            name=entry.get("display_name") or row.get("name", slug),
+            auth=row.get("auth_type"),
+            models=[{"id": m, "name": m} for m in row.get("models", [])],
+            is_current=bool(row.get("is_current")),
+            has_overlay=bool(entry),
+            desktop=ProviderOverlay(
+                display_name=entry.get("display_name"),
+                base_url=entry.get("base_url"),
+                api_key=entry.get("api_key"),
+                api_key_env=entry.get("api_key_env") or row.get("key_env"),
+                api_key_set=bool(row.get("authenticated")),
+                visible=entry.get("visible", True),
+            ),
+        )
+        merged.append(p)
+    return merged
 
 
 def _apply_resolved_provider_credentials(providers: list, hermes_home: Path) -> None:
@@ -427,48 +238,27 @@ def list_providers(
     request: Request,
     configured_only: bool = Query(default=True),
 ):
+    """Return the full provider catalog, using the same dynamic data source as TUI /model."""
     cfg = request.app.state.cfg
-    providers = model_catalog.get_providers(cfg.hermes_home)
+
+    from hermes_cli.inventory import build_models_payload, load_picker_context
+
+    ctx = load_picker_context()
+    # Always include unconfigured providers so overlay data (saved base_url,
+    # api_key_env, display_name) reaches filter_configured.  Otherwise a
+    # provider just added via the Add Provider catalog won't appear in the
+    # configured list until the user sets a real API key.
+    payload = build_models_payload(
+        ctx,
+        include_unconfigured=True,
+        picker_hints=True,
+        canonical_order=True,
+    )
+
     overlay = overlays_loader.load(cfg.hermes_home, "model")
-    merged = merge_providers(providers, overlay)
-    alias_map = _get_alias_map()
-
-    # Merge auth.json credentials into existing catalog providers and add
-    # any auth-only providers that aren't in the catalog at all.
-    catalog_map = {p.id: p for p in merged}
-    for ap in read_auth_providers(cfg.hermes_home):
-        if ap.id in catalog_map:
-            existing = catalog_map[ap.id]
-            if not existing.desktop.api_key and ap.desktop.api_key:
-                existing.desktop.api_key = ap.desktop.api_key
-            if not existing.desktop.api_key_env and ap.desktop.api_key_env:
-                existing.desktop.api_key_env = ap.desktop.api_key_env
-            if not existing.desktop.base_url and ap.desktop.base_url:
-                existing.desktop.base_url = ap.desktop.base_url
-        else:
-            merged.append(ap)
-            catalog_map[ap.id] = ap
-
-    # Discover providers with env-based credentials (same as dashboard).
-    from ..schemas.model import MergedProvider, ProviderOverlay
-
-    mdev_cache = _load_models_dev_cache(cfg.hermes_home)
-    for slug, env_var in _discover_env_providers(mdev_cache, alias_map).items():
-        if slug in catalog_map:
-            if not catalog_map[slug].desktop.api_key_env:
-                catalog_map[slug].desktop.api_key_env = env_var
-        else:
-            p = MergedProvider(
-                id=slug,
-                name=slug.replace("-", " ").replace("_", " ").title(),
-                models=[],
-                desktop=ProviderOverlay(api_key_env=env_var),
-            )
-            merged.append(p)
-            catalog_map[slug] = p
-
-    _enrich_models(merged, cfg.hermes_home)
+    merged = _map_payload_to_merged(payload["providers"], overlay)
     _apply_resolved_provider_credentials(merged, cfg.hermes_home)
+
     if configured_only:
         merged = filter_configured(merged)
     return {
@@ -544,6 +334,18 @@ def upsert_provider(body: UpsertProviderRequest, request: Request):
     if body.base_url is not None:
         patch["base_url"] = body.base_url
         patch["base_url_source"] = "desktop"
+        # Also write base_url to .env so TUI/CLI can see the endpoint.
+        try:
+            from hermes_cli.auth import PROVIDER_REGISTRY
+
+            pconfig = PROVIDER_REGISTRY.get(body.name)
+            if pconfig and pconfig.base_url_env_var:
+                from hermes_cli.config import save_env_value
+
+                with _hermes_home_env(cfg.hermes_home):
+                    save_env_value(pconfig.base_url_env_var, body.base_url)
+        except Exception:
+            log.warning("Failed to write base_url to .env for %s", body.name)
     if body.display_name is not None:
         patch["display_name"] = body.display_name
     if body.api_key_env is not None:
@@ -559,7 +361,7 @@ def delete_provider(provider_id: str, request: Request):
     """Remove a provider entry from the model overlay."""
     cfg = request.app.state.cfg
     try:
-        overlays_loader.update(cfg.hermes_home, "model", provider_id, {"api_key": "", "base_url": ""})
+        overlays_loader.delete(cfg.hermes_home, "model", provider_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"ok": True}

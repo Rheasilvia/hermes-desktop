@@ -11,7 +11,7 @@ import { makeSkillsTransport } from './transports/http/skills';
 import { makeStateTransport } from './transports/http/state';
 
 import { makeMockCronTransport } from './transports/mock/cron';
-import { makeMockModelTransport } from './transports/mock/model';
+
 import { makeMockOverlayTransport } from './transports/mock/overlays';
 import { makeMockSettingsTransport } from './transports/mock/settings';
 import { makeMockSkillsTransport } from './transports/mock/skills';
@@ -41,7 +41,7 @@ export { isApiError } from './types';
 export function bootstrapApi(mode: 'http' | 'mock' = 'http'): void {
   if (mode === 'mock') {
     api.register('cron', makeMockCronTransport());
-    api.register('model', makeMockModelTransport());
+
     api.register('overlays', makeMockOverlayTransport());
     api.register('plugins', makePluginsTransport(httpClient));
     api.register('settings', makeMockSettingsTransport());

@@ -26,3 +26,5 @@ class MergedProvider(BaseModel):
     auth: Optional[str] = None
     models: list[dict[str, Any]] = Field(default_factory=list)
     desktop: ProviderOverlay = Field(default_factory=ProviderOverlay)
+    is_current: bool = False
+    has_overlay: bool = False
