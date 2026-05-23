@@ -1,7 +1,7 @@
 """Schema constants for desktop.db."""
 from __future__ import annotations
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SESSION_DESKTOP_META_DDL = """
 CREATE TABLE IF NOT EXISTS session_desktop_meta (
@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS session_desktop_meta (
     pinned         INTEGER NOT NULL DEFAULT 0,
     archived       INTEGER NOT NULL DEFAULT 0,
     last_opened_at REAL,
-    created_at     REAL NOT NULL DEFAULT (strftime('%s','now'))
+    created_at     REAL NOT NULL DEFAULT (strftime('%s','now')),
+    provider       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_sdm_pinned      ON session_desktop_meta(pinned) WHERE pinned = 1;

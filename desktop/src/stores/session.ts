@@ -98,6 +98,12 @@ export const sessionStore = {
     }
   },
 
+  updateSessionTitle(sessionId: string, title: string): void {
+    setSessions(prev => prev.map(s =>
+      s.id === sessionId ? { ...s, title } : s
+    ));
+  },
+
   async deleteSession(id: string): Promise<boolean> {
     const gateway = getGateway();
     if (!gateway) return false;

@@ -48,19 +48,75 @@ def _title_language() -> str:
         return ""
 
 
+def _call_with_agent(agent, messages: list, model: str = "") -> Optional[str]:
+    """Call LLM using agent's configured client, handling protocol differences.
+
+    Reuses the agent's already-configured client (credentials, base_url, api_key)
+    but optionally swaps the model name (e.g. use a small/fast model for titles).
+
+    Thread safety: OpenAI/Anthropic clients are thread-safe (httpx connection
+    pool). This function only calls read-only methods on the client.
+    """
+    model = model or agent.model
+    api_mode = getattr(agent, "api_mode", "chat_completions")
+
+    if api_mode == "anthropic_messages":
+        client = getattr(agent, "_anthropic_client", None)
+        if not client:
+            return None
+
+        system_msg = None
+        user_msgs = []
+        for m in messages:
+            if m["role"] == "system":
+                system_msg = m["content"]
+            else:
+                user_msgs.append(m)
+
+        kwargs = {"model": model, "max_tokens": 500, "messages": user_msgs}
+        if system_msg:
+            kwargs["system"] = system_msg
+
+        response = client.messages.create(**kwargs)
+        if response.content:
+            for block in response.content:
+                if getattr(block, "type", None) == "text":
+                    return block.text
+        return None
+    else:
+        client = getattr(agent, "client", None)
+        if not client:
+            return None
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=500,
+            temperature=0.3,
+        )
+        return (response.choices[0].message.content or "").strip()
+
+
 def generate_title(
     user_message: str,
     assistant_response: str,
     timeout: float = 30.0,
     failure_callback: Optional[FailureCallback] = None,
     main_runtime: dict = None,
+    agent=None,
+    title_model: str = "",
 ) -> Optional[str]:
     """Generate a session title from the first exchange.
 
-    Uses the main runtime's model when available, falling back to the
-    auxiliary LLM client (cheapest/fastest available model).
-    Returns the title string or None on failure.
+    If ``agent`` is provided, reuses its configured client (credentials, base_url)
+    to make the LLM call. This ensures the title generation uses the same provider
+    as the main conversation (session-level provider).
 
+    Falls back to the auxiliary LLM client if agent-based call fails or if no
+    agent is provided. The auxiliary client uses the cheapest/fastest available
+    model from config.yaml + .env.
+
+    Returns the title string or None on failure.
     ``failure_callback`` is invoked with ``(task, exception)`` when the
     auxiliary call raises — the caller typically wires this to
     ``AIAgent._emit_auxiliary_failure`` so the user sees a warning instead
@@ -68,16 +124,37 @@ def generate_title(
     """
     # Truncate long messages to keep the request small
     user_snippet = user_message[:500] if user_message else ""
-    assistant_snippet = assistant_response[:500] if assistant_response else ""
+
+    if assistant_response:
+        assistant_snippet = assistant_response[:500]
+        user_content = f"User: {user_snippet}\n\nAssistant: {assistant_snippet}"
+    else:
+        user_content = f"User: {user_snippet}"
 
     language = _title_language()
     prompt = _TITLE_PROMPT_PINNED_LANGUAGE.format(language=language) if language else _TITLE_PROMPT
 
     messages = [
         {"role": "system", "content": prompt},
-        {"role": "user", "content": f"User: {user_snippet}\n\nAssistant: {assistant_snippet}"},
+        {"role": "user", "content": user_content},
     ]
 
+    # Try agent's client first (uses session-specific provider config)
+    if agent:
+        try:
+            title = _call_with_agent(agent, messages, model=title_model)
+            if title:
+                title = title.strip('"\'')
+                if title.lower().startswith("title:"):
+                    title = title[6:].strip()
+                if len(title) > 80:
+                    title = title[:77] + "..."
+                return title
+        except Exception as e:
+            logger.debug("Agent-based title generation failed: %s", e)
+            # Fall through to auxiliary client
+
+    # Fallback: auxiliary client (for TUI/ACP or when agent.client failed)
     try:
         response = call_llm(
             task="title_generation",
@@ -117,6 +194,7 @@ def auto_title_session(
     failure_callback: Optional[FailureCallback] = None,
     main_runtime: dict = None,
     title_callback: Optional[TitleCallback] = None,
+    agent=None,
 ) -> None:
     """Generate and set a session title if one doesn't already exist.
 
@@ -138,7 +216,8 @@ def auto_title_session(
         return
 
     title = generate_title(
-        user_message, assistant_response, failure_callback=failure_callback, main_runtime=main_runtime
+        user_message, assistant_response, failure_callback=failure_callback,
+        main_runtime=main_runtime, agent=agent
     )
     if not title:
         return
@@ -164,6 +243,7 @@ def maybe_auto_title(
     failure_callback: Optional[FailureCallback] = None,
     main_runtime: dict = None,
     title_callback: Optional[TitleCallback] = None,
+    agent=None,
 ) -> None:
     """Fire-and-forget title generation after the first exchange.
 
@@ -189,6 +269,7 @@ def maybe_auto_title(
             "failure_callback": failure_callback,
             "main_runtime": main_runtime,
             "title_callback": title_callback,
+            "agent": agent,
         },
         daemon=True,
         name="auto-title",

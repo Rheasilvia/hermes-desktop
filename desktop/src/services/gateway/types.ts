@@ -45,6 +45,7 @@ import type {
   ErrorPayload,
   GatewayStderrPayload,
   ProtocolErrorPayload,
+  SessionTitleUpdatePayload,
 } from '@/types/index.js';
 
 /** Connection state of the gateway adapter. */
@@ -75,6 +76,7 @@ export interface GatewayEventMap {
   'error': ErrorPayload;
   'gateway.stderr': GatewayStderrPayload;
   'gateway.protocol_error': ProtocolErrorPayload;
+  'session.title_update': SessionTitleUpdatePayload;
 }
 
 /** Typed event emitter interface for gateway events. */
@@ -104,7 +106,7 @@ export interface SessionMethods {
 
 /** Prompt method group. */
 export interface PromptMethods {
-  execute(params: { message: string; session_id?: string }): Promise<void>;
+  execute(params: { message: string; session_id?: string; provider?: string; model?: string }): Promise<void>;
 }
 
 /** Config method group. */
@@ -262,6 +264,9 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   readonly complete: CompleteMethods;
   readonly slash: SlashMethods;
   readonly command: CommandMethods;
+
+  /** Set the provider and model for a specific session */
+  setSessionProvider(sessionId: string, provider: string, model?: string): Promise<void>;
 
   // Lifecycle
   connect(): Promise<void>;

@@ -519,7 +519,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
               onStop={() => chatStore.cancelMessage(sessionId())}
               disabled={isStreaming() || !modelStore.activeModel}
               isStreaming={isStreaming()}
-              modelSlot={(dimmed) => <ModelSelector dimmed={dimmed} />}
+              modelSlot={(dimmed, disabled) => <ModelSelector sessionId={sessionId()} dimmed={dimmed} disabled={disabled} />}
               workspacePath={workspacePath()}
               isNewConversation={isEmpty()}
               onWorkspaceChange={(path) => {

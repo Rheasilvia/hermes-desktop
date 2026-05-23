@@ -23,6 +23,7 @@ import type { ConversationMessage, ParsedToolCall } from '@/types/domain/message
 import type { ToolCallBlock } from '@/types/ui/blocks.js';
 import { parseMessage, parseBlocks } from '@/utils/messageParser.js';
 import { getGateway } from './context.js';
+import { modelStore } from './models.js';
 import { invoke } from '@tauri-apps/api/core';
 
 // ── Diff State (global, not per-session) ─────────────────────────────────
@@ -185,7 +186,12 @@ export const chatStore = {
       liveState: { ...makeLiveTurnState(sessionId), status: 'streaming' },
     }));
     try {
-      await gateway.prompt.execute({ message: text, session_id: sessionId });
+      await gateway.prompt.execute({
+        message: text,
+        session_id: sessionId,
+        provider: modelStore.activeProvider ?? undefined,
+        model: modelStore.activeModel ?? undefined,
+      });
       return true;
     } catch {
       updateChatState(sessionId, (state) => ({

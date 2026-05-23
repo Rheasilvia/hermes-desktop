@@ -65,6 +65,13 @@ def _migrate(conn: sqlite3.Connection, current_version: int) -> None:
         _import_json_settings(conn)
         conn.execute("UPDATE schema_version SET version = ?", (3,))
 
+    if current_version < 4:
+        try:
+            conn.execute("ALTER TABLE session_desktop_meta ADD COLUMN provider TEXT")
+        except Exception:
+            pass  # column already exists
+        conn.execute("UPDATE schema_version SET version = ?", (4,))
+
 
 def _overlay_json_path(hermes_home: str, domain: str) -> Path:
     return Path(hermes_home) / "desktop" / "overlays" / f"{domain}.json"

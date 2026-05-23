@@ -67,6 +67,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
   readonly complete: GatewayAdapter['complete'];
   readonly slash: GatewayAdapter['slash'];
   readonly command: GatewayAdapter['command'];
+  readonly setSessionProvider: GatewayAdapter['setSessionProvider'];
 
   private state: ConnectionState = 'disconnected';
   private handlers: Map<string, Set<EventHandler<keyof GatewayEventMap>>> = new Map();
@@ -274,9 +275,19 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         await this.http.post(`${API_PREFIX}/prompt/execute`, {
           message: params.message,
           session_id: params.session_id,
+          provider: params.provider,
+          model: params.model,
         });
         // Events streamed via SSE — no return value
       },
+    };
+
+    // ── setSessionProvider (REAL) ────────────────────────────────────────
+    this.setSessionProvider = async (sessionId: string, provider: string, model?: string): Promise<void> => {
+      await this.http.put(`${API_PREFIX}/sessions/${sessionId}/provider`, {
+        provider,
+        model,
+      });
     };
 
     // ── approval / clarify (REAL) ───────────────────────────────────────
@@ -392,6 +403,12 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       case 'reasoning.delta':
         this.emit('reasoning.delta', { text: String(payload.text ?? '') } as GatewayEventMap['reasoning.delta']);
         break;
+      case 'session.title_update':
+        this.emit('session.title_update', {
+          session_id: sid,
+          title: String(payload.title ?? ''),
+        } as GatewayEventMap['session.title_update']);
+        break;
       case 'tool.start':
         this.emit('tool.start', {
           tool_id: String(payload.tool_id ?? ''),
@@ -475,9 +492,13 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     this.eventSource = new EventSource(this.eventSourceUrl);
 
     this.eventSource.onopen = () => {
+      const wasReconnecting = this.state === 'reconnecting';
       this.state = 'connected';
       // Replay missed events for all known sessions
       this._replayAllSessions();
+      if (wasReconnecting) {
+        this.emit('gateway.ready', { skin: undefined });
+      }
     };
 
     // SSE spec: named events arrive via addEventListener, not onmessage
@@ -520,6 +541,13 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       try {
         const data = JSON.parse(e.data);
         this.dispatchSseEvent({ ...data, type: 'reasoning.delta' });
+      } catch { /* ignore */ }
+    });
+
+    this.eventSource.addEventListener('session.title_update', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        this.dispatchSseEvent({ ...data, type: 'session.title_update' });
       } catch { /* ignore */ }
     });
 

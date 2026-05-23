@@ -19,7 +19,7 @@ interface MessageInputProps {
   disabled?: boolean;
   isStreaming?: boolean;
   placeholder?: string;
-  modelSlot?: (dimmed: boolean) => any;
+  modelSlot?: (dimmed: boolean, disabled: boolean) => any;
   workspacePath?: string | null;
   isNewConversation?: boolean;
   onWorkspaceChange?: (path: string) => void;
@@ -45,7 +45,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const canSend = () => (text().trim().length > 0 || attachments().length > 0) && !props.disabled;
   const isActive = () => canSend() && focused();
   const hasAttachments = () => attachments().length > 0;
-  const showPaperclip = () => !props.isStreaming;
+  const showPaperclip = () => true;
 
   const slashFilter = (): string => {
     const t = text();
@@ -248,7 +248,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
               </button>
             </Show>
             <Show when={props.modelSlot}>
-              <div class={styles.modelPill}>{props.modelSlot!(Boolean(props.disabled && !props.isStreaming))}</div>
+              <div class={styles.modelPill}>{props.modelSlot!(Boolean(props.disabled && !props.isStreaming), Boolean(props.isStreaming))}</div>
             </Show>
             <WorkspacePicker
               workspacePath={props.workspacePath}

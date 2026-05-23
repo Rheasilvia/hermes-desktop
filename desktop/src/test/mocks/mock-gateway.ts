@@ -105,6 +105,7 @@ export function createTestGateway(): GatewayAdapter {
     command: {
       dispatch: async () => {},
     },
+    setSessionProvider: async () => {},
     on: addHandler,
     off: removeHandler,
     connect: async () => {
