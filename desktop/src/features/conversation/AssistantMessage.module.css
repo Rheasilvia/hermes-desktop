@@ -75,8 +75,44 @@
   padding-left: var(--space-5);
 }
 
+.markdownContent ul {
+  list-style: disc;
+}
+
+.markdownContent ul ul {
+  list-style: circle;
+}
+
+.markdownContent ul ul ul {
+  list-style: square;
+}
+
+.markdownContent ol {
+  list-style: decimal;
+}
+
+.markdownContent ol ol {
+  list-style: lower-alpha;
+}
+
+.markdownContent ol ol ol {
+  list-style: lower-roman;
+}
+
 .markdownContent li {
   margin-bottom: var(--space-1);
+}
+
+/* Task list: flex row so checkbox aligns with text */
+.markdownContent ul:has(input[type="checkbox"]) {
+  list-style: none;
+  padding-left: var(--space-2);
+}
+
+.markdownContent ul:has(input[type="checkbox"]) li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
 }
 
 .markdownContent blockquote {
@@ -102,8 +138,171 @@
 .markdownContent h2 { font-size: var(--text-base); }
 .markdownContent h3 { font-size: var(--text-sm); }
 
+.markdownContent h4,
+.markdownContent h5,
+.markdownContent h6 {
+  font-weight: var(--weight-semibold);
+  margin: var(--space-2) 0 var(--space-1) 0;
+}
+
+.markdownContent h4 { font-size: var(--text-xs); }
+.markdownContent h5 { font-size: var(--text-xs); opacity: 0.9; }
+.markdownContent h6 { font-size: var(--text-xs); opacity: 0.75; }
+
 .markdownContent strong {
   font-weight: var(--weight-semibold);
+}
+
+.markdownContent em {
+  font-style: italic;
+}
+
+.markdownContent del,
+.markdownContent s {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.markdownContent ins {
+  text-decoration: underline;
+}
+
+.markdownContent mark {
+  background-color: rgba(255, 214, 10, 0.25);
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+.markdownContent sub,
+.markdownContent sup {
+  font-size: 0.75em;
+}
+
+.markdownContent kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.4;
+  color: var(--color-on-surface);
+  background-color: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.markdownContent small {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+/* ── Horizontal Rule ── */
+.markdownContent hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: var(--space-4) 0;
+}
+
+/* ── Images ── */
+.markdownContent img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  margin: var(--space-2) 0;
+}
+
+/* ── Tables ── */
+.markdownContent :global(.markdown-table-wrapper) {
+  overflow-x: auto;
+  margin: var(--space-3) 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.markdownContent table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.markdownContent thead {
+  background-color: var(--color-surface-raised);
+}
+
+.markdownContent th {
+  font-weight: var(--weight-semibold);
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.markdownContent td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.markdownContent tbody tr:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.markdownContent tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── Task List Checkboxes ── */
+.markdownContent input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 3px;
+  vertical-align: middle;
+  cursor: default;
+  position: relative;
+  flex-shrink: 0;
+  background: var(--color-surface);
+}
+
+.markdownContent input[type="checkbox"]:checked {
+  background-color: var(--color-sage);
+  border-color: var(--color-sage);
+}
+
+.markdownContent input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--color-cream);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* ── Blockquote ── */
+.markdownContent blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Inline code inside links ── */
+.markdownContent a code {
+  color: var(--color-terracotta);
+}
+
+/* ── Details / Summary ── */
+.markdownContent details {
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.markdownContent summary {
+  cursor: pointer;
+  font-weight: var(--weight-medium);
+  color: var(--color-on-surface-muted);
 }
 
 .placeholderBlock {
