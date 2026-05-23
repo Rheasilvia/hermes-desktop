@@ -1,63 +1,55 @@
-import json
-import re
+"""Unit tests for overlays/loader.py — SQLite-based overlay loader (v3)."""
+
 from pathlib import Path
 
 import pytest
 
-from desktop_backend.overlays.loader import load, update
+from desktop_backend.overlays.loader import load, update, delete
 
 
-def overlay_dir(home: Path) -> Path:
-    return home / "desktop" / "overlays"
+@pytest.fixture
+def hermes_home(tmp_path: Path) -> Path:
+    home = tmp_path / ".hermes"
+    (home / "desktop").mkdir(parents=True)
+    return home
 
 
-def test_load_missing_returns_empty(tmp_path):
-    assert load(tmp_path, "cron") == {}
+def test_load_missing_returns_empty(hermes_home: Path):
+    assert load(hermes_home, "cron") == {}
 
 
-def test_load_valid_returns_payload(tmp_path):
-    d = overlay_dir(tmp_path)
-    d.mkdir(parents=True)
-    (d / "cron.json").write_text('{"job_test_001": {"pinned": true}}')
-    assert load(tmp_path, "cron") == {"job_test_001": {"pinned": True}}
+def test_update_and_load_roundtrip(hermes_home: Path):
+    update(hermes_home, "cron", "job_test_001", {"pinned": True})
+    result = load(hermes_home, "cron")
+    assert result["job_test_001"]["pinned"] == 1  # SQLite stores bool as int
 
 
-def test_load_corrupt_renames_and_returns_empty(tmp_path):
-    d = overlay_dir(tmp_path)
-    d.mkdir(parents=True)
-    (d / "cron.json").write_text("not json")
-    assert load(tmp_path, "cron") == {}
-    backups = list(d.glob("cron.json.corrupt-*"))
-    assert len(backups) == 1
-    assert re.match(
-        r"cron\.json\.corrupt-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z",
-        backups[0].name,
-    )
+def test_update_merges_into_existing_entry(hermes_home: Path):
+    update(hermes_home, "cron", "job_test_001", {"pinned": True, "color": "red"})
+    update(hermes_home, "cron", "job_test_001", {"pinned": False})
+    result = load(hermes_home, "cron")
+    assert result["job_test_001"] == {"pinned": False, "color": "red"}
 
 
-def test_update_creates_file(tmp_path):
-    update(tmp_path, "cron", "job_test_001", {"pinned": True})
-    payload = json.loads((overlay_dir(tmp_path) / "cron.json").read_text())
-    assert payload["job_test_001"]["pinned"] is True
+def test_update_preserves_other_entities(hermes_home: Path):
+    update(hermes_home, "cron", "job_test_001", {"pinned": True})
+    update(hermes_home, "cron", "job_test_002", {"pinned": False})
+    update(hermes_home, "cron", "job_test_001", {"pinned": False})
+    result = load(hermes_home, "cron")
+    assert result["job_test_002"]["pinned"] == 0  # SQLite stores bool as int
 
 
-def test_update_merges_into_existing_entry(tmp_path):
-    d = overlay_dir(tmp_path)
-    d.mkdir(parents=True)
-    (d / "cron.json").write_text(
-        '{"job_test_001": {"pinned": true, "color": "red"}}'
-    )
-    update(tmp_path, "cron", "job_test_001", {"pinned": False})
-    payload = json.loads((d / "cron.json").read_text())
-    assert payload["job_test_001"] == {"pinned": False, "color": "red"}
+def test_delete_removes_entity(hermes_home: Path):
+    update(hermes_home, "cron", "job_test_001", {"pinned": True})
+    delete(hermes_home, "cron", "job_test_001")
+    result = load(hermes_home, "cron")
+    assert "job_test_001" not in result
 
 
-def test_update_preserves_other_entities(tmp_path):
-    d = overlay_dir(tmp_path)
-    d.mkdir(parents=True)
-    (d / "cron.json").write_text(
-        '{"job_test_001": {"pinned": true}, "job_test_002": {"pinned": false}}'
-    )
-    update(tmp_path, "cron", "job_test_001", {"pinned": False})
-    payload = json.loads((d / "cron.json").read_text())
-    assert payload["job_test_002"] == {"pinned": False}
+def test_load_unknown_domain_returns_empty(hermes_home: Path):
+    assert load(hermes_home, "unknown") == {}
+
+
+def test_update_unknown_domain_raises(hermes_home: Path):
+    with pytest.raises(ValueError, match="Unknown overlay domain"):
+        update(hermes_home, "unknown", "x", {"a": 1})

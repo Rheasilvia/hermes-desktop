@@ -23,7 +23,6 @@ def hermes_home(tmp_path: Path) -> Path:
 def cfg(hermes_home: Path) -> Config:
     return Config(
         hermes_home=hermes_home,
-        token_file=hermes_home / "desktop" / "sidecar.token",
         bind_host="127.0.0.1",
         token="test-token",
     )

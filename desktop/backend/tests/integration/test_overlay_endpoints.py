@@ -1,7 +1,9 @@
-import json
+"""Integration tests for /overlays endpoints — SQLite-backed (v3)."""
+
+from desktop_backend.overlays.loader import load
 
 
-def test_patch_overlay_creates_file(client, auth, hermes_home):
+def test_patch_overlay_via_http(client, auth, hermes_home):
     r = client.patch(
         "/desktop/api/overlays/cron/job_test_001",
         json={"pinned": True},
@@ -9,10 +11,8 @@ def test_patch_overlay_creates_file(client, auth, hermes_home):
     )
     assert r.status_code == 200
     assert r.json()["pinned"] is True
-    payload = json.loads(
-        (hermes_home / "desktop" / "overlays" / "cron.json").read_text()
-    )
-    assert payload["job_test_001"]["pinned"] is True
+    result = load(hermes_home, "cron")
+    assert result["job_test_001"]["pinned"] == 1  # SQLite stores bool as int
 
 
 def test_patch_overlay_for_unknown_l1_still_succeeds(client, auth):

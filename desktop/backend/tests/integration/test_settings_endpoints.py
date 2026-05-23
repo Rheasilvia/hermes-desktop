@@ -31,13 +31,13 @@ def test_put_settings_schema_mismatch(client, auth):
 def test_get_state_defaults(client, auth):
     r = client.get("/desktop/api/state", headers=auth)
     assert r.status_code == 200
-    assert r.json()["schema_version"] == 1
+    assert r.json()["schema_version"] == 4
 
 
 def test_put_state_round_trip(client, auth):
     r = client.put(
         "/desktop/api/state",
-        json={"schema_version": 1, "last_open_route": "/cron"},
+        json={"schema_version": 4, "last_open_route": "/cron"},
         headers=auth,
     )
     assert r.status_code == 200
