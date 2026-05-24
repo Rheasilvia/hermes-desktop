@@ -62,7 +62,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const [unreadCount, setUnreadCount] = createSignal(0);
   const [lastMessageCount, setLastMessageCount] = createSignal(0);
 
-  const workspacePath = () => sessionStore.activeSession?.workspace_path ?? null;
+  const workspacePath = createMemo(() => sessionStore.activeSession?.workspace_path ?? null);
 
   const messages = (): RenderedMessage[] => chatStore.getMessages(sessionId());
   const liveState = () => chatStore.getLiveState(sessionId());
@@ -70,6 +70,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const error = (): string | null => chatStore.getError(sessionId());
 
   const isEmpty = createMemo(() => messages().length === 0);
+  const canEditWorkspace = createMemo(() => !messages().some((m) => m.role === 'assistant'));
   const isLoading = () => chatStore.isLoadingMessages(sessionId());
 
   const liveBlocks = createMemo((): MessageBlock[] => {
@@ -521,7 +522,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
               isStreaming={isStreaming()}
               modelSlot={(dimmed, disabled) => <ModelSelector sessionId={sessionId()} dimmed={dimmed} disabled={disabled} />}
               workspacePath={workspacePath()}
-              isNewConversation={isEmpty()}
+              isNewConversation={canEditWorkspace()}
               onWorkspaceChange={(path) => {
                 const sid = sessionId();
                 if (sid) sessionStore.updateWorkspace(sid, path);

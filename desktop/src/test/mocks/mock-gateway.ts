@@ -40,6 +40,7 @@ export function createTestGateway(): GatewayAdapter {
       delete: async () => {},
       rename: async () => {},
       branch: async () => ({ id: 'test-branch', source: 'mock', model: '', title: 'Branch', started_at: '', ended_at: null, message_count: 0, tool_call_count: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, billing_provider: 'mock', billing_base_url: null, billing_mode: 'auto', estimated_cost_usd: 0, actual_cost_usd: null, cost_status: null, cost_source: null, pricing_version: null, user_id: null, model_config: null, system_prompt: null, parent_session_id: null, end_reason: null, workspace_path: null }),
+      updateWorkspace: async () => {},
       resume: async () => {},
       interrupt: async () => {},
       messages: async () => [],

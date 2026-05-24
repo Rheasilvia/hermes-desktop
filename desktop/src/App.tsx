@@ -5,7 +5,7 @@ import { AppLayout } from '@/shell/AppLayout';
 import { ModuleErrorBoundary } from '@/shell/ModuleErrorBoundary';
 import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner';
 import { initializeStores } from '@/stores/context.js';
-import { createMockGateway, createHttpGateway } from '@/services/gateway/index.js';
+import { createHttpGateway } from '@/services/gateway/index.js';
 import { initBootstrap } from '@/shell/bootstrap.js';
 import { modelsStore } from '@/stores/models.js';
 
@@ -30,10 +30,7 @@ const ModuleSuspense: Component<{ moduleName: string; children: any }> = (props)
 
 const App: Component = () => {
   const init = async () => {
-    const mode = import.meta.env.VITE_GATEWAY_MODE ?? 'http';
-    const gateway = mode === 'mock'
-      ? createMockGateway()
-      : createHttpGateway();
+    const gateway = createHttpGateway();
     initializeStores(gateway);
     await gateway.connect();
     await initBootstrap();

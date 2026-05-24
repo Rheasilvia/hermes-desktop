@@ -34,6 +34,28 @@ class DesktopMetaService:
         finally:
             conn.close()
 
+    def get_workspace_paths(self, session_ids: list[str]) -> dict[str, str | None]:
+        """Batch lookup workspace_path for multiple sessions.
+
+        Returns a dict mapping session_id to workspace_path (None for missing sessions).
+        """
+        if not session_ids:
+            return {}
+        conn = self._connect()
+        try:
+            placeholders = ",".join("?" for _ in session_ids)
+            rows = conn.execute(
+                f"SELECT session_id, workspace_path FROM session_desktop_meta WHERE session_id IN ({placeholders})",
+                tuple(session_ids),
+            ).fetchall()
+            result = {sid: None for sid in session_ids}
+            for row in rows:
+                result[row["session_id"]] = row["workspace_path"]
+            return result
+        finally:
+            conn.close()
+
+
     def upsert_meta(
         self,
         session_id: str,
