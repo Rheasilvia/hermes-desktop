@@ -34,7 +34,6 @@ import type {
   SkillInfo,
   ModelOption,
 } from './types.js';
-import { MockGatewayAdapter } from './mock-adapter.js';
 import { httpClient, type HttpClient } from '@/services/api/http-client.js';
 
 const API_PREFIX = '/desktop/api';
@@ -71,7 +70,6 @@ export class HttpGatewayAdapter implements GatewayAdapter {
 
   private state: ConnectionState = 'disconnected';
   private handlers: Map<string, Set<EventHandler<keyof GatewayEventMap>>> = new Map();
-  private mock: MockGatewayAdapter;
   private http: HttpClient;
   private eventSource: EventSource | null = null;
   private lastSeq: Map<string, number> = new Map();
@@ -80,8 +78,6 @@ export class HttpGatewayAdapter implements GatewayAdapter {
 
   constructor(http?: HttpClient) {
     this.http = http ?? httpClient;
-    // Inner mock in degraded mode — never call connect(), no synthetic events.
-    this.mock = new MockGatewayAdapter();
 
     // ── session methods (REAL) ──────────────────────────────────────────
     this.session = {
@@ -145,7 +141,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           system_prompt: params.system_prompt ?? null,
           parent_session_id: null,
           end_reason: null,
-          workspace_path: params.workspace_path ?? null,
+          workspace_path: (r.workspace_path as string) ?? params.workspace_path ?? null,
         };
       },
 
@@ -157,6 +153,10 @@ export class HttpGatewayAdapter implements GatewayAdapter {
 
       rename: async (sessionId: string, title: string): Promise<void> => {
         await this.http.patch(`${API_PREFIX}/sessions/${sessionId}`, { title });
+      },
+
+      updateWorkspace: async (sessionId: string, workspacePath: string): Promise<void> => {
+        await this.http.patch(`${API_PREFIX}/sessions/${sessionId}`, { workspace_path: workspacePath });
       },
 
       branch: async (sessionId: string): Promise<SessionMeta> => {
@@ -330,19 +330,20 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       },
     };
 
-    // ── everything else → mock (degraded mode) ──────────────────────────
-    this.config = this.mock.config;
-    this.tools = this.mock.tools;
-    this.model = this.mock.model;
-    this.sudo = this.mock.sudo;
-    this.secret = this.mock.secret;
-    this.cron = this.mock.cron;
-    this.mcp = this.mock.mcp;
-    this.memory = this.mock.memory;
-    this.skills = this.mock.skills;
-    this.complete = this.mock.complete;
-    this.slash = this.mock.slash;
-    this.command = this.mock.command;
+    // ── everything else → not implemented ───────────────────────────────
+    const notImplemented = (name: string) => () => { throw new Error(`${name} not implemented`); };
+    this.config = { get: notImplemented('config.get'), getMtime: notImplemented('config.getMtime'), set: notImplemented('config.set') };
+    this.tools = { list: notImplemented('tools.list'), reload: notImplemented('tools.reload') };
+    this.model = { options: notImplemented('model.options') };
+    this.sudo = { respond: notImplemented('sudo.respond') };
+    this.secret = { respond: notImplemented('secret.respond') };
+    this.cron = { list: notImplemented('cron.list'), create: notImplemented('cron.create'), update: notImplemented('cron.update'), delete: notImplemented('cron.delete') };
+    this.mcp = { list: notImplemented('mcp.list'), add: notImplemented('mcp.add'), remove: notImplemented('mcp.remove'), tools: notImplemented('mcp.tools') };
+    this.memory = { files: notImplemented('memory.files'), contextFiles: notImplemented('memory.contextFiles'), search: notImplemented('memory.search') };
+    this.skills = { list: notImplemented('skills.list') };
+    this.complete = { slash: notImplemented('complete.slash'), path: notImplemented('complete.path') };
+    this.slash = { exec: notImplemented('slash.exec') };
+    this.command = { dispatch: notImplemented('command.dispatch') };
   }
 
   // ── Event emitter ─────────────────────────────────────────────────────

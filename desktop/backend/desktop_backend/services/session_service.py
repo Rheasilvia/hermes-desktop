@@ -15,6 +15,8 @@ from .interfaces import DesktopMetaStore, SessionStateStore
 
 log = logging.getLogger(__name__)
 
+_DEFAULT_WORKSPACE = str(Path.home() / "HermesWorkspace")
+
 
 class SessionService:
     """Facade for session lifecycle operations across state.db and desktop.db."""
@@ -99,6 +101,7 @@ class SessionService:
         row = self._state.get_session(session_id)
         if row is None:
             return None
+        meta_paths = self._meta.get_workspace_paths([session_id])
         return {
             "id": row.get("id", session_id),
             "source": row.get("source", "desktop"),
@@ -107,7 +110,7 @@ class SessionService:
             "started_at": row.get("started_at"),
             "ended_at": row.get("ended_at"),
             "message_count": row.get("message_count", 0),
-            "workspace_path": row.get("workspace_path"),
+            "workspace_path": meta_paths.get(session_id) or _DEFAULT_WORKSPACE,
         }
 
     def get_session_or_404(self, session_id: str) -> dict:
@@ -123,6 +126,8 @@ class SessionService:
             order_by_last_active=True,
             limit=50,
         )
+        session_ids = [r["id"] for r in rows]
+        meta_paths = self._meta.get_workspace_paths(session_ids) if session_ids else {}
         return [
             {
                 "id": r["id"],
@@ -132,7 +137,7 @@ class SessionService:
                 "started_at": r.get("started_at"),
                 "message_count": r.get("message_count", 0),
                 "last_active": r.get("last_active"),
-                "workspace_path": r.get("workspace_path"),
+                "workspace_path": meta_paths.get(r["id"]) or _DEFAULT_WORKSPACE,
             }
             for r in rows
         ]
@@ -140,6 +145,10 @@ class SessionService:
     def rename_session(self, session_id: str, title: str) -> None:
         self.get_session_or_404(session_id)
         self._state.set_session_title(session_id, title)
+
+    def update_workspace(self, session_id: str, workspace_path: str) -> None:
+        self.get_session_or_404(session_id)
+        self._meta.upsert_meta(session_id, workspace_path=workspace_path)
 
     def delete_session(self, session_id: str) -> None:
         self.get_session_or_404(session_id)

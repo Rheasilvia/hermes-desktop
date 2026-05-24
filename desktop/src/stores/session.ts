@@ -37,10 +37,19 @@ export const sessionStore = {
     return undefined;
   },
 
-  updateWorkspace(sessionId: string, workspacePath: string) {
+  async updateWorkspace(sessionId: string, workspacePath: string): Promise<void> {
+    // Optimistic update first so UI reflects the change immediately
     setSessions(prev => prev.map(s =>
       s.id === sessionId ? { ...s, workspace_path: workspacePath } : s
     ));
+    const gateway = getGateway();
+    if (gateway) {
+      try {
+        await gateway.session.updateWorkspace(sessionId, workspacePath);
+      } catch (e) {
+        console.error('[sessionStore] failed to persist workspace:', e);
+      }
+    }
   },
 
   async loadSessions(): Promise<void> {

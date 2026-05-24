@@ -30,8 +30,9 @@ class CreateSessionRequest(BaseModel):
     provider: Optional[str] = None
 
 
-class RenameSessionRequest(BaseModel):
-    title: str
+class UpdateSessionRequest(BaseModel):
+    title: Optional[str] = None
+    workspace_path: Optional[str] = None
 
 
 class SetSessionProviderRequest(BaseModel):

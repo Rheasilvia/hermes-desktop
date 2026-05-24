@@ -16,7 +16,7 @@ from ..schemas.conversation import (
     ClarifyRespondRequest,
     CreateSessionRequest,
     PromptExecuteRequest,
-    RenameSessionRequest,
+    UpdateSessionRequest,
     SetSessionProviderRequest,
 )
 from ..services.dependencies import (
@@ -61,13 +61,16 @@ async def get_session(session_id: str, svc=Depends(get_session_service)):
 
 
 @router.patch("/sessions/{session_id}")
-async def rename_session(
+async def update_session(
     session_id: str,
-    body: RenameSessionRequest,
+    body: UpdateSessionRequest,
     svc=Depends(get_session_service),
 ):
     try:
-        svc.rename_session(session_id, body.title)
+        if body.title is not None:
+            svc.rename_session(session_id, body.title)
+        if body.workspace_path is not None:
+            svc.update_workspace(session_id, body.workspace_path)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
     return {"ok": True}
