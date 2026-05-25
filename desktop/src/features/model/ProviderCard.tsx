@@ -16,7 +16,7 @@ export interface ProviderCardProps {
 
 export const ProviderCard: Component<ProviderCardProps> = (props) => {
   const status = (): 'active' | 'inactive' =>
-    props.provider.enabled !== false ? 'active' : 'inactive';
+    props.provider.api_key_set ? 'active' : 'inactive';
 
   return (
     <button
