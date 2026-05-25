@@ -209,7 +209,7 @@ class ModelService:
                     display_name=entry.get("display_name"),
                     base_url=entry.get("base_url"),
                     api_key=entry.get("api_key"),
-                    api_key_env=entry.get("api_key_env") or row.get("key_env"),
+                    api_key_env=entry.get("api_key_env"),
                     api_key_set=bool(row.get("authenticated")),
                     visible=entry.get("visible", True),
                 ),
@@ -253,7 +253,6 @@ class ModelService:
                     with _hermes_home_env(self._hermes_home):
                         creds = resolve_api_key_provider_credentials(provider.id)
                     resolved_key = str(creds.get("api_key") or "").strip()
-                    resolved_base_url = str(creds.get("base_url") or "").strip()
                     resolved_source = str(creds.get("source") or "").strip()
                     if resolved_key:
                         desktop.api_key_set = True
@@ -265,9 +264,6 @@ class ModelService:
                                 if source.endswith("_API_KEY") or source.endswith("_TOKEN"):
                                     desktop.api_key_env = source
                                     break
-                    if resolved_base_url:
-                        desktop.base_url = resolved_base_url.rstrip("/")
-                        desktop.base_url_source = "resolved"
                 except Exception:
                     pass
 

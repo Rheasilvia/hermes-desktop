@@ -13,6 +13,7 @@ export interface ProviderEntry {
   api_key_preview?: string;
   api_key_source?: string;
   base_url_source?: string;
+  has_overlay?: boolean;
   enabled?: boolean;
   is_builtin?: boolean;
   models?: ModelOption[];

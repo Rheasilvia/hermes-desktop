@@ -303,6 +303,7 @@ function mapProvider(apiProvider: Provider): ProviderEntry {
     display_name: d.display_name ?? apiProvider.name,
     is_builtin: true,
     enabled: d.visible !== false,
+    has_overlay: apiProvider.has_overlay ?? false,
     base_url: d.base_url ?? undefined,
     api_key: d.api_key ?? undefined,
     api_key_env: d.api_key_env ?? undefined,
@@ -396,7 +397,8 @@ export function createModelsStore() {
   const [catalogHasLoaded, setCatalogHasLoaded] = createSignal(initialCatalog.length > 0);
 
   if (initialProviders.length > 0) {
-    modelStore.hydrateProviders(initialProviders.map(mapProvider));
+    const configured = initialProviders.filter(p => p.has_overlay === true);
+    modelStore.hydrateProviders(configured.map(mapProvider));
   }
 
   const providers = () => rawProviders().map(mapProvider);
