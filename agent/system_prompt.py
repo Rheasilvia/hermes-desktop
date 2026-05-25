@@ -410,10 +410,10 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         context_parts.append(system_message)
 
     if not agent.skip_context_files:
-        # Prefer the configured TERMINAL_CWD (gateway mode). When unset (local
-        # CLI), None lets build_context_files_prompt fall back to the launch
-        # dir — the user's real cwd there, but the install dir for the gateway
-        # daemon, which is why the gateway sets TERMINAL_CWD.
+        # Use workspace_cwd (per-session desktop override) first, then
+        # TERMINAL_CWD env var (gateway/CLI).  None lets
+        # build_context_files_prompt fall back to the launch dir — correct
+        # for local CLI but intentionally avoided in gateway mode.
         context_files_prompt = _r.build_context_files_prompt(
             cwd=resolve_context_cwd(), skip_soul=_soul_loaded,
             context_length=_ctx_len)

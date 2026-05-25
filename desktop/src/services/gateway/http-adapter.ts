@@ -813,25 +813,25 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         this.emit('gateway.ready', { skin: undefined });
         resolve();
       };
-
-      // Backend includes `type` in the JSON data payload, so a single onmessage
-      // handler routes all event types through dispatchSseEvent.
-      this.eventSource.onmessage = (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data);
-          if (data.type) {
-            this.dispatchSseEvent(data as SseEvent);
-          }
-        } catch { /* ignore non-JSON frames (keepalives) */ }
-      };
-
-      this.eventSource.onerror = () => {
-        if (this.state === 'connected') {
-          this.state = 'reconnecting';
-        }
-        // EventSource auto-reconnects; onopen will trigger replay
-      };
     });
+
+    // Backend includes `type` in the JSON data payload, so a single onmessage
+    // handler routes all event types through dispatchSseEvent.
+    this.eventSource.onmessage = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type) {
+          this.dispatchSseEvent(data as SseEvent);
+        }
+      } catch { /* ignore non-JSON frames (keepalives) */ }
+    };
+
+    this.eventSource.onerror = () => {
+      if (this.state === 'connected') {
+        this.state = 'reconnecting';
+      }
+      // EventSource auto-reconnects; onopen will trigger replay
+    };
   }
 
   async disconnect(): Promise<void> {
