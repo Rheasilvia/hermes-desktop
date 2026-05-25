@@ -2,8 +2,7 @@
  * HttpGatewayAdapter — real HTTP+SSE adapter for the Hermes desktop backend.
  *
  * Real methods: session.*, prompt.execute, approval.respond, clarify.respond.
- * All other method groups delegate to an inner MockGatewayAdapter in degraded
- * mode (no connect(), no synthetic events — static method registry only).
+ * All other method groups throw notImplemented() until wired to real endpoints.
  *
  * SSE is via one long-lived EventSource.  On reconnect, each known session's
  * messages are replayed from DB via GET /sessions/{sid}/messages?since={lastSeq}.

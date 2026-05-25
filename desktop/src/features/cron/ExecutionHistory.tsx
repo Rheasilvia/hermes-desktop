@@ -12,57 +12,6 @@ export interface HistoryEntry {
   message?: string;
 }
 
-const MOCK_HISTORY: HistoryEntry[] = [
-  {
-    id: 'exec_001',
-    jobName: 'Daily standup report',
-    status: 'ok',
-    duration: '12.4s',
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
-    message: 'Report delivered to origin',
-  },
-  {
-    id: 'exec_002',
-    jobName: 'Weekly code review',
-    status: 'error',
-    duration: '8.1s',
-    timestamp: new Date(Date.now() - 7200000).toISOString(),
-    message: 'API rate limit exceeded',
-  },
-  {
-    id: 'exec_003',
-    jobName: 'Daily standup report',
-    status: 'ok',
-    duration: '10.2s',
-    timestamp: new Date(Date.now() - 86400000).toISOString(),
-    message: 'Report delivered to origin',
-  },
-  {
-    id: 'exec_004',
-    jobName: 'Hourly health check',
-    status: 'ok',
-    duration: '2.3s',
-    timestamp: new Date(Date.now() - 90000000).toISOString(),
-    message: 'All systems healthy',
-  },
-  {
-    id: 'exec_005',
-    jobName: 'Nightly backup',
-    status: 'ok',
-    duration: '45.8s',
-    timestamp: new Date(Date.now() - 172800000).toISOString(),
-    message: 'Backup completed — 2.4 GB compressed',
-  },
-  {
-    id: 'exec_006',
-    jobName: 'Weekly code review',
-    status: 'ok',
-    duration: '15.6s',
-    timestamp: new Date(Date.now() - 259200000).toISOString(),
-    message: 'Summary delivered to local channel',
-  },
-];
-
 function formatTimestamp(iso: string): string {
   const date = new Date(iso);
   const now = new Date();
@@ -82,7 +31,7 @@ interface ExecutionHistoryProps {
 }
 
 export const ExecutionHistory: Component<ExecutionHistoryProps> = (props) => {
-  const entries = () => props.entries ?? MOCK_HISTORY;
+  const entries = () => props.entries ?? [];
 
   return (
     <div class={styles.history}>

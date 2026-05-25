@@ -1,6 +1,6 @@
 /**
  * Gateway adapter types for the Hermes Desktop app.
- * Defines the contract between the UI and the Hermes gateway (real or mock).
+ * Defines the contract between the UI and the Hermes gateway.
  */
 
 import type {
@@ -279,8 +279,5 @@ export type { SessionListItem, SessionMessage, SessionMeta, SessionInfoPayload, 
 
 /** Factory options for creating a gateway adapter. */
 export interface GatewayAdapterOptions {
-  /** Simulated network delay for mock adapters (ms). */
-  delayMin?: number;
-  /** Maximum network delay for mock adapters (ms). */
-  delayMax?: number;
+  // Reserved for future options (e.g. timeout, retry policy)
 }

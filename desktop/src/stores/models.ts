@@ -141,8 +141,7 @@ export const modelStore = {
     display_name?: string;
   }): Promise<void> {
     const adapter = getModelAdapter();
-    // Always save to overlay API so standalone mode works even when
-    // a mock gateway is present (browser dev).
+    // Always save to overlay API so standalone mode works.
     try {
       const id = modelsStore.resolveId(input.name);
       const patch: Record<string, string | boolean | null> = {

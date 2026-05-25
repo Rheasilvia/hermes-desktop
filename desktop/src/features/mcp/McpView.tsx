@@ -12,60 +12,6 @@ import { ServerDetail } from './ServerDetail.js';
 import type { HistoryEntry } from './ServerDetail.js';
 import styles from './McpView.module.css';
 
-const MOCK_STATUSES: McpConnectionStatus[] = [
-  { name: 'filesystem', connected: true, transport: 'stdio', tools: 12 },
-  { name: 'github', connected: true, transport: 'http', tools: 24 },
-  { name: 'brave-search', connected: false, transport: 'streamable_http', tools: 8, error: 'Connection timeout' },
-  { name: 'postgresql', connected: true, transport: 'http', tools: 18 },
-];
-
-const MOCK_TOOLS_MAP: Record<string, McpTool[]> = {
-  filesystem: [
-    { name: 'read_directory', description: 'List directory contents' },
-    { name: 'read_file', description: 'Read file contents' },
-    { name: 'write_file', description: 'Write content to a file' },
-    { name: 'search_files', description: 'Search files by name pattern' },
-    { name: 'move_file', description: 'Move or rename a file' },
-  ],
-  github: [
-    { name: 'create_issue', description: 'Create a new issue in a repository' },
-    { name: 'get_pull_request', description: 'Fetch details of a specific pull request' },
-    { name: 'list_issues', description: 'List and filter repository issues' },
-    { name: 'create_branch', description: 'Create a new branch' },
-    { name: 'push_files', description: 'Push multiple files in a commit' },
-  ],
-  'brave-search': [
-    { name: 'brave_web_search', description: 'Search the web using Brave' },
-    { name: 'brave_local_search', description: 'Search for local businesses' },
-  ],
-  postgresql: [
-    { name: 'query', description: 'Execute a SQL query' },
-    { name: 'list_tables', description: 'List all tables in the database' },
-    { name: 'describe_table', description: 'Get schema for a table' },
-  ],
-};
-
-const MOCK_HISTORY: Record<string, HistoryEntry[]> = {
-  filesystem: [
-    { ok: true, event: 'Connected — 12 tools discovered — 10:42 AM', timestamp: '10:42 AM' },
-    { ok: true, event: 'Configured — Server added — 10:25 AM', timestamp: '10:25 AM' },
-  ],
-  github: [
-    { ok: true, event: 'Connected — 24 tools discovered — 10:42 AM', timestamp: '10:42 AM' },
-    { ok: false, event: 'Failed — Connection timeout — 10:38 AM', timestamp: '10:38 AM' },
-    { ok: true, event: 'Connected — 24 tools discovered — 10:30 AM', timestamp: '10:30 AM' },
-    { ok: true, event: 'Configured — Server added — 10:25 AM', timestamp: '10:25 AM' },
-  ],
-  'brave-search': [
-    { ok: false, event: 'Failed — Connection refused — 11:15 AM', timestamp: '11:15 AM' },
-    { ok: true, event: 'Connected — 8 tools discovered — 10:50 AM', timestamp: '10:50 AM' },
-  ],
-  postgresql: [
-    { ok: true, event: 'Connected — 18 tools discovered — 09:30 AM', timestamp: '09:30 AM' },
-    { ok: true, event: 'Configured — Server added — 09:20 AM', timestamp: '09:20 AM' },
-  ],
-};
-
 export const McpView: Component = () => {
   const [servers, setServers] = createSignal<McpServer[]>([]);
   const [statuses, setStatuses] = createSignal<Map<string, McpConnectionStatus>>(new Map());
@@ -79,34 +25,34 @@ export const McpView: Component = () => {
     if (gateway) {
       try {
         const list = await gateway.mcp.list();
-        const mockList = list.length > 0 ? list : [
-          { name: 'filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'], transport: 'stdio' as const },
-          { name: 'github', url: 'https://api.github.com/mcp', headers: { Authorization: 'Bearer ghp_***' }, transport: 'http' as const },
-          { name: 'brave-search', url: 'http://localhost:3000/sse', transport: 'streamable_http' as const },
-          { name: 'postgresql', url: 'postgresql://localhost:5432/mydb', transport: 'http' as const },
-        ];
-        setServers(mockList);
-        setStatuses(new Map(MOCK_STATUSES.map((s) => [s.name, s])));
-        setServerTools(new Map(Object.entries(MOCK_TOOLS_MAP)));
+        setServers(list);
+        const statusesMap = new Map<string, McpConnectionStatus>();
+        const toolsMap = new Map<string, McpTool[]>();
+        for (const server of list) {
+          try {
+            const tools = await gateway.mcp.tools(server.name);
+            statusesMap.set(server.name, {
+              name: server.name,
+              connected: tools.length > 0,
+              transport: server.transport ?? 'stdio',
+              tools: tools.length,
+            });
+            toolsMap.set(server.name, tools);
+          } catch {
+            statusesMap.set(server.name, {
+              name: server.name,
+              connected: false,
+              transport: server.transport ?? 'stdio',
+              tools: 0,
+              error: 'Failed to connect',
+            });
+          }
+        }
+        setStatuses(statusesMap);
+        setServerTools(toolsMap);
       } catch {
-        setServers([
-          { name: 'filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'], transport: 'stdio' },
-          { name: 'github', url: 'https://api.github.com/mcp', headers: { Authorization: 'Bearer ghp_***' }, transport: 'http' },
-          { name: 'brave-search', url: 'http://localhost:3000/sse', transport: 'streamable_http' },
-          { name: 'postgresql', url: 'postgresql://localhost:5432/mydb', transport: 'http' },
-        ]);
-        setStatuses(new Map(MOCK_STATUSES.map((s) => [s.name, s])));
-        setServerTools(new Map(Object.entries(MOCK_TOOLS_MAP)));
+        // Keep empty state on error
       }
-    } else {
-      setServers([
-        { name: 'filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'], transport: 'stdio' },
-        { name: 'github', url: 'https://api.github.com/mcp', headers: { Authorization: 'Bearer ghp_***' }, transport: 'http' },
-        { name: 'brave-search', url: 'http://localhost:3000/sse', transport: 'streamable_http' },
-        { name: 'postgresql', url: 'postgresql://localhost:5432/mydb', transport: 'http' },
-      ]);
-      setStatuses(new Map(MOCK_STATUSES.map((s) => [s.name, s])));
-      setServerTools(new Map(Object.entries(MOCK_TOOLS_MAP)));
     }
     setLoading(false);
   });
@@ -130,9 +76,7 @@ export const McpView: Component = () => {
   });
 
   const selectedHistory = createMemo((): HistoryEntry[] => {
-    const name = selectedName();
-    if (!name) return [];
-    return MOCK_HISTORY[name] ?? [];
+    return [];
   });
 
   const handleAddServer = async (data: AddServerFormData) => {

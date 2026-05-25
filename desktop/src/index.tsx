@@ -3,8 +3,7 @@ import { render } from "solid-js/web";
 import { bootstrapApi } from "./services/api";
 import App from "./App";
 
-const apiMode = import.meta.env.VITE_API_MODE === "mock" ? "mock" : "http";
-bootstrapApi(apiMode);
+bootstrapApi();
 
 const root = document.getElementById("root");
 
