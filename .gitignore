@@ -138,3 +138,10 @@ RELEASE_v*.md
 # walkthroughs). Throwaway artifacts, never part of the app.
 apps/desktop/demo/
 .playwright-mcp/
+# Added by code-review-graph
+.code-review-graph/
+
+# Local AI agent runtime databases
+agentdb.rvf
+agentdb.rvf.lock
+ruvector.db
