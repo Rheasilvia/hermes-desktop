@@ -33,6 +33,43 @@ router = APIRouter()
 KEEPALIVE_INTERVAL = 15  # seconds
 
 
+async def _replay_pending_approvals() -> AsyncGenerator[str, None]:
+    """Yield SSE events for any pending path approvals in ui_messages.
+
+    Called on SSE reconnect so the frontend can restore ApprovalCard state.
+    """
+    try:
+        from ..db.connection import connect as desktop_connect
+        from pathlib import Path
+        import os
+
+        hermes_home = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+        conn = desktop_connect(hermes_home)
+        rows = conn.execute(
+            "SELECT session_id, payload_json FROM ui_messages "
+            "WHERE type = 'pending_approval' AND json_extract(payload_json, '$.status') = 'pending'"
+        ).fetchall()
+        conn.close()
+
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            data = json.dumps({
+                "session_id": row["session_id"],
+                "seq": 0,
+                "type": "approval.request",
+                "payload": {
+                    "path": payload.get("path", ""),
+                    "operation": payload.get("operation", ""),
+                    "command": payload.get("command", ""),
+                    "description": payload.get("description", ""),
+                    "is_path_approval": True,
+                },
+            }, ensure_ascii=False)
+            yield f"data: {data}\n\n"
+    except Exception:
+        log.debug("Failed to replay pending approvals", exc_info=True)
+
+
 async def _event_generator(
     request: Request,
     token: str | None = None,
@@ -41,6 +78,10 @@ async def _event_generator(
     bus = request.app.state.event_bus
     queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
     bus.subscribe(queue)
+
+    # Replay any pending path approvals so frontend can restore ApprovalCard
+    async for event_str in _replay_pending_approvals():
+        yield event_str
 
     try:
         while True:
@@ -53,11 +94,12 @@ async def _event_generator(
                     {
                         "session_id": event["session_id"],
                         "seq": event["seq"],
+                        "type": event["type"],
                         "payload": event["payload"],
                     },
                     ensure_ascii=False,
                 )
-                yield f"event: {event['type']}\ndata: {data}\n\n"
+                yield f"data: {data}\n\n"
             except asyncio.TimeoutError:
                 # Send keepalive comment
                 yield ": keepalive\n\n"

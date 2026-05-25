@@ -501,8 +501,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                   <ApprovalCard
                     command={liveState().pendingApproval!.command}
                     description={liveState().pendingApproval!.description}
-                    onAllow={() => void chatStore.respondApproval(sessionId(), true)}
-                    onDeny={() => void chatStore.respondApproval(sessionId(), false)}
+                    onAllow={() => void chatStore.respondApproval(sessionId(), 'once')}
+                    onDeny={() => void chatStore.respondApproval(sessionId(), 'deny')}
+                    onAllowSession={liveState().pendingApproval!.is_path_approval
+                      ? () => void chatStore.respondApproval(sessionId(), 'session')
+                      : undefined}
                   />
                 </Show>
                 <Show when={liveState().pendingClarify}>

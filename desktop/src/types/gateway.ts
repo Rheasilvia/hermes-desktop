@@ -263,6 +263,9 @@ export interface ToolErrorPayload {
 export interface ApprovalRequestPayload {
   command: string;
   description: string;
+  path?: string;
+  operation?: 'read' | 'write';
+  is_path_approval?: boolean;
 }
 
 /** Clarify request event payload. */

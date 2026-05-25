@@ -332,9 +332,46 @@ export class HttpGatewayAdapter implements GatewayAdapter {
 
     // ── everything else → not implemented ───────────────────────────────
     const notImplemented = (name: string) => () => { throw new Error(`${name} not implemented`); };
-    this.config = { get: notImplemented('config.get'), getMtime: notImplemented('config.getMtime'), set: notImplemented('config.set') };
+    this.config = {
+      get: notImplemented('config.get'),
+      getMtime: async () => 0,
+      set: async (input: import('./types.js').ConfigSetInput) => {
+        if (input.key === 'model' && typeof input.value === 'string') {
+          const [provider, model] = input.value.split('/');
+          if (provider && model) {
+            await this.http.put(`${API_PREFIX}/model/active`, { provider, model });
+            return;
+          }
+        }
+        throw new Error(`config.set: unsupported key '${input.key}'`);
+      },
+    };
     this.tools = { list: notImplemented('tools.list'), reload: notImplemented('tools.reload') };
-    this.model = { options: notImplemented('model.options') };
+    this.model = {
+      options: async (_sessionId?: string): Promise<import('./types.js').ModelOptionsResult> => {
+        const [providersRes, activeRes] = await Promise.all([
+          this.http.get(`${API_PREFIX}/model/providers`) as Promise<Record<string, unknown>>,
+          this.http.get(`${API_PREFIX}/model/active`) as Promise<Record<string, unknown>>,
+        ]);
+        const items = (providersRes.items ?? []) as Record<string, unknown>[];
+        const providers: import('@/types/index.js').ProviderEntry[] = items.map((p) => {
+          const desktop = (p.desktop ?? {}) as Record<string, unknown>;
+          const models = (p.models ?? []) as Record<string, unknown>[];
+          return {
+            name: (p.id ?? p.name ?? '') as string,
+            models: models.map((m) => ({ name: (m.id ?? m.name ?? '') as string })),
+            base_url: (desktop.base_url as string) ?? undefined,
+            api_key_preview: (desktop.api_key_preview as string) ?? undefined,
+            api_key_set: (desktop.api_key_set as boolean) ?? false,
+          };
+        });
+        return {
+          providers,
+          model: (activeRes.model ?? '') as string,
+          provider: (activeRes.provider ?? '') as string,
+        };
+      },
+    };
     this.sudo = { respond: notImplemented('sudo.respond') };
     this.secret = { respond: notImplemented('secret.respond') };
     this.cron = { list: notImplemented('cron.list'), create: notImplemented('cron.create'), update: notImplemented('cron.update'), delete: notImplemented('cron.delete') };
@@ -442,6 +479,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         this.emit('approval.request', {
           command: String(payload.command ?? ''),
           description: String(payload.description ?? ''),
+          is_path_approval: Boolean(payload.is_path_approval),
         } as GatewayEventMap['approval.request']);
         break;
       case 'clarify.request':
@@ -502,62 +540,16 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       }
     };
 
-    // SSE spec: named events arrive via addEventListener, not onmessage
-    this.eventSource.addEventListener('message.delta', (e: MessageEvent) => {
+    // Backend includes `type` in the JSON data payload, so a single onmessage
+    // handler routes all event types through dispatchSseEvent.
+    this.eventSource.onmessage = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
-        this.dispatchSseEvent({ ...data, type: 'message.delta' });
-      } catch { /* ignore */ }
-    });
-
-    this.eventSource.addEventListener('message.complete', (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        this.dispatchSseEvent({ ...data, type: 'message.complete' });
-      } catch { /* ignore */ }
-    });
-
-    this.eventSource.addEventListener('tool.start', (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        this.dispatchSseEvent({ ...data, type: 'tool.start' });
-      } catch { /* ignore */ }
-    });
-
-    this.eventSource.addEventListener('tool.complete', (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        this.dispatchSseEvent({ ...data, type: 'tool.complete' });
-      } catch { /* ignore */ }
-    });
-
-    this.eventSource.addEventListener('tool.error', (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        this.dispatchSseEvent({ ...data, type: 'tool.error' });
-      } catch { /* ignore */ }
-    });
-
-    this.eventSource.addEventListener('reasoning.delta', (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        this.dispatchSseEvent({ ...data, type: 'reasoning.delta' });
-      } catch { /* ignore */ }
-    });
-
-    this.eventSource.addEventListener('session.title_update', (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        this.dispatchSseEvent({ ...data, type: 'session.title_update' });
-      } catch { /* ignore */ }
-    });
-
-    this.eventSource.addEventListener('error', (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        this.dispatchSseEvent({ ...data, type: 'error' });
-      } catch { /* ignore */ }
-    });
+        if (data.type) {
+          this.dispatchSseEvent(data as SseEvent);
+        }
+      } catch { /* ignore non-JSON frames (keepalives) */ }
+    };
 
     this.eventSource.onerror = () => {
       if (this.state === 'connected') {

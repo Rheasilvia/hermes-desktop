@@ -155,17 +155,22 @@ class AgentPool:
         from ..overlays import loader as overlays_loader
         from ..db.connection import connect as desktop_connect, ensure_schema
 
-        # Step 1: Read provider from session_desktop_meta (session-level)
+        # Step 1: Read provider and workspace_path from session_desktop_meta
         provider = None
+        workspace_path = None
         try:
             conn = desktop_connect(self._hermes_home)
             ensure_schema(conn)
-            row = conn.execute("SELECT provider FROM session_desktop_meta WHERE session_id = ?", (session_id,)).fetchone()
+            row = conn.execute(
+                "SELECT provider, workspace_path FROM session_desktop_meta WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
             if row:
                 provider = row["provider"]
+                workspace_path = row["workspace_path"]
             conn.close()
         except Exception as e:
-            log.debug(f"Failed to read provider from session_desktop_meta: {e}")
+            log.debug(f"Failed to read session_desktop_meta: {e}")
 
         # Step 2: Read model from session record
         session = self._session_db.get_session(session_id) if self._session_db else None
@@ -185,6 +190,36 @@ class AgentPool:
             if isinstance(prov_cfg, dict):
                 base_url = str(prov_cfg.get("base_url") or "").strip().rstrip("/")
                 api_key = str(prov_cfg.get("api_key") or "").strip()
+
+            # If overlay doesn't have base_url/api_key, resolve from credential pool
+            # so init_agent can correctly auto-detect api_mode (e.g. anthropic_messages
+            # for MiniMax's /anthropic endpoint).
+            if not base_url or not api_key:
+                try:
+                    import os as _os
+                    from contextlib import contextmanager
+                    from hermes_cli.auth import resolve_api_key_provider_credentials
+
+                    @contextmanager
+                    def _set_hermes_home(path):
+                        prev = _os.environ.get("HERMES_HOME")
+                        _os.environ["HERMES_HOME"] = str(path)
+                        try:
+                            yield
+                        finally:
+                            if prev is None:
+                                _os.environ.pop("HERMES_HOME", None)
+                            else:
+                                _os.environ["HERMES_HOME"] = prev
+
+                    with _set_hermes_home(self._hermes_home):
+                        creds = resolve_api_key_provider_credentials(provider)
+                    if not base_url:
+                        base_url = str(creds.get("base_url") or "").strip().rstrip("/")
+                    if not api_key:
+                        api_key = str(creds.get("api_key") or "").strip()
+                except Exception:
+                    pass
 
         log.info(
             "[agent_pool] building agent: provider=%r model=%r base_url=%r",
@@ -216,6 +251,23 @@ class AgentPool:
             tool_gen_callback=self._make_tool_gen_cb(session_id),
             platform="desktop",
         )
+
+        # Store workspace_path on agent for system prompt and tool CWD
+        if workspace_path:
+            agent.workspace_cwd = workspace_path
+
+            # Register path approval callback for workspace boundary enforcement
+            from tools.path_approval import register_path_approval_notify
+            from ..db.ui_messages import append as ui_append
+
+            def _path_approval_cb(payload: dict) -> None:
+                seq = ui_append(self._hermes_home, session_id, "approval.request", payload)
+                self._bus.publish(session_id, seq, "approval.request", payload)
+                # Persist pending state for SSE reconnect recovery
+                persist_payload = {**payload, "status": "pending"}
+                ui_append(self._hermes_home, session_id, "pending_approval", persist_payload)
+
+            register_path_approval_notify(session_id, _path_approval_cb)
 
         # Update session model column to the actually-resolved model
         # (session is created with a default model before agent resolution).

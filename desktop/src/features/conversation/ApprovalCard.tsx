@@ -1,4 +1,5 @@
 import type { Component } from 'solid-js';
+import { Show } from 'solid-js';
 import styles from './ApprovalCard.module.css';
 
 interface ApprovalCardProps {
@@ -6,6 +7,7 @@ interface ApprovalCardProps {
   description: string;
   onAllow: () => void;
   onDeny: () => void;
+  onAllowSession?: () => void;
 }
 
 export const ApprovalCard: Component<ApprovalCardProps> = (props) => {
@@ -22,6 +24,9 @@ export const ApprovalCard: Component<ApprovalCardProps> = (props) => {
       </div>
       <div class={styles.buttons}>
         <button class={styles.denyBtn} onClick={props.onDeny}>Deny</button>
+        <Show when={props.onAllowSession}>
+          <button class={styles.allowBtn} onClick={props.onAllowSession}>Allow for session</button>
+        </Show>
         <button class={styles.allowBtn} onClick={props.onAllow}>Allow</button>
       </div>
     </div>
