@@ -9,13 +9,28 @@ from __future__ import annotations
 import logging
 import uuid
 from pathlib import Path
+from typing import Any
 
 from .exceptions import SessionNotFoundError
 from .interfaces import DesktopMetaStore, SessionStateStore
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_WORKSPACE = str(Path.home() / "HermesWorkspace")
+DEFAULT_WORKSPACE = Path.home() / "HermesAgentWorkspace"
+REUSABLE_EMPTY_TITLES = frozenset(
+    {"", "new session", "untitled", "untitled new conversation"}
+)
+
+
+def ensure_default_workspace() -> Path:
+    """Return the desktop default workspace, creating it on first use."""
+    DEFAULT_WORKSPACE.mkdir(parents=True, exist_ok=True)
+    return DEFAULT_WORKSPACE
+
+
+def _is_reusable_empty_session(row: dict[str, Any]) -> bool:
+    title = str(row.get("title") or "").strip().lower()
+    return int(row.get("message_count") or 0) == 0 and title in REUSABLE_EMPTY_TITLES
 
 
 class SessionService:
@@ -72,8 +87,14 @@ class SessionService:
         model: str | None = None,
         provider: str | None = None,
     ) -> dict:
+        if not any((workspace_path, system_prompt, model, provider)):
+            reusable = self.find_reusable_empty_session()
+            if reusable:
+                return reusable
+
         sid = f"desktop_{uuid.uuid4().hex[:16]}"
         resolved_model, resolved_provider = self.resolve_default_model(model)
+        resolved_workspace = workspace_path or str(ensure_default_workspace())
 
         kwargs = {}
         if resolved_model:
@@ -82,7 +103,7 @@ class SessionService:
             kwargs["system_prompt"] = system_prompt
 
         self._state.create_session(sid, "desktop", **kwargs)
-        self._meta.upsert_meta(sid, workspace_path=workspace_path, provider=provider or resolved_provider or "")
+        self._meta.upsert_meta(sid, workspace_path=resolved_workspace, provider=provider or resolved_provider or "")
 
         info = self._state.get_session(sid) or {}
         return {
@@ -93,9 +114,35 @@ class SessionService:
             "provider": resolved_provider or "",
             "title": info.get("title", "New Session"),
             "started_at": info.get("started_at"),
-            "workspace_path": workspace_path,
+            "workspace_path": resolved_workspace,
             "model_configured": bool(resolved_model),
         }
+
+    def find_reusable_empty_session(self) -> dict | None:
+        rows = self.list_sessions()
+        for row in rows:
+            if _is_reusable_empty_session(row) and not self._has_ui_messages(row["id"]):
+                return {
+                    "session_id": row["id"],
+                    "id": row["id"],
+                    "source": row.get("source", "desktop"),
+                    "model": row.get("model", ""),
+                    "provider": row.get("provider", ""),
+                    "title": row.get("title", "New Session"),
+                    "started_at": row.get("started_at"),
+                    "workspace_path": row.get("workspace_path"),
+                    "model_configured": bool(row.get("model")),
+                    "reused": True,
+                }
+        return None
+
+    def _has_ui_messages(self, session_id: str) -> bool:
+        try:
+            from ..db.ui_messages import latest_seq
+            return latest_seq(self._hermes_home, session_id) > 0
+        except Exception:
+            log.exception("failed to inspect desktop ui_messages for reusable session")
+            return True
 
     def get_session(self, session_id: str) -> dict | None:
         row = self._state.get_session(session_id)
@@ -110,7 +157,7 @@ class SessionService:
             "started_at": row.get("started_at"),
             "ended_at": row.get("ended_at"),
             "message_count": row.get("message_count", 0),
-            "workspace_path": meta_paths.get(session_id) or _DEFAULT_WORKSPACE,
+            "workspace_path": meta_paths.get(session_id) or str(ensure_default_workspace()),
         }
 
     def get_session_or_404(self, session_id: str) -> dict:
@@ -137,7 +184,7 @@ class SessionService:
                 "started_at": r.get("started_at"),
                 "message_count": r.get("message_count", 0),
                 "last_active": r.get("last_active"),
-                "workspace_path": meta_paths.get(r["id"]) or _DEFAULT_WORKSPACE,
+                "workspace_path": meta_paths.get(r["id"]) or str(ensure_default_workspace()),
             }
             for r in rows
         ]

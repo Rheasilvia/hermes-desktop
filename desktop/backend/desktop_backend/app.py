@@ -31,6 +31,10 @@ _SERVICE_ERROR_STATUS = {
 
 
 def build_app(cfg: Config) -> FastAPI:
+    from .services.session_service import ensure_default_workspace
+
+    ensure_default_workspace()
+
     app = FastAPI(title="Hermes Desktop Sidecar", openapi_url=None)
 
     # Initialize event bus on app state — used by SSE stream and
