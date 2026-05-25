@@ -1262,7 +1262,8 @@ def _get_env_config() -> Dict[str, Any]:
     # If Docker cwd passthrough is explicitly enabled, remap the host path to
     # /workspace and track the original host path separately. Otherwise keep the
     # normal sandbox behavior and discard host paths.
-    cwd = os.getenv("TERMINAL_CWD", default_cwd)
+    from tools.terminal_cwd import get_terminal_cwd
+    cwd = get_terminal_cwd(fallback=default_cwd)
     if cwd:
         cwd = os.path.expanduser(cwd)
     host_cwd = None
@@ -1965,6 +1966,46 @@ def _resolve_command_cwd(
     return default_cwd
 
 
+_ABS_PATH_RE = re.compile(r'(?:^|(?<=\s))(?:/[^\s;|&<>(){}]+|~/[^\s;|&<>(){}]+)')
+
+
+def _check_terminal_workspace_boundary(command: str, workdir: str | None = None) -> str | None:
+    """Check workspace boundary for terminal commands. Desktop-only (no-op outside desktop)."""
+    try:
+        from tools.file_tools import _check_workspace_boundary
+    except ImportError:
+        return None
+
+    from tools.path_approval import get_workspace_root
+    if not get_workspace_root():
+        return None
+
+    paths_to_check: list[Path] = []
+
+    if workdir:
+        p = Path(workdir).expanduser()
+        if not p.is_absolute():
+            from tools.terminal_cwd import get_terminal_cwd
+            p = Path(get_terminal_cwd(fallback=os.getcwd())) / p
+        paths_to_check.append(p.resolve())
+
+    for match in _ABS_PATH_RE.finditer(command):
+        raw = match.group(0).strip()
+        p = Path(raw).expanduser()
+        if p.is_absolute():
+            try:
+                paths_to_check.append(p.resolve())
+            except Exception:
+                pass
+
+    for resolved in paths_to_check:
+        ws_error = _check_workspace_boundary(resolved, "terminal")
+        if ws_error:
+            return ws_error
+
+    return None
+
+
 def terminal_tool(
     command: str,
     background: bool = False,
@@ -2020,6 +2061,11 @@ def terminal_tool(
                 "error": f"Invalid command: expected string, got {type(command).__name__}",
                 "status": "error",
             }, ensure_ascii=False)
+
+        # Workspace boundary check (desktop only — no-op when ContextVar is unset)
+        ws_result = _check_terminal_workspace_boundary(command, workdir)
+        if ws_result is not None:
+            return ws_result
 
         # Get configuration
         config = _get_env_config()

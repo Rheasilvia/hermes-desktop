@@ -186,6 +186,29 @@ async def approval_respond(
 ):
     if not pool.is_running(body.session_id):
         raise HTTPException(status_code=409, detail="NO_RUNNING_SESSION")
+
+    # Resolve path approval if pending (desktop workspace restriction)
+    from tools.path_approval import resolve_path_approval
+    resolve_path_approval(body.session_id, body.choice)
+
+    # Persist resolution to ui_messages for SSE reconnect cleanup
+    try:
+        from ..db.connection import connect as desktop_connect, ensure_schema
+        hermes_home = pool._hermes_home
+        conn = desktop_connect(hermes_home)
+        ensure_schema(conn)
+        conn.execute(
+            "UPDATE ui_messages SET payload_json = json_set(payload_json, '$.status', 'resolved') "
+            "WHERE session_id = ? AND type = 'pending_approval' "
+            "AND json_extract(payload_json, '$.status') = 'pending'",
+            (body.session_id,),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+    # Also resolve legacy agent-level approval
     agent = pool.get_agent_for_session(body.session_id)
     if hasattr(agent, "_pending_approval"):
         agent._pending_approval = body.choice

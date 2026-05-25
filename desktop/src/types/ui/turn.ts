@@ -7,6 +7,7 @@ export type TurnStatus = 'idle' | 'streaming' | 'tool_running' | 'error' | 'inte
 export interface PendingApproval {
   command: string;
   description: string;
+  is_path_approval?: boolean;
 }
 
 export interface PendingClarify {

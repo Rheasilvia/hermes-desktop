@@ -63,13 +63,20 @@ class AgentExecutionService:
         return thread
 
     def _run_turn(self, session_id: str, user_message: str) -> None:
+        from tools.terminal_cwd import set_terminal_cwd, reset_terminal_cwd
+        from tools.path_approval import set_workspace_context, reset_workspace_context
+
+        entry = self._pool.get_pooled_entry(session_id)
+        workspace_cwd = getattr(entry.agent if entry else None, "workspace_cwd", None)
+        cwd_token = set_terminal_cwd(workspace_cwd)
+        ws_tokens = set_workspace_context(workspace_cwd, session_id)
+
         try:
             llm_messages = self._state.get_messages_as_conversation(session_id)
 
             from .context_normalizer import normalize_messages
             normalized = normalize_messages(llm_messages)
 
-            entry = self._pool.get_pooled_entry(session_id)
             agent = entry.agent
 
             self._touch_session(session_id)
@@ -106,6 +113,8 @@ class AgentExecutionService:
             self._bus.publish(session_id, seq, "error", {"message": error_msg})
 
         finally:
+            reset_terminal_cwd(cwd_token)
+            reset_workspace_context(ws_tokens)
             self._pool.mark_idle(session_id)
 
     def _touch_session(self, session_id: str) -> None:

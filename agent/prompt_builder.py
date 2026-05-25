@@ -1020,7 +1020,8 @@ def build_environment_hints() -> str:
 
         host_lines.append(f"User home directory: {os.path.expanduser('~')}")
         try:
-            host_lines.append(f"Current working directory: {resolve_agent_cwd()}")
+            from tools.terminal_cwd import get_terminal_cwd
+            host_lines.append(f"Current working directory: {get_terminal_cwd()}")
         except OSError:
             pass
 

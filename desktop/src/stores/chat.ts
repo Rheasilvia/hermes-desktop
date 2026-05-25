@@ -469,7 +469,11 @@ export const chatStore = {
       ...state,
       liveState: {
         ...state.liveState,
-        pendingApproval: { command: payload.command, description: payload.description },
+        pendingApproval: {
+          command: payload.command,
+          description: payload.description,
+          is_path_approval: payload.is_path_approval,
+        },
       },
     }));
   },
@@ -488,7 +492,7 @@ export const chatStore = {
     }));
   },
 
-  async respondApproval(sessionId: string, approved: boolean): Promise<void> {
+  async respondApproval(sessionId: string, choice: boolean | string): Promise<void> {
     const pending = chatStates().get(sessionId)?.liveState.pendingApproval;
     updateChatState(sessionId, (state) => ({
       ...state,
@@ -496,7 +500,8 @@ export const chatStore = {
     }));
     const gw = getGateway();
     if (gw && pending) {
-      await gw.approval.respond({ session_id: sessionId, command: pending.command, choice: approved ? 'once' : 'deny' }).catch(() => {});
+      const resolvedChoice = (typeof choice === 'string' ? choice : (choice ? 'once' : 'deny')) as 'once' | 'session' | 'always' | 'deny';
+      await gw.approval.respond({ session_id: sessionId, command: pending.command, choice: resolvedChoice }).catch(() => {});
     }
   },
 

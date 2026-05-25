@@ -51,10 +51,6 @@ def merge_providers(
 
 def filter_configured(providers: list[MergedProvider]) -> list[MergedProvider]:
     def _has_creds(p: MergedProvider) -> bool:
-        # Only include providers the user explicitly added via Add Provider.
-        # TUI-configured providers without a desktop overlay entry are excluded.
-        if not p.has_overlay:
-            return False
         d = p.desktop
         return bool(
             d.api_key_set

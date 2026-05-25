@@ -351,6 +351,36 @@ def _is_blocked_device_path(path: str) -> bool:
     return False
 
 
+def _check_workspace_boundary(resolved: Path, operation: str) -> str | None:
+    """Check if a resolved path is within the workspace boundary.
+
+    Returns an error JSON string if access is denied, or None if allowed.
+    Only active in desktop mode when workspace_cwd is set via ContextVar.
+    Symlinks within the workspace are trusted (not resolved for boundary check).
+    """
+    from tools.path_approval import get_workspace_root, get_approval_session_id, request_path_approval
+
+    workspace_root = get_workspace_root()
+    if not workspace_root:
+        return None  # Not in desktop mode or no workspace set
+
+    session_id = get_approval_session_id()
+    if not session_id:
+        return None
+
+    from tools.path_security import validate_within_dir
+    error = validate_within_dir(resolved, Path(workspace_root))
+    if error is None:
+        return None  # Path is within workspace
+
+    decision = request_path_approval(str(resolved), operation, session_id)
+    if decision == "deny":
+        return json.dumps({
+            "error": f"Access denied: {resolved} is outside workspace ({workspace_root})",
+        })
+    return None  # Approved
+
+
 def _is_blocked_device(filepath: str, base_dir: str | Path | None = None) -> bool:
     """Return True if the path would hang the process (infinite output or blocking input).
 
@@ -913,6 +943,11 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
 
         _resolved = _resolve_path_for_task(path, task_id)
 
+        # ── Workspace boundary check ────────────────────────────────
+        ws_error = _check_workspace_boundary(_resolved, "read")
+        if ws_error:
+            return ws_error
+
         # ── Structured-document extraction ────────────────────────────
         # Try before the binary-extension guard so .docx/.xlsx can render as text.
         # Malformed documents fall through to the normal path/binary guard.
@@ -1340,6 +1375,15 @@ def write_file_tool(path: str, content: str, task_id: str = "default",
     sensitive_err = _check_sensitive_path(path, task_id)
     if sensitive_err:
         return tool_error(sensitive_err)
+    # ── Workspace boundary check ────────────────────────────────
+    try:
+        _ws_resolved = _resolve_path_for_task(path, task_id)
+        ws_error = _check_workspace_boundary(_ws_resolved, "write")
+        if ws_error:
+            return ws_error
+    except (OSError, ValueError):
+        pass  # Path resolution failed; workspace check skipped, write will fail naturally
+
     if not cross_profile:
         cross_warning = _check_cross_profile_path(path, task_id)
         if cross_warning:
@@ -1588,6 +1632,11 @@ def search_tool(pattern: str, target: str = "content", path: str = ".",
                 task_id: str = "default") -> str:
     """Search for content or files."""
     try:
+        resolved_search_path = _resolve_path_for_task(path, task_id)
+        ws_error = _check_workspace_boundary(resolved_search_path, "search")
+        if ws_error:
+            return ws_error
+
         offset, limit = normalize_search_pagination(offset, limit)
 
         # Track searches to detect *consecutive* repeated search loops.
