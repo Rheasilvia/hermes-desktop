@@ -13,7 +13,7 @@ async fn sidecar_info() -> Result<sidecar::SidecarInfo, String> {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -75,6 +75,17 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            tauri::async_runtime::block_on(async {
+                if let Some(mut child) = sidecar::take_child().await {
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                }
+            });
+        }
+    });
 }
