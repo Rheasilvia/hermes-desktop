@@ -6,9 +6,7 @@ use once_cell::sync::OnceCell;
 use serde::Serialize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-#[cfg(not(debug_assertions))]
 use tokio::io::{AsyncBufReadExt, BufReader};
-#[cfg(not(debug_assertions))]
 use tokio::process::Command;
 use tokio::process::Child;
 use tokio::sync::Mutex;
@@ -34,7 +32,24 @@ pub fn state() -> Arc<SidecarState> {
         .clone()
 }
 
-/// Dev mode: connect to a pre-running backend.
+/// Kill any existing desktop_backend process to ensure a clean start.
+fn kill_backend_process() {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let _ = std::process::Command::new("pkill")
+            .arg("-f")
+            .arg("desktop_backend")
+            .output();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/FI", "IMAGENAME eq python.exe"])
+            .output();
+    }
+}
+
+/// Dev mode: spawn the backend via `uv run` if not already running.
 /// Reads HERMES_BACKEND_URL (default: http://127.0.0.1:18080)
 /// and HERMES_BACKEND_TOKEN from env vars.
 pub async fn spawn_dev() -> Result<SidecarInfo> {
@@ -43,14 +58,72 @@ pub async fn spawn_dev() -> Result<SidecarInfo> {
     let token = std::env::var("HERMES_BACKEND_TOKEN")
         .or_else(|_| std::env::var("DESKTOP_BACKEND_TOKEN"))
         .unwrap_or_else(|_| "dev-secret".into());
-    let info = SidecarInfo { base_url, token };
+    let port = std::env::var("DESKTOP_BACKEND_PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(18080);
+
+    // Check if backend is already running — kill it to ensure a clean start
+    let health_url = format!("{}/desktop/api/health", base_url);
+    if let Ok(Ok(resp)) = timeout(Duration::from_secs(2), reqwest::get(&health_url)).await {
+        if resp.status().is_success() {
+            kill_backend_process();
+            // Give the old process time to release the port
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    // Backend not running — start it via uv
+    let mut cmd = Command::new("uv");
+    cmd.arg("run");
+    cmd.arg("--directory");
+    // Tauri dev runs from src-tauri/, backend is in the parent desktop/ dir
+    cmd.arg("../backend");
+    cmd.arg("python");
+    cmd.arg("-m");
+    cmd.arg("desktop_backend");
+    cmd.env("DESKTOP_BACKEND_PORT", port.to_string());
+    cmd.env("DESKTOP_BACKEND_TOKEN", &token);
+    cmd.env("HERMES_BACKEND_URL", &base_url);
+    use std::process::Stdio;
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("failed to spawn backend: {e}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("no stdout"))?;
+    let mut reader = BufReader::new(stdout).lines();
+    let actual_port = timeout(Duration::from_secs(30), async {
+        while let Some(line) = reader.next_line().await? {
+            if let Some(rest) = line.strip_prefix("READY ") {
+                return Ok::<u16, anyhow::Error>(rest.trim().parse()?);
+            }
+        }
+        bail!("backend exited before READY")
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("backend startup timeout"))??;
+
+    let info = SidecarInfo {
+        base_url: format!("http://127.0.0.1:{actual_port}"),
+        token,
+    };
     let s = state();
     *s.info.lock().await = Some(info.clone());
+    *s.child.lock().await = Some(child);
     Ok(info)
 }
 
 pub async fn current_info() -> Option<SidecarInfo> {
     state().info.lock().await.clone()
+}
+
+/// Take the child process handle (used for cleanup on exit).
+pub async fn take_child() -> Option<Child> {
+    state().child.lock().await.take()
 }
 
 pub async fn run_health_probe(handle: tauri::AppHandle) {
