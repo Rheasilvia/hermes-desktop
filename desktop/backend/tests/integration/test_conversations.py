@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from desktop_backend.app import build_app
 from desktop_backend.config import Config
+from desktop_backend.services import session_service
 
 
 @pytest.fixture
@@ -45,6 +46,19 @@ class TestSessionCRUD:
         assert "session_id" in data
         assert data["session_id"].startswith("desktop_")
 
+    def test_create_session_without_workspace_creates_default_workspace(
+        self, client, monkeypatch, tmp_path
+    ):
+        default_workspace = tmp_path / "HermesAgentWorkspace"
+        monkeypatch.setattr(session_service, "DEFAULT_WORKSPACE", default_workspace)
+
+        resp = client.post("/desktop/api/sessions", json={})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["workspace_path"] == str(default_workspace)
+        assert default_workspace.is_dir()
+
     def test_create_session_with_model(self, client):
         resp = client.post("/desktop/api/sessions", json={
             "model": "anthropic/claude-opus-4.5",
@@ -54,6 +68,89 @@ class TestSessionCRUD:
         data = resp.json()
         assert data["model"] == "anthropic/claude-opus-4.5"
         assert data["workspace_path"] == "/tmp/test"
+
+    def test_create_session_preserves_explicit_workspace(
+        self, client, monkeypatch, tmp_path
+    ):
+        default_workspace = tmp_path / "HermesAgentWorkspace"
+        explicit_workspace = tmp_path / "project"
+        monkeypatch.setattr(session_service, "DEFAULT_WORKSPACE", default_workspace)
+
+        resp = client.post(
+            "/desktop/api/sessions", json={"workspace_path": str(explicit_workspace)}
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["workspace_path"] == str(explicit_workspace)
+
+    def test_create_session_reuses_empty_untitled_session_from_db(self, client):
+        first = client.post("/desktop/api/sessions", json={})
+        assert first.status_code == 200
+        first_data = first.json()
+
+        second = client.post("/desktop/api/sessions", json={})
+
+        assert second.status_code == 200
+        second_data = second.json()
+        assert second_data["id"] == first_data["id"]
+        assert second_data["reused"] is True
+
+        listed = client.get("/desktop/api/sessions")
+        assert listed.status_code == 200
+        ids = [s["id"] for s in listed.json()]
+        assert ids.count(first_data["id"]) == 1
+
+    def test_create_session_does_not_reuse_session_with_messages(self, client):
+        first = client.post("/desktop/api/sessions", json={})
+        assert first.status_code == 200
+        first_id = first.json()["id"]
+
+        from desktop_backend.db.ui_messages import append
+        append(client.app.state.cfg.hermes_home, first_id, "user", {"text": "hi"})
+
+        second = client.post("/desktop/api/sessions", json={})
+
+        assert second.status_code == 200
+        assert second.json()["id"] != first_id
+
+    def test_create_session_does_not_reuse_session_with_core_db_messages(self, client):
+        first = client.post("/desktop/api/sessions", json={})
+        assert first.status_code == 200
+        first_id = first.json()["id"]
+
+        client.app.state.session_db.append_message(first_id, "user", "hi")
+
+        second = client.post("/desktop/api/sessions", json={})
+
+        assert second.status_code == 200
+        assert second.json()["id"] != first_id
+
+    def test_create_session_reuses_empty_session_after_delete_last_fallback(self, client):
+        first = client.post("/desktop/api/sessions", json={})
+        assert first.status_code == 200
+        first_id = first.json()["id"]
+
+        deleted = client.delete(f"/desktop/api/sessions/{first_id}")
+        assert deleted.status_code == 200
+
+        fallback = client.post("/desktop/api/sessions", json={})
+        assert fallback.status_code == 200
+        fallback_id = fallback.json()["id"]
+
+        repeated = client.post("/desktop/api/sessions", json={})
+
+        assert repeated.status_code == 200
+        assert repeated.json()["id"] == fallback_id
+        assert repeated.json()["reused"] is True
+
+    def test_build_app_creates_default_workspace_on_startup(self, cfg, monkeypatch, tmp_path):
+        default_workspace = tmp_path / "HermesAgentWorkspace"
+        monkeypatch.setattr(session_service, "DEFAULT_WORKSPACE", default_workspace)
+
+        build_app(cfg)
+
+        assert default_workspace.is_dir()
 
     def test_list_sessions(self, client):
         # Create two sessions
