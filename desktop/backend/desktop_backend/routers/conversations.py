@@ -143,9 +143,12 @@ async def prompt_execute(
     if session_svc.get_session(sid) is None:
         raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
 
-    # Sync provider from frontend, evict agent if changed
+    # Sync provider and model from frontend, evict agent if either changed
     old_provider = session_svc.sync_provider_from_frontend(sid, body.provider)
-    if old_provider != body.provider and body.provider:
+    old_model = session_svc.sync_model_from_frontend(sid, body.model)
+    provider_changed = bool(body.provider) and old_provider != body.provider
+    model_changed = bool(body.model) and old_model != body.model
+    if provider_changed or model_changed:
         pool.evict(sid)
 
     # Ensure agent exists (lazy build on first prompt)

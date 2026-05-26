@@ -260,6 +260,27 @@ class SessionService:
 
         return stored
 
+    def sync_model_from_frontend(
+        self, session_id: str, desired_model: str | None
+    ) -> str | None:
+        """Persist model change and return the *original* stored model.
+
+        Returns the stored model BEFORE any update so callers can detect
+        whether a change occurred.
+        """
+        if not desired_model:
+            return None
+        session = self._state.get_session(session_id)
+        stored = (session or {}).get("model") if session else None
+        if stored != desired_model:
+            def _do(c):
+                c.execute(
+                    "UPDATE sessions SET model = ? WHERE id = ?",
+                    (desired_model, session_id),
+                )
+            self._state._db._execute_write(_do)
+        return stored
+
     def backfill_model_if_unset(self, session_id: str, model: str) -> None:
         try:
             session = self._state.get_session(session_id)

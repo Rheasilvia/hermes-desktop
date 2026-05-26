@@ -1269,6 +1269,13 @@ class AIAgent:
         # completions endpoint; its /v1/responses endpoint returns 404.
         if normalized_provider == "nous":
             return False
+        # "openai-api" is the generic third-party OpenAI-compatible provider
+        # bucket (e.g. custom base URLs). These endpoints may serve gpt-5.x
+        # model names but do not implement the Responses API. Real
+        # api.openai.com users are already handled by _is_direct_openai_url()
+        # in agent_init.py and don't need this path.
+        if normalized_provider == "openai-api":
+            return False
         if normalized_provider == "copilot":
             try:
                 from hermes_cli.models import _should_use_copilot_responses_api
@@ -4272,6 +4279,9 @@ class AIAgent:
             think_scrubber = getattr(self, "_stream_think_scrubber", None)
             if think_scrubber is not None:
                 text = think_scrubber.feed(text or "")
+                extracted = think_scrubber.pop_reasoning()
+                if extracted:
+                    self._fire_reasoning_delta(extracted)
             else:
                 # Defensive: legacy callers without the scrubber attribute.
                 text = self._strip_think_blocks(text or "")
