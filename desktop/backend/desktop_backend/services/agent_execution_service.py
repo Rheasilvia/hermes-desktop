@@ -87,6 +87,13 @@ class AgentExecutionService:
                 conversation_history=normalized,
             )
 
+            # If interrupted before any assistant tokens, the user message was
+            # already persisted to the LLM session DB by _persist_session inside
+            # run_conversation. Roll it back so it doesn't silently merge into
+            # the next turn's context. UI messages are left intact.
+            if isinstance(result, dict) and result.get("interrupted"):
+                self._rollback_orphaned_llm_user_message(session_id, agent)
+
             final_text = ""
             if isinstance(result, dict):
                 final_text = result.get("final_response", "")
@@ -116,6 +123,48 @@ class AgentExecutionService:
             reset_terminal_cwd(cwd_token)
             reset_workspace_context(ws_tokens)
             self._pool.mark_idle(session_id)
+
+    def _rollback_orphaned_llm_user_message(self, session_id: str, agent: Any) -> None:
+        """Remove a trailing user message from the LLM session DB after an interrupt.
+
+        When a turn is interrupted before any assistant tokens are generated,
+        the user message is already in the messages table but has no following
+        assistant response. Loading it next turn silently merges it with the
+        new user message, confusing the model. This removes it.
+
+        Only deletes when the last row for this session has role='user' — if
+        any assistant tokens were streamed, the last row is 'assistant' and
+        we leave it intact (partial response is meaningful context).
+        """
+        result = {"rolled_back": False}
+
+        def _check_and_delete(c):
+            row = c.execute(
+                "SELECT id, role FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+            if row and row["role"] == "user":
+                c.execute("DELETE FROM messages WHERE id = ?", (row["id"],))
+                c.execute(
+                    "UPDATE sessions SET message_count = max(0, message_count - 1) WHERE id = ?",
+                    (session_id,),
+                )
+                result["rolled_back"] = True
+
+        try:
+            self._state._db._execute_write(_check_and_delete)
+        except Exception:
+            log.exception("failed to rollback orphaned user message for %s", session_id)
+            return
+
+        if result["rolled_back"]:
+            log.info("[interrupt] rolled back orphaned user message for session %s", session_id)
+            # Sync the agent's DB write cursor. _last_flushed_db_idx tracks how many
+            # messages have been flushed. Without decrement, the next turn's
+            # flush_from = max(start_idx, _last_flushed_db_idx) skips the new user
+            # message entirely, leaving it out of the LLM context.
+            if hasattr(agent, "_last_flushed_db_idx") and agent._last_flushed_db_idx > 0:
+                agent._last_flushed_db_idx -= 1
 
     def _touch_session(self, session_id: str) -> None:
         try:
