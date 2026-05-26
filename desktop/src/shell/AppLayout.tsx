@@ -49,16 +49,14 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
       onToggleCommandPalette: () => {},
     });
 
-    // Listen for session title updates from auto-title generation
     const gateway = getGateway();
     if (gateway) {
       const onTitleUpdate = (payload: { session_id: string; title: string }) => {
         sessionStore.updateSessionTitle(payload.session_id, payload.title);
       };
-      const onReconnect = () => {
-        sessionStore.loadSessions();
-      };
+      const onReconnect = () => { sessionStore.loadSessions(); };
       gateway.on('session.title_update', onTitleUpdate);
+      // On reconnect after backend restart, refresh the session list
       gateway.on('gateway.ready', onReconnect);
       onCleanup(() => {
         gateway.off('session.title_update', onTitleUpdate);
@@ -66,7 +64,7 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
       });
     }
 
-    // Load sessions and determine default route
+    // App.tsx guarantees the backend is available before AppLayout mounts
     await sessionStore.loadSessions();
     const sessions = sessionStore.sessions;
     const isHome = location.pathname === '/' || location.pathname === '';
@@ -82,20 +80,12 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
             return;
           }
         } catch {
-          // state load failed, fall through
+          // state load failed, fall through to most recent
         }
-        const mostRecent = sessions[0];
-        navigate(`/conversation/${mostRecent.id}`, { replace: true });
+        navigate(`/conversation/${sessions[0].id}`, { replace: true });
       } else {
-        // No sessions exist — auto-create one
-        try {
-          const meta = await sessionStore.createSession({});
-          if (meta) {
-            navigate(`/conversation/${meta.id}`, { replace: true });
-          }
-        } catch {
-          // silently ignore
-        }
+        const meta = await sessionStore.createSession({});
+        if (meta) navigate(`/conversation/${meta.id}`, { replace: true });
       }
     }
 
