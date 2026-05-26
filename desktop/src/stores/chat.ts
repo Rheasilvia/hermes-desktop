@@ -1,10 +1,8 @@
 /**
  * Chat state store - per-session messages, streaming state, tool calls.
- * Also manages workspace path, diff panel visibility, and git diff data.
  */
 
 import { createSignal } from 'solid-js';
-import type { GitDiffResult } from '@/types/index.js';
 import type {
   MessageDeltaPayload,
   MessageCompletePayload,
@@ -24,17 +22,6 @@ import type { ToolCallBlock } from '@/types/ui/blocks.js';
 import { parseMessage, parseBlocks } from '@/utils/messageParser.js';
 import { getGateway } from './context.js';
 import { modelStore } from './models.js';
-import { invoke } from '@tauri-apps/api/core';
-
-// ── Diff State (global, not per-session) ─────────────────────────────────
-
-const [workspacePath, setWorkspacePath] = createSignal<string | null>(null);
-const [isDiffOpen, setIsDiffOpen] = createSignal(false);
-const [diffData, setDiffData] = createSignal<GitDiffResult | null>(null);
-const [diffLoading, setDiffLoading] = createSignal(false);
-const [diffError, setDiffError] = createSignal<string | null>(null);
-const [activeFileIndex, setActiveFileIndex] = createSignal(0);
-const [panelWidth, setPanelWidth] = createSignal(500);
 
 // ── Chat State ────────────────────────────────────────────────────────────
 
@@ -520,64 +507,4 @@ export const chatStore = {
       liveState: { ...state.liveState, memoryContext: items },
     }));
   },
-};
-
-// ── Diff & Workspace Actions ──────────────────────────────────────────────
-
-async function toggleDiff(): Promise<void> {
-  const next = !isDiffOpen();
-  setIsDiffOpen(next);
-  if (next) {
-    setDiffError(null);
-    setActiveFileIndex(0);
-    void fetchDiff();
-  }
-}
-
-async function fetchDiff(): Promise<void> {
-  const wd = workspacePath();
-  if (!wd) {
-    setDiffError('Select a workspace first');
-    return;
-  }
-  setDiffLoading(true);
-  setDiffError(null);
-  try {
-    const result = await invoke<GitDiffResult | { error: string }>('run_git_diff', { cwd: wd });
-    if (result && typeof result === 'object' && 'error' in result) {
-      setDiffError((result as { error: string }).error);
-    } else {
-      setDiffData(result as GitDiffResult);
-      setActiveFileIndex(0);
-    }
-  } catch (e) {
-    setDiffError(typeof e === 'string' ? e : (e as Error).message ?? 'Failed to fetch diff');
-  } finally {
-    setDiffLoading(false);
-  }
-}
-
-function closeDiff(): void {
-  setIsDiffOpen(false);
-}
-
-function selectDiffFile(index: number): void {
-  setActiveFileIndex(index);
-}
-
-// ── Exported diff store ──────────────────────────────────────────────────
-
-export const diffStore = {
-  isDiffOpen,
-  diffData,
-  diffLoading,
-  diffError,
-  activeFileIndex,
-  panelWidth,
-  setPanelWidth,
-  toggleDiff,
-  fetchDiff,
-  setWorkspacePath,
-  closeDiff,
-  selectDiffFile,
 };

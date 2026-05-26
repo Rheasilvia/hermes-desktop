@@ -4,8 +4,8 @@ import { Icon } from '@/ui/atoms/Icon.js';
 import styles from './MoreMenu.module.css';
 
 interface MoreMenuProps {
-  diffOpen: boolean;
-  onToggleDiff: () => void;
+  panelOpen: boolean;
+  onOpenGitView: () => void;
 }
 
 export const MoreMenu: Component<MoreMenuProps> = (props) => {
@@ -42,12 +42,12 @@ export const MoreMenu: Component<MoreMenuProps> = (props) => {
             type="button"
             class={styles.dropdownItem}
             onClick={() => {
-              props.onToggleDiff();
+              props.onOpenGitView();
               setIsOpen(false);
             }}
           >
             <Icon name="git-branch" size={14} />
-            <span>{props.diffOpen ? 'Hide Diff' : 'View Diff'}</span>
+            <span>{props.panelOpen ? 'Show Git View' : 'Open Git View'}</span>
           </button>
         </div>
       )}

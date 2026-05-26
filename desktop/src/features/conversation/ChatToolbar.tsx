@@ -6,8 +6,9 @@ import styles from './ChatToolbar.module.css';
 interface ChatToolbarProps {
   workspacePath: string | null;
   sessionTitle?: string;
-  splitScreenActive: boolean;
-  onToggleSplitScreen: () => void;
+  sidePanelActive: boolean;
+  onToggleSidePanel: () => void;
+  onOpenGitView: () => void;
   modelSelectorSlot?: any;
 }
 
@@ -21,13 +22,14 @@ export const ChatToolbar: Component<ChatToolbarProps> = (props) => {
         {props.modelSelectorSlot}
         <button
           type="button"
-          class={`${styles.iconBtn} ${props.splitScreenActive ? styles.iconBtnActive : ''}`}
-          onClick={props.onToggleSplitScreen}
-          title={props.splitScreenActive ? 'Hide diff' : 'Show diff'}
+          class={`${styles.iconBtn} ${props.sidePanelActive ? styles.iconBtnActive : ''}`}
+          onClick={props.onToggleSidePanel}
+          title={props.sidePanelActive ? 'Hide workspace panel' : 'Show workspace panel'}
+          aria-label={props.sidePanelActive ? 'Hide workspace panel' : 'Show workspace panel'}
         >
-          <Icon name="git-branch" size={16} />
+          <Icon name="panel-right" size={16} />
         </button>
-        <MoreMenu diffOpen={props.splitScreenActive} onToggleDiff={props.onToggleSplitScreen} />
+        <MoreMenu panelOpen={props.sidePanelActive} onOpenGitView={props.onOpenGitView} />
       </div>
     </div>
   );

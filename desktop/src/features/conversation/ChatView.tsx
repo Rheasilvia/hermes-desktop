@@ -16,7 +16,9 @@ import type {
 import type { RenderedMessage } from '@/types/index.js';
 import type { MessageActionType } from '@/types/ui/message.js';
 import { chatStore } from '@/stores/chat.js';
-import { diffStore } from '@/stores/chat.js';
+import { sidePanelStore } from '@/stores/side-panel.js';
+import { gitViewStore } from '@/stores/git-view.js';
+import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { sessionStore } from '@/stores/session.js';
 import { modelStore } from '@/stores/models.js';
 import { getGateway } from '@/stores/context.js';
@@ -27,7 +29,7 @@ import type { MessageBlock } from '@/types/index.js';
 import { MessageInput } from './MessageInput.js';
 import { ModelSelector } from './ModelSelector.js';
 import { ChatToolbar } from './ChatToolbar.js';
-import { DiffPanel } from '@/features/diff/DiffPanel.js';
+import { WorkspaceSidePanel } from './WorkspaceSidePanel.js';
 import { EmptyChatState } from './EmptyChatState.js';
 import { ErrorBanner } from './ErrorBanner.js';
 import { WorkspaceBanner } from './WorkspaceBanner.js';
@@ -55,7 +57,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let messageListRef: HTMLDivElement | undefined;
   let diffPanelEl: HTMLDivElement | undefined;
   let dragHandleEl: HTMLDivElement | undefined;
-  const [dragging, setDragging] = createSignal(false);
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
   const [isNearBottom, setIsNearBottom] = createSignal(true);
   const [userScrolledUp, setUserScrolledUp] = createSignal(false);
@@ -179,7 +180,17 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   createEffect(() => {
     const path = workspacePath();
-    diffStore.setWorkspacePath(path);
+    gitViewStore.setWorkspacePath(path);
+    void workspaceTreeStore.setWorkspacePath(path);
+    if (path && sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git') {
+      void gitViewStore.fetchDiff();
+    }
+  });
+
+  createEffect(() => {
+    if (sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git' && workspacePath()) {
+      void gitViewStore.fetchDiff();
+    }
   });
 
   const handleSend = async (text: string, _attachments?: any[]) => {
@@ -268,8 +279,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const handleDragStart = (e: MouseEvent) => {
     e.preventDefault();
-    setDragging(true);
-
     if (diffPanelEl) {
       diffPanelEl.style.transition = 'none';
       diffPanelEl.style.willChange = 'width';
@@ -306,8 +315,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
     const onUp = () => {
       if (rafId != null) cancelAnimationFrame(rafId);
-      setDragging(false);
-
       if (diffPanelEl) {
         diffPanelEl.style.transition = '';
         diffPanelEl.style.willChange = '';
@@ -315,7 +322,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       if (dragHandleEl) dragHandleEl.classList.remove(styles.dragHandleActive);
       if (chatBodyRef) chatBodyRef.classList.remove(styles.chatBodyDragging);
 
-      diffStore.setPanelWidth(lastWidth);
+      sidePanelStore.setPanelWidth(lastWidth);
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
@@ -390,8 +397,12 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       <ChatToolbar
         workspacePath={workspacePath()}
         sessionTitle={sessionStore.activeSession?.title}
-        splitScreenActive={diffStore.isDiffOpen()}
-        onToggleSplitScreen={() => diffStore.toggleDiff()}
+        sidePanelActive={sidePanelStore.isOpen()}
+        onToggleSidePanel={() => sidePanelStore.toggle('workspace')}
+        onOpenGitView={() => {
+          sidePanelStore.open('git');
+          void gitViewStore.fetchDiff();
+        }}
       />
 
       <Show when={error()}>
@@ -536,7 +547,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           </div>
         </div>
 
-        <Show when={diffStore.isDiffOpen()}>
+        <Show when={sidePanelStore.isOpen()}>
           <div class={styles.diffSeparator} />
           <div
             ref={(el) => { dragHandleEl = el; }}
@@ -544,17 +555,13 @@ export const ChatView: Component<ChatViewProps> = (props) => {
             onMouseDown={handleDragStart}
           />
         </Show>
-        <DiffPanel
-          ref={(el: HTMLDivElement) => { diffPanelEl = el; }}
-          visible={diffStore.isDiffOpen()}
-          data={diffStore.diffData()}
-          loading={diffStore.diffLoading()}
-          error={diffStore.diffError()}
-          panelWidth={diffStore.panelWidth()}
-          hasWorkspace={workspacePath() != null}
-          onClose={() => diffStore.closeDiff()}
-          onAddWorkspace={() => {}}
-        />
+        <Show when={sidePanelStore.isOpen()}>
+          <WorkspaceSidePanel
+            ref={(el: HTMLDivElement) => { diffPanelEl = el; }}
+            workspacePath={workspacePath()}
+            panelWidth={sidePanelStore.panelWidth()}
+          />
+        </Show>
       </div>
     </div>
   );

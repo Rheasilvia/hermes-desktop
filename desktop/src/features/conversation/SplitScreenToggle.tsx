@@ -13,9 +13,9 @@ export const SplitScreenToggle: Component<SplitScreenToggleProps> = (props) => {
       type="button"
       class={`${styles.toggle} ${props.active ? styles.toggleActive : ''}`}
       onClick={props.onToggle}
-      title={props.active ? 'Hide diff' : 'Show diff'}
+      title={props.active ? 'Hide workspace panel' : 'Show workspace panel'}
     >
-      <Icon name="git-branch" size={16} />
+      <Icon name="panel-right" size={16} />
     </button>
   );
 };

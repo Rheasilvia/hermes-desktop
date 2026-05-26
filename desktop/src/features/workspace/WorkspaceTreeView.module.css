@@ -1,0 +1,117 @@
+.treeShell {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  background: var(--color-parchment);
+}
+
+.treeHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border-light);
+  color: var(--color-on-surface-dim);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.rootPath {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.treeBody {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-2) 0;
+}
+
+.treeBody:focus {
+  outline: 1px solid var(--color-border-focus);
+  outline-offset: -1px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--color-charcoal-warm);
+  cursor: default;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  text-align: left;
+}
+
+.row:hover,
+.rowFocused {
+  background: rgba(20, 20, 19, 0.04);
+}
+
+.rowSelected {
+  background: var(--color-primary-light);
+  color: var(--color-charcoal);
+}
+
+.chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--color-on-surface-dim);
+}
+
+.chevronPlaceholder {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.fileIcon,
+.folderIcon {
+  flex-shrink: 0;
+  color: var(--color-on-surface-dim);
+}
+
+.folderIcon {
+  color: var(--color-sage);
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metaRow,
+.emptyState,
+.errorState {
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-on-surface-dim);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: var(--leading-normal);
+  text-align: center;
+}
+
+.inlineMeta {
+  padding: 4px var(--space-4);
+  color: var(--color-on-surface-dim);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.errorState {
+  color: var(--color-error);
+}
