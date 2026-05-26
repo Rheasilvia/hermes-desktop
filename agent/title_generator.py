@@ -5,8 +5,18 @@ adds latency to the user-facing reply.
 """
 
 import logging
+import re
 import threading
 from typing import Callable, Optional
+
+_THINK_BLOCK_RE = re.compile(
+    r"<(?:think|thinking|reasoning|thought|REASONING_SCRATCHPAD)[^>]*>.*?</(?:think|thinking|reasoning|thought|REASONING_SCRATCHPAD)>",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _strip_think_blocks(text: str) -> str:
+    return _THINK_BLOCK_RE.sub("", text).strip()
 
 from agent.auxiliary_client import call_llm
 
@@ -144,6 +154,7 @@ def generate_title(
         try:
             title = _call_with_agent(agent, messages, model=title_model)
             if title:
+                title = _strip_think_blocks(title)
                 title = title.strip('"\'')
                 if title.lower().startswith("title:"):
                     title = title[6:].strip()
@@ -164,7 +175,7 @@ def generate_title(
             timeout=timeout,
             main_runtime=main_runtime,
         )
-        title = (response.choices[0].message.content or "").strip()
+        title = _strip_think_blocks(response.choices[0].message.content or "")
         # Clean up: remove quotes, trailing punctuation, prefixes like "Title: "
         title = title.strip('"\'')
         if title.lower().startswith("title:"):

@@ -96,12 +96,22 @@ class StreamingThinkScrubber:
         self._in_block: bool = False
         self._buf: str = ""
         self._last_emitted_ended_newline: bool = True
+        self._reasoning_parts: list[str] = []
+        self._block_buf: list[str] = []
 
     def reset(self) -> None:
         """Reset all state.  Call at the top of every new turn."""
         self._in_block = False
         self._buf = ""
         self._last_emitted_ended_newline = True
+        self._reasoning_parts.clear()
+        self._block_buf.clear()
+
+    def pop_reasoning(self) -> str:
+        """Return and clear any reasoning text extracted since the last call."""
+        text = "".join(self._reasoning_parts)
+        self._reasoning_parts.clear()
+        return text
 
     def feed(self, text: str) -> str:
         """Feed one delta; return the scrubbed visible portion.
@@ -124,11 +134,19 @@ class StreamingThinkScrubber:
                 )
                 if close_idx == -1:
                     # No close yet — hold back a potential partial
-                    # close-tag prefix; discard everything else.
+                    # close-tag prefix; accumulate the rest as reasoning.
                     held = self._max_partial_suffix(buf, self._CLOSE_TAGS)
                     self._buf = buf[-held:] if held else ""
+                    chunk = buf[:-held] if held else buf
+                    if chunk:
+                        self._block_buf.append(chunk)
                     return "".join(out)
-                # Found close: discard block content + tag, continue.
+                # Found close: commit block content to reasoning, continue.
+                if buf[:close_idx]:
+                    self._block_buf.append(buf[:close_idx])
+                if self._block_buf:
+                    self._reasoning_parts.append("".join(self._block_buf))
+                    self._block_buf.clear()
                 buf = buf[close_idx + close_len:]
                 self._in_block = False
             else:
@@ -158,6 +176,9 @@ class StreamingThinkScrubber:
                             self._last_emitted_ended_newline = (
                                 preceding.endswith("\n")
                             )
+                    inner = self._extract_pair_inner(buf[start_idx:end_idx])
+                    if inner:
+                        self._reasoning_parts.append(inner)
                     buf = buf[end_idx:]
                     continue
 
@@ -173,6 +194,7 @@ class StreamingThinkScrubber:
                                 preceding.endswith("\n")
                             )
                     self._in_block = True
+                    self._block_buf.clear()
                     buf = buf[open_idx + open_len:]
                     continue
 
@@ -212,6 +234,7 @@ class StreamingThinkScrubber:
         if self._in_block:
             self._buf = ""
             self._in_block = False
+            self._block_buf.clear()
             return ""
         tail = self._buf
         self._buf = ""
@@ -351,6 +374,15 @@ class StreamingThinkScrubber:
                 if len(tag_lower) > i and tag_lower.startswith(suffix):
                     return i
         return 0
+
+    @staticmethod
+    def _extract_pair_inner(pair_text: str) -> str:
+        """Extract content between the open and close tags of a closed pair."""
+        open_end = pair_text.find(">")
+        close_start = pair_text.rfind("</")
+        if open_end == -1 or close_start == -1 or open_end >= close_start:
+            return ""
+        return pair_text[open_end + 1:close_start]
 
     @classmethod
     def _strip_orphan_close_tags(cls, text: str) -> str:
