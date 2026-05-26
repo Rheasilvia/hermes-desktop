@@ -526,36 +526,40 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       this.eventSourceUrl = `${baseUrl}${API_PREFIX}/events/stream?token=${encodeURIComponent(token)}`;
     }
 
-    // Open SSE connection
-    this.eventSource = new EventSource(this.eventSourceUrl);
+    // Open SSE connection and wait for onopen so callers know the stream is live.
+    // 5-second timeout prevents blocking boot if SSE handshake stalls.
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 5_000);
 
-    this.eventSource.onopen = () => {
-      const wasReconnecting = this.state === 'reconnecting';
-      this.state = 'connected';
-      // Replay missed events for all known sessions
-      this._replayAllSessions();
-      if (wasReconnecting) {
+      this.eventSource = new EventSource(this.eventSourceUrl);
+
+      this.eventSource.onopen = () => {
+        clearTimeout(timer);
+        this.state = 'connected';
+        // Replay missed events for all known sessions
+        this._replayAllSessions();
         this.emit('gateway.ready', { skin: undefined });
-      }
-    };
+        resolve();
+      };
 
-    // Backend includes `type` in the JSON data payload, so a single onmessage
-    // handler routes all event types through dispatchSseEvent.
-    this.eventSource.onmessage = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.type) {
-          this.dispatchSseEvent(data as SseEvent);
+      // Backend includes `type` in the JSON data payload, so a single onmessage
+      // handler routes all event types through dispatchSseEvent.
+      this.eventSource.onmessage = (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type) {
+            this.dispatchSseEvent(data as SseEvent);
+          }
+        } catch { /* ignore non-JSON frames (keepalives) */ }
+      };
+
+      this.eventSource.onerror = () => {
+        if (this.state === 'connected') {
+          this.state = 'reconnecting';
         }
-      } catch { /* ignore non-JSON frames (keepalives) */ }
-    };
-
-    this.eventSource.onerror = () => {
-      if (this.state === 'connected') {
-        this.state = 'reconnecting';
-      }
-      // EventSource auto-reconnects; onopen will trigger replay
-    };
+        // EventSource auto-reconnects; onopen will trigger replay
+      };
+    });
   }
 
   async disconnect(): Promise<void> {

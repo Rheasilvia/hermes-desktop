@@ -157,6 +157,45 @@ def build_app(cfg: Config) -> FastAPI:
     def _sync_overlay_keys_to_env():
         _sync_provider_keys(cfg.hermes_home)
 
+    # ── Startup: eagerly init services + pre-warm agent for recent sessions ──
+    @app.on_event("startup")
+    def _prewarm_agents():
+        import threading
+
+        try:
+            from hermes_state import SessionDB
+            from .services.agent_pool import AgentPool
+
+            session_db = SessionDB(cfg.hermes_home / "state.db")
+            agent_pool = AgentPool(
+                hermes_home=cfg.hermes_home,
+                event_bus=app.state.event_bus,
+                session_db=session_db,
+            )
+            app.state.session_db = session_db
+            app.state.agent_pool = agent_pool
+        except Exception:
+            log.exception("[prewarm] failed to initialize services")
+            return
+
+        def _do_prewarm():
+            try:
+                sessions = session_db.list_sessions_rich(
+                    source="desktop",
+                    include_children=False,
+                    order_by_last_active=True,
+                    limit=3,
+                )
+                for sess in sessions[:3]:
+                    sid = str(sess.get("id") or sess.get("session_id") or "")
+                    if sid:
+                        agent_pool.get_or_create(sid)
+                        log.info("[prewarm] agent ready for session %s", sid)
+            except Exception:
+                log.exception("[prewarm] background thread failed")
+
+        threading.Thread(target=_do_prewarm, daemon=True, name="agent-prewarm").start()
+
     return app
 
 
