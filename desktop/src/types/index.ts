@@ -56,6 +56,9 @@ export type { McpTransport, McpAuthType, McpServer, McpOAuthConfig, McpSamplingC
 // Diff types
 export type { LineKind, DiffLine, DiffHunk, FileStatus, DiffFile, DiffSummary, GitDiffResult } from './diff.js';
 
+// Workspace tree types
+export type { WorkspaceTreeNodeKind, WorkspaceTreeNode, WorkspaceChildrenResult, WorkspaceTreeRow } from './workspace-tree.js';
+
 // Analytics types
 export type {
   ModelCapabilities,

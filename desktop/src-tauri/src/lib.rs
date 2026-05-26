@@ -39,6 +39,8 @@ pub fn run() {
             commands::open_external,
             commands::get_platform,
             commands::spawn_process,
+            commands::get_workspace_root,
+            commands::list_workspace_children,
             commands::run_git_diff,
             sidecar_info,
             updater::check_for_updates,

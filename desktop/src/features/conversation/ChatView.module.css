@@ -11,6 +11,7 @@
   display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative;
   contain: layout style;
 }
 
@@ -153,6 +154,13 @@
   transition: background 150ms ease;
   user-select: none;
   contain: strict;
+}
+
+@media (max-width: 980px) {
+  .dragHandle,
+  .diffSeparator {
+    display: none;
+  }
 }
 
 .dragHandle:hover,

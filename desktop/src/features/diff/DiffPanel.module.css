@@ -5,13 +5,9 @@
   flex-direction: column;
   height: 100%;
   background: var(--color-parchment);
-  border-left: 1px solid var(--color-border);
   overflow: hidden;
   contain: layout style;
-  transition: width 300ms ease-out, opacity 300ms ease-out;
 }
-
-/* Width and opacity are now controlled via inline style + JS */
 
 /* ── Header ──────────────────────────────────────────────── */
 
@@ -23,8 +19,13 @@
   min-height: 36px;
 }
 
-.diffPanelHeaderSpacer {
+.diffPanelTitle {
   flex: 1;
+  padding-left: var(--space-3);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-on-surface-dim);
 }
 
 .diffPanelHeaderRight {
@@ -33,25 +34,6 @@
   gap: 8px;
   margin-left: auto;
   padding-right: 4px;
-}
-
-.diffCloseBtn {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--color-on-surface-dim);
-  cursor: pointer;
-  border-radius: 4px;
-  font-family: var(--font-sans);
-  font-size: 16px;
-}
-
-.diffCloseBtn:hover {
-  color: var(--color-charcoal-warm);
 }
 
 /* ── File Tabs ───────────────────────────────────────────── */
@@ -185,9 +167,18 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   padding: 6px 12px;
   background: var(--color-border-light);
   border-bottom: 1px solid var(--color-border);
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  cursor: pointer;
+}
+
+.diffFileHeaderActive {
+  background: var(--color-primary-light);
 }
 
 .diffFileName {
@@ -378,25 +369,4 @@
   color: var(--color-on-surface-dim);
   opacity: 0.5;
   margin-bottom: var(--space-3);
-}
-
-.diffAddWorkspaceBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 8px 20px;
-  background: var(--color-warm-gray);
-  color: var(--color-charcoal-warm);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 500;
-  border: none;
-  border-radius: var(--radius-sm);
-  box-shadow: 0px 0px 0px 1px var(--color-on-surface-dim);
-  cursor: pointer;
-  transition: background 150ms ease;
-}
-
-.diffAddWorkspaceBtn:hover {
-  background: var(--color-border-light);
 }

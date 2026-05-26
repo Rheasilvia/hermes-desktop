@@ -11,28 +11,16 @@ interface DiffPanelProps {
   data: GitDiffResult | null;
   loading: boolean;
   error: string | null;
-  panelWidth: number;
   hasWorkspace: boolean;
-  onClose: () => void;
-  onAddWorkspace: () => void;
+  activeFileIndex?: number;
+  onSelectFile?: (index: number) => void;
 }
 
 export const DiffPanel: Component<DiffPanelProps> = (props) => {
   return (
-    <div
-      ref={(el) => {
-        if (typeof props.ref === 'function') (props.ref as (el: HTMLDivElement) => void)(el);
-      }}
-      class={styles.diffPanel}
-      style={{
-        width: props.visible ? `${props.panelWidth}px` : '0',
-        'min-width': props.visible ? '320px' : '0',
-        opacity: props.visible ? 1 : 0,
-      }}
-    >
+    <div class={styles.diffPanel}>
       <Show when={props.visible}>
         <Show when={!props.hasWorkspace}>
-          {/* Empty state: no workspace selected */}
           <div class={styles.diffEmptyState}>
             <div class={styles.diffEmptyIcon}>
               <Icon name="folder-open" size={32} />
@@ -41,32 +29,16 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
             <div class={styles.diffEmptyBody}>
               Select a workspace first to view git changes.
             </div>
-            <button
-              type="button"
-              class={styles.diffAddWorkspaceBtn}
-              onClick={props.onAddWorkspace}
-            >
-              <Icon name="folder-open" size={14} />
-              <span>Add Workspace</span>
-            </button>
           </div>
         </Show>
         <Show when={props.hasWorkspace}>
           <Show when={(props.data?.files?.length ?? 0) > 0}>
             <div class={styles.diffPanelHeader}>
-              <div class={styles.diffPanelHeaderSpacer} />
+              <div class={styles.diffPanelTitle}>Git changes</div>
               <div class={styles.diffPanelHeaderRight}>
                 <Show when={props.data && !props.error}>
                   <DiffSummary summary={props.data!.summary} />
                 </Show>
-                <button
-                  type="button"
-                  class={styles.diffCloseBtn}
-                  onClick={props.onClose}
-                  aria-label="Close diff panel"
-                >
-                  <Icon name="x" size={16} />
-                </button>
               </div>
             </div>
           </Show>
@@ -95,7 +67,7 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
               </div>
             </Match>
             <Match when={props.data && props.data.files.length > 0}>
-              <DiffContent files={props.data!.files} />
+              <DiffContent files={props.data!.files} activeIndex={props.activeFileIndex} onSelectFile={props.onSelectFile} />
             </Match>
           </Switch>
         </div>

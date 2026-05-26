@@ -77,6 +77,8 @@ import {
   Trash2,
   Ellipsis,
   Square,
+  PanelRight,
+  Folder,
 } from 'lucide-solid';
 
 export type IconName =
@@ -155,7 +157,9 @@ export type IconName =
   | 'pencil'
   | 'trash-2'
   | 'ellipsis'
-  | 'square';
+  | 'square'
+  | 'panel-right'
+  | 'folder';
 
 interface IconProps {
   name: IconName;
@@ -241,6 +245,8 @@ const LUCIDE_ICONS: Record<IconName, Component<{ size?: number; strokeWidth?: nu
   'trash-2': Trash2,
   'ellipsis': Ellipsis,
   'square': Square,
+  'panel-right': PanelRight,
+  'folder': Folder,
 };
 
 export const Icon: Component<IconProps> = (props) => {
