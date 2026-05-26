@@ -168,11 +168,13 @@ class AgentExecutionService:
 
     def _touch_session(self, session_id: str) -> None:
         try:
-            self._state._db._conn.execute(
-                "UPDATE sessions SET ended_at = ? WHERE id = ?",
-                (time.time(), session_id),
-            )
-            self._state._db._conn.commit()
+            ts = time.time()
+            def _do(c):
+                c.execute(
+                    "UPDATE sessions SET ended_at = ? WHERE id = ?",
+                    (ts, session_id),
+                )
+            self._state._db._execute_write(_do)
         except Exception:
             pass
 

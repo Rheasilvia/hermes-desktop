@@ -203,8 +203,15 @@ def _merge_consecutive_same_role(msgs: List[Dict[str, Any]]) -> List[Dict[str, A
                 elif isinstance(prev_content, list) and isinstance(msg_content, list):
                     prev["content"] = prev_content + msg_content
             else:
-                # One has tool_calls, one doesn't — keep separate
-                merged.append(copy.deepcopy(msg))
+                if not prev_tcs:
+                    # prev is plain text, msg has tool_calls — keep both
+                    # (no consecutive-assistant violation: prev will become
+                    # non-adjacent once tool messages follow msg)
+                    merged.append(copy.deepcopy(msg))
+                # else: prev has tool_calls, msg is plain text — drop msg.
+                # A text-only assistant immediately after a tool-calling
+                # assistant with no intervening tool result is orphaned and
+                # would cause a consecutive-assistant 400 from Anthropic.
 
         else:
             merged.append(copy.deepcopy(msg))
