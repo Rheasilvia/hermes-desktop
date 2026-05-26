@@ -147,7 +147,7 @@ async def prompt_execute(
     old_provider = session_svc.sync_provider_from_frontend(sid, body.provider)
     old_model = session_svc.sync_model_from_frontend(sid, body.model)
     provider_changed = bool(body.provider) and old_provider != body.provider
-    model_changed = bool(body.model) and old_model != body.model
+    model_changed = bool(body.model) and old_model is not None and old_model != body.model
     if provider_changed or model_changed:
         pool.evict(sid)
 
