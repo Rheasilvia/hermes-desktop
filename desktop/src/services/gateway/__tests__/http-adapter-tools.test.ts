@@ -55,3 +55,46 @@ describe('dispatchSseEvent — tool.progress', () => {
     expect(received[0]).toMatchObject({ name: 'web_search', preview: '3/10 results fetched' });
   });
 });
+
+describe('aggregateEventRows — tool call reconstruction', () => {
+  it('includes tool calls from stored tool.start/complete rows', () => {
+    const adapter = makeAdapter();
+
+    const rows = [
+      { seq: 1, type: 'tool.start',      payload: { tool_id: 'tool_1', name: 'web_search' } },
+      { seq: 2, type: 'tool.generating', payload: { tool_id: 'tool_1', name: 'web_search', text: '{"query":"test"}' } },
+      { seq: 3, type: 'tool.complete',   payload: { tool_id: 'tool_1', name: 'web_search', summary: 'Found 5 results', duration_s: 1.2 } },
+      { seq: 4, type: 'message.delta',   payload: { text: 'Here are the results' } },
+      { seq: 5, type: 'message.complete', payload: { text: 'Here are the results', usage: null } },
+    ];
+
+    const messages = (adapter as any).aggregateEventRows('sess_1', rows);
+    const assistantMsg = messages.find((m: any) => m.role === 'assistant');
+
+    expect(assistantMsg).toBeDefined();
+    expect(assistantMsg.tool_calls).toHaveLength(1);
+    expect(assistantMsg.tool_calls[0]).toMatchObject({
+      name: 'web_search',
+      status: 'complete',
+      outputSummary: 'Found 5 results',
+      durationMs: 1200,
+    });
+  });
+
+  it('assigns seqIndex in tool.start arrival order (not completion order)', () => {
+    const adapter = makeAdapter();
+
+    const rows = [
+      { seq: 1, type: 'tool.start',    payload: { tool_id: 'tool_a', name: 'read_file' } },
+      { seq: 2, type: 'tool.start',    payload: { tool_id: 'tool_b', name: 'web_search' } },
+      { seq: 3, type: 'tool.complete', payload: { tool_id: 'tool_b', name: 'web_search', duration_s: 0.5 } },
+      { seq: 4, type: 'tool.complete', payload: { tool_id: 'tool_a', name: 'read_file',  duration_s: 0.3 } },
+      { seq: 5, type: 'message.complete', payload: { text: 'Done', usage: null } },
+    ];
+
+    const messages = (adapter as any).aggregateEventRows('sess_1', rows);
+    const tc = messages[0].tool_calls;
+    expect(tc[0].name).toBe('read_file');    // arrived first → seq 0
+    expect(tc[1].name).toBe('web_search');   // arrived second → seq 1
+  });
+});
