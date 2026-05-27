@@ -105,8 +105,8 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
     if (hasReasoning())
       parts.push(thinkSeconds() ? `Thought for ${thinkSeconds()}` : 'Thought');
     if (hasTools()) {
-      const n = props.toolRows!.length;
-      parts.push(`${n} tool${n !== 1 ? 's' : ''} completed`);
+      const n = props.toolRows!.filter(r => r.status === 'complete').length;
+      if (n > 0) parts.push(`${n} tool${n !== 1 ? 's' : ''} completed`);
     }
     return parts.join(' · ');
   };
@@ -207,6 +207,7 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
           <button
             class={styles.collapseBtn}
             type="button"
+            aria-label="Collapse details"
             onClick={() => setPanelExpanded(false)}
           >
             <Icon name="chevron-left" size={11} />
@@ -237,9 +238,17 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
                       <div class={styles.toolRowContent}>
                         <div class={styles.toolRowMain}>
                           <Icon
-                            name={row.status === 'error' ? 'alert-circle' : 'check'}
+                            name={
+                              row.status === 'complete' ? 'check' :
+                              row.status === 'error' ? 'alert-circle' :
+                              'clock'
+                            }
                             size={12}
-                            class={row.status === 'error' ? styles.errorIcon : styles.doneIcon}
+                            class={
+                              row.status === 'complete' ? styles.doneIcon :
+                              row.status === 'error' ? styles.errorIcon :
+                              styles.neutralIcon
+                            }
                           />
                           <span class={styles.toolName}>{row.name}</span>
                           <Show when={row.argumentPreview}>
