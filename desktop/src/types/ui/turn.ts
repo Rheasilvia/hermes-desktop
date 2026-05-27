@@ -39,5 +39,6 @@ export interface LiveToolCall {
   status: 'generating' | 'running' | 'complete' | 'error';
   inputPreview: string | null;
   progressPreview: string | null;
+  resultSummary: string | null;
   durationMs: number | null;
 }

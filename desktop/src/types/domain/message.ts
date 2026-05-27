@@ -26,6 +26,8 @@ export interface ParsedToolCall {
   name: string;
   arguments: Record<string, unknown>;
   status?: 'complete' | 'error' | 'running';
+  outputSummary?: string | null;
+  durationMs?: number | null;
 }
 
 /**
