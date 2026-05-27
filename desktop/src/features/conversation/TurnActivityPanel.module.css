@@ -1,0 +1,298 @@
+/* ── Panel shell ─────────────────────────────────────────────────────────── */
+.panel {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-light);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: var(--space-3);
+  font-family: var(--font-sans);
+}
+
+/* ── Active state ────────────────────────────────────────────────────────── */
+.activeContent {
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ThinkingIndicator */
+.thinkingHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thinkingLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-on-surface-muted);
+}
+
+.dotRow {
+  display: flex;
+  gap: 4px;
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-terracotta);
+  animation: dotBounce 1s ease-in-out infinite;
+}
+
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dotBounce {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  50% { transform: translateY(-4px); opacity: 0.5; }
+}
+
+.progressBar {
+  height: 3px;
+  background: var(--color-border-light);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressBarTrack {
+  width: 120px;
+  height: 100%;
+  background: var(--color-terracotta);
+  opacity: 0.7;
+  border-radius: 2px;
+  will-change: transform;
+}
+
+/* Live tool rows */
+.liveToolList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.liveRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  animation: rowSlideIn 0.18s ease-out both;
+}
+
+@keyframes rowSlideIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Collapsed pill ──────────────────────────────────────────────────────── */
+.pill {
+  align-items: center;
+  gap: var(--space-2);
+  animation: fadeUp 0.22s ease-out;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.pillLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-on-surface-muted);
+  flex: 1;
+}
+
+.pillSep {
+  width: 1px;
+  height: 12px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+.pillBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--color-on-surface-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.pillBtn:hover { color: var(--color-on-surface); }
+
+/* ── Expanded view ───────────────────────────────────────────────────────── */
+.expanded {
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.expandedHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.expandedTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-on-surface-muted);
+  flex: 1;
+}
+
+.collapseBtn {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  color: var(--color-on-surface-dim);
+}
+
+.collapseBtn:hover { color: var(--color-on-surface-muted); }
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.sectionLabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--color-on-surface-dim);
+}
+
+.reasoningText {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-on-surface-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+/* Tools list in expanded view */
+.toolList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.toolRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.toolRowContent {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.toolRowMain {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.argPreview {
+  color: var(--color-on-surface-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+.toolResult {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-on-surface-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--color-background);
+  border-radius: 6px;
+  border: 1px solid var(--color-border-light);
+}
+
+.expandToolBtn {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 1px 2px;
+  color: var(--color-on-surface-dim);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.expandToolBtn:hover { color: var(--color-on-surface-muted); }
+
+/* ── Shared ──────────────────────────────────────────────────────────────── */
+.connector {
+  color: var(--color-border);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  width: 14px;
+  flex-shrink: 0;
+  line-height: 1;
+  padding-top: 1px;
+}
+
+.brainIcon {
+  color: var(--color-on-surface-dim);
+  flex-shrink: 0;
+}
+
+.activeDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-tool-active);
+  flex-shrink: 0;
+}
+
+.pulse {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.doneIcon  { color: var(--color-tool-done); }
+.errorIcon { color: var(--color-error); }
+
+.toolName { font-weight: 600; color: var(--color-on-surface); }
+.toolNameActive { color: var(--color-tool-active); }
+
+.duration {
+  color: var(--color-on-surface-dim);
+  font-size: 11px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
