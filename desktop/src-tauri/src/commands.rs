@@ -347,6 +347,81 @@ mod workspace_tree_tests {
     }
 }
 
+// ── Workspace File Read ────────────────────────────────────────────────────
+
+const WORKSPACE_FILE_MAX_BYTES: u64 = 100 * 1024; // 100 KB
+
+#[derive(Debug, Serialize)]
+pub struct WorkspaceFileResult {
+    pub content: Option<String>,
+    pub truncated: bool,
+    pub binary: bool,
+    pub size: u64,
+}
+
+#[tauri::command]
+pub fn read_workspace_file(root: String, path: String) -> Result<WorkspaceFileResult, String> {
+    let canonical_root = canonicalize_existing_dir(&root, "workspace root")?;
+    let canonical_path = PathBuf::from(&path)
+        .canonicalize()
+        .map_err(|e| format!("file not found: {}", e))?;
+
+    if !canonical_path.starts_with(&canonical_root) {
+        return Err("path escapes workspace root".to_string());
+    }
+
+    let meta = fs::metadata(&canonical_path).map_err(|e| format!("cannot stat file: {}", e))?;
+    let size = meta.len();
+
+    let truncated = size > WORKSPACE_FILE_MAX_BYTES;
+    let read_len = size.min(WORKSPACE_FILE_MAX_BYTES) as usize;
+
+    let mut buf = vec![0u8; read_len];
+    {
+        use std::io::Read;
+        let mut f = fs::File::open(&canonical_path).map_err(|e| format!("cannot open file: {}", e))?;
+        f.read_exact(&mut buf).map_err(|e| format!("read error: {}", e))?;
+    }
+
+    match String::from_utf8(buf) {
+        Ok(content) => Ok(WorkspaceFileResult { content: Some(content), truncated, binary: false, size }),
+        Err(_) => Ok(WorkspaceFileResult { content: None, truncated: false, binary: true, size }),
+    }
+}
+
+#[tauri::command]
+pub fn reveal_in_finder(path: String) -> Result<(), String> {
+    use std::process::Command;
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| format!("reveal failed: {}", e))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .args([format!("/select,{}", path)])
+            .spawn()
+            .map_err(|e| format!("reveal failed: {}", e))?;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let parent = PathBuf::from(&path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or(path);
+        Command::new("xdg-open")
+            .arg(&parent)
+            .spawn()
+            .map_err(|e| format!("reveal failed: {}", e))?;
+    }
+
+    Ok(())
+}
+
 // ── Git Diff Types ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]

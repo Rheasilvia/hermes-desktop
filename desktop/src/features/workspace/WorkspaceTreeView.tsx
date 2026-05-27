@@ -1,8 +1,10 @@
 import type { Component } from 'solid-js';
 import { For, Show, createEffect, createMemo, createSignal } from 'solid-js';
-import type { WorkspaceTreeRow } from '@/types/index.js';
+import type { WorkspaceTreeNode, WorkspaceTreeRow } from '@/types/index.js';
 import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { WorkspaceContextMenu } from './WorkspaceContextMenu.js';
+import { WorkspaceFilePreview } from './WorkspaceFilePreview.js';
 import styles from './WorkspaceTreeView.module.css';
 
 interface WorkspaceTreeViewProps {
@@ -13,6 +15,8 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
   const [focusedIndex, setFocusedIndex] = createSignal(0);
   const rows = createMemo(() => workspaceTreeStore.rows());
   const state = createMemo(() => workspaceTreeStore.state());
+  const [previewNode, setPreviewNode] = createSignal<WorkspaceTreeNode | null>(null);
+  const [contextMenu, setContextMenu] = createSignal<{ node: WorkspaceTreeNode; x: number; y: number } | null>(null);
 
   createEffect(() => {
     void props.workspacePath;
@@ -114,7 +118,14 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
                         workspaceTreeStore.selectPath(row.node.path);
                         if (row.node.kind === 'directory') void workspaceTreeStore.toggleExpanded(row.node.path);
                       }}
-                      onDblClick={() => copyPath(row.node.path)}
+                      onDblClick={() => {
+                        if (row.node.kind === 'file') setPreviewNode(row.node);
+                        else void copyPath(row.node.path);
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setContextMenu({ node: row.node, x: e.clientX, y: e.clientY });
+                      }}
                       title={row.node.path}
                     >
                       <span class={isDirectory() ? styles.chevron : styles.chevronPlaceholder} aria-hidden="true">
@@ -138,6 +149,26 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
             </For>
           </Show>
         </div>
+      </Show>
+      <Show when={previewNode()}>
+        {(node) => (
+          <WorkspaceFilePreview
+            node={node()}
+            workspaceRoot={state()?.root ?? ''}
+            onClose={() => setPreviewNode(null)}
+          />
+        )}
+      </Show>
+      <Show when={contextMenu()}>
+        {(menu) => (
+          <WorkspaceContextMenu
+            node={menu().node}
+            workspaceRoot={state()?.root ?? ''}
+            position={{ x: menu().x, y: menu().y }}
+            onClose={() => setContextMenu(null)}
+            onPreview={() => setPreviewNode(menu().node)}
+          />
+        )}
       </Show>
     </div>
   );
