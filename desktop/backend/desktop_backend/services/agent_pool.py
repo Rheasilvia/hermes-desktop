@@ -31,6 +31,9 @@ class PooledAgent:
     running: bool = False
     # Track active thread so we can join it on shutdown
     active_thread: threading.Thread | None = None
+    # Provider/model this agent was built with — used to detect stale entries
+    built_provider: str | None = None
+    built_model: str | None = None
 
 
 class AgentPool:
@@ -66,8 +69,13 @@ class AgentPool:
                 return entry
 
             # Build a new agent
-            agent = self._build_agent(session_id)
-            entry = PooledAgent(agent=agent, session_id=session_id)
+            agent, built_model, built_provider = self._build_agent(session_id)
+            entry = PooledAgent(
+                agent=agent,
+                session_id=session_id,
+                built_model=built_model or None,
+                built_provider=built_provider or None,
+            )
             self._agents[session_id] = entry
 
             # Evict if over capacity
@@ -113,6 +121,28 @@ class AgentPool:
             entry = self._agents.get(session_id)
             if entry and not entry.running:
                 del self._agents[session_id]
+
+    def evict_if_stale(self, session_id: str, provider: str | None, model: str | None) -> bool:
+        """Evict the cached agent if provider or model differs from when it was built.
+
+        Returns True if evicted. Skips eviction if the agent is currently running.
+        This is needed because setSessionProvider updates the DB before prompt.execute
+        arrives, so sync_model_from_frontend would see no change in the DB.
+        """
+        with self._lock:
+            entry = self._agents.get(session_id)
+            if entry is None or entry.running:
+                return False
+            provider_stale = bool(provider) and entry.built_provider != provider
+            model_stale = bool(model) and entry.built_model != model
+            if provider_stale or model_stale:
+                log.info(
+                    "[agent_pool] evicting stale agent for %s: built=(%r,%r) requested=(%r,%r)",
+                    session_id, entry.built_provider, entry.built_model, provider, model,
+                )
+                del self._agents[session_id]
+                return True
+            return False
 
     def shutdown(self) -> None:
         """Interrupt all running agents and clear the pool."""
@@ -281,7 +311,7 @@ class AgentPool:
             except Exception:
                 pass
 
-        return agent
+        return agent, model, provider
 
     def _evict_if_needed(self) -> None:
         """Evict least-recently-used idle agents until under capacity."""
