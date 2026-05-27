@@ -437,8 +437,10 @@ pub fn run_git_diff(cwd: String) -> Result<GitDiffResult, String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        // "not a git repository" → return empty result instead of error
-        if stderr.contains("not a git repository") {
+        // exit 128 = git fatal (any locale); case-insensitive string covers macOS
+        // "warning: Not a git repository" (exit 129) and English "fatal: not a git repository"
+        let exit_code = output.status.code().unwrap_or(-1);
+        if exit_code == 128 || stderr.to_lowercase().contains("not a git repository") {
             return Ok(GitDiffResult {
                 files: vec![],
                 summary: DiffSummary {
