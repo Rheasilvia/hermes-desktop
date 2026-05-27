@@ -70,7 +70,6 @@ export const WorkspacePicker: Component<WorkspacePickerProps> = (props) => {
             title: 'Select Workspace',
           });
           if (selected && typeof selected === 'string') {
-            console.log('[WorkspacePicker] selected:', selected);
             props.onChange?.(selected);
           }
         } catch {
