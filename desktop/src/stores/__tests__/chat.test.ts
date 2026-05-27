@@ -45,6 +45,30 @@ describe('handleMessageComplete — tool blocks', () => {
     chatStore.clearMessages(SESSION_MSG_COMPLETE);
   });
 
+  it('places tool_call blocks before text blocks (reasoning → tools → text)', () => {
+    // Regression: tool cards jumped to message bottom after turn completed.
+    // handleMessageComplete was building [reasoning, text, tools] but
+    // parseMessage (DB path) builds [reasoning, tools, text].
+    chatStore.handleToolStart(SESSION_MSG_COMPLETE, { tool_id: 'order_tool', name: 'terminal' });
+    chatStore.handleToolComplete(SESSION_MSG_COMPLETE, {
+      tool_id: 'order_tool',
+      name: 'terminal',
+      duration_s: 0.1,
+    });
+    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { text: 'Here is the result', usage: null });
+
+    const messages = chatStore.getMessages(SESSION_MSG_COMPLETE);
+    const lastMsg = messages[messages.length - 1];
+    const types = lastMsg.blocks.map((b) => b.type);
+
+    const toolIdx = types.indexOf('tool_call');
+    const textIdx = types.findIndex((t) => t === 'text' || t === 'code');
+
+    expect(toolIdx).toBeGreaterThanOrEqual(0);
+    expect(textIdx).toBeGreaterThanOrEqual(0);
+    expect(toolIdx).toBeLessThan(textIdx);       // tool must come BEFORE text
+  });
+
   it('forwards resultSummary into ToolCallBlock.outputSummary', () => {
     chatStore.handleToolStart(SESSION_MSG_COMPLETE, { tool_id: 'tool_3', name: 'web_search' });
     chatStore.handleToolComplete(SESSION_MSG_COMPLETE, {

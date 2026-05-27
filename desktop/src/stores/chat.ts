@@ -364,8 +364,8 @@ export const chatStore = {
           isStreaming: false,
           tokenCount: null,
         }] : []),
-        ...parseBlocks(payload.text),
         ...toolBlocks,
+        ...parseBlocks(payload.text),
       ];
 
       const finalMsg: RenderedMessage = {
