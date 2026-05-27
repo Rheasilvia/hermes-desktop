@@ -294,6 +294,5 @@
 .duration {
   color: var(--color-on-surface-dim);
   font-size: 11px;
-  margin-left: auto;
   flex-shrink: 0;
 }
