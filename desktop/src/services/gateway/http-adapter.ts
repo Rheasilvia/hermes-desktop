@@ -33,6 +33,7 @@ import type {
   SkillInfo,
   ModelOption,
 } from './types.js';
+import type { ParsedToolCall } from '@/types/index.js';
 import { httpClient, type HttpClient } from '@/services/api/http-client.js';
 
 const API_PREFIX = '/desktop/api';
@@ -173,98 +174,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
 
       messages: async (sessionId: string): Promise<SessionMessage[]> => {
         const rows = await this.http.get<Array<Record<string, unknown>>>(`${API_PREFIX}/sessions/${sessionId}/messages`);
-
-        // Aggregate ui_messages events into logical SessionMessages.
-        // reasoning.delta → accumulated reasoning text
-        // message.delta   → accumulated content (fallback if no message.complete)
-        // message.complete → final assistant message with content + reasoning
-        // turn_error      → error message
-        const messages: SessionMessage[] = [];
-        let reasoningAcc = '';
-        let contentAcc = '';
-        let lastAssistant: Partial<SessionMessage> | null = null;
-
-        const flushAssistant = (seq: number) => {
-          const content = (lastAssistant?.content) ?? (contentAcc || null);
-          const reasoning = reasoningAcc || null;
-          if (content || reasoning || lastAssistant) {
-            messages.push({
-              id: seq,
-              session_id: sessionId,
-              role: 'assistant',
-              content: content ?? '',
-              reasoning,
-              tool_calls: null,
-              tool_call_id: null,
-              tool_name: null,
-              timestamp: new Date().toISOString(),
-              token_count: (lastAssistant?.token_count as number) ?? null,
-              finish_reason: null,
-            } as unknown as SessionMessage);
-          }
-          reasoningAcc = '';
-          contentAcc = '';
-          lastAssistant = null;
-        };
-
-        for (const r of rows) {
-          const payload = (r.payload as Record<string, unknown>) ?? {};
-          const msgType = String(r.type ?? '');
-          const seq = Number(r.seq ?? 0);
-
-          switch (msgType) {
-            case 'user': {
-              if (lastAssistant || contentAcc || reasoningAcc) {
-                flushAssistant(seq - 1);
-              }
-              messages.push({
-                id: seq,
-                session_id: sessionId,
-                role: 'user',
-                content: String(payload.text ?? ''),
-                reasoning: null,
-                tool_calls: null,
-                tool_call_id: null,
-                tool_name: null,
-                timestamp: new Date().toISOString(),
-                token_count: null,
-                finish_reason: null,
-              } as unknown as SessionMessage);
-              break;
-            }
-            case 'reasoning.delta': {
-              reasoningAcc += String(payload.text ?? '');
-              break;
-            }
-            case 'message.delta': {
-              contentAcc += String(payload.text ?? '');
-              break;
-            }
-            case 'message.complete': {
-              lastAssistant = {
-                content: String(payload.text ?? ''),
-                token_count: (payload.usage as Record<string, number> | undefined)?.total ?? null,
-              };
-              flushAssistant(seq);
-              break;
-            }
-            case 'turn_error': {
-              lastAssistant = {
-                content: String(payload.error ?? 'Error occurred'),
-              };
-              flushAssistant(seq);
-              break;
-            }
-          }
-        }
-
-        // Flush any trailing partial assistant turn (interrupted streaming)
-        if (lastAssistant || contentAcc || reasoningAcc) {
-          const lastSeq = rows.length > 0 ? Number(rows[rows.length - 1].seq ?? 0) : 0;
-          flushAssistant(lastSeq);
-        }
-
-        return messages;
+        return this.aggregateEventRows(sessionId, rows);
       },
     };
 
@@ -380,6 +290,169 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     this.complete = { slash: notImplemented('complete.slash'), path: notImplemented('complete.path') };
     this.slash = { exec: notImplemented('slash.exec') };
     this.command = { dispatch: notImplemented('command.dispatch') };
+  }
+
+  // ── Message aggregation ───────────────────────────────────────────────
+
+  /**
+   * Aggregate raw event rows (from the DB) into logical SessionMessage[].
+   *
+   * Handles:
+   *   tool.start / tool.generating / tool.complete / tool.error → tool_calls per turn
+   *   reasoning.delta → accumulated reasoning text
+   *   message.delta   → accumulated content (fallback if no message.complete)
+   *   message.complete → flush assistant message with content + reasoning + tool_calls
+   *   turn_error      → flush assistant message with error content
+   *   user            → user message
+   */
+  aggregateEventRows(
+    sessionId: string,
+    rows: Array<Record<string, unknown>>,
+  ): SessionMessage[] {
+    const messages: SessionMessage[] = [];
+    let reasoningAcc = '';
+    let contentAcc = '';
+    let lastAssistant: Partial<SessionMessage> | null = null;
+    let seqCounter = 0;
+    const pendingTools = new Map<string, ParsedToolCall & { seqIndex: number }>();
+    const inputAccumulator = new Map<string, string>();
+
+    const flushAssistant = (seq: number) => {
+      const content = lastAssistant?.content ?? (contentAcc || null);
+      const reasoning = reasoningAcc || null;
+      if (content || reasoning || lastAssistant || pendingTools.size > 0) {
+        const tool_calls: ParsedToolCall[] | null =
+          pendingTools.size > 0
+            ? [...pendingTools.values()]
+                .sort((a, b) => a.seqIndex - b.seqIndex)
+                .map(({ seqIndex: _s, ...tc }) => tc)
+            : null;
+        messages.push({
+          id: seq,
+          session_id: sessionId,
+          role: 'assistant',
+          content: content ?? '',
+          reasoning,
+          tool_calls,
+          tool_call_id: null,
+          tool_name: null,
+          timestamp: new Date().toISOString(),
+          token_count: (lastAssistant?.token_count as number) ?? null,
+          finish_reason: null,
+        } as unknown as SessionMessage);
+      }
+      reasoningAcc = '';
+      contentAcc = '';
+      lastAssistant = null;
+      seqCounter = 0;
+      pendingTools.clear();
+      inputAccumulator.clear();
+    };
+
+    for (const r of rows) {
+      const payload = (r.payload as Record<string, unknown>) ?? {};
+      const msgType = String(r.type ?? '');
+      const seq = Number(r.seq ?? 0);
+
+      switch (msgType) {
+        case 'user': {
+          if (lastAssistant || contentAcc || reasoningAcc || pendingTools.size > 0) {
+            flushAssistant(seq - 1);
+          }
+          messages.push({
+            id: seq,
+            session_id: sessionId,
+            role: 'user',
+            content: String(payload.text ?? ''),
+            reasoning: null,
+            tool_calls: null,
+            tool_call_id: null,
+            tool_name: null,
+            timestamp: new Date().toISOString(),
+            token_count: null,
+            finish_reason: null,
+          } as unknown as SessionMessage);
+          break;
+        }
+        case 'tool.start': {
+          const id = String(payload.tool_id ?? '');
+          pendingTools.set(id, {
+            id,
+            name: String(payload.name ?? ''),
+            arguments: {},
+            status: 'running',
+            outputSummary: null,
+            durationMs: null,
+            seqIndex: seqCounter++,
+          });
+          break;
+        }
+        case 'tool.generating': {
+          const id = String(payload.tool_id ?? '');
+          inputAccumulator.set(id, (inputAccumulator.get(id) ?? '') + String(payload.text ?? ''));
+          break;
+        }
+        case 'tool.complete': {
+          const id = String(payload.tool_id ?? '');
+          const tc = pendingTools.get(id);
+          if (tc) {
+            let args: Record<string, unknown> = {};
+            try { args = JSON.parse(inputAccumulator.get(id) ?? '{}'); } catch { /* leave empty */ }
+            pendingTools.set(id, {
+              ...tc,
+              arguments: args,
+              status: 'complete',
+              outputSummary: payload.summary != null ? String(payload.summary) : null,
+              durationMs: payload.duration_s != null ? Math.round(Number(payload.duration_s) * 1000) : null,
+            });
+          }
+          break;
+        }
+        case 'tool.error': {
+          const id = String(payload.tool_id ?? '');
+          const tc = pendingTools.get(id);
+          if (tc) {
+            pendingTools.set(id, {
+              ...tc,
+              status: 'error',
+              durationMs: payload.duration_s != null ? Math.round(Number(payload.duration_s) * 1000) : null,
+            });
+          }
+          break;
+        }
+        case 'reasoning.delta': {
+          reasoningAcc += String(payload.text ?? '');
+          break;
+        }
+        case 'message.delta': {
+          contentAcc += String(payload.text ?? '');
+          break;
+        }
+        case 'message.complete': {
+          lastAssistant = {
+            content: String(payload.text ?? ''),
+            token_count: (payload.usage as Record<string, number> | undefined)?.total ?? null,
+          };
+          flushAssistant(seq);
+          break;
+        }
+        case 'turn_error': {
+          lastAssistant = {
+            content: String(payload.error ?? 'Error occurred'),
+          };
+          flushAssistant(seq);
+          break;
+        }
+      }
+    }
+
+    // Flush any trailing partial assistant turn (interrupted streaming)
+    if (lastAssistant || contentAcc || reasoningAcc || pendingTools.size > 0) {
+      const lastRowSeq = rows.length > 0 ? Number(rows[rows.length - 1].seq ?? 0) : 0;
+      flushAssistant(lastRowSeq);
+    }
+
+    return messages;
   }
 
   // ── Event emitter ─────────────────────────────────────────────────────
