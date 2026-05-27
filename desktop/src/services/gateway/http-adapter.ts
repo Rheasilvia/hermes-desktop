@@ -471,8 +471,16 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       case 'tool.generating':
         this.emit('tool.generating', {
           tool_id: String(payload.tool_id ?? ''),
+          name: String(payload.name ?? ''),
           text: String(payload.text ?? ''),
         } as GatewayEventMap['tool.generating']);
+        break;
+      case 'tool.progress':
+        this.emit('tool.progress', {
+          name: String(payload.name ?? ''),
+          preview: payload.preview != null ? String(payload.preview) : undefined,
+          progress: payload.progress != null ? String(payload.progress) : undefined,
+        } as GatewayEventMap['tool.progress']);
         break;
       case 'approval.request':
         this.emit('approval.request', {
