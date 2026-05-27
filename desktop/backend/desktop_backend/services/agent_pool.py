@@ -245,8 +245,8 @@ class AgentPool:
             base_url=base_url or None,
             api_key=api_key or None,
             stream_delta_callback=self._make_stream_delta_cb(session_id),
-            tool_start_callback=self._make_tool_start_cb(session_id),
-            tool_complete_callback=self._make_tool_complete_cb(session_id),
+            tool_start_callback=(_tool_start_cb := self._make_tool_start_cb(session_id)),
+            tool_complete_callback=self._make_tool_complete_cb(session_id, _tool_start_cb),
             reasoning_callback=self._make_reasoning_cb(session_id),
             tool_gen_callback=self._make_tool_gen_cb(session_id),
             platform="desktop",
@@ -331,22 +331,34 @@ class AgentPool:
             self._emit_ui_message(session_id, "message.delta", {"text": delta})
         return cb
 
-    def _make_tool_start_cb(self, session_id: str) -> Callable[[str, str], None]:
-        def cb(name: str, args_preview: str = "") -> None:
+    def _make_tool_start_cb(self, session_id: str) -> Callable:
+        start_times: Dict[str, float] = {}
+
+        def cb(tool_call_id: str, name: str, args: dict = None) -> None:
+            start_times[tool_call_id] = time.time()
             self._emit_ui_message(session_id, "tool.start", {
-                "tool_id": f"{name}_{int(time.time() * 1000)}",
+                "tool_id": tool_call_id,
                 "name": name,
-                "args_preview": args_preview,
+                "args_preview": str(args)[:200] if args else "",
             })
+
+        cb._start_times = start_times  # type: ignore[attr-defined]
         return cb
 
-    def _make_tool_complete_cb(self, session_id: str) -> Callable:
-        def cb(name: str, result_summary: str = "", duration_s: float = 0.0) -> None:
+    def _make_tool_complete_cb(self, session_id: str, start_cb: Callable = None) -> Callable:
+        def cb(tool_call_id: str, name: str, args: dict = None, result: str = "") -> None:
+            duration_s = 0.0
+            if start_cb is not None and hasattr(start_cb, "_start_times"):
+                t0 = start_cb._start_times.pop(tool_call_id, None)
+                if t0 is not None:
+                    duration_s = round(time.time() - t0, 3)
             self._emit_ui_message(session_id, "tool.complete", {
+                "tool_id": tool_call_id,
                 "name": name,
-                "summary": result_summary,
-                "duration_s": round(duration_s, 3),
+                "summary": (result or "")[:500],
+                "duration_s": duration_s,
             })
+
         return cb
 
     def _make_reasoning_cb(self, session_id: str) -> Callable[[str], None]:

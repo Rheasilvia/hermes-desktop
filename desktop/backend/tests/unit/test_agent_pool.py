@@ -1,7 +1,4 @@
-"""Unit tests for AgentPool eviction and pinning mechanics.
-
-Tests pool lifecycle without requiring a real AIAgent.
-"""
+"""Unit tests for AgentPool eviction, pinning, and tool callback mechanics."""
 from __future__ import annotations
 
 import time
@@ -119,3 +116,74 @@ class TestAgentPoolEviction:
 
         with pool._lock:
             assert len(pool._agents) == 0
+
+
+class TestToolCallbacks:
+    """Tool event callbacks must match the signature run_agent actually calls them with.
+
+    run_agent calls:
+      tool_start_callback(tool_call_id, function_name, function_args)
+      tool_complete_callback(tool_call_id, function_name, function_args, function_result)
+
+    Callbacks must emit ui_messages rows with tool_id so the frontend can correlate
+    tool.start and tool.complete events for the same tool call.
+    """
+
+    @pytest.fixture
+    def pool_with_captured_emissions(self):
+        """AgentPool whose _emit_ui_message is captured instead of hitting the DB."""
+        bus = EventBus()
+        with patch.object(AgentPool, "_build_agent", side_effect=lambda sid: _FakeAIAgent(sid)):
+            p = AgentPool(
+                hermes_home=MagicMock(),
+                event_bus=bus,
+                session_db=MagicMock(),
+            )
+        emitted = []
+        p._emit_ui_message = lambda sid, typ, payload: emitted.append((sid, typ, payload))
+        return p, emitted
+
+    def test_tool_start_cb_accepts_run_agent_signature(self, pool_with_captured_emissions):
+        """Tracer bullet: tool_start_callback(tool_call_id, name, args) must not raise."""
+        pool, emitted = pool_with_captured_emissions
+        cb = pool._make_tool_start_cb("sess_1")
+
+        # run_agent calls with exactly these 3 positional args
+        cb("call_abc123", "terminal", {"command": "ls /tmp"})
+
+        assert len(emitted) == 1
+
+    def test_tool_start_cb_emits_tool_id_from_run_agent(self, pool_with_captured_emissions):
+        """tool.start event must carry tool_id matching the call_id from run_agent."""
+        pool, emitted = pool_with_captured_emissions
+        cb = pool._make_tool_start_cb("sess_1")
+
+        cb("call_abc123", "terminal", {"command": "ls /tmp"})
+
+        _, typ, payload = emitted[0]
+        assert typ == "tool.start"
+        assert payload["tool_id"] == "call_abc123"
+        assert payload["name"] == "terminal"
+
+    def test_tool_complete_cb_accepts_run_agent_signature(self, pool_with_captured_emissions):
+        """tool_complete_callback(tool_call_id, name, args, result) must not raise."""
+        pool, emitted = pool_with_captured_emissions
+        cb = pool._make_tool_complete_cb("sess_1")
+
+        # run_agent calls with exactly these 4 positional args
+        cb("call_abc123", "terminal", {"command": "ls /tmp"}, "file1\nfile2\n")
+
+        assert len(emitted) == 1
+
+    def test_tool_complete_cb_emits_tool_id(self, pool_with_captured_emissions):
+        """tool.complete event must carry tool_id so frontend can match it to tool.start."""
+        pool, emitted = pool_with_captured_emissions
+        cb = pool._make_tool_complete_cb("sess_1")
+
+        cb("call_abc123", "terminal", {"command": "ls /tmp"}, "file1\nfile2\n")
+
+        _, typ, payload = emitted[0]
+        assert typ == "tool.complete"
+        assert payload["tool_id"] == "call_abc123"
+        assert payload["name"] == "terminal"
+        assert "summary" in payload
