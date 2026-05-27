@@ -10,6 +10,7 @@ import type {
   RichContentBlock,
   AttachmentBlock,
   MessageAction,
+  ToolCallRow,
 } from '@/types/index.js';
 import { parseMarkdown } from '@/utils/markdown.js';
 import { CodeBlock } from './CodeBlock.js';
@@ -27,6 +28,7 @@ interface AssistantMessageProps {
   isStreaming?: boolean;
   actions?: MessageAction[];
   onAction?: (action: MessageActionType) => void;
+  liveToolRows?: ToolCallRow[];
 }
 
 type BlockGroup =
@@ -108,17 +110,19 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
           </Show>
         </div>
         {/* TurnActivityPanel outside <For> — preserves ThinkingIndicator RAF stability */}
-        <Show when={reasoningBlock() || firstToolGroup()}>
+        <Show when={reasoningBlock() || firstToolGroup() || (props.liveToolRows && props.liveToolRows.length > 0)}>
           <TurnActivityPanel
             reasoning={reasoningBlock() ? {
               content: reasoningBlock()!.content,
               isStreaming: reasoningBlock()!.isStreaming,
               tokenCount: reasoningBlock()!.tokenCount,
             } : undefined}
-            toolRows={(firstToolGroup()?.blocks ?? []).map(blockToRow)}
-            isLive={(firstToolGroup()?.blocks ?? []).some(
-              (b) => b.status === 'streaming' || b.status === 'running'
-            )}
+            toolRows={props.liveToolRows ?? (firstToolGroup()?.blocks ?? []).map(blockToRow)}
+            isLive={
+              props.liveToolRows
+                ? props.liveToolRows.some(r => r.status === 'generating' || r.status === 'running')
+                : (firstToolGroup()?.blocks ?? []).some(b => b.status === 'streaming' || b.status === 'running')
+            }
           />
         </Show>
         <For each={remainingGroups()}>
