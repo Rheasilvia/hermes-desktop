@@ -82,16 +82,36 @@ function sessionMsgToDomain(msg: SessionMessage, sessionId: string): Conversatio
   let toolCalls: ParsedToolCall[] | null = null;
   const rawCalls = msg.tool_calls;
   if (rawCalls && Array.isArray(rawCalls)) {
-    toolCalls = (rawCalls as Array<{ id: string; status?: 'complete' | 'error' | 'running'; function: { name: string; arguments: string } }>)
-      .map((tc) => ({
-        id: tc.id,
-        name: tc.function.name,
-        status: tc.status,
-        arguments: (() => {
-          try { return JSON.parse(tc.function.arguments) as Record<string, unknown>; }
-          catch { return { raw: tc.function.arguments }; }
-        })(),
-      }));
+    toolCalls = (rawCalls as Array<
+      // OpenAI wire format
+      | { id: string; type: 'function'; status?: 'complete' | 'error' | 'running'; function: { name: string; arguments: string } }
+      // ParsedToolCall format (produced by aggregateEventRows)
+      | ParsedToolCall
+    >).map((tc) => {
+      if ('function' in tc && tc.function != null) {
+        // OpenAI wire format: { id, type: 'function', function: { name, arguments: string } }
+        return {
+          id: tc.id,
+          name: tc.function.name,
+          status: tc.status,
+          arguments: (() => {
+            try { return JSON.parse(tc.function.arguments) as Record<string, unknown>; }
+            catch { return { raw: tc.function.arguments }; }
+          })(),
+        } satisfies ParsedToolCall;
+      } else {
+        // ParsedToolCall format: { id, name, arguments: object, status?, outputSummary?, durationMs? }
+        const ptc = tc as ParsedToolCall;
+        return {
+          id: ptc.id,
+          name: ptc.name,
+          status: ptc.status,
+          arguments: ptc.arguments,
+          outputSummary: ptc.outputSummary,
+          durationMs: ptc.durationMs,
+        } satisfies ParsedToolCall;
+      }
+    });
   }
   return {
     id: 0,
