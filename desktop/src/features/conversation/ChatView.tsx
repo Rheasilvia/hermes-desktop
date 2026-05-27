@@ -34,7 +34,6 @@ import { EmptyChatState } from './EmptyChatState.js';
 import { ErrorBanner } from './ErrorBanner.js';
 import { WorkspaceBanner } from './WorkspaceBanner.js';
 import { Icon } from '@/ui/atoms/Icon.js';
-import { TurnActivityPanel } from './TurnActivityPanel.js';
 import { ApprovalCard } from './ApprovalCard.js';
 import { ClarificationCard } from './ClarificationCard.js';
 import { MemoryContextCard } from './MemoryContextCard.js';
@@ -94,13 +93,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       });
     }
     return blocks;
-  });
-
-  // Text-only blocks for streaming text — reasoning handled by TurnActivityPanel
-  const liveTextBlocks = createMemo((): MessageBlock[] => {
-    const live = liveState();
-    if (!live.streamingText) return [];
-    return [{ type: 'text', id: 'live-text', content: live.streamingText }];
   });
 
   function computeDateSeparators(msgs: RenderedMessage[]): Map<number, string> {
@@ -478,23 +470,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                     );
                   }}
                 </For>
-                {/* Unified reasoning + tools panel for the live turn */}
-                <Show when={liveState().reasoningText || liveState().activeTools.length > 0}>
-                  <TurnActivityPanel
-                    reasoning={liveState().reasoningText ? {
-                      content: liveState().reasoningText,
-                      isStreaming: true,
-                      tokenCount: null,
-                    } : undefined}
-                    toolRows={liveState().activeTools.map(liveToRow)}
-                    isLive={liveState().activeTools.length > 0}
-                  />
-                </Show>
-                {/* Streaming text only */}
-                <Show when={liveTextBlocks().length > 0}>
+                <Show when={liveBlocks().length > 0 || liveState().activeTools.length > 0}>
                   <AssistantMessage
-                    blocks={liveTextBlocks()}
+                    blocks={liveBlocks()}
                     isStreaming={true}
+                    liveToolRows={liveState().activeTools.map(liveToRow)}
                   />
                 </Show>
                 <div ref={messagesEndRef} />
