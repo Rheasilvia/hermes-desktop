@@ -42,6 +42,8 @@ pub fn run() {
             commands::get_workspace_root,
             commands::list_workspace_children,
             commands::run_git_diff,
+            commands::read_workspace_file,
+            commands::reveal_in_finder,
             sidecar_info,
             updater::check_for_updates,
             updater::install_update,

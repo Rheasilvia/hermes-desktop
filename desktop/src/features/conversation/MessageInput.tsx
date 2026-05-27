@@ -1,5 +1,6 @@
 import type { Accessor, Component } from 'solid-js';
 import { createSignal, createEffect, Show, For } from 'solid-js';
+import { fileChipQueue } from '@/stores/file-chip-queue.js';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Icon } from '@/ui/atoms/Icon';
 import { WorkspacePicker } from './WorkspacePicker';
@@ -172,6 +173,14 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
         autoResize(textareaRef);
         textareaRef.focus();
       }
+    }
+  });
+
+  createEffect(() => {
+    const chips = fileChipQueue.pending();
+    if (chips.length > 0) {
+      const asAttachments = fileChipQueue.flush().map(c => ({ name: c.name, size: 0, path: c.path }));
+      setAttachments(prev => [...prev, ...asAttachments]);
     }
   });
 
