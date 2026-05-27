@@ -14,7 +14,7 @@ import type {
 import { parseMarkdown } from '@/utils/markdown.js';
 import { CodeBlock } from './CodeBlock.js';
 import { ToolCallPanel } from './ToolCallPanel.js';
-import { ReasoningPanel } from './ReasoningPanel.js';
+import { TurnActivityPanel } from './TurnActivityPanel.js';
 import { RichContentRenderer } from './RichContentRenderer.js';
 import { AttachmentRenderer } from './AttachmentRenderer.js';
 import { blockToRow } from './toolCallMappers.js';
@@ -81,6 +81,18 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
     return groups;
   });
 
+  // First tool_group — merged into TurnActivityPanel alongside reasoning
+  const firstToolGroup = createMemo(() => {
+    const g = blockGroups();
+    return g[0]?.type === 'tool_group' ? g[0] : undefined;
+  });
+
+  // Remaining groups after TurnActivityPanel claims the first tool_group
+  const remainingGroups = createMemo(() => {
+    const g = blockGroups();
+    return firstToolGroup() ? g.slice(1) : g;
+  });
+
   return (
     <div
       class={styles.row}
@@ -95,17 +107,21 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
             <span class={styles.timestamp}>{formatTimestamp(props.timestamp!)}</span>
           </Show>
         </div>
-        {/* Reasoning rendered outside <For> so ThinkingIndicator never remounts on delta */}
-        <Show when={reasoningBlock()}>
-          {(rb) => (
-            <ReasoningPanel
-              content={rb().content}
-              isStreaming={rb().isStreaming}
-              tokenCount={rb().tokenCount}
-            />
-          )}
+        {/* TurnActivityPanel outside <For> — preserves ThinkingIndicator RAF stability */}
+        <Show when={reasoningBlock() || firstToolGroup()}>
+          <TurnActivityPanel
+            reasoning={reasoningBlock() ? {
+              content: reasoningBlock()!.content,
+              isStreaming: reasoningBlock()!.isStreaming,
+              tokenCount: reasoningBlock()!.tokenCount,
+            } : undefined}
+            toolRows={(firstToolGroup()?.blocks ?? []).map(blockToRow)}
+            isLive={(firstToolGroup()?.blocks ?? []).some(
+              (b) => b.status === 'streaming' || b.status === 'running'
+            )}
+          />
         </Show>
-        <For each={blockGroups()}>
+        <For each={remainingGroups()}>
           {(group) => {
             if (group.type === 'tool_group') {
               const isLive = group.blocks.some(
