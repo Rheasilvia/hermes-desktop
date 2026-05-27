@@ -83,9 +83,9 @@ function toolCallToBlock(tc: ParsedToolCall): ToolCallBlock {
     name: tc.name,
     status: tc.status ?? 'complete',
     inputPreview: JSON.stringify(tc.arguments, null, 2),
-    outputSummary: null,
+    outputSummary: tc.outputSummary ?? null,
     inlineDiff: null,
-    durationMs: null,
+    durationMs: tc.durationMs ?? null,
   };
 }
 
