@@ -412,10 +412,11 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           const id = String(payload.tool_id ?? '');
           const tc = pendingTools.get(id);
           if (tc) {
+            const errorDurationMs = payload.duration_s != null ? Math.round(Number(payload.duration_s) * 1000) : null;
             pendingTools.set(id, {
               ...tc,
               status: 'error',
-              durationMs: payload.duration_s != null ? Math.round(Number(payload.duration_s) * 1000) : null,
+              durationMs: errorDurationMs ?? undefined,
             });
           }
           break;
@@ -431,7 +432,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         case 'message.complete': {
           lastAssistant = {
             content: String(payload.text ?? ''),
-            token_count: (payload.usage as Record<string, number> | undefined)?.total ?? null,
+            token_count: (payload.usage as Record<string, number> | undefined)?.total ?? undefined,
           };
           flushAssistant(seq);
           break;
