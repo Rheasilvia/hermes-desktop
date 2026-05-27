@@ -245,6 +245,7 @@ export const chatStore = {
       status: 'running',
       inputPreview: null,
       progressPreview: null,
+      resultSummary: null,
       durationMs: null,
     };
     updateChatState(sessionId, (state) => ({
@@ -279,7 +280,14 @@ export const chatStore = {
         ...state.liveState,
         status: 'streaming',
         activeTools: state.liveState.activeTools.map((t) =>
-          t.id === payload.tool_id ? { ...t, status: 'complete', durationMs } : t
+          t.id === payload.tool_id
+            ? {
+                ...t,
+                status: 'complete' as const,
+                resultSummary: payload.summary ?? null,
+                durationMs,
+              }
+            : t
         ),
       },
     }));
@@ -323,7 +331,7 @@ export const chatStore = {
         name: t.name,
         status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
         inputPreview: t.inputPreview,
-        outputSummary: null,
+        outputSummary: t.resultSummary,
         inlineDiff: null,
         durationMs: t.durationMs,
       }));
