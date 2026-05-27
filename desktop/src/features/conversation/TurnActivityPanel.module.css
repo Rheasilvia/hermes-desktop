@@ -284,8 +284,9 @@
   50% { opacity: 0.35; }
 }
 
-.doneIcon  { color: var(--color-tool-done); }
-.errorIcon { color: var(--color-error); }
+.doneIcon    { color: var(--color-tool-done); }
+.errorIcon   { color: var(--color-error); }
+.neutralIcon { color: var(--color-on-surface-dim); }
 
 .toolName { font-weight: 600; color: var(--color-on-surface); }
 .toolNameActive { color: var(--color-tool-active); }
