@@ -30,7 +30,7 @@
 }
 
 .dot1 { background-color: var(--color-terracotta); }
-.dot2 { background-color: #d97757; animation-delay: 0.2s; }
+.dot2 { background-color: var(--color-primary-hover); animation-delay: 0.2s; }
 .dot3 { background-color: var(--color-on-surface-dim); animation-delay: 0.4s; }
 
 .title {
@@ -67,7 +67,7 @@
 
 .choiceBtnSelected {
   background: var(--color-terracotta);
-  color: #fff;
+  color: var(--color-on-primary);
   border-color: var(--color-terracotta);
 }
 

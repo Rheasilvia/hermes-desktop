@@ -46,6 +46,25 @@
   --color-error: #E07A5F;
   --color-info: #7FB3D5;
 
+  /* --- Colors: Hover/Active overlays (light tint on dark substrate) --- */
+  --color-hover-overlay: rgba(255, 255, 255, 0.06);
+  --color-active-overlay: rgba(255, 255, 255, 0.10);
+
+  /* --- Colors: Primary alpha scale --- */
+  --color-primary-soft: rgba(201, 100, 66, 0.10);
+  --color-primary-strong: rgba(201, 100, 66, 0.30);
+
+  /* --- Colors: Status surface tints (slightly stronger for visibility on dark) --- */
+  --color-success-surface: rgba(143, 168, 130, 0.16);
+  --color-warning-surface: rgba(230, 195, 106, 0.16);
+  --color-error-surface: rgba(224, 122, 95, 0.14);
+  --color-info-surface: rgba(127, 179, 213, 0.14);
+
+  /* --- Conversation tokens (dark variants) --- */
+  --color-callout-bg: #3a2a26;
+  --color-callout-border: #5a3a32;
+  --color-date-separator: #444444;
+
   /* --- Diff View Colors (dark) — brighter for visibility on dark bg --- */
   --diff-addition-color: #73D673;
   --diff-deletion-color: #FF6B6B;

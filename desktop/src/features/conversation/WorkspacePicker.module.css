@@ -6,8 +6,8 @@
   padding: 4px 8px;
   border: none;
   border-radius: 8px;
-  background: #f0eee6;
-  color: #5e5d59;
+  background: var(--color-background-alt);
+  color: var(--color-on-surface-muted);
   font-family: var(--font-sans);
   font-size: 11px;
   font-weight: normal;
@@ -18,7 +18,7 @@
 }
 
 .pill:hover {
-  background: #e8e6dc;
+  background: var(--color-active-overlay);
 }
 
 .pillDisabled {
@@ -27,7 +27,7 @@
 }
 
 .pillDisabled:hover {
-  background: #f0eee6;
+  background: var(--color-background-alt);
 }
 
 .pill span {

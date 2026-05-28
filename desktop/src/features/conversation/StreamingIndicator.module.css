@@ -24,7 +24,7 @@
 }
 
 .dot2 {
-  background-color: #d97757;
+  background-color: var(--color-primary-hover);
   animation-delay: 0.2s;
 }
 

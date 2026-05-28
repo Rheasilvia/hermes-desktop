@@ -38,7 +38,12 @@ export const settingsStore = {
       setConfig(cfg);
       setIsDirty(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load config');
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('not implemented')) {
+        setConfig(null);
+      } else {
+        setError(msg);
+      }
     } finally {
       setIsLoading(false);
     }

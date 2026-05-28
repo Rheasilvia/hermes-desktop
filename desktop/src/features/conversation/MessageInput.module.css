@@ -5,8 +5,8 @@
 
 .inputContainer {
   position: relative;
-  background: #ffffff;
-  border: 1px solid #e8e6dc;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
   border-radius: 16px;
   display: flex;
   flex-direction: column;
@@ -14,12 +14,12 @@
 }
 
 .inputContainerActive {
-  border-color: #c96442;
+  border-color: var(--color-primary);
 }
 
 .inputContainerSending {
-  background: #f5f4ed;
-  border-color: #e8e6dc;
+  background: var(--color-background-alt);
+  border-color: var(--color-border);
 }
 
 .inputContainerWithAttachments {
@@ -42,7 +42,7 @@
   border: none;
   border-radius: 0;
   background: transparent;
-  color: #141413;
+  color: var(--color-on-surface);
   font-family: var(--font-sans);
   font-size: 14px;
   font-weight: normal;
@@ -53,12 +53,12 @@
 }
 
 .textarea::placeholder {
-  color: #b0aea5;
+  color: var(--color-on-surface-dim);
   font-weight: normal;
 }
 
 .textarea:disabled {
-  color: #b0aea5;
+  color: var(--color-on-surface-dim);
 }
 
 .chipsRow {
@@ -73,15 +73,15 @@
   align-items: center;
   gap: 6px;
   border-radius: 20px;
-  background: #f0eee6;
+  background: var(--color-background-alt);
   padding: 4px 10px;
   font-family: var(--font-sans);
   font-size: 12px;
-  color: #5e5d59;
+  color: var(--color-on-surface-muted);
 }
 
 .chipIcon {
-  color: #5e5d59;
+  color: var(--color-on-surface-muted);
   flex-shrink: 0;
 }
 
@@ -101,15 +101,15 @@
   border-radius: 50%;
   border: none;
   background: transparent;
-  color: #87867f;
+  color: var(--color-on-surface-dim);
   cursor: pointer;
   padding: 0;
   transition: all var(--transition-fast);
 }
 
 .chipRemove:hover {
-  background: rgba(20, 20, 19, 0.08);
-  color: #141413;
+  background: var(--color-active-overlay);
+  color: var(--color-on-surface);
 }
 
 .toolbar {
@@ -130,8 +130,8 @@
   height: 32px;
   border-radius: 8px;
   border: none;
-  background: #c96442;
-  color: #faf9f5;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -141,18 +141,18 @@
 }
 
 .sendButton:hover {
-  background: #b55838;
+  background: var(--color-primary-hover);
 }
 
 .sendButtonDisabled {
-  background: #e8e6dc;
-  color: #b0aea5;
+  background: var(--color-background-alt);
+  color: var(--color-on-surface-dim);
   cursor: default;
 }
 
 .sendButtonDisabled:hover {
-  background: #e8e6dc;
-  color: #b0aea5;
+  background: var(--color-background-alt);
+  color: var(--color-on-surface-dim);
 }
 
 .stopButton {
@@ -161,8 +161,8 @@
   gap: 6px;
   border-radius: 8px;
   border: none;
-  background: #fdecea;
-  color: #c0392b;
+  background: var(--color-error-surface);
+  color: var(--color-error);
   cursor: pointer;
   padding: 6px 12px;
   font-family: var(--font-sans);
@@ -173,7 +173,8 @@
 }
 
 .stopButton:hover {
-  background: #f5d5d0;
+  background: var(--color-error-surface);
+  filter: brightness(0.95);
 }
 
 .actionBtn {
@@ -182,7 +183,7 @@
   border-radius: 8px;
   border: none;
   background: transparent;
-  color: #87867f;
+  color: var(--color-on-surface-dim);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -192,8 +193,8 @@
 }
 
 .actionBtn:hover {
-  background: rgba(20, 20, 19, 0.04);
-  color: #141413;
+  background: var(--color-hover-overlay);
+  color: var(--color-on-surface);
 }
 
 .actionBtn:disabled {
@@ -209,4 +210,3 @@
 .inputContainerSending .modelPill {
   opacity: 0.5;
 }
-

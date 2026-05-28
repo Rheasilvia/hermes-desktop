@@ -1,6 +1,5 @@
 import type { Component } from 'solid-js';
 import { createSignal, For, onMount, Show } from 'solid-js';
-import { settingsStore } from '@/stores/settings.js';
 import { uiStore } from '@/stores/ui.js';
 import { ConfigField } from '../ConfigField.js';
 import { setTheme, type ThemeName } from '@/services/theme.js';
@@ -62,9 +61,6 @@ export const GeneralTab: Component = () => {
     setLoading(false);
   });
 
-  const config = () => settingsStore.config;
-  const display = () => config()?.display;
-
   const handleDesktopChange = async <K extends keyof DesktopSettings>(
     key: K,
     value: DesktopSettings[K],
@@ -80,11 +76,6 @@ export const GeneralTab: Component = () => {
   const handleThemeSelect = async (themeName: ThemeName) => {
     setTheme(themeName);
     await handleDesktopChange('theme', themeName);
-  };
-
-  const handleConfigChange = (key: string, value: unknown) => {
-    settingsStore.markDirty();
-    settingsStore.saveConfig(key, value);
   };
 
   const handleClearCache = async () => {
@@ -162,15 +153,15 @@ export const GeneralTab: Component = () => {
             label="Show Cost"
             description="Display token cost during conversations"
             type="toggle"
-            value={display()?.show_cost ?? false}
-            onChange={(v) => handleConfigChange('display.show_cost', v)}
+            value={desktop()?.showCost ?? false}
+            onChange={(v) => handleDesktopChange('showCost', v as boolean)}
           />
           <ConfigField
             label="Show Reasoning"
             description="Display model thinking and reasoning output"
             type="toggle"
-            value={display()?.show_reasoning ?? false}
-            onChange={(v) => handleConfigChange('display.show_reasoning', v)}
+            value={desktop()?.showReasoning ?? false}
+            onChange={(v) => handleDesktopChange('showReasoning', v as boolean)}
           />
           <ConfigField
             label="Auto-save Sessions"

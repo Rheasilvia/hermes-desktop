@@ -49,15 +49,15 @@
 }
 
 .close {
-  background: #FF5F57;
+  background: #FF5F57; /* literal-ok: macOS traffic-light red */
 }
 
 .minimize {
-  background: #FFBD2E;
+  background: #FFBD2E; /* literal-ok: macOS traffic-light yellow */
 }
 
 .maximize {
-  background: #28C840;
+  background: #28C840; /* literal-ok: macOS traffic-light green */
 }
 
 .brand {

@@ -16,6 +16,8 @@ describe('desktop-settings', () => {
     confirmDestructive: true,
     startupBehavior: 'new',
     checkUpdates: false,
+    showCost: false,
+    showReasoning: false,
   };
 
   beforeEach(() => {

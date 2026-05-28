@@ -32,7 +32,7 @@
 }
 
 .dot1 { background-color: var(--color-terracotta); }
-.dot2 { background-color: #d97757; animation-delay: 0.2s; }
+.dot2 { background-color: var(--color-primary-hover); animation-delay: 0.2s; }
 .dot3 { background-color: var(--color-on-surface-dim); animation-delay: 0.4s; }
 
 .title {
@@ -80,7 +80,7 @@
 
 .allowBtn {
   background: var(--color-charcoal);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .allowBtn:hover { opacity: 0.85; }

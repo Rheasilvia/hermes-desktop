@@ -22,6 +22,9 @@
   --color-secondary-hover: #6A7B5F;
   --color-secondary-light: rgba(122, 139, 111, 0.1);
 
+  /* Logo accent (secondary tone for the AGENT half of the wordmark). */
+  --logo-accent-2: var(--color-primary-hover);
+
   /* --- Colors: Surface --- */
   --color-surface: #faf9f5;
   --color-surface-raised: #ffffff;
@@ -41,11 +44,24 @@
   --color-border-light: #f0eee6;
   --color-border-focus: var(--color-terracotta);
 
+  /* --- Colors: Hover/Active overlays (substrate-aware; dark theme inverts) --- */
+  --color-hover-overlay: rgba(20, 20, 19, 0.04);
+  --color-active-overlay: rgba(20, 20, 19, 0.08);
+
+  /* --- Colors: Primary alpha scale (replaces ad-hoc rgba(201,100,66,X)) --- */
+  --color-primary-soft: rgba(201, 100, 66, 0.06);
+  --color-primary-strong: rgba(201, 100, 66, 0.20);
+
   /* --- Colors: Status --- */
   --color-success: var(--color-sage);
   --color-warning: #ffd60a;
   --color-error: #b53333;
   --color-info: #5B8FB9;
+
+  /* --- Colors: Status surface tints --- */
+  --color-success-surface: rgba(122, 139, 111, 0.10);
+  --color-warning-surface: rgba(255, 214, 10, 0.12);
+  --color-info-surface: rgba(91, 143, 185, 0.10);
 
   /* --- Typography: Font Families --- */
   --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;

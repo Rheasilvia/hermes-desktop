@@ -132,23 +132,23 @@
 }
 
 .badgeBuiltin {
-  background: #c964421f;
+  background: var(--color-primary-light);
   color: var(--color-primary);
 }
 
 .badgeOAuth {
-  background: #8b5cf61f;
-  color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.12); /* literal-ok: distinct OAuth purple */
+  color: #8b5cf6; /* literal-ok: distinct OAuth purple */
 }
 
 .badgeLocal {
-  background: #5e5d591f;
+  background: var(--color-hover-overlay);
   color: var(--color-on-surface-dim);
 }
 
 .badgeCustom {
-  background: #3b82f61f;
-  color: #3b82f6;
+  background: var(--color-info-surface);
+  color: var(--color-info);
 }
 
 .cardMeta {

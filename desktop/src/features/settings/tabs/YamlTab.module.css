@@ -1,3 +1,11 @@
+/*
+ * YamlTab is a code editor surface modeled after VSCode.
+ * The editor canvas, gutter, and syntax-highlight foreground stay
+ * literal-dark in both themes — code is conventionally dark on dark.
+ * Only the toolbar adapts to system tokens so it matches the
+ * surrounding Settings chrome.
+ */
+
 .container {
   display: flex;
   flex-direction: column;
@@ -9,15 +17,15 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--space-2) var(--space-3);
-  background: #1e1e1e;
-  border-bottom: 1px solid #333;
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border);
   border-radius: var(--radius-md) var(--radius-md) 0 0;
 }
 
 .title {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  color: #ccc;
+  color: var(--color-on-surface-muted);
 }
 
 .actions {
@@ -29,7 +37,7 @@
 .error {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: #f48771;
+  color: var(--color-error);
   max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -39,13 +47,14 @@
 .valid {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: #6a9955;
+  color: var(--color-success);
 }
 
+/* Code editor canvas — intentionally dark in both themes */
 .editor {
   display: flex;
   flex: 1;
-  background: #1e1e1e;
+  background: #1e1e1e; /* literal-ok: code editor canvas */
   border-radius: 0 0 var(--radius-md) var(--radius-md);
   overflow: hidden;
   min-height: 400px;
@@ -55,8 +64,8 @@
   display: flex;
   flex-direction: column;
   padding: var(--space-3) var(--space-2);
-  background: #1a1a1a;
-  border-right: 1px solid #333;
+  background: #1a1a1a; /* literal-ok: code editor gutter */
+  border-right: 1px solid #333; /* literal-ok: code editor gutter divider */
   user-select: none;
   text-align: right;
 }
@@ -65,7 +74,7 @@
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: 1.6;
-  color: #555;
+  color: #555; /* literal-ok: code editor line-number */
   min-width: 2em;
 }
 
@@ -74,7 +83,7 @@
   padding: var(--space-3);
   background: transparent;
   border: none;
-  color: #d4d4d4;
+  color: #d4d4d4; /* literal-ok: code editor foreground */
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: 1.6;
@@ -86,5 +95,5 @@
 }
 
 .textarea::placeholder {
-  color: #555;
+  color: #555; /* literal-ok: code editor placeholder */
 }

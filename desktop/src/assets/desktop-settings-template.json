@@ -6,5 +6,7 @@
   "autoSave": true,
   "confirmDestructive": true,
   "startupBehavior": "restore",
-  "checkUpdates": true
+  "checkUpdates": true,
+  "showCost": false,
+  "showReasoning": false
 }

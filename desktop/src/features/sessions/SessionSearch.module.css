@@ -49,8 +49,8 @@
 }
 
 .roleUser {
-  background: rgba(90, 143, 185, 0.1);
-  color: #5B8FB9;
+  background: var(--color-info-surface);
+  color: var(--color-info);
 }
 
 .roleAssistant {
@@ -59,12 +59,12 @@
 }
 
 .roleTool {
-  background: rgba(122, 139, 111, 0.1);
+  background: var(--color-success-surface);
   color: var(--color-secondary);
 }
 
 .roleSystem {
-  background: rgba(155, 149, 137, 0.1);
+  background: var(--color-hover-overlay);
   color: var(--color-stone);
 }
 

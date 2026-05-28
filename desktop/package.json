@@ -13,6 +13,7 @@
     "tauri:build": "tauri build",
     "type-check": "tsc --noEmit",
     "lint": "eslint src/",
+    "lint:css-tokens": "bash scripts/check-css-tokens.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
