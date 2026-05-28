@@ -18,6 +18,11 @@ import type {
   McpServer,
   McpTool,
   MemoryFile,
+  MemoryFileWithContent,
+  MemoryProject,
+  MemorySearchHit,
+  MemoryScope,
+  WellKnownMemoryName,
   ContextFile,
   MemoryEntry,
   GatewayReadyPayload,
@@ -198,11 +203,41 @@ export interface McpMethods {
   tools(serverName: string): Promise<McpTool[]>;
 }
 
-/** Memory method group. */
+/** Memory method group. Real backend at `/desktop/api/memory/*`. */
 export interface MemoryMethods {
-  files(): Promise<MemoryFile[]>;
-  contextFiles(): Promise<ContextFile[]>;
-  search(query: string): Promise<MemoryEntry[]>;
+  /** Distinct workspaces from the sessions table, ordered by recency. */
+  projects(): Promise<MemoryProject[]>;
+  /**
+   * Whitelisted file metadata for the given scope.
+   * `workspace` is required when `scope === 'project'`.
+   */
+  files(scope: MemoryScope, workspace?: string): Promise<MemoryFile[]>;
+  /** Read a single whitelisted file with content. */
+  readFile(
+    scope: MemoryScope,
+    name: WellKnownMemoryName,
+    workspace?: string,
+  ): Promise<MemoryFileWithContent>;
+  /**
+   * Atomic write. Pass the previously-read `modified_at` as `ifMatch` for
+   * optimistic concurrency. Mismatch raises a 409 carrying the current
+   * server-side content (caller can show a merge dialog).
+   */
+  writeFile(args: {
+    scope: MemoryScope;
+    name: WellKnownMemoryName;
+    workspace?: string;
+    content: string;
+    ifMatch?: string;
+  }): Promise<MemoryFileWithContent>;
+  /**
+   * Substring search across whitelisted files. Optional scope/workspace
+   * narrowing.
+   */
+  search(
+    query: string,
+    opts?: { scope?: MemoryScope; workspace?: string },
+  ): Promise<MemorySearchHit[]>;
 }
 
 /** A skill registered in the agent, with category and enabled state. */
@@ -275,7 +310,7 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   getConnectionState(): ConnectionState;
 }
 
-export type { SessionListItem, SessionMessage, SessionMeta, SessionInfoPayload, HermesConfig, ToolEntry, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, ContextFile, MemoryEntry, SessionUsagePayload } from '@/types/index.js';
+export type { SessionListItem, SessionMessage, SessionMeta, SessionInfoPayload, HermesConfig, ToolEntry, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload } from '@/types/index.js';
 
 /** Factory options for creating a gateway adapter. */
 export interface GatewayAdapterOptions {

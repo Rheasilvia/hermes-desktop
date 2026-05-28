@@ -27,6 +27,11 @@ _SERVICE_ERROR_STATUS = {
     "NO_RUNNING_SESSION": 409,
     "PROVIDER_NOT_FOUND": 404,
     "SCHEMA_VERSION_MISMATCH": 409,
+    "MEMORY_FILE_NOT_FOUND": 404,
+    "MEMORY_FILE_TOO_LARGE": 413,
+    "MEMORY_PATH_INVALID": 400,
+    "MEMORY_ENCODING_INVALID": 415,
+    "MEMORY_CONCURRENT_WRITE": 409,
 }
 
 
@@ -103,6 +108,18 @@ def build_app(cfg: Config) -> FastAPI:
 
     @app.exception_handler(ServiceError)
     async def service_error_handler(request: Request, exc: ServiceError):
+        # Memory concurrent-write conflicts return a richer body so the UI
+        # can show a merge dialog without a follow-up GET.
+        from .services.exceptions import MemoryConcurrentWriteError
+        if isinstance(exc, MemoryConcurrentWriteError) and exc.current is not None:
+            body = {
+                "code": exc.code,
+                "detail": exc.detail,
+                "trace_id": getattr(request.state, "trace_id", "unknown"),
+                "current": exc.current,
+            }
+            return JSONResponse(body, status_code=409)
+
         status = _SERVICE_ERROR_STATUS.get(exc.code, 500)
         env = ErrorEnvelope(
             code=exc.code,
@@ -136,6 +153,7 @@ def build_app(cfg: Config) -> FastAPI:
         plugins as plugins_router,
         conversations as conversations_router,
         events as events_router,
+        memory as memory_router,
     )
 
     app.include_router(health.router, prefix=API_PREFIX)
@@ -149,6 +167,7 @@ def build_app(cfg: Config) -> FastAPI:
     app.include_router(skills.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(plugins_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(conversations_router.router, prefix=API_PREFIX, dependencies=deps)
+    app.include_router(memory_router.router, prefix=API_PREFIX, dependencies=deps)
     # SSE stream — auth handled via query param token (browsers can't set Authorization on EventSource)
     app.include_router(events_router.router, prefix=API_PREFIX)
 

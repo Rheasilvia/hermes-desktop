@@ -17,12 +17,14 @@ function makeApiError(
   traceId: string,
   domain?: string,
   path?: string,
+  extra?: Record<string, unknown>,
 ): ApiError {
   const e = new Error(message) as ApiError;
   e.code = code;
   e.traceId = traceId;
   if (domain) e.domain = domain;
   if (path) e.path = path;
+  if (extra) e.extra = extra;
   return e;
 }
 
@@ -110,6 +112,15 @@ export class HttpClient {
             String(body.trace_id ?? 'unknown'),
             body.domain as string | undefined,
             body.path as string | undefined,
+            // Carry any non-standard fields (e.g. memory's 409 `current`).
+            (() => {
+              const extra: Record<string, unknown> = {};
+              const known = new Set(['code', 'detail', 'trace_id', 'domain', 'path']);
+              for (const [k, v] of Object.entries(body)) {
+                if (!known.has(k)) extra[k] = v;
+              }
+              return Object.keys(extra).length > 0 ? extra : undefined;
+            })(),
           );
         }
         return await resp.json();
@@ -146,10 +157,10 @@ export class HttpClient {
     ) as Promise<T>;
   }
 
-  put<T>(path: string, body: unknown): Promise<T> {
+  put<T>(path: string, body: unknown, headers?: Record<string, string>): Promise<T> {
     return this.send(
       path,
-      { method: 'PUT', body: JSON.stringify(body) },
+      { method: 'PUT', body: JSON.stringify(body), headers },
       { retryNetwork: false, retryAuthOnce: true },
     ) as Promise<T>;
   }
