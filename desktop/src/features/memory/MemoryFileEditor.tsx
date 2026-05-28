@@ -1,23 +1,31 @@
 /**
  * Right-pane file editor for the Memory Manager.
  *
- * Two modes: Preview (markdown rendered via parseMarkdown) and Edit
- * (textarea). Save button appears only when the draft differs from the
- * server copy. On 409 conflict the store surfaces a `conflict` snapshot
- * which this component renders as an inline banner with two buttons:
- * keep mine, or adopt server.
+ * Two modes: Read (rendered markdown via the shared FileContentView) and
+ * Edit (textarea — also the canonical source view). On 409 conflict the store
+ * surfaces a `conflict` snapshot which renders as an inline banner with two
+ * buttons: keep mine, or adopt server.
  */
-import { Component, Show, createSignal, createMemo } from 'solid-js';
+import { Component, Show, createMemo, createSignal } from 'solid-js';
 
 import { memoryStore } from '@/stores/memory.js';
-import { parseMarkdown } from '@/utils/markdown.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner.js';
 import { EmptyState } from '@/ui/molecules/EmptyState.js';
+import { FileContentView } from '@/ui/molecules/FileContentView.js';
+import { SegmentedControl } from '@/ui/molecules/SegmentedControl.js';
+import type { Segment } from '@/ui/molecules/SegmentedControl.js';
 import styles from './MemoryFileEditor.module.css';
 
+type EditorMode = 'read' | 'edit';
+
+const MODE_SEGMENTS: Segment<EditorMode>[] = [
+  { id: 'read', label: 'Read', iconName: 'eye' },
+  { id: 'edit', label: 'Edit', iconName: 'pencil' },
+];
+
 export const MemoryFileEditor: Component = () => {
-  const [mode, setMode] = createSignal<'preview' | 'edit'>('preview');
+  const [mode, setMode] = createSignal<EditorMode>('read');
 
   const sel = memoryStore.selection;
   const file = memoryStore.selectedFile;
@@ -37,11 +45,11 @@ export const MemoryFileEditor: Component = () => {
 
   const headerName = createMemo(() => sel()?.name ?? '');
 
-  const html = createMemo(() => parseMarkdown(draft() || ''));
-
   const onSave = () => {
     void memoryStore.saveDraft();
   };
+
+  const canSave = () => mode() === 'edit' && dirty() && !saving();
 
   return (
     <div class={styles.editor}>
@@ -52,7 +60,7 @@ export const MemoryFileEditor: Component = () => {
             <EmptyState
               iconName="brain"
               title="Select a file"
-              description="Pick a memory file from the tree to preview or edit."
+              description="Pick a memory file from the tree to read or edit."
             />
           </div>
         }
@@ -66,31 +74,18 @@ export const MemoryFileEditor: Component = () => {
             </span>
           </div>
           <div class={styles.headerActions}>
-            <div class={styles.modeToggle} role="tablist">
-              <button
-                type="button"
-                class={mode() === 'preview' ? styles.modeActive : styles.mode}
-                onClick={() => setMode('preview')}
-                role="tab"
-                aria-selected={mode() === 'preview'}
-              >
-                Preview
-              </button>
-              <button
-                type="button"
-                class={mode() === 'edit' ? styles.modeActive : styles.mode}
-                onClick={() => setMode('edit')}
-                role="tab"
-                aria-selected={mode() === 'edit'}
-              >
-                Edit
-              </button>
-            </div>
+            <SegmentedControl
+              segments={MODE_SEGMENTS}
+              value={mode()}
+              onChange={setMode}
+              size="md"
+              ariaLabel="Editor mode"
+            />
             <button
               type="button"
               class={styles.saveBtn}
               onClick={onSave}
-              disabled={!dirty() || saving()}
+              disabled={!canSave()}
               aria-label="Save"
             >
               <Show when={!saving()} fallback={<LoadingSpinner size="sm" />}>
@@ -137,7 +132,7 @@ export const MemoryFileEditor: Component = () => {
           }
         >
           <Show
-            when={mode() === 'preview'}
+            when={mode() === 'read'}
             fallback={
               <textarea
                 class={styles.textarea}
@@ -160,9 +155,10 @@ export const MemoryFileEditor: Component = () => {
                 </div>
               }
             >
-              <div
-                class={styles.preview}
-                innerHTML={html()}
+              <FileContentView
+                content={draft()}
+                filename={sel()?.name}
+                showSourceToggle={false}
               />
             </Show>
           </Show>
