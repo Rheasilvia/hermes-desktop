@@ -74,6 +74,13 @@ export interface ApiError extends Error {
   domain?: string;
   path?: string;
   traceId: string;
+  /**
+   * Extra fields from the error envelope that aren't part of the standard
+   * shape. Used by the memory router's 409 conflict body to carry the
+   * current server-side `MemoryFileWithContent` so the UI can offer a
+   * merge dialog without a follow-up GET.
+   */
+  extra?: Record<string, unknown>;
 }
 
 export function isApiError(e: unknown): e is ApiError {

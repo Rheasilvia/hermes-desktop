@@ -1,8 +1,0 @@
-[
-  {
-    "path": "~/.hermes/memory/MEMORY.md",
-    "content": "# Memory\n\n- Project uses TypeScript + SolidJS for the desktop app",
-    "modified_at_offset_ms": 3600000,
-    "size_bytes": 128
-  }
-]

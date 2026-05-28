@@ -20,8 +20,11 @@ import type {
   McpServer,
   McpTool,
   MemoryFile,
-  ContextFile,
-  MemoryEntry,
+  MemoryFileWithContent,
+  MemoryProject,
+  MemorySearchHit,
+  MemoryScope,
+  WellKnownMemoryName,
   ConfigSetInput,
   UpsertProviderInput,
   DeleteProviderInput,
@@ -191,10 +194,41 @@ export class GatewayClient {
   };
 
   memory = {
-    files: (): Promise<MemoryFile[]> => this.call('memory.files'),
-    contextFiles: (): Promise<ContextFile[]> => this.call('memory.context_files'),
-    search: (query: string): Promise<MemoryEntry[]> =>
-      this.call('memory.search', { query }),
+    projects: (): Promise<MemoryProject[]> => this.call('memory.projects'),
+    files: (
+      scope: MemoryScope,
+      workspace?: string,
+    ): Promise<MemoryFile[]> =>
+      this.call('memory.files', { scope, workspace }),
+    readFile: (
+      scope: MemoryScope,
+      name: WellKnownMemoryName,
+      workspace?: string,
+    ): Promise<MemoryFileWithContent> =>
+      this.call('memory.read_file', { scope, name, workspace }),
+    writeFile: (args: {
+      scope: MemoryScope;
+      name: WellKnownMemoryName;
+      workspace?: string;
+      content: string;
+      ifMatch?: string;
+    }): Promise<MemoryFileWithContent> =>
+      this.call('memory.write_file', {
+        scope: args.scope,
+        name: args.name,
+        workspace: args.workspace,
+        content: args.content,
+        if_match: args.ifMatch,
+      }),
+    search: (
+      query: string,
+      opts?: { scope?: MemoryScope; workspace?: string },
+    ): Promise<MemorySearchHit[]> =>
+      this.call('memory.search', {
+        query,
+        scope: opts?.scope,
+        workspace: opts?.workspace,
+      }),
   };
 
   skills = {

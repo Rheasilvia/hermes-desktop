@@ -6,6 +6,8 @@ responses via a single ServiceError handler.
 
 from __future__ import annotations
 
+from typing import Any, Optional
+
 
 class ServiceError(Exception):
     """Base for all service-layer exceptions.
@@ -44,3 +46,42 @@ class ProviderNotFoundError(ServiceError):
 class SchemaVersionError(ServiceError):
     """Desktop settings schema version does not match the expected version."""
     code = "SCHEMA_VERSION_MISMATCH"
+
+
+class MemoryFileNotFoundError(ServiceError):
+    """Whitelisted memory file does not exist on disk."""
+    code = "MEMORY_FILE_NOT_FOUND"
+
+
+class MemoryFileTooLargeError(ServiceError):
+    """Memory file exceeds the read or write size cap."""
+    code = "MEMORY_FILE_TOO_LARGE"
+
+
+class MemoryPathInvalidError(ServiceError):
+    """Resolved memory path escapes the permitted root, or workspace is unknown."""
+    code = "MEMORY_PATH_INVALID"
+
+
+class MemoryEncodingError(ServiceError):
+    """Memory file on disk is not valid UTF-8."""
+    code = "MEMORY_ENCODING_INVALID"
+
+
+class MemoryConcurrentWriteError(ServiceError):
+    """Optimistic concurrency check failed: on-disk modified_at differs from If-Match.
+
+    ``current`` carries the latest server-side ``MemoryFileWithContent`` shape
+    as a plain dict so the HTTP layer can serialize it into the conflict body
+    without importing service dataclasses.
+    """
+    code = "MEMORY_CONCURRENT_WRITE"
+
+    def __init__(
+        self,
+        detail: Optional[str] = None,
+        *,
+        current: Optional[dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(detail)
+        self.current = current

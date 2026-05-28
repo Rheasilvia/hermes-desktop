@@ -24,8 +24,11 @@ import type {
   McpServer,
   McpTool,
   MemoryFile,
-  ContextFile,
-  MemoryEntry,
+  MemoryFileWithContent,
+  MemoryProject,
+  MemorySearchHit,
+  MemoryScope,
+  WellKnownMemoryName,
   ConfigSetInput,
   UpsertProviderInput,
   DeleteProviderInput,
@@ -285,7 +288,70 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     this.secret = { respond: notImplemented('secret.respond') };
     this.cron = { list: notImplemented('cron.list'), create: notImplemented('cron.create'), update: notImplemented('cron.update'), delete: notImplemented('cron.delete') };
     this.mcp = { list: notImplemented('mcp.list'), add: notImplemented('mcp.add'), remove: notImplemented('mcp.remove'), tools: notImplemented('mcp.tools') };
-    this.memory = { files: notImplemented('memory.files'), contextFiles: notImplemented('memory.contextFiles'), search: notImplemented('memory.search') };
+    this.memory = {
+      projects: async (): Promise<MemoryProject[]> => {
+        const r = await this.http.get<{ projects: MemoryProject[] }>(
+          `${API_PREFIX}/memory/projects`,
+        );
+        return r.projects;
+      },
+      files: async (
+        scope: MemoryScope,
+        workspace?: string,
+      ): Promise<MemoryFile[]> => {
+        const qs = new URLSearchParams({ scope });
+        if (workspace) qs.set('workspace', workspace);
+        const r = await this.http.get<{ files: MemoryFile[] }>(
+          `${API_PREFIX}/memory/files?${qs.toString()}`,
+        );
+        return r.files;
+      },
+      readFile: async (
+        scope: MemoryScope,
+        name: WellKnownMemoryName,
+        workspace?: string,
+      ): Promise<MemoryFileWithContent> => {
+        const qs = new URLSearchParams({ scope, name });
+        if (workspace) qs.set('workspace', workspace);
+        return this.http.get<MemoryFileWithContent>(
+          `${API_PREFIX}/memory/file?${qs.toString()}`,
+        );
+      },
+      writeFile: async (args: {
+        scope: MemoryScope;
+        name: WellKnownMemoryName;
+        workspace?: string;
+        content: string;
+        ifMatch?: string;
+      }): Promise<MemoryFileWithContent> => {
+        const headers: Record<string, string> = {};
+        if (args.ifMatch) headers['If-Match'] = args.ifMatch;
+        return this.http.put<MemoryFileWithContent>(
+          `${API_PREFIX}/memory/file`,
+          {
+            scope: args.scope,
+            name: args.name,
+            workspace: args.workspace,
+            content: args.content,
+          },
+          headers,
+        );
+      },
+      search: async (
+        query: string,
+        opts?: { scope?: MemoryScope; workspace?: string },
+      ): Promise<MemorySearchHit[]> => {
+        const r = await this.http.post<{ hits: MemorySearchHit[] }>(
+          `${API_PREFIX}/memory/search`,
+          {
+            query,
+            scope: opts?.scope,
+            workspace: opts?.workspace,
+          },
+        );
+        return r.hits;
+      },
+    };
     this.skills = { list: notImplemented('skills.list') };
     this.complete = { slash: notImplemented('complete.slash'), path: notImplemented('complete.path') };
     this.slash = { exec: notImplemented('slash.exec') };

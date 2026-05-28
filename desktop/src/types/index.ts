@@ -48,7 +48,16 @@ export type { ProviderEntry, ModelOption } from './model.js';
 export type { ScheduleKind, Schedule, Repeat, DeliveryKind, Delivery, CronJob, CreateCronJobParams, UpdateCronJobParams } from './cron.js';
 
 // Memory types
-export type { MemoryFile, ContextFile, MemoryEntry, UserProfile } from './memory.js';
+export type {
+  MemoryFile,
+  MemoryFileWithContent,
+  MemorySearchHit,
+  MemoryProject,
+  MemoryScope,
+  WellKnownMemoryName,
+  ContextFile,
+  MemoryEntry,
+} from './memory.js';
 
 // MCP types
 export type { McpTransport, McpAuthType, McpServer, McpOAuthConfig, McpSamplingConfig, McpTool, McpInputSchema, McpSchemaProperty, McpConnectionStatus } from './mcp.js';
