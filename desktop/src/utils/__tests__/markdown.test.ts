@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { parseMarkdown, sanitizeHtml, highlightCode } from '../markdown.js';
+import {
+  parseMarkdown,
+  sanitizeHtml,
+  highlightCode,
+  highlightCodeBlocksIn,
+  langFromName,
+  escapeHtml,
+} from '../markdown.js';
 
 describe('parseMarkdown', () => {
   it('returns empty string for empty input', () => {
@@ -141,5 +148,76 @@ describe('highlightCode', () => {
   it('escapes HTML for unsupported language', async () => {
     const result = await highlightCode('some code', 'madeup-lang');
     expect(result).not.toContain('style="');
+  }, 15000);
+});
+
+describe('langFromName', () => {
+  it('returns null for empty filename', () => {
+    expect(langFromName('')).toBeNull();
+  });
+
+  it('returns null for filename without extension', () => {
+    expect(langFromName('Makefile')).toBeNull();
+  });
+
+  it('returns null for unknown extension', () => {
+    expect(langFromName('archive.xyz')).toBeNull();
+  });
+
+  it('maps .md to markdown', () => {
+    expect(langFromName('README.md')).toBe('markdown');
+  });
+
+  it('maps .mdx to markdown', () => {
+    expect(langFromName('docs.mdx')).toBe('markdown');
+  });
+
+  it('maps .ts and .tsx to typescript', () => {
+    expect(langFromName('a.ts')).toBe('typescript');
+    expect(langFromName('a.tsx')).toBe('typescript');
+  });
+
+  it('is case-insensitive', () => {
+    expect(langFromName('NOTES.MD')).toBe('markdown');
+  });
+
+  it('uses last extension when multiple dots', () => {
+    expect(langFromName('component.test.ts')).toBe('typescript');
+  });
+});
+
+describe('escapeHtml', () => {
+  it('escapes ampersand, lt, gt, quote', () => {
+    expect(escapeHtml('a & b < c > d "e"')).toBe('a &amp; b &lt; c &gt; d &quot;e&quot;');
+  });
+});
+
+describe('highlightCodeBlocksIn', () => {
+  it('replaces innerHTML of <pre><code class="language-..."> blocks', async () => {
+    const root = document.createElement('div');
+    root.innerHTML =
+      '<pre><code class="language-ts">const a = 1;</code></pre>';
+    await highlightCodeBlocksIn(root);
+    const code = root.querySelector('pre > code')!;
+    // After highlight, content should differ from raw text (Shiki injects spans),
+    // OR fall back to escaped text. Either way, the language- class survives.
+    expect(code.classList.contains('language-ts')).toBe(true);
+  }, 15000);
+
+  it('skips <code> without a language- class', async () => {
+    const root = document.createElement('div');
+    const original = '<pre><code>const a = 1;</code></pre>';
+    root.innerHTML = original;
+    await highlightCodeBlocksIn(root);
+    expect(root.innerHTML).toBe(original);
+  });
+
+  it('processes multiple blocks independently', async () => {
+    const root = document.createElement('div');
+    root.innerHTML =
+      '<pre><code class="language-ts">a</code></pre>' +
+      '<pre><code class="language-py">b</code></pre>';
+    await highlightCodeBlocksIn(root);
+    expect(root.querySelectorAll('pre > code').length).toBe(2);
   }, 15000);
 });

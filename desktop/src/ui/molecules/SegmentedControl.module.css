@@ -1,0 +1,65 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--color-parchment);
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 1px var(--color-border-light);
+}
+
+.segment,
+.segmentActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--color-on-surface-muted);
+  border: 0;
+  border-radius: 7px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background-color var(--transition-fast),
+              color var(--transition-fast),
+              box-shadow var(--transition-fast);
+}
+
+.segment:hover {
+  color: var(--color-on-surface);
+  background: var(--color-warm-gray);
+}
+
+.segmentActive {
+  background: var(--color-surface-raised);
+  color: var(--color-on-surface);
+  box-shadow: 0 0 0 1px var(--color-border),
+              0 1px 2px rgba(20, 20, 19, 0.06);
+}
+
+.segment:focus-visible,
+.segmentActive:focus-visible {
+  outline: 2px solid var(--color-terracotta);
+  outline-offset: 1px;
+}
+
+/* Size variants ─────────────────────────────────────────────────────── */
+.md .segment,
+.md .segmentActive {
+  padding: 5px 12px;
+  font-size: var(--text-xs);
+}
+
+.sm {
+  padding: 2px;
+  border-radius: 8px;
+}
+
+.sm .segment,
+.sm .segmentActive {
+  padding: 3px 8px;
+  font-size: var(--text-xs);
+  border-radius: 6px;
+  gap: 4px;
+}

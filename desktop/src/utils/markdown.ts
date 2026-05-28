@@ -154,12 +154,66 @@ export async function highlightCode(code: string, language: string | null): Prom
   }
 }
 
-function escapeHtml(text: string): string {
+/**
+ * Post-process a rendered markdown container: replace the inner HTML of every
+ * `<pre><code class="language-xxx">` with the syntax-highlighted version. Each
+ * code block is processed independently; one failure does not affect others.
+ */
+export async function highlightCodeBlocksIn(root: HTMLElement): Promise<void> {
+  const blocks = root.querySelectorAll<HTMLElement>(
+    'pre > code[class*="language-"]',
+  );
+  for (const code of Array.from(blocks)) {
+    const langClass = Array.from(code.classList).find((c) =>
+      c.startsWith('language-'),
+    );
+    if (!langClass) continue;
+    const lang = langClass.slice('language-'.length);
+    const text = code.textContent ?? '';
+    if (!text) continue;
+    try {
+      const html = await highlightCode(text, lang);
+      code.innerHTML = html;
+    } catch {
+      // Leave the original (already escaped by marked) content in place.
+    }
+  }
+}
+
+export function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// ── Filename → language inference ────────────────────────────────────────
+
+/** Filename extension → highlight language map. Single source of truth shared
+ *  by FileContentView, WorkspaceFilePreview, and any future caller. */
+export const EXT_TO_LANG: Record<string, string> = {
+  ts: 'typescript', tsx: 'typescript',
+  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+  py: 'python',
+  sh: 'bash', bash: 'bash', zsh: 'bash',
+  json: 'json', jsonc: 'json',
+  sql: 'sql',
+  css: 'css', scss: 'css', sass: 'css',
+  html: 'html', htm: 'html', svelte: 'html', vue: 'html',
+  md: 'markdown', mdx: 'markdown',
+  rs: 'rust',
+  go: 'go',
+  java: 'java',
+  yaml: 'yaml', yml: 'yaml',
+};
+
+/** Infer highlight language from a filename. Returns `null` for files with no
+ *  recognized extension. Case-insensitive. */
+export function langFromName(filename: string): string | null {
+  if (!filename || !filename.includes('.')) return null;
+  const ext = filename.split('.').pop()!.toLowerCase();
+  return EXT_TO_LANG[ext] ?? null;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────

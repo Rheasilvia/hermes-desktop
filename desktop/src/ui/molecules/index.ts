@@ -15,3 +15,6 @@ export type { ToastProps, ToastType, ToastContainerProps } from './Toast.js';
 
 export { EmptyState } from './EmptyState.js';
 export type { EmptyStateProps } from './EmptyState.js';
+
+export { SegmentedControl } from './SegmentedControl.js';
+export type { SegmentedControlProps, Segment } from './SegmentedControl.js';
