@@ -200,22 +200,22 @@
 }
 
 .fileStatusAdded {
-  background: rgba(90, 143, 108, 0.12);
+  background: var(--color-success-surface);
   color: var(--diff-addition-color);
 }
 
 .fileStatusModified {
-  background: rgba(201, 100, 66, 0.12);
+  background: var(--color-primary-light);
   color: var(--color-terracotta);
 }
 
 .fileStatusDeleted {
-  background: rgba(181, 51, 51, 0.1);
+  background: var(--color-error-surface);
   color: var(--diff-deletion-color);
 }
 
 .fileStatusRenamed {
-  background: rgba(91, 143, 185, 0.12);
+  background: var(--color-info-surface);
   color: var(--color-info);
 }
 
@@ -258,7 +258,7 @@
 }
 
 .diffLine:hover {
-  background: rgba(20, 20, 19, 0.04);
+  background: var(--color-hover-overlay);
 }
 
 .diffLineNumber {

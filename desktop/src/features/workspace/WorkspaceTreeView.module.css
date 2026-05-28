@@ -54,7 +54,7 @@
 
 .row:hover,
 .rowFocused {
-  background: rgba(20, 20, 19, 0.04);
+  background: var(--color-hover-overlay);
 }
 
 .rowSelected {

@@ -20,6 +20,8 @@ export interface DesktopSettings {
   confirmDestructive: boolean;
   startupBehavior: 'restore' | 'new';
   checkUpdates: boolean;
+  showCost: boolean;
+  showReasoning: boolean;
 }
 
 import templateSettings from '@/assets/desktop-settings-template.json';

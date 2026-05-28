@@ -4,12 +4,12 @@
   left: 0;
   right: 0;
   margin-bottom: 8px;
-  background: #faf9f5;
-  border: 1px solid #e8e6dc;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   max-height: 320px;
   overflow-y: auto;
-  box-shadow: 0 4px 16px rgba(20, 20, 19, 0.08);
+  box-shadow: var(--shadow-md);
   z-index: var(--z-dropdown, 50);
 }
 
@@ -33,7 +33,7 @@
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 1px;
-  color: #87867f;
+  color: var(--color-on-surface-dim);
   padding: 8px 12px;
 }
 
@@ -48,13 +48,13 @@
 
 .browseRow:hover,
 .commandRowSelected {
-  background: #f5f4ed;
+  background: var(--color-hover-overlay);
 }
 
 .categoryDivider {
   width: 100%;
   height: 1px;
-  background: #f0eee6;
+  background: var(--color-border-light);
 }
 
 /* ── Filter Mode ── */
@@ -64,7 +64,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  color: #87867f;
+  color: var(--color-on-surface-dim);
 }
 
 .panelHeaderText {
@@ -76,7 +76,7 @@
 .divider {
   width: 100%;
   height: 1px;
-  background: #e8e6dc;
+  background: var(--color-border);
 }
 
 .commandRow {
@@ -89,7 +89,7 @@
 }
 
 .commandRow:hover {
-  background: #f5f4ed;
+  background: var(--color-hover-overlay);
 }
 
 .iconWrapper {
@@ -98,9 +98,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #ede9e0;
+  background: var(--color-background-alt);
   border-radius: 6px;
-  color: #5e5d59;
+  color: var(--color-on-surface-muted);
   flex-shrink: 0;
 }
 
@@ -115,14 +115,14 @@
   font-family: var(--font-sans);
   font-size: 12px;
   font-weight: 600;
-  color: #141413;
+  color: var(--color-on-surface);
 }
 
 .commandDesc {
   font-family: var(--font-sans);
   font-size: 11px;
   font-weight: normal;
-  color: #87867f;
+  color: var(--color-on-surface-dim);
 }
 
 .categoryBadge {
@@ -140,5 +140,5 @@
   font-family: var(--font-sans);
   font-size: 11px;
   font-weight: normal;
-  color: #5e5d59;
+  color: var(--color-on-surface-muted);
 }

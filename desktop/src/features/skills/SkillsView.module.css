@@ -81,7 +81,7 @@
 }
 
 .categoryItemActive .categoryCount {
-  background-color: rgba(201, 100, 66, 0.15);
+  background-color: var(--color-primary-strong);
   color: var(--color-primary);
 }
 
@@ -233,13 +233,13 @@
 }
 
 .toolsetCardActive {
-  border-color: rgba(201, 100, 66, 0.35);
+  border-color: var(--color-primary-strong);
   border-left-width: 3px;
   padding-left: calc(var(--space-5) - 2px);
 }
 
 .toolsetCardActive:hover {
-  border-color: rgba(201, 100, 66, 0.5);
+  border-color: var(--color-primary);
   box-shadow: var(--shadow-sm);
 }
 
@@ -316,7 +316,7 @@
   font-family: var(--font-mono);
   color: var(--color-primary);
   background: transparent;
-  border: 1px dashed rgba(201, 100, 66, 0.4);
+  border: 1px dashed var(--color-primary-strong);
   border-radius: var(--radius-sm);
   padding: 2px var(--space-2);
   cursor: pointer;

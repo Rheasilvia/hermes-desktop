@@ -13,9 +13,9 @@ export interface SlashCommand {
 export type SlashCommandCategory = 'Built-in' | 'Skills' | 'Memory';
 
 const CATEGORY_COLORS: Record<string, { text: string; bg: string }> = {
-  'Built-in': { text: '#87867f', bg: '#f5f4ed' },
-  'Skills': { text: '#c96442', bg: '#fff0eb' },
-  'Memory': { text: '#3d8a5e', bg: '#ebf7f1' },
+  'Built-in': { text: 'var(--color-on-surface-dim)', bg: 'var(--color-background-alt)' },
+  'Skills': { text: 'var(--color-primary)', bg: 'var(--color-primary-light)' },
+  'Memory': { text: 'var(--color-success)', bg: 'var(--color-success-surface)' },
 };
 
 const CATEGORY_ICONS: Record<string, string> = {

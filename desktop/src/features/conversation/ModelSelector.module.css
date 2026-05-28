@@ -11,8 +11,8 @@
   padding: 4px 8px;
   border: none;
   border-radius: 8px;
-  background: #f0eee6;
-  color: #5e5d59;
+  background: var(--color-background-alt);
+  color: var(--color-on-surface-muted);
   font-family: var(--font-sans);
   font-size: 11px;
   font-weight: normal;
@@ -23,26 +23,27 @@
 }
 
 .trigger:hover {
-  background: #e8e6dc;
+  background: var(--color-active-overlay);
 }
 
 .triggerActive {
-  background: #e8e6dc;
+  background: var(--color-active-overlay);
 }
 
 .triggerDimmed {
-  background: #e8e6dc;
-  color: #b0aea5;
+  background: var(--color-background-alt);
+  color: var(--color-on-surface-dim);
   cursor: default;
 }
 
 .triggerIcon {
-  color: #87867f;
+  color: var(--color-on-surface-dim);
   flex-shrink: 0;
 }
 
 .triggerIconDimmed {
-  color: #b0aea5;
+  color: var(--color-on-surface-dim);
+  opacity: 0.7;
 }
 
 .triggerText {
@@ -52,12 +53,13 @@
 }
 
 .chevronIcon {
-  color: #87867f;
+  color: var(--color-on-surface-dim);
   flex-shrink: 0;
 }
 
 .chevronIconDimmed {
-  color: #b0aea5;
+  color: var(--color-on-surface-dim);
+  opacity: 0.7;
 }
 
 .dropdown {
@@ -104,7 +106,7 @@
 }
 
 .modelItem:hover {
-  background-color: var(--color-surface-raised);
+  background-color: var(--color-hover-overlay);
 }
 
 .modelItemActive {

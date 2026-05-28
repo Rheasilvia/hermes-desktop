@@ -1,5 +1,6 @@
 import type { Component } from 'solid-js';
 import styles from './HermesAvatar.module.css';
+import svgContent from '@/assets/nousresearch.svg?raw';
 
 interface HermesAvatarProps {
   size?: number;
@@ -15,23 +16,20 @@ export const HermesAvatar: Component<HermesAvatarProps> = (props) => {
     height: `${size()}px`,
   });
 
-  const imgStyle = () => ({
-    width: `${imgSize()}px`,
-    height: `${imgSize()}px`,
-  });
+  const innerHtml = () => {
+    const px = `${imgSize()}px`;
+    return svgContent.replace(
+      '<svg ',
+      `<svg class="${styles.img}" width="${px}" height="${px}" `,
+    );
+  };
 
   return (
     <div
       class={`${styles.avatar} ${props.class ?? ''}`}
       style={containerStyle()}
       aria-label="Hermes"
-    >
-      <img
-        src="/nousresearch.svg"
-        alt="Hermes"
-        class={styles.img}
-        style={imgStyle()}
-      />
-    </div>
+      innerHTML={innerHtml()}
+    />
   );
 };

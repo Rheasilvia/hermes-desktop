@@ -6,6 +6,7 @@
   background: var(--color-parchment);
   overflow: hidden;
   flex-shrink: 0;
+  color: var(--color-on-surface);
 }
 
 .img {

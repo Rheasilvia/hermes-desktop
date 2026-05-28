@@ -84,12 +84,12 @@
 }
 
 .deleteButton:hover {
-  color: #ef4444;
-  background: #ef44441a;
+  color: var(--color-error);
+  background: var(--color-error-surface);
 }
 
 .deleteButton:focus-visible {
-  outline: 2px solid #ef4444;
+  outline: 2px solid var(--color-error);
   outline-offset: 1px;
 }
 

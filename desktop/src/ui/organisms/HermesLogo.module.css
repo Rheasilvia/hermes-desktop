@@ -1,11 +1,11 @@
 @keyframes pixelGlow {
   0%, 100% {
-    filter: drop-shadow(0 0 1px rgba(201, 100, 66, 0.15));
+    filter: drop-shadow(0 0 1px rgba(201, 100, 66, 0.15)); /* literal-ok: brand glow effect */
   }
   50% {
     filter:
-      drop-shadow(0 0 4px rgba(201, 100, 66, 0.45))
-      drop-shadow(0 0 12px rgba(217, 119, 87, 0.15));
+      drop-shadow(0 0 4px rgba(201, 100, 66, 0.45)) /* literal-ok: brand glow effect */
+      drop-shadow(0 0 12px rgba(217, 119, 87, 0.15)); /* literal-ok: brand glow effect */
   }
 }
 
@@ -30,8 +30,8 @@
   width: 25%;
   background: radial-gradient(
     ellipse 100% 60% at 50% 50%,
-    rgba(255, 230, 200, 0.45) 0%,
-    rgba(255, 200, 160, 0.2) 30%,
+    rgba(255, 230, 200, 0.45) 0%, /* literal-ok: spotlight gradient */
+    rgba(255, 200, 160, 0.2) 30%, /* literal-ok: spotlight gradient */
     transparent 70%
   );
   animation: spotlight 3.5s ease-in-out infinite alternate;
@@ -40,6 +40,7 @@
 }
 
 .logo {
+  color: var(--color-primary);
   animation: pixelGlow 3s ease-in-out infinite;
   will-change: filter;
 }
