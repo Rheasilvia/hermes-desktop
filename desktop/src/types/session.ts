@@ -91,6 +91,7 @@ export interface SessionListItem {
   id: string;
   title: string;
   model: string;
+  provider: string | null;
   started_at: string;
   message_count: number;
   tool_call_count: number;

@@ -5,6 +5,7 @@ import { makeCronTransport } from './transports/http/cron';
 import { makeModelTransport } from './transports/http/model';
 import { makeOverlayTransport } from './transports/http/overlays';
 import { makePluginsTransport } from './transports/http/plugins';
+import { makeSessionTransport } from './transports/http/session';
 import { makeSettingsTransport } from './transports/http/settings';
 import { makeSkillsTransport } from './transports/http/skills';
 import { makeStateTransport } from './transports/http/state';
@@ -35,6 +36,7 @@ export function bootstrapApi(): void {
   api.register('model', makeModelTransport(httpClient));
   api.register('overlays', makeOverlayTransport(httpClient));
   api.register('plugins', makePluginsTransport(httpClient));
+  api.register('session', makeSessionTransport(httpClient));
   api.register('settings', makeSettingsTransport(httpClient));
   api.register('skills', makeSkillsTransport(httpClient));
   api.register('state', makeStateTransport(httpClient));

@@ -1,7 +1,9 @@
 import type { Component } from 'solid-js';
 import { createSignal, createMemo, Show, For, onMount, onCleanup } from 'solid-js';
 import { modelStore } from '@/stores/models.js';
-import { getGateway } from '@/stores/context.js';
+import { sessionStore } from '@/stores/session.js';
+import { chatStore } from '@/stores/chat.js';
+import { api } from '@/services/api/router';
 import { Icon } from '@/ui/atoms/Icon.js';
 import styles from './ModelSelector.module.css';
 
@@ -32,12 +34,18 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
 
   const handleModelSelect = async (providerName: string, modelName: string) => {
     setIsOpen(false);
-    const success = await modelStore.switchModel(providerName, modelName);
+    // Block switching while agent is responding
+    if (chatStore.isStreaming(props.sessionId)) {
+      return;
+    }
+    const success = await modelStore.switchModel(providerName, modelName, false);
     if (success) {
       // Update session-level provider in backend
-      const gateway = getGateway();
-      if (gateway) {
-        await gateway.setSessionProvider(props.sessionId, providerName, modelName);
+      try {
+        await api.session().setProvider(props.sessionId, providerName, modelName);
+        sessionStore.setSessionModel(props.sessionId, providerName, modelName);
+      } catch (e) {
+        console.error('[ModelSelector] failed to update session model:', e);
       }
       if (props.onModelChange) {
         props.onModelChange(providerName, modelName);

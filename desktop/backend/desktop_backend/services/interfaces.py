@@ -77,6 +77,10 @@ class DesktopMetaStore(Protocol):
         """Return the stored provider string, or None."""
         ...
 
+    def get_providers(self, session_ids: list[str]) -> dict[str, str | None]:
+        """Batch fetch providers for multiple sessions."""
+        ...
+
 
 class UIMessageStore(Protocol):
     """Interface for ui_messages operations.

@@ -149,10 +149,12 @@ class SessionService:
         if row is None:
             return None
         meta_paths = self._meta.get_workspace_paths([session_id])
+        meta_providers = self._meta.get_providers([session_id])
         return {
             "id": row.get("id", session_id),
             "source": row.get("source", "desktop"),
             "model": row.get("model", ""),
+            "provider": meta_providers.get(session_id) or "",
             "title": row.get("title", "Untitled"),
             "started_at": row.get("started_at"),
             "ended_at": row.get("ended_at"),
@@ -175,11 +177,13 @@ class SessionService:
         )
         session_ids = [r["id"] for r in rows]
         meta_paths = self._meta.get_workspace_paths(session_ids) if session_ids else {}
+        meta_providers = self._meta.get_providers(session_ids) if session_ids else {}
         return [
             {
                 "id": r["id"],
                 "source": r.get("source", "desktop"),
                 "model": r.get("model", ""),
+                "provider": meta_providers.get(r["id"]) or "",
                 "title": r.get("title", "Untitled"),
                 "started_at": r.get("started_at"),
                 "message_count": r.get("message_count", 0),

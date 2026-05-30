@@ -15,7 +15,7 @@ const pageTitle = (): string => {
     case 'model-detail':
       return 'Model Configuration';
     default:
-      return 'Model';
+      return 'Default Model';
   }
 };
 

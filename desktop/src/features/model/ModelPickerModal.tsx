@@ -186,7 +186,7 @@ export const ModelPickerModal: Component<ModelPickerModalProps> = (props) => {
 
           {/* Footer */}
           <div class={styles.footer}>
-            <span class={styles.footerNote}>Persists to ~/.hermes/config.yaml</span>
+            <span class={styles.footerNote}>Sets the default model for new conversations</span>
             <button
               type="button"
               class={styles.cancelBtn}
