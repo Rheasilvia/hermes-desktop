@@ -103,6 +103,27 @@ class DesktopMetaService:
         finally:
             conn.close()
 
+    def get_providers(self, session_ids: list[str]) -> dict[str, str | None]:
+        """Batch lookup provider for multiple sessions.
+
+        Returns a dict mapping session_id to provider (None for missing sessions).
+        """
+        if not session_ids:
+            return {}
+        conn = self._connect()
+        try:
+            placeholders = ",".join("?" for _ in session_ids)
+            rows = conn.execute(
+                f"SELECT session_id, provider FROM session_desktop_meta WHERE session_id IN ({placeholders})",
+                tuple(session_ids),
+            ).fetchall()
+            result = {sid: None for sid in session_ids}
+            for row in rows:
+                result[row["session_id"]] = row["provider"]
+            return result
+        finally:
+            conn.close()
+
     def get_provider(self, session_id: str) -> str | None:
         conn = self._connect()
         try:

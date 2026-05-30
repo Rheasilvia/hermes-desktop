@@ -10,6 +10,7 @@ function row(overrides: Partial<SessionListItem> = {}): SessionListItem {
     id: 'session-1',
     title: 'Untitled',
     model: 'gpt-4',
+    provider: null,
     started_at: '2026-05-25T00:00:00Z',
     message_count: 0,
     tool_call_count: 0,

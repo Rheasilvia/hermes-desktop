@@ -116,13 +116,15 @@ export const modelStore = {
     }
   },
 
-  async switchModel(providerName: string, modelName: string): Promise<boolean> {
+  async switchModel(providerName: string, modelName: string, persistGlobally: boolean = true): Promise<boolean> {
     setActiveProvider(providerName);
     setActiveModel(modelName);
     setError(null);
     setIsLoading(true);
     try {
-      await api.model().setActiveModel(providerName, modelName);
+      if (persistGlobally) {
+        await api.model().setActiveModel(providerName, modelName);
+      }
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to switch model');

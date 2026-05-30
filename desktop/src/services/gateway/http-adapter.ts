@@ -90,6 +90,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           id: String(r.id ?? ''),
           source: String(r.source ?? 'desktop'),
           model: String(r.model ?? ''),
+          provider: (r.provider as string | null) ?? null,
           title: String(r.title ?? 'Untitled'),
           started_at: String(r.started_at ?? new Date().toISOString()),
           message_count: Number(r.message_count ?? 0),

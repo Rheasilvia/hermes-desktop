@@ -3,6 +3,7 @@ import type { CronTransport } from './transports/http/cron';
 import type { ModelTransport } from './transports/http/model';
 import type { OverlayTransport } from './transports/http/overlays';
 import type { PluginsTransport } from './transports/http/plugins';
+import type { SessionTransport } from './transports/http/session';
 import type { SettingsTransport } from './transports/http/settings';
 import type { SkillsTransport } from './transports/http/skills';
 import type { StateTransport } from './transports/http/state';
@@ -13,6 +14,7 @@ type Slot =
   | { kind: 'model'; impl: ModelTransport }
   | { kind: 'overlays'; impl: OverlayTransport }
   | { kind: 'plugins'; impl: PluginsTransport }
+  | { kind: 'session'; impl: SessionTransport }
   | { kind: 'settings'; impl: SettingsTransport }
   | { kind: 'skills'; impl: SkillsTransport }
   | { kind: 'state'; impl: StateTransport };
@@ -50,6 +52,9 @@ export class ApiRegistry {
   }
   settings(): SettingsTransport {
     return this.resolve<SettingsTransport>('settings');
+  }
+  session(): SessionTransport {
+    return this.resolve<SessionTransport>('session');
   }
   skills(): SkillsTransport {
     return this.resolve<SkillsTransport>('skills');

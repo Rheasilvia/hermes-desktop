@@ -7,6 +7,7 @@ export interface ConversationSession {
   id: string;
   title: string;
   model: string;
+  provider: string | null;
   source: string;
   workspacePath: string | null;    // from desktop.db session_desktop_meta
   pinned: boolean;

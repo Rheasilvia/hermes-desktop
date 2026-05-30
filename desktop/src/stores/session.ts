@@ -5,11 +5,15 @@
 import { createSignal, createMemo } from 'solid-js';
 import type { SessionListItem, SessionMeta } from '@/types/index.js';
 import { getGateway } from './context.js';
+import { modelStore } from './models.js';
 
 const [sessions, setSessions] = createSignal<SessionListItem[]>([]);
 const [activeSessionId, setActiveSessionId] = createSignal<string | null>(null);
 const [isLoading, setIsLoading] = createSignal(false);
 const [error, setError] = createSignal<string | null>(null);
+const [sessionModels, setSessionModels] = createSignal<
+  Record<string, { provider: string; model: string }>
+>({});
 
 const activeSession = createMemo(() => {
   const id = activeSessionId();
@@ -69,15 +73,24 @@ export const sessionStore = {
     }
   },
 
-  async createSession(params: { model?: string; system_prompt?: string; workspace_path?: string }): Promise<SessionMeta | null> {
+  async createSession(params: { model?: string; provider?: string; system_prompt?: string; workspace_path?: string }): Promise<SessionMeta | null> {
     const gateway = getGateway();
     if (!gateway) return null;
     setIsLoading(true);
     setError(null);
     try {
-      const meta = await gateway.session.create(params);
+      const effectiveProvider = params.provider ?? modelStore.activeProvider ?? undefined;
+      const effectiveModel = params.model ?? modelStore.activeModel ?? undefined;
+      const meta = await gateway.session.create({
+        ...params,
+        provider: effectiveProvider,
+        model: effectiveModel,
+      });
       await this.loadSessions();
       setActiveSessionId(meta.id);
+      if (meta.id && effectiveProvider && effectiveModel) {
+        this.setSessionModel(meta.id, effectiveProvider, effectiveModel);
+      }
       return meta;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create session');
@@ -173,6 +186,14 @@ export const sessionStore = {
     } catch {
       return false;
     }
+  },
+
+  getSessionModel(sessionId: string) {
+    return sessionModels()[sessionId] ?? null;
+  },
+
+  setSessionModel(sessionId: string, provider: string, model: string) {
+    setSessionModels(prev => ({ ...prev, [sessionId]: { provider, model } }));
   },
 
   clearError() {

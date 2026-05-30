@@ -177,6 +177,23 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     }
   });
 
+  // Sync model picker to the active session's model when switching sessions
+  createEffect(() => {
+    const sid = sessionStore.activeSessionId;
+    if (!sid) return;
+    // Prefer sessionModels cache (updated immediately on model switch)
+    const cached = sessionStore.getSessionModel(sid);
+    if (cached) {
+      modelStore.hydrateActiveModel(cached.provider, cached.model);
+      return;
+    }
+    // Fallback to session list data (from loadSessions)
+    const session = sessionStore.activeSession;
+    if (session?.provider && session?.model) {
+      modelStore.hydrateActiveModel(session.provider, session.model);
+    }
+  });
+
   createEffect(() => {
     const path = workspacePath();
     gitViewStore.setWorkspacePath(path);

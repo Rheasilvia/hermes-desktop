@@ -100,7 +100,7 @@ export interface GatewayEventEmitter {
 export interface SessionMethods {
   list(): Promise<SessionListItem[]>;
   info(sessionId: string): Promise<SessionInfoPayload>;
-  create(params: { model?: string; system_prompt?: string; workspace_path?: string }): Promise<SessionMeta>;
+  create(params: { model?: string; provider?: string; system_prompt?: string; workspace_path?: string }): Promise<SessionMeta>;
   delete(sessionId: string): Promise<void>;
   rename(sessionId: string, title: string): Promise<void>;
   updateWorkspace(sessionId: string, workspacePath: string): Promise<void>;
