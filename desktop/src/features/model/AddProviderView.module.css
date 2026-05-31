@@ -124,7 +124,7 @@
   display: inline-flex;
   align-items: center;
   height: 20px;
-  padding: 0 var(--space-1-5);
+  padding: 0 var(--space-2);
   border-radius: 4px;
   font-size: 10px;
   font-weight: 500;
@@ -210,17 +210,17 @@
 
 .providerCount {
   margin-left: var(--space-2);
-  padding: 0 var(--space-1-5);
-  height: 18px;
+  padding: 0 var(--space-2);
   display: inline-flex;
   align-items: center;
-  border-radius: 9px;
+  border-radius: var(--radius-pill);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   font-size: 10px;
   font-weight: 500;
   color: var(--color-on-surface-dim);
   font-family: inherit;
+  white-space: nowrap;
 }
 
 .loadingHint {
