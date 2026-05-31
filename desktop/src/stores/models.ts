@@ -51,6 +51,7 @@ export interface CatalogProvider {
   auth_type?: string | null;
   is_current?: boolean;
   has_overlay?: boolean;
+  oauth_logged_in?: boolean;
   modelCount: number;
   base_url?: string;
   api_key_env?: string;
@@ -436,6 +437,22 @@ export function createModelsStore() {
     try {
       const resp = await api.model().listProviders({ configuredOnly: false });
       const mapped = resp.items.map(mapCatalogProvider);
+
+      // Enrich with OAuth login status so the Add-provider list can mark
+      // OAuth-connected providers as "Added" / configured.
+      try {
+        const oauthProviders = await api.oauth().listProviders();
+        const oauthLoggedIn: Record<string, boolean> = {};
+        for (const op of oauthProviders) {
+          if (op.logged_in) oauthLoggedIn[op.id] = true;
+        }
+        for (const p of mapped) {
+          if (oauthLoggedIn[p.id]) p.oauth_logged_in = true;
+        }
+      } catch {
+        // OAuth endpoint unavailable — leave oauth_logged_in as undefined
+      }
+
       setCatalogProviders(mapped);
       writeCachedCatalog(mapped);
       setCatalogHasLoaded(true);

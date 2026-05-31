@@ -144,6 +144,7 @@ def build_app(cfg: Config) -> FastAPI:
     from .routers import (
         health,
         cron,
+        oauth,
         model,
         settings as settings_router,
         state as state_router,
@@ -159,6 +160,7 @@ def build_app(cfg: Config) -> FastAPI:
     app.include_router(health.router, prefix=API_PREFIX)
     deps = [Depends(require_token)]
     app.include_router(cron.router, prefix=API_PREFIX, dependencies=deps)
+    app.include_router(oauth.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(model.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(settings_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(state_router.router, prefix=API_PREFIX, dependencies=deps)

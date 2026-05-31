@@ -1,0 +1,188 @@
+/* OAuthConnectModal — PKCE and device-code authorization flows */
+
+.startSection,
+.codeSection,
+.deviceSection,
+.errorSection,
+.doneSection,
+.externalSection,
+.statusSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+}
+
+.instruction {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ── Code input (PKCE) ── */
+
+.codeInput {
+  margin: var(--space-2) 0;
+}
+
+/* ── Device-code user code ── */
+
+.userCodeBox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-surface-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.userCode {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--color-text-primary);
+  user-select: all;
+}
+
+.copyBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.copyBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
+}
+
+/* ── Polling status ── */
+
+.pollingStatus {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.pollingStatus svg {
+  animation: spin 1.8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ── Connected status ── */
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.sourceLabel {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.tokenInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tokenLabel {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.tokenValue {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  background: var(--color-surface-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.disconnectRow {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.connectedLabel {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  background: var(--color-success-bg, #e6f4ea);
+  color: var(--color-success, #1e7e34);
+  border-radius: 10px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+/* ── Done ── */
+
+.doneText {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+/* ── Error ── */
+
+.errorText {
+  color: var(--color-danger, #b53333);
+  font-size: var(--text-sm);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.errorActions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+/* ── External / CLI ── */
+
+.cliBox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.cliCommand {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  flex: 1;
+}
+
+.docsLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  text-decoration: none;
+}
+
+.docsLink:hover {
+  text-decoration: underline;
+}

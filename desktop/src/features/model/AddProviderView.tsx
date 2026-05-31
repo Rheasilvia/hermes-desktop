@@ -14,14 +14,29 @@ export const AddProviderView: Component = () => {
   /** Whether the API catalog is available (loaded or cached). */
   const hasCatalog = () => modelsStore.catalogHasLoaded() && modelsStore.catalogProviders().length > 0;
 
-  /** Providers with an explicit overlay entry (user clicked "Add"). */
-  const configuredIds = () =>
-    new Set(modelsStore.catalogProviders().filter(p => p.has_overlay).map(p => p.id));
+  /** Providers with an explicit overlay entry (user clicked "Add") OR connected via OAuth. */
+  const configuredIds = () => {
+    const catalog = modelsStore.catalogProviders();
+    return new Set(
+      catalog
+        .filter(p => p.has_overlay || p.oauth_logged_in)
+        .map(p => p.id),
+    );
+  };
 
-  /** Filtered catalog providers based on search query. */
+  /** Filtered + sorted: configured first, then alphabetical. */
   const filteredCatalog = (): CatalogProvider[] => {
     const q = search().toLowerCase();
-    const list = modelsStore.catalogProviders();
+    const cids = configuredIds();
+    const list = [...modelsStore.catalogProviders()];
+    // sort: configured first, then by display_name
+    list.sort((a, b) => {
+      const aCfg = cids.has(a.id);
+      const bCfg = cids.has(b.id);
+      if (aCfg && !bCfg) return -1;
+      if (!aCfg && bCfg) return 1;
+      return (a.display_name ?? a.name).localeCompare(b.display_name ?? b.name);
+    });
     if (!q) return list;
     return list.filter(
       (p) =>
@@ -49,7 +64,7 @@ export const AddProviderView: Component = () => {
   /** Determine the badge style for a provider based on auth_type. */
   const badgeClass = (provider: CatalogProvider): string => {
     const authType = provider.auth_type ?? provider.auth;
-    if (authType === 'oauth') return styles.badgeOAuth;
+    if (authType === 'oauth' || provider.oauth_logged_in !== undefined) return styles.badgeOAuth;
     if (authType === 'api_key') return styles.badgeBuiltin;
     return styles.badgeLocal;
   };
@@ -57,7 +72,7 @@ export const AddProviderView: Component = () => {
   /** Human-readable label for auth type. */
   const badgeLabel = (provider: CatalogProvider): string => {
     const authType = provider.auth_type ?? provider.auth;
-    if (authType === 'oauth') return 'OAuth';
+    if (authType === 'oauth' || provider.oauth_logged_in !== undefined) return 'OAuth';
     if (authType === 'api_key') return 'API Key';
     return 'No Auth';
   };
@@ -112,6 +127,7 @@ export const AddProviderView: Component = () => {
                       <button
                         type="button"
                         class={`${styles.card} ${added ? styles.cardAdded : ''}`}
+                        data-tooltip={provider.name}
                         onClick={() => !added && handleAddBuiltIn(provider.name)}
                         disabled={added}
                       >
@@ -140,6 +156,7 @@ export const AddProviderView: Component = () => {
                       <button
                         type="button"
                         class={`${styles.card} ${added ? styles.cardAdded : ''}`}
+                        data-tooltip={provider.name}
                         onClick={() => !added && handleAddBuiltIn(provider.name)}
                         disabled={added}
                       >
@@ -172,6 +189,7 @@ export const AddProviderView: Component = () => {
                   <button
                     type="button"
                     class={`${styles.card} ${added ? styles.cardAdded : ''}`}
+                    data-tooltip={provider.display_name ?? provider.name}
                     onClick={() => !added && handleAddCatalogProvider(provider)}
                     disabled={added}
                   >

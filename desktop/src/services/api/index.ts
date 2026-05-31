@@ -3,6 +3,7 @@ import { httpClient } from './http-client';
 import { makeAnalyticsTransport } from './transports/http/analytics';
 import { makeCronTransport } from './transports/http/cron';
 import { makeModelTransport } from './transports/http/model';
+import { makeOAuthTransport } from './transports/http/oauth';
 import { makeOverlayTransport } from './transports/http/overlays';
 import { makePluginsTransport } from './transports/http/plugins';
 import { makeSessionTransport } from './transports/http/session';
@@ -13,6 +14,9 @@ import { makeStateTransport } from './transports/http/state';
 export type {
   CronJob,
   Provider,
+  OAuthProvider,
+  OAuthStartResponse,
+  OAuthPollResponse,
   Settings,
   SkillInfo,
   SkillsToolset,
@@ -34,6 +38,7 @@ export { isApiError } from './types';
 export function bootstrapApi(): void {
   api.register('cron', makeCronTransport(httpClient));
   api.register('model', makeModelTransport(httpClient));
+  api.register('oauth', makeOAuthTransport(httpClient));
   api.register('overlays', makeOverlayTransport(httpClient));
   api.register('plugins', makePluginsTransport(httpClient));
   api.register('session', makeSessionTransport(httpClient));
