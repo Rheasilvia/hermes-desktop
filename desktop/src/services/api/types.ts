@@ -149,6 +149,38 @@ export interface PluginVisibilityRequest {
   hidden: boolean;
 }
 
+// ── OAuth provider types ──────────────────────────────────────────────────
+
+export interface OAuthProvider {
+  id: string;
+  name: string;
+  flow: 'pkce' | 'device_code' | 'external';
+  logged_in: boolean;
+  source: string | null;
+  source_label?: string | null;
+  token_preview?: string | null;
+  expires_at?: string | null;
+  has_refresh_token: boolean;
+  cli_command?: string | null;
+  docs_url?: string | null;
+}
+
+export interface OAuthStartResponse {
+  session_id: string;
+  flow: 'pkce' | 'device_code';
+  auth_url?: string | null;
+  expires_in?: number | null;
+  user_code?: string | null;
+  verification_url?: string | null;
+  poll_interval?: number | null;
+}
+
+export interface OAuthPollResponse {
+  session_id: string;
+  status: 'pending' | 'approved' | 'denied' | 'expired' | 'error';
+  error_message?: string | null;
+}
+
 export interface SkillInfo {
   name: string;
   description: string;

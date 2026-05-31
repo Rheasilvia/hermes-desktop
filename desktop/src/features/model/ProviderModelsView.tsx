@@ -2,10 +2,13 @@ import type { Component } from 'solid-js';
 import { createSignal, Show, For } from 'solid-js';
 import { modelStore, modelsStore } from '@/stores/models.js';
 import type { ProviderEntry, ModelOption } from '@/types/index.js';
+import { api } from '@/services/api/router';
+import type { OAuthProvider } from '@/services/api/types';
 import { Button } from '@/ui/atoms/Button.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { Toggle } from '@/ui/atoms/Toggle.js';
 import { ConfigureProviderModal } from './ConfigureProviderModal.js';
+import { OAuthConnectModal } from './OAuthConnectModal.js';
 import styles from './ProviderModelsView.module.css';
 
 function maskApiKey(key: string | undefined): string {
@@ -32,6 +35,23 @@ export const ProviderModelsView: Component = () => {
   const [revealing, setRevealing] = createSignal(false);
   const [revealError, setRevealError] = createSignal<string | null>(null);
   const [editing, setEditing] = createSignal(false);
+
+  // OAuth state
+  const [oauthOpen, setOAuthOpen] = createSignal(false);
+  const [oauthProvider, setOAuthProvider] = createSignal<OAuthProvider | null>(null);
+  const [oauthLoading, setOAuthLoading] = createSignal(false);
+
+  /** Determine whether this provider uses OAuth. */
+  const isOAuth = (): boolean => {
+    const draft = modelStore.draftProvider;
+    if (draft && draft.id === modelStore.detailProviderName) {
+      return (draft.auth_type ?? draft.auth) === 'oauth';
+    }
+    // For already-configured providers, check the full catalog
+    const catalog = modelsStore.catalogProviders();
+    const found = catalog.find((p) => p.id === modelStore.detailProviderName);
+    return (found?.auth_type ?? found?.auth) === 'oauth';
+  };
 
   const provider = (): ProviderEntry | null => {
     const name = modelStore.detailProviderName;
@@ -113,6 +133,51 @@ export const ProviderModelsView: Component = () => {
     setShowKey(true);
   };
 
+  /** Open the OAuth connect flow for this provider. */
+  const handleOAuthConnect = async () => {
+    setOAuthLoading(true);
+    try {
+      const providers = await api.oauth().listProviders();
+      const match = providers.find(
+        (p) => p.id === modelStore.detailProviderName,
+      );
+      setOAuthProvider(match ?? null);
+      setOAuthOpen(true);
+    } catch {
+      // Even on error, open the modal so user can try
+      setOAuthProvider(null);
+      setOAuthOpen(true);
+    } finally {
+      setOAuthLoading(false);
+    }
+  };
+
+  /** Called after successful OAuth connection to refresh state. */
+  const handleOAuthConnected = async () => {
+    // Write a minimal overlay entry so the provider shows as "Added" in
+    // the add-provider catalog (configuredIds checks has_overlay).
+    const providerId = modelStore.detailProviderName;
+    if (providerId) {
+      try {
+        await api.overlays().patch('model', providerId, { visible: true });
+      } catch { void 0; }
+      // Clear stale localStorage cache so the add-provider list picks
+      // up the updated auth_type + has_overlay immediately.
+      try {
+        localStorage.removeItem('hermes.desktop.model.catalog.v1');
+      } catch { void 0; }
+    }
+    // Refresh configured providers + full catalog
+    await modelsStore.load();
+    await modelsStore.loadCatalog();
+    // Refresh OAuth status for the modal badge
+    try {
+      const providers = await api.oauth().listProviders();
+      const match = providers.find((p) => p.id === providerId);
+      setOAuthProvider(match ?? null);
+    } catch { void 0; }
+  };
+
   const handleToggleModel = (modelName: string, enabled: boolean) => {
     const p = provider();
     if (!p) return;
@@ -134,42 +199,92 @@ export const ProviderModelsView: Component = () => {
         <Icon name="chevron-left" size={14} />
         Back
       </button>
-      <div class={styles.infoCard}>
-        <div class={styles.infoRow}>
-          <div class={styles.infoGroup}>
-            <span class={styles.infoLabel}>Base URL</span>
-            <span class={styles.infoValue}>
-              {provider()?.base_url ?? 'Not configured'}
-            </span>
-          </div>
-          <div class={`${styles.infoGroup} ${styles.apiKeyInfoGroup}`}>
-            <span class={styles.infoLabel}>API Key</span>
-            <div class={styles.apiKeyGroup}>
-              <span class={styles.infoValueMono} title={apiKeyTitle()}>
-                {revealing() ? 'Loading...' : apiKeyDisplay()}
-              </span>
-              <Show when={canRevealKey()}>
-                <button
-                  type="button"
-                  class={styles.iconBtn}
-                  onClick={toggleKeyVisibility}
-                  disabled={revealing()}
-                  aria-label={showKey() ? 'Hide API key' : 'Show API key'}
-                  title={showKey() ? 'Hide API key' : 'Show API key'}
-                >
-                  <Icon name={showKey() ? 'eye-off' : 'eye'} size={14} />
-                </button>
-              </Show>
+      <Show
+        when={isOAuth()}
+        fallback={
+          /* ── API Key provider ── */
+          <div class={styles.infoCard}>
+            <div class={styles.infoRow}>
+              <div class={styles.infoGroup}>
+                <span class={styles.infoLabel}>Base URL</span>
+                <span class={styles.infoValue}>
+                  {provider()?.base_url ?? 'Not configured'}
+                </span>
+              </div>
+              <div class={`${styles.infoGroup} ${styles.apiKeyInfoGroup}`}>
+                <span class={styles.infoLabel}>API Key</span>
+                <div class={styles.apiKeyGroup}>
+                  <span class={styles.infoValueMono} title={apiKeyTitle()}>
+                    {revealing() ? 'Loading...' : apiKeyDisplay()}
+                  </span>
+                  <Show when={canRevealKey()}>
+                    <button
+                      type="button"
+                      class={styles.iconBtn}
+                      onClick={toggleKeyVisibility}
+                      disabled={revealing()}
+                      aria-label={showKey() ? 'Hide API key' : 'Show API key'}
+                      title={showKey() ? 'Hide API key' : 'Show API key'}
+                    >
+                      <Icon name={showKey() ? 'eye-off' : 'eye'} size={14} />
+                    </button>
+                  </Show>
+                </div>
+              </div>
+              <div class={styles.infoActions}>
+                <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
+                  <Icon name="settings" size={14} />
+                  Edit
+                </Button>
+              </div>
             </div>
           </div>
-          <div class={styles.infoActions}>
-            <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
-              <Icon name="settings" size={14} />
-              Edit
-            </Button>
+        }
+      >
+        {/* ── OAuth provider ── */}
+        <div class={styles.infoCard}>
+          <div class={styles.oauthInfoRow}>
+            <div class={styles.infoGroup}>
+              <span class={styles.infoLabel}>Authentication</span>
+              <div class={styles.oauthBadgeRow}>
+                <span class={styles.oauthPill}>OAuth</span>
+                <Show when={oauthProvider()?.logged_in}>
+                  <span class={styles.oauthConnectedPill}>Connected</span>
+                </Show>
+              </div>
+            </div>
+            <Show when={oauthProvider()?.logged_in && oauthProvider()?.source_label}>
+              <div class={styles.infoGroup}>
+                <span class={styles.infoLabel}>Source</span>
+                <span class={styles.infoValue}>
+                  {oauthProvider()?.source_label}
+                </span>
+              </div>
+            </Show>
+            <div class={styles.infoActions}>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleOAuthConnect}
+                disabled={oauthLoading()}
+              >
+                {oauthLoading() ? (
+                  <Icon name="loader" size={14} />
+                ) : oauthProvider()?.logged_in ? (
+                  <Icon name="settings" size={14} />
+                ) : (
+                  <Icon name="external-link" size={14} />
+                )}
+                {oauthLoading()
+                  ? 'Loading...'
+                  : oauthProvider()?.logged_in
+                    ? 'Manage'
+                    : `Connect`}
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
+      </Show>
 
       <div class={styles.tableSection}>
         <div class={styles.tableHeader}>
@@ -227,6 +342,13 @@ export const ProviderModelsView: Component = () => {
         provider={provider()}
         onClose={() => setEditing(false)}
         onSave={handleSaveProvider}
+      />
+
+      <OAuthConnectModal
+        open={oauthOpen()}
+        provider={oauthProvider()}
+        onClose={() => setOAuthOpen(false)}
+        onConnected={handleOAuthConnected}
       />
     </div>
   );

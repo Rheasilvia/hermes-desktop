@@ -243,3 +243,43 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ── OAuth provider UI ── */
+
+.oauthInfoRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+}
+
+.oauthBadgeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.oauthPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  background: var(--color-surface-tertiary);
+  color: var(--color-on-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.oauthConnectedPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  background: var(--color-success-bg, rgba(30, 126, 52, 0.1));
+  color: var(--color-success, #1e7e34);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+}

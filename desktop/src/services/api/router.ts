@@ -1,6 +1,7 @@
 import type { AnalyticsTransport } from './transports/http/analytics';
 import type { CronTransport } from './transports/http/cron';
 import type { ModelTransport } from './transports/http/model';
+import type { OAuthTransport } from './transports/http/oauth';
 import type { OverlayTransport } from './transports/http/overlays';
 import type { PluginsTransport } from './transports/http/plugins';
 import type { SessionTransport } from './transports/http/session';
@@ -12,6 +13,7 @@ type Slot =
   | { kind: 'analytics'; impl: AnalyticsTransport }
   | { kind: 'cron'; impl: CronTransport }
   | { kind: 'model'; impl: ModelTransport }
+  | { kind: 'oauth'; impl: OAuthTransport }
   | { kind: 'overlays'; impl: OverlayTransport }
   | { kind: 'plugins'; impl: PluginsTransport }
   | { kind: 'session'; impl: SessionTransport }
@@ -43,6 +45,9 @@ export class ApiRegistry {
   }
   model(): ModelTransport {
     return this.resolve<ModelTransport>('model');
+  }
+  oauth(): OAuthTransport {
+    return this.resolve<OAuthTransport>('oauth');
   }
   overlays(): OverlayTransport {
     return this.resolve<OverlayTransport>('overlays');

@@ -113,6 +113,38 @@
   font-size: 18px;
   font-weight: 500;
   color: var(--color-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 52px; /* leave room for Added label */
+}
+
+/* Custom tooltip — appears instantly on card hover, design-system warm styling */
+.card::after {
+  content: attr(data-tooltip);
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 8px;
+  max-width: 320px;
+  padding: 6px 12px;
+  background: var(--color-surface-alt, #faf9f5);
+  color: var(--color-text-primary, #141413);
+  font-family: Georgia, serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: break-word;
+  border: 1px solid var(--color-border, #f0eee6);
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.06);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.card:hover::after {
+  display: block;
 }
 
 .cardDesc {
@@ -169,6 +201,8 @@
   position: absolute;
   top: var(--space-3);
   right: var(--space-3);
+  background: var(--color-surface);
+  padding: 0 4px;
 }
 
 .customCard {

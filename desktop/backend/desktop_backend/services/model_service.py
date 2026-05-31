@@ -198,10 +198,24 @@ class ModelService:
         for row in rows:
             slug = row.get("slug", "")
             entry = overlay.get(slug, {})
+            raw_auth = row.get("auth_type")
+            # Normalize: oauth_device_code, oauth_minimax, oauth_external → oauth
+            if raw_auth and str(raw_auth).startswith("oauth"):
+                raw_auth = "oauth"
+            # Cross-reference OAuth catalog for providers whose auth_type
+            # is None in build_models_payload but are defined as OAuth providers.
+            if not raw_auth or raw_auth == "api_key":
+                try:
+                    from ..services.oauth_service import _OAUTH_PROVIDER_CATALOG
+                    _oauth_ids = {e["id"] for e in _OAUTH_PROVIDER_CATALOG}
+                    if slug in _oauth_ids:
+                        raw_auth = "oauth"
+                except Exception:
+                    pass
             p = MergedProvider(
                 id=slug,
                 name=entry.get("display_name") or row.get("name", slug),
-                auth=row.get("auth_type"),
+                auth=raw_auth,
                 models=[{"id": m, "name": m} for m in row.get("models", [])],
                 is_current=bool(row.get("is_current")),
                 has_overlay=bool(entry),
