@@ -231,6 +231,26 @@ export const chatStore = {
     }));
   },
 
+  appendLocalMessage(sessionId: string, text: string, role: 'assistant' | 'system' = 'assistant'): void {
+    getOrCreateChatState(sessionId);
+    const msg: RenderedMessage = {
+      id: nextEphemeralId(),
+      sessionId,
+      role,
+      blocks: text.trim() ? parseBlocks(text) : [],
+      timestamp: Date.now() / 1000,
+      tokenCount: null,
+      finishReason: null,
+      isStreaming: false,
+      actions: ['copy'],
+      toolName: null,
+    };
+    updateChatState(sessionId, (state) => ({
+      ...state,
+      messages: [...state.messages, msg],
+    }));
+  },
+
   handleMessageStart(sessionId: string): void {
     getOrCreateChatState(sessionId);
     updateChatState(sessionId, (state) => ({

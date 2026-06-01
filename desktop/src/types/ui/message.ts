@@ -6,8 +6,8 @@
 import type { Role } from '../message.js';
 import type { MessageBlock } from './blocks.js';
 
-export type MessageAction = 'copy' | 'retry' | 'branch' | 'edit';
 export type MessageActionType = 'copy' | 'retry' | 'edit' | 'delete' | 'branch' | 'like' | 'dislike' | 'more';
+export type MessageAction = MessageActionType;
 
 export interface RenderedMessage {
   /** number = persisted DB row id; string = ephemeral streaming message */

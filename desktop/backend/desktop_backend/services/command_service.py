@@ -1,0 +1,341 @@
+from __future__ import annotations
+
+import contextlib
+import io
+import os
+import subprocess
+from pathlib import Path
+from typing import Any
+
+from rich.console import Console
+
+from ..schemas.commands import CommandCatalogItem, CommandResult, SlashCompleteItem
+
+
+_DESKTOP_HIDDEN = frozenset({"sethome", "set-home", "commands", "approve", "deny", "start", "topic", "restart", "platform"})
+_UNSUPPORTED = frozenset({"clear", "redraw", "history", "save", "handoff", "config", "gquota", "statusbar", "skin", "indicator", "busy", "tools", "toolsets", "skills", "cron", "reload", "browser", "plugins", "platforms", "copy", "paste", "image", "quit", "exit", "mouse", "logs", "details"})
+_TUI_EXTRA = (
+    ("compact", "Toggle compact display mode", "TUI"),
+    ("details", "Control agent detail visibility", "TUI"),
+    ("logs", "Show recent gateway log lines", "TUI"),
+    ("mouse", "Set mouse tracking preset [on|off|toggle|wheel|buttons|all]", "TUI"),
+)
+
+
+class CommandService:
+    def __init__(self, *, hermes_home: Path, session_service: Any, agent_pool: Any) -> None:
+        self._hermes_home = hermes_home
+        self._session_service = session_service
+        self._agent_pool = agent_pool
+
+    def catalog(self) -> dict[str, Any]:
+        from hermes_cli.commands import COMMAND_REGISTRY, _build_description
+
+        items: list[CommandCatalogItem] = []
+        for cmd in COMMAND_REGISTRY:
+            if cmd.name in _DESKTOP_HIDDEN or cmd.gateway_only:
+                continue
+            items.append(CommandCatalogItem(
+                command=cmd.name,
+                description=_build_description(cmd),
+                category=cmd.category,
+                aliases=list(cmd.aliases),
+                args_hint=cmd.args_hint,
+                source="registry",
+                supported=cmd.name not in _UNSUPPORTED,
+            ))
+
+        for name, desc, category in _TUI_EXTRA:
+            items.append(CommandCatalogItem(
+                command=name,
+                description=desc,
+                category=category,
+                source="tui",
+                supported=name not in _UNSUPPORTED,
+            ))
+
+        try:
+            from agent.skill_bundles import get_skill_bundles
+            for key, info in sorted(get_skill_bundles().items()):
+                items.append(CommandCatalogItem(
+                    command=key.lstrip("/"),
+                    description=str(info.get("description") or "Skill bundle"),
+                    category="Skills",
+                    source="skill_bundle",
+                    supported=True,
+                    icon="zap",
+                ))
+        except Exception:
+            pass
+
+        try:
+            from agent.skill_commands import scan_skill_commands
+            for key, info in sorted(scan_skill_commands().items()):
+                items.append(CommandCatalogItem(
+                    command=key.lstrip("/"),
+                    description=str(info.get("description") or "Skill command"),
+                    category="Skills",
+                    source="skill",
+                    supported=True,
+                    icon="zap",
+                ))
+        except Exception:
+            pass
+
+        try:
+            from hermes_cli.config import load_config
+            qcmds = load_config().get("quick_commands", {}) or {}
+            if isinstance(qcmds, dict):
+                for name, qc in sorted(qcmds.items()):
+                    if not isinstance(qc, dict):
+                        continue
+                    desc = str(qc.get("description") or qc.get("type") or "quick command")
+                    items.append(CommandCatalogItem(
+                        command=name,
+                        description=desc,
+                        category="User commands",
+                        source="quick_command",
+                        supported=True,
+                    ))
+        except Exception:
+            pass
+
+        return {"items": [i.model_dump() for i in items]}
+
+    def complete_slash(self, partial: str) -> list[SlashCompleteItem]:
+        text = partial if partial.startswith("/") else f"/{partial.lstrip('/')}"
+        query = text[1:].lower().strip()
+        items: list[SlashCompleteItem] = []
+        seen: set[str] = set()
+
+        for raw in self.catalog()["items"]:
+            command = str(raw.get("command") or "")
+            if not command or command in seen:
+                continue
+            haystack = f"{command} {raw.get('description') or ''}".lower()
+            if query and query not in haystack and not command.lower().startswith(query):
+                continue
+            seen.add(command)
+            items.append(SlashCompleteItem(
+                command=command,
+                description=str(raw.get("description") or ""),
+                category=raw.get("category") or None,
+                icon=raw.get("icon") or None,
+            ))
+            if len(items) >= 30:
+                break
+        return items
+
+    def exec(self, *, session_id: str | None, command: str, args: str | None = None, raw: str | None = None) -> CommandResult:
+        name, arg = self._parse(command=command, args=args, raw=raw)
+        if not name:
+            return CommandResult(kind="error", message="empty command")
+
+        name = self._resolve_name(name)
+
+        if name in {"queue", "q"}:
+            if not arg:
+                return CommandResult(kind="error", message="usage: /queue <prompt>")
+            return CommandResult(kind="send", message=arg)
+        if name in {"steer", "goal", "subgoal", "retry"}:
+            return CommandResult(kind="unsupported", message=f"/{name} depends on TUI live-turn state and is not available in Desktop yet.")
+        if name in {"new", "sessions", "resume"}:
+            return CommandResult(kind="unsupported", message=f"Use the Desktop sessions sidebar for /{name}.")
+        if name in {"branch"}:
+            return CommandResult(kind="unsupported", message="Use the Desktop branch action; slash /branch is not wired to Desktop session cloning yet.")
+        if name in _UNSUPPORTED:
+            return CommandResult(kind="unsupported", message=f"/{name} is a terminal-only command in Desktop.")
+
+        quick = self._handle_quick_command(name, arg, session_id)
+        if quick is not None:
+            return quick
+
+        plugin = self._handle_plugin_command(name, arg)
+        if plugin is not None:
+            return plugin
+
+        skill = self._handle_skill_command(name, arg, session_id)
+        if skill is not None:
+            return skill
+
+        bundle = self._handle_skill_bundle(name, arg, session_id)
+        if bundle is not None:
+            return bundle
+
+        if name == "help":
+            return CommandResult(kind="output", message=self._help_text())
+        if name == "model":
+            return self._handle_model(arg, session_id)
+        if name in {"compress", "compact"}:
+            return CommandResult(kind="unsupported", message="Desktop conversation compression is not available through slash commands yet.")
+        if name == "status":
+            return CommandResult(kind="output", message=self._status_text(session_id))
+        if name == "stop":
+            try:
+                from tools.process_registry import process_registry
+                process_registry.kill_all()
+                return CommandResult(kind="output", message="Stopped registered background processes.")
+            except Exception as exc:
+                return CommandResult(kind="error", message=f"Failed to stop processes: {exc}")
+
+        return self._run_cli_command(name, arg, session_id)
+
+    def _parse(self, *, command: str, args: str | None, raw: str | None) -> tuple[str, str]:
+        text = (raw or command or "").strip()
+        if text.startswith("/"):
+            text = text[1:]
+        if args is not None and command and " " not in command.strip().lstrip("/"):
+            return command.strip().lstrip("/").lower(), args.strip()
+        parts = text.split(maxsplit=1)
+        return (parts[0].lower(), parts[1].strip() if len(parts) > 1 else "")
+
+    def _resolve_name(self, name: str) -> str:
+        try:
+            from hermes_cli.commands import resolve_command
+            resolved = resolve_command(name)
+            return resolved.name if resolved else name
+        except Exception:
+            return name
+
+    def _handle_quick_command(self, name: str, arg: str, session_id: str | None) -> CommandResult | None:
+        try:
+            from hermes_cli.config import load_config
+            qcmds = load_config().get("quick_commands", {}) or {}
+        except Exception:
+            return None
+        if name not in qcmds or not isinstance(qcmds.get(name), dict):
+            return None
+        qc = qcmds[name]
+        if qc.get("type") == "alias":
+            target = str(qc.get("target") or "").strip()
+            if not target:
+                return CommandResult(kind="error", message=f"Quick command /{name} has no target.")
+            return self.exec(session_id=session_id, command=f"{target} {arg}".strip())
+        if qc.get("type") == "exec":
+            try:
+                result = subprocess.run(str(qc.get("command") or ""), shell=True, capture_output=True, text=True, timeout=30)
+            except Exception as exc:
+                return CommandResult(kind="error", message=f"Quick command error: {exc}")
+            output = "\n".join(p for p in [result.stdout, result.stderr] if p).strip()
+            if result.returncode != 0:
+                return CommandResult(kind="error", message=output or f"Quick command failed with exit code {result.returncode}")
+            return CommandResult(kind="output", message=output or "Command returned no output.")
+        return CommandResult(kind="unsupported", message=f"Quick command /{name} has unsupported type.")
+
+    def _handle_plugin_command(self, name: str, arg: str) -> CommandResult | None:
+        try:
+            from hermes_cli.plugins import get_plugin_command_handler, resolve_plugin_command_result
+            handler = get_plugin_command_handler(name)
+            if not handler:
+                return None
+            result = resolve_plugin_command_result(handler(arg))
+            return CommandResult(kind="output", message=str(result or "Command returned no output."))
+        except Exception:
+            return None
+
+    def _handle_skill_command(self, name: str, arg: str, session_id: str | None) -> CommandResult | None:
+        try:
+            from agent.skill_commands import build_skill_invocation_message, scan_skill_commands
+            key = f"/{name}"
+            cmds = scan_skill_commands()
+            if key not in cmds:
+                return None
+            msg = build_skill_invocation_message(key, arg, task_id=session_id or "")
+            if not msg:
+                return CommandResult(kind="error", message=f"Failed to load skill for /{name}.")
+            return CommandResult(kind="skill", message=msg, name=str(cmds[key].get("name") or name))
+        except Exception as exc:
+            return CommandResult(kind="error", message=f"Skill command failed: {exc}")
+
+    def _handle_skill_bundle(self, name: str, arg: str, session_id: str | None) -> CommandResult | None:
+        try:
+            from agent.skill_bundles import build_bundle_invocation_message, get_skill_bundles
+            key = f"/{name}"
+            bundles = get_skill_bundles()
+            if key not in bundles:
+                return None
+            result = build_bundle_invocation_message(key, arg, task_id=session_id or "")
+            if not result:
+                return CommandResult(kind="error", message=f"Failed to load bundle for /{name}.")
+            msg, loaded_names, missing = result
+            suffix = f"\n\nSkipped missing skills: {', '.join(missing)}" if missing else ""
+            return CommandResult(kind="skill", message=msg + suffix, name=", ".join(loaded_names))
+        except Exception as exc:
+            return CommandResult(kind="error", message=f"Skill bundle failed: {exc}")
+
+    def _handle_model(self, arg: str, session_id: str | None) -> CommandResult:
+        if not arg:
+            return CommandResult(kind="unsupported", message="Open the Desktop model picker to switch models.")
+        if not session_id:
+            return CommandResult(kind="error", message="session_id is required for /model.")
+        if "/" in arg and " " not in arg:
+            provider, model = arg.split("/", 1)
+        else:
+            parts = arg.split()
+            if len(parts) >= 2:
+                provider, model = parts[0], parts[1]
+            else:
+                return CommandResult(kind="unsupported", message="Use /model <provider>/<model> in Desktop, or use the model picker.")
+        self._session_service.set_provider(session_id, provider, model)
+        with contextlib.suppress(Exception):
+            self._agent_pool.evict(session_id)
+        return CommandResult(kind="output", message=f"Session model set to {provider}/{model}.")
+
+    def _run_cli_command(self, name: str, arg: str, session_id: str | None) -> CommandResult:
+        try:
+            import cli as cli_mod
+            from cli import HermesCLI
+        except Exception as exc:
+            return CommandResult(kind="unsupported", message=f"/{name} is unavailable in Desktop: {exc}")
+
+        command = f"/{name} {arg}".strip()
+        old_home = os.environ.get("HERMES_HOME")
+        old_session = os.environ.get("HERMES_SESSION_KEY")
+        os.environ["HERMES_HOME"] = str(self._hermes_home)
+        if session_id:
+            os.environ["HERMES_SESSION_KEY"] = session_id
+        buf = io.StringIO()
+        old_cprint = getattr(cli_mod, "_cprint", None)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                cli = HermesCLI(compact=True, resume=session_id, verbose=False)
+            cli.console = Console(file=buf, force_terminal=False, width=120)
+            if old_cprint is not None:
+                cli_mod._cprint = lambda text: print(text)
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                cli.process_command(command)
+            return CommandResult(kind="output", message=buf.getvalue().strip() or "Command completed.")
+        except Exception as exc:
+            return CommandResult(kind="error", message=f"Command failed: {exc}")
+        finally:
+            if old_cprint is not None:
+                cli_mod._cprint = old_cprint
+            if old_home is None:
+                os.environ.pop("HERMES_HOME", None)
+            else:
+                os.environ["HERMES_HOME"] = old_home
+            if old_session is None:
+                os.environ.pop("HERMES_SESSION_KEY", None)
+            else:
+                os.environ["HERMES_SESSION_KEY"] = old_session
+
+    def _help_text(self) -> str:
+        lines = ["Available slash commands:"]
+        for item in self.catalog()["items"]:
+            supported = "" if item.get("supported") else " (not available in Desktop)"
+            lines.append(f"/{item['command']} - {item.get('description', '')}{supported}")
+        return "\n".join(lines)
+
+    def _status_text(self, session_id: str | None) -> str:
+        if not session_id:
+            return "No active Desktop session."
+        session = self._session_service.get_session(session_id)
+        if not session:
+            return "Session not found."
+        return "\n".join([
+            f"Session: {session_id}",
+            f"Title: {session.get('title') or 'Untitled'}",
+            f"Model: {session.get('provider') or 'unknown'}/{session.get('model') or 'unknown'}",
+            f"Messages: {session.get('message_count') or 0}",
+            f"Workspace: {session.get('workspace_path') or ''}",
+        ])

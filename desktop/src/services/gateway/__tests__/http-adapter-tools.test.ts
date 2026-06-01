@@ -56,6 +56,46 @@ describe('dispatchSseEvent — tool.progress', () => {
   });
 });
 
+describe('commands HTTP methods', () => {
+  it('maps complete.slash to the desktop commands endpoint', async () => {
+    const mockHttp = {
+      get: vi.fn(),
+      post: vi.fn().mockResolvedValue({
+        items: [{ command: 'model', description: 'Switch model', category: 'Configuration' }],
+      }),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    };
+    const adapter = new HttpGatewayAdapter(mockHttp as any);
+
+    const result = await adapter.complete.slash({ partial: '/mo' });
+
+    expect(mockHttp.post).toHaveBeenCalledWith('/desktop/api/commands/complete/slash', { partial: '/mo' });
+    expect(result).toEqual([{ command: 'model', description: 'Switch model', category: 'Configuration' }]);
+  });
+
+  it('posts slash.exec and returns the structured command result', async () => {
+    const mockHttp = {
+      get: vi.fn(),
+      post: vi.fn().mockResolvedValue({ kind: 'output', message: 'Available slash commands' }),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    };
+    const adapter = new HttpGatewayAdapter(mockHttp as any);
+
+    const result = await adapter.slash.exec({ session_id: 'sess_1', command: 'help', raw: '/help' });
+
+    expect(mockHttp.post).toHaveBeenCalledWith('/desktop/api/commands/slash/exec', {
+      session_id: 'sess_1',
+      command: 'help',
+      raw: '/help',
+    });
+    expect(result).toEqual({ kind: 'output', message: 'Available slash commands' });
+  });
+});
+
 describe('aggregateEventRows — tool call reconstruction', () => {
   it('includes tool calls from stored tool.start/complete rows', () => {
     const adapter = makeAdapter();

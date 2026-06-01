@@ -29,6 +29,7 @@ import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { sessionStore } from '@/stores/session.js';
 import { modelStore } from '@/stores/models.js';
 import { getGateway } from '@/stores/context.js';
+import type { CommandResult } from '@/services/gateway/types.js';
 import { ROUTES } from '@/routes';
 import { MessageBubble } from './MessageBubble.js';
 import { AssistantMessage } from './AssistantMessage.js';
@@ -323,9 +324,62 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     }
   });
 
-  const handleSend = async (text: string, _attachments?: any[]) => {
+  const sendPrompt = async (text: string) => {
     chatStore.appendUserMessage(sessionId(), text);
     await chatStore.sendMessage(sessionId(), text);
+  };
+
+  const showCommandResult = (result: CommandResult) => {
+    if (result.kind === 'send' || result.kind === 'skill') {
+      void sendPrompt(result.message);
+      return;
+    }
+    const prefix = result.kind === 'unsupported' ? 'Unsupported command' : result.kind === 'error' ? 'Command error' : '';
+    chatStore.appendLocalMessage(sessionId(), prefix ? `${prefix}: ${result.message}` : result.message);
+  };
+
+  const handleSlashCommand = async (text: string) => {
+    const gateway = getGateway();
+    if (!gateway) {
+      chatStore.appendLocalMessage(sessionId(), 'Command error: gateway is not connected.');
+      return;
+    }
+    const raw = text.trim();
+    const withoutSlash = raw.slice(1).trim();
+    const [command, ...rest] = withoutSlash.split(/\s+/);
+    const args = rest.join(' ');
+    chatStore.appendUserMessage(sessionId(), raw);
+    try {
+      const result = await gateway.slash.exec({
+        session_id: sessionId(),
+        command,
+        args,
+        raw,
+      });
+      showCommandResult(result);
+    } catch {
+      try {
+        const result = await gateway.command.dispatch({
+          session_id: sessionId(),
+          command,
+          args,
+          raw,
+        });
+        showCommandResult(result);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        chatStore.appendLocalMessage(sessionId(), `Command error: ${msg}`);
+      }
+    }
+  };
+
+  const handleSend = async (text: string, _attachments?: any[]) => {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('/')) {
+      await handleSlashCommand(trimmed);
+      return;
+    }
+    await sendPrompt(text);
   };
 
   const handleMessageAction = async (sid: string, action: MessageActionType, message: RenderedMessage) => {

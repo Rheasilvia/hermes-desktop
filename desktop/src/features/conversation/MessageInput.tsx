@@ -54,6 +54,14 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     return t.slice(1);
   };
 
+  const slashPartial = (): string => {
+    const t = text();
+    if (!t.startsWith('/')) return '';
+    const firstLine = t.split('\n', 1)[0];
+    const firstToken = firstLine.split(/\s+/, 1)[0];
+    return firstToken || '/';
+  };
+
   const isSlashMode = () => {
     const t = text();
     return t.startsWith('/') && !t.includes(' ') && !t.includes('\n') && slashPanelOpen();
@@ -75,7 +83,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     const gateway = getGateway();
     if (!gateway) return;
     try {
-      const results = await gateway.complete.slash({ partial: '' });
+      const results = await gateway.complete.slash({ partial: slashPartial() });
       setSlashCommands(results.map((r) => ({
         command: r.command,
         description: r.description,
@@ -104,9 +112,9 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   createEffect(() => {
     const t = text();
     if (t.startsWith('/') && !t.includes(' ') && !t.includes('\n')) {
+      void loadSlashCommands();
       if (!slashPanelOpen() && !manuallyClosed()) {
         setSlashPanelOpen(true);
-        void loadSlashCommands();
       }
     } else {
       setSlashPanelOpen(false);

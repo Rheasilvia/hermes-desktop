@@ -280,14 +280,21 @@ export interface CompleteMethods {
   path(params: { partial: string }): Promise<string[]>;
 }
 
+export type CommandResult =
+  | { kind: 'output'; message: string; name?: string }
+  | { kind: 'send'; message: string; name?: string }
+  | { kind: 'skill'; message: string; name?: string }
+  | { kind: 'unsupported'; message: string; name?: string }
+  | { kind: 'error'; message: string; name?: string };
+
 /** Slash execution method group. */
 export interface SlashMethods {
-  exec(params: { command: string; args?: string }): Promise<void>;
+  exec(params: { command: string; args?: string; raw?: string; session_id?: string }): Promise<CommandResult>;
 }
 
 /** Command dispatch method group. */
 export interface CommandMethods {
-  dispatch(params: { command: string; args?: string }): Promise<void>;
+  dispatch(params: { command: string; args?: string; raw?: string; session_id?: string }): Promise<CommandResult>;
 }
 
 /** Delegation method group. */

@@ -1,7 +1,8 @@
 /**
  * HttpGatewayAdapter — real HTTP+SSE adapter for the Hermes desktop backend.
  *
- * Real methods: session.*, prompt.execute, approval.respond, clarify.respond.
+ * Real methods: session.*, prompt.execute, approval.respond, clarify.respond,
+ * complete.slash, slash.exec, command.dispatch.
  * All other method groups throw notImplemented() until wired to real endpoints.
  *
  * SSE is via one long-lived EventSource.  On reconnect, each known session's
@@ -35,6 +36,7 @@ import type {
   ModelOptionsResult,
   SkillInfo,
   ModelOption,
+  CommandResult,
 } from './types.js';
 import type { ParsedToolCall } from '@/types/index.js';
 import { httpClient, type HttpClient } from '@/services/api/http-client.js';
@@ -356,9 +358,28 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       },
     };
     this.skills = { list: notImplemented('skills.list') };
-    this.complete = { slash: notImplemented('complete.slash'), path: notImplemented('complete.path') };
-    this.slash = { exec: notImplemented('slash.exec') };
-    this.command = { dispatch: notImplemented('command.dispatch') };
+    this.complete = {
+      slash: async (params): Promise<{ command: string; description: string; category?: string; icon?: string }[]> => {
+        const r = await this.http.post<{ items: Array<{ command: string; description: string; category?: string; icon?: string }> }>(
+          `${API_PREFIX}/commands/complete/slash`,
+          { partial: params.partial },
+        );
+        return r.items ?? [];
+      },
+      path: notImplemented('complete.path'),
+    };
+    this.slash = {
+      exec: async (params): Promise<CommandResult> => this.http.post<CommandResult>(
+        `${API_PREFIX}/commands/slash/exec`,
+        params,
+      ),
+    };
+    this.command = {
+      dispatch: async (params): Promise<CommandResult> => this.http.post<CommandResult>(
+        `${API_PREFIX}/commands/dispatch`,
+        params,
+      ),
+    };
     this.delegation = {
       status: async () => {
         console.warn('delegation.status RPC not implemented — returning empty status');
