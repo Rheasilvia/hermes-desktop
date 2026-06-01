@@ -382,12 +382,21 @@ class AgentPool:
                 t0 = start_cb._start_times.pop(tool_call_id, None)
                 if t0 is not None:
                     duration_s = round(time.time() - t0, 3)
-            self._emit_ui_message(session_id, "tool.complete", {
+            payload = {
                 "tool_id": tool_call_id,
                 "name": name,
                 "summary": (result or "")[:500],
                 "duration_s": duration_s,
-            })
+            }
+            # Extract todos from todo tool result (matches tui_gateway/server.py behavior)
+            if name == "todo":
+                try:
+                    data = json.loads(result) if isinstance(result, str) else result
+                    if isinstance(data, dict) and isinstance(data.get("todos"), list):
+                        payload["todos"] = data.get("todos")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            self._emit_ui_message(session_id, "tool.complete", payload)
 
         return cb
 

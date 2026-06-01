@@ -38,6 +38,7 @@ function makeLiveTurnState(sessionId: string): LiveTurnState {
     streamingText: '',
     reasoningText: '',
     activeTools: [],
+    todosToolId: null,
     todos: [],
     errorMessage: null,
     pendingApproval: null,
@@ -311,8 +312,11 @@ export const chatStore = {
             : t
         ),
         todos: payload.todos && payload.todos.length > 0
-          ? [...state.liveState.todos, ...payload.todos]
+          ? payload.todos
           : state.liveState.todos,
+        todosToolId: payload.todos && payload.todos.length > 0
+          ? payload.tool_id
+          : state.liveState.todosToolId,
       },
     }));
   },
@@ -348,23 +352,26 @@ export const chatStore = {
   handleMessageComplete(sessionId: string, payload: MessageCompletePayload): void {
     updateChatState(sessionId, (state) => {
       const live = state.liveState;
-      const toolBlocks: ToolCallBlock[] = live.activeTools.map((t) => ({
-        type: 'tool_call' as const,
-        id: `tc-${t.id}`,
-        toolId: t.id,
-        name: t.name,
-        status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
-        inputPreview: t.inputPreview,
-        outputSummary: t.resultSummary,
-        inlineDiff: null,
-        durationMs: t.durationMs,
-      }));
+      const hasTodos = live.todos.length > 0;
+      const toolBlocks: ToolCallBlock[] = live.activeTools
+        .filter((t) => !hasTodos || t.name !== 'todo')
+        .map((t) => ({
+          type: 'tool_call' as const,
+          id: `tc-${t.id}`,
+          toolId: t.id,
+          name: t.name,
+          status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
+          inputPreview: t.inputPreview,
+          outputSummary: t.resultSummary,
+          inlineDiff: null,
+          durationMs: t.durationMs,
+        }));
 
-      const todoBlocks = live.todos.length > 0
+      const todoBlocks = hasTodos
         ? [{
             type: 'todo_list' as const,
             id: nextBlockId(),
-            toolId: live.activeTools[0]?.id ?? 'todo',
+            toolId: live.todosToolId ?? live.activeTools[0]?.id ?? 'todo',
             todos: live.todos,
           }]
         : [];
@@ -471,6 +478,12 @@ export const chatStore = {
             content: live.streamingText,
           }] : []),
           ...toolBlocks,
+          ...(live.todos.length > 0 ? [{
+            type: 'todo_list' as const,
+            id: nextBlockId(),
+            toolId: live.todosToolId ?? live.activeTools[0]?.id ?? 'todo',
+            todos: live.todos,
+          }] : []),
         ];
         const partialMsg: RenderedMessage = {
           id: nextEphemeralId(),

@@ -28,6 +28,8 @@ export interface ParsedToolCall {
   status?: 'complete' | 'error' | 'running';
   outputSummary?: string | null;
   durationMs?: number | null;
+  /** todos attached to tool.complete when the tool is "todo" */
+  todos?: import('../gateway.js').TodoItem[];
 }
 
 /**

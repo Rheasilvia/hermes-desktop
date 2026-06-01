@@ -12,7 +12,7 @@
 import type { ConversationMessage, ParsedToolCall } from '../types/domain/message.js';
 import type {
   MessageBlock, TextBlock, CodeBlock, ReasoningBlock, ToolCallBlock,
-  RichContentBlock, RichContentKind,
+  RichContentBlock, RichContentKind, TodoListBlock,
 } from '../types/ui/blocks.js';
 import type { RenderedMessage } from '../types/ui/message.js';
 
@@ -111,8 +111,23 @@ export function parseMessage(msg: ConversationMessage): RenderedMessage {
   }
 
   if (msg.toolCalls) {
+    // Collect todos from all tool calls to check if any todo tool produced them
+    const hasAnyTodos = msg.toolCalls.some((tc) => tc.todos && tc.todos.length > 0);
     for (const tc of msg.toolCalls) {
-      blocks.push(toolCallToBlock(tc));
+      const hasTodos = tc.todos && tc.todos.length > 0;
+      // Suppress todo tool call cards when todos are present — TodoPanel is the canonical UI
+      if (!hasAnyTodos || tc.name !== 'todo') {
+        blocks.push(toolCallToBlock(tc));
+      }
+      if (hasTodos) {
+        const todoBlock: TodoListBlock = {
+          type: 'todo_list',
+          id: nextId(),
+          toolId: tc.id,
+          todos: tc.todos!,
+        };
+        blocks.push(todoBlock);
+      }
     }
   }
 

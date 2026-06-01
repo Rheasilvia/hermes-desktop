@@ -8,6 +8,7 @@ import type {
   SubagentErrorPayload,
 } from '@/types/gateway.js';
 import type { SubagentRecord } from '@/types/gateway.js';
+import { getGateway } from './context.js';
 
 interface DelegationState {
   subagents: Record<string, SubagentRecord>;
@@ -85,6 +86,12 @@ export const delegationStore = {
 
   setPaused(paused: boolean) {
     setState('paused', paused);
+    const gateway = getGateway();
+    if (gateway) {
+      gateway.delegation.pause({ paused }).catch(() => {
+        console.warn('delegation.pause RPC not available — pause is local-only');
+      });
+    }
   },
 
   setSortMode(mode: DelegationState['sortMode']) {

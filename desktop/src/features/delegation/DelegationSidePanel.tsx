@@ -64,6 +64,14 @@ export const DelegationSidePanel: Component = () => {
 
   const runningCount = createMemo(() => subagentList().filter((s) => s.status === 'running').length);
 
+  const parentIds = createMemo(() => {
+    const ids = new Set<string>();
+    for (const s of subagentList()) {
+      if (s.parent_id) ids.add(s.parent_id);
+    }
+    return ids;
+  });
+
   return (
     <div class={styles.panel}>
       <div class={styles.header}>
@@ -125,11 +133,15 @@ export const DelegationSidePanel: Component = () => {
         </div>
       </Show>
 
-      <div class={styles.list}>
+      <div class={styles.list} role="tree" aria-label="Subagent tree">
         <For each={sortedList()}>
           {(subagent) => (
             <div
               class={styles.card}
+              role="treeitem"
+              aria-level={(subagent.depth ?? 0) + 1}
+              aria-expanded={parentIds().has(subagent.subagent_id)}
+              tabindex={-1}
               style={{ 'margin-left': `${(subagent.depth ?? 0) * 16}px` }}
             >
               <div class={styles.cardHeader}>

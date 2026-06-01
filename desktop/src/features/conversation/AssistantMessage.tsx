@@ -17,7 +17,6 @@ import { parseMarkdown } from '@/utils/markdown.js';
 import { CodeBlock } from './CodeBlock.js';
 import { ToolCallPanel } from './ToolCallPanel.js';
 import { TurnActivityPanel } from './TurnActivityPanel.js';
-import { TodoPanel } from './TodoPanel.js';
 import { RichContentRenderer } from './RichContentRenderer.js';
 import { AttachmentRenderer } from './AttachmentRenderer.js';
 import { blockToRow } from './toolCallMappers.js';
@@ -68,10 +67,13 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
   );
 
   const blockGroups = createMemo(() => {
+    const hasTodoList = props.blocks.some((b) => b.type === 'todo_list');
     const groups: BlockGroup[] = [];
     for (const block of props.blocks) {
       if (block.type === 'reasoning') continue;
       if (block.type === 'tool_call') {
+        // Suppress todo tool cards when TodoPanel is present
+        if (hasTodoList && (block as ToolCallBlock).name === 'todo') continue;
         const last = groups[groups.length - 1];
         if (last?.type === 'tool_group') {
           last.blocks.push(block as ToolCallBlock);
@@ -158,8 +160,6 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
                 return <RichContentBlockView block={block as RichContentBlock} />;
               case 'attachment':
                 return <AttachmentBlockView block={block as AttachmentBlock} />;
-              case 'todo_list':
-                return <TodoPanel todos={(block as TodoListBlock).todos} />;
               default:
                 return null;
             }

@@ -29,6 +29,8 @@ export interface LiveTurnState {
   streamingText: string;
   reasoningText: string;
   activeTools: LiveToolCall[];
+  /** tool_id of the tool that produced the current todos batch */
+  todosToolId: string | null;
   todos: TodoItem[];
   errorMessage: string | null;
   pendingApproval: PendingApproval | null;
