@@ -78,14 +78,6 @@ export const GeneralTab: Component = () => {
     await handleDesktopChange('theme', themeName);
   };
 
-  const handleClearCache = async () => {
-    if (!confirm('This will clear all cached files and temporary data. Continue?')) {
-      return;
-    }
-    // TODO: implement cache clearing via Tauri
-    alert('Cache cleared successfully.');
-  };
-
   return (
     <Show when={!loading()} fallback={<div class={styles.loading}>Loading settings…</div>}>
       <div class={styles.tab}>
@@ -197,15 +189,6 @@ export const GeneralTab: Component = () => {
             onChange={(v) => handleDesktopChange('checkUpdates', v as boolean)}
           />
 
-          <div class={styles.fieldRow}>
-            <div class={styles.fieldInfo}>
-              <label class={styles.fieldLabel}>Clear Application Data</label>
-              <p class={styles.fieldDescription}>Remove cached files and temporary data</p>
-            </div>
-            <button class={styles.clearBtn} onClick={handleClearCache} type="button">
-              Clear Cache
-            </button>
-          </div>
         </section>
       </div>
     </Show>
