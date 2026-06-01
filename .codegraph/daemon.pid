@@ -1,6 +1,6 @@
 {
-  "pid": 69295,
+  "pid": 61642,
   "version": "0.9.7",
-  "socketPath": "/Users/mengjiechen/Documents/Repos/hermes-agent/.codegraph/daemon.sock",
-  "startedAt": 1780242482372
+  "socketPath": "/Users/chenmengjie/Documents/Repos/hermes-agent/.codegraph/daemon.sock",
+  "startedAt": 1780308670903
 }
