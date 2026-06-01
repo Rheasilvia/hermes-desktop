@@ -235,6 +235,13 @@ export interface ToolProgressPayload {
   progress?: string;
 }
 
+/** Todo item from tool execution. */
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: 'cancelled' | 'completed' | 'in_progress' | 'pending';
+}
+
 /** Tool complete event payload. */
 export interface ToolCompletePayload {
   tool_id: string;
@@ -242,6 +249,7 @@ export interface ToolCompletePayload {
   summary?: string;
   inline_diff?: string;
   duration_s?: number;
+  todos?: TodoItem[];
 }
 
 /** Tool generating event payload. */

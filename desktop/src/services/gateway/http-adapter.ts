@@ -593,14 +593,19 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           name: String(payload.name ?? ''),
         } as GatewayEventMap['tool.start']);
         break;
-      case 'tool.complete':
-        this.emit('tool.complete', {
+      case 'tool.complete': {
+        const completePayload: GatewayEventMap['tool.complete'] = {
           tool_id: String(payload.tool_id ?? `${payload.name}_0`),
           name: String(payload.name ?? ''),
           summary: String(payload.summary ?? ''),
           duration_s: Number(payload.duration_s ?? 0),
-        } as GatewayEventMap['tool.complete']);
+        };
+        if (payload.todos && Array.isArray(payload.todos)) {
+          completePayload.todos = payload.todos as GatewayEventMap['tool.complete']['todos'];
+        }
+        this.emit('tool.complete', completePayload);
         break;
+      }
       case 'tool.error':
         this.emit('tool.error', {
           tool_id: String(payload.tool_id ?? ''),

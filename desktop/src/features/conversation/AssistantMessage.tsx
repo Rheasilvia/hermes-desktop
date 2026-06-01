@@ -9,6 +9,7 @@ import type {
   ToolCallBlock,
   RichContentBlock,
   AttachmentBlock,
+  TodoListBlock,
   MessageAction,
   ToolCallRow,
 } from '@/types/index.js';
@@ -16,6 +17,7 @@ import { parseMarkdown } from '@/utils/markdown.js';
 import { CodeBlock } from './CodeBlock.js';
 import { ToolCallPanel } from './ToolCallPanel.js';
 import { TurnActivityPanel } from './TurnActivityPanel.js';
+import { TodoPanel } from './TodoPanel.js';
 import { RichContentRenderer } from './RichContentRenderer.js';
 import { AttachmentRenderer } from './AttachmentRenderer.js';
 import { blockToRow } from './toolCallMappers.js';
@@ -76,6 +78,8 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
         } else {
           groups.push({ type: 'tool_group', blocks: [block as ToolCallBlock] });
         }
+      } else if (block.type === 'todo_list') {
+        groups.push({ type: 'single', block });
       } else {
         groups.push({ type: 'single', block });
       }
@@ -154,6 +158,8 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
                 return <RichContentBlockView block={block as RichContentBlock} />;
               case 'attachment':
                 return <AttachmentBlockView block={block as AttachmentBlock} />;
+              case 'todo_list':
+                return <TodoPanel todos={(block as TodoListBlock).todos} />;
               default:
                 return null;
             }

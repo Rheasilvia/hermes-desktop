@@ -21,12 +21,15 @@ export interface MemoryContextItem {
   content: string;
 }
 
+import type { TodoItem } from '../gateway.js';
+
 export interface LiveTurnState {
   sessionId: string;
   status: TurnStatus;
   streamingText: string;
   reasoningText: string;
   activeTools: LiveToolCall[];
+  todos: TodoItem[];
   errorMessage: string | null;
   pendingApproval: PendingApproval | null;
   pendingClarify: PendingClarify | null;
