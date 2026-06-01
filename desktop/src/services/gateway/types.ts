@@ -51,6 +51,11 @@ import type {
   GatewayStderrPayload,
   ProtocolErrorPayload,
   SessionTitleUpdatePayload,
+  SubagentStartPayload,
+  SubagentProgressPayload,
+  SubagentCompletePayload,
+  SubagentToolPayload,
+  SubagentErrorPayload,
 } from '@/types/index.js';
 
 /** Connection state of the gateway adapter. */
@@ -82,6 +87,11 @@ export interface GatewayEventMap {
   'gateway.stderr': GatewayStderrPayload;
   'gateway.protocol_error': ProtocolErrorPayload;
   'session.title_update': SessionTitleUpdatePayload;
+  'subagent.start': SubagentStartPayload;
+  'subagent.progress': SubagentProgressPayload;
+  'subagent.complete': SubagentCompletePayload;
+  'subagent.tool': SubagentToolPayload;
+  'subagent.error': SubagentErrorPayload;
 }
 
 /** Typed event emitter interface for gateway events. */
@@ -280,6 +290,17 @@ export interface CommandMethods {
   dispatch(params: { command: string; args?: string }): Promise<void>;
 }
 
+/** Delegation method group. */
+export interface DelegationMethods {
+  status(): Promise<{ active: import('@/types/index.js').SubagentRecord[]; paused: boolean; max_spawn_depth: number }>;
+  pause(params: { paused: boolean }): Promise<{ paused: boolean }>;
+}
+
+/** Subagent method group. */
+export interface SubagentMethods {
+  interrupt(params: { subagent_id: string }): Promise<{ found: boolean; subagent_id: string }>;
+}
+
 /** The full Gateway adapter interface — all method groups + events + lifecycle. */
 export interface GatewayAdapter extends GatewayEventEmitter {
   // Method groups
@@ -300,6 +321,8 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   readonly complete: CompleteMethods;
   readonly slash: SlashMethods;
   readonly command: CommandMethods;
+  readonly delegation: DelegationMethods;
+  readonly subagent: SubagentMethods;
 
   /** Set the provider and model for a specific session */
   setSessionProvider(sessionId: string, provider: string, model?: string): Promise<void>;

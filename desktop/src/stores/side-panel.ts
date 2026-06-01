@@ -1,6 +1,6 @@
 import { createSignal } from 'solid-js';
 
-export type SidePanelTab = 'workspace' | 'git';
+export type SidePanelTab = 'workspace' | 'git' | 'delegation';
 
 const [isOpen, setIsOpen] = createSignal(false);
 const [activeTab, setActiveTab] = createSignal<SidePanelTab>('workspace');

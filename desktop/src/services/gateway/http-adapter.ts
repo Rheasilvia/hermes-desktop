@@ -69,6 +69,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
   readonly complete: GatewayAdapter['complete'];
   readonly slash: GatewayAdapter['slash'];
   readonly command: GatewayAdapter['command'];
+  readonly delegation: GatewayAdapter['delegation'];
+  readonly subagent: GatewayAdapter['subagent'];
   readonly setSessionProvider: GatewayAdapter['setSessionProvider'];
 
   private state: ConnectionState = 'disconnected';
@@ -357,6 +359,13 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     this.complete = { slash: notImplemented('complete.slash'), path: notImplemented('complete.path') };
     this.slash = { exec: notImplemented('slash.exec') };
     this.command = { dispatch: notImplemented('command.dispatch') };
+    this.delegation = {
+      status: notImplemented('delegation.status'),
+      pause: notImplemented('delegation.pause'),
+    };
+    this.subagent = {
+      interrupt: notImplemented('subagent.interrupt'),
+    };
   }
 
   // ── Message aggregation ───────────────────────────────────────────────
@@ -620,6 +629,54 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           name: String(payload.name ?? ''),
           text: String(payload.text ?? ''),
         } as GatewayEventMap['tool.generating']);
+        break;
+      case 'subagent.start':
+        this.emit('subagent.start', {
+          subagent_id: String(payload.subagent_id ?? ''),
+          goal: String(payload.goal ?? ''),
+          parent_id: payload.parent_id != null ? String(payload.parent_id) : undefined,
+          model: payload.model != null ? String(payload.model) : undefined,
+          depth: payload.depth != null ? Number(payload.depth) : undefined,
+          task_count: payload.task_count != null ? Number(payload.task_count) : undefined,
+          task_index: payload.task_index != null ? Number(payload.task_index) : undefined,
+        } as GatewayEventMap['subagent.start']);
+        break;
+      case 'subagent.progress':
+        this.emit('subagent.progress', {
+          subagent_id: String(payload.subagent_id ?? ''),
+          status: payload.status != null ? String(payload.status) : undefined,
+          tool_count: payload.tool_count != null ? Number(payload.tool_count) : undefined,
+          toolsets: payload.toolsets != null ? (payload.toolsets as string[]) : undefined,
+        } as GatewayEventMap['subagent.progress']);
+        break;
+      case 'subagent.complete':
+        this.emit('subagent.complete', {
+          subagent_id: String(payload.subagent_id ?? ''),
+          summary: payload.summary != null ? String(payload.summary) : undefined,
+          duration_seconds: payload.duration_seconds != null ? Number(payload.duration_seconds) : undefined,
+          cost_usd: payload.cost_usd != null ? Number(payload.cost_usd) : undefined,
+          input_tokens: payload.input_tokens != null ? Number(payload.input_tokens) : undefined,
+          output_tokens: payload.output_tokens != null ? Number(payload.output_tokens) : undefined,
+          reasoning_tokens: payload.reasoning_tokens != null ? Number(payload.reasoning_tokens) : undefined,
+          api_calls: payload.api_calls != null ? Number(payload.api_calls) : undefined,
+          files_read: payload.files_read != null ? Number(payload.files_read) : undefined,
+          files_written: payload.files_written != null ? Number(payload.files_written) : undefined,
+        } as GatewayEventMap['subagent.complete']);
+        break;
+      case 'subagent.tool':
+        this.emit('subagent.tool', {
+          subagent_id: String(payload.subagent_id ?? ''),
+          tool_name: payload.tool_name != null ? String(payload.tool_name) : undefined,
+          tool_preview: payload.tool_preview != null ? String(payload.tool_preview) : undefined,
+          text: payload.text != null ? String(payload.text) : undefined,
+        } as GatewayEventMap['subagent.tool']);
+        break;
+      case 'subagent.error':
+        this.emit('subagent.error', {
+          subagent_id: String(payload.subagent_id ?? ''),
+          status: payload.status != null ? String(payload.status) : undefined,
+          text: payload.text != null ? String(payload.text) : undefined,
+        } as GatewayEventMap['subagent.error']);
         break;
       case 'tool.progress':
         this.emit('tool.progress', {
