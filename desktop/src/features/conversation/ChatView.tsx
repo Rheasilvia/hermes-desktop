@@ -12,12 +12,18 @@ import type {
   ReasoningDeltaPayload,
   ApprovalRequestPayload,
   ClarifyRequestPayload,
+  SubagentStartPayload,
+  SubagentProgressPayload,
+  SubagentCompletePayload,
+  SubagentToolPayload,
+  SubagentErrorPayload,
 } from '@/types/gateway.js';
 import type { RenderedMessage } from '@/types/index.js';
 import type { MessageActionType } from '@/types/ui/message.js';
 import { chatStore } from '@/stores/chat.js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 import { gitViewStore } from '@/stores/git-view.js';
+import { delegationStore } from '@/stores/delegation.js';
 import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { sessionStore } from '@/stores/session.js';
 import { modelStore } from '@/stores/models.js';
@@ -293,6 +299,26 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     chatStore.handleClarifyRequest(sessionId(), payload);
   };
 
+  const onSubagentStart = (payload: SubagentStartPayload) => {
+    delegationStore.handleStart(payload);
+  };
+
+  const onSubagentProgress = (payload: SubagentProgressPayload) => {
+    delegationStore.handleProgress(payload);
+  };
+
+  const onSubagentComplete = (payload: SubagentCompletePayload) => {
+    delegationStore.handleComplete(payload);
+  };
+
+  const onSubagentTool = (payload: SubagentToolPayload) => {
+    delegationStore.handleTool(payload);
+  };
+
+  const onSubagentError = (payload: SubagentErrorPayload) => {
+    delegationStore.handleError(payload);
+  };
+
   const handleDragStart = (e: MouseEvent) => {
     e.preventDefault();
     if (diffPanelEl) {
@@ -390,6 +416,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     gateway.on('tool.error', onToolError);
     gateway.on('approval.request', onApprovalRequest);
     gateway.on('clarify.request', onClarifyRequest);
+    gateway.on('subagent.start', onSubagentStart);
+    gateway.on('subagent.progress', onSubagentProgress);
+    gateway.on('subagent.complete', onSubagentComplete);
+    gateway.on('subagent.tool', onSubagentTool);
+    gateway.on('subagent.error', onSubagentError);
   });
 
   onCleanup(() => {
@@ -406,6 +437,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     gateway.off('tool.error', onToolError);
     gateway.off('approval.request', onApprovalRequest);
     gateway.off('clarify.request', onClarifyRequest);
+    gateway.off('subagent.start', onSubagentStart);
+    gateway.off('subagent.progress', onSubagentProgress);
+    gateway.off('subagent.complete', onSubagentComplete);
+    gateway.off('subagent.tool', onSubagentTool);
+    gateway.off('subagent.error', onSubagentError);
   });
 
   return (
@@ -419,6 +455,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           sidePanelStore.open('git');
           void gitViewStore.fetchDiff();
         }}
+        onToggleDelegationPanel={() => sidePanelStore.toggle('delegation')}
+        delegationPanelActive={sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'delegation'}
       />
 
       <Show when={error()}>

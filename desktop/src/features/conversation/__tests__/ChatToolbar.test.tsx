@@ -11,6 +11,8 @@ describe('ChatToolbar workspace side panel controls', () => {
         sidePanelActive={false}
         onToggleSidePanel={onToggleSidePanel}
         onOpenGitView={vi.fn()}
+        onToggleDelegationPanel={vi.fn()}
+        delegationPanelActive={false}
       />
     ));
 
@@ -27,6 +29,8 @@ describe('ChatToolbar workspace side panel controls', () => {
         sidePanelActive={true}
         onToggleSidePanel={vi.fn()}
         onOpenGitView={onOpenGitView}
+        onToggleDelegationPanel={vi.fn()}
+        delegationPanelActive={false}
       />
     ));
 

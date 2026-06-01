@@ -113,6 +113,79 @@ export type GatewayMethod =
   | 'slash.exec'
   | 'command.dispatch';
 
+/** Subagent start event payload. */
+export interface SubagentStartPayload {
+  subagent_id: string;
+  goal: string;
+  parent_id?: string;
+  model?: string;
+  depth?: number;
+  task_count?: number;
+  task_index?: number;
+}
+
+/** Subagent progress event payload. */
+export interface SubagentProgressPayload {
+  subagent_id: string;
+  status?: string;
+  tool_count?: number;
+  toolsets?: string[];
+}
+
+/** Subagent complete event payload. */
+export interface SubagentCompletePayload {
+  subagent_id: string;
+  summary?: string;
+  duration_seconds?: number;
+  cost_usd?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  reasoning_tokens?: number;
+  api_calls?: number;
+  files_read?: number;
+  files_written?: number;
+}
+
+/** Subagent tool event payload. */
+export interface SubagentToolPayload {
+  subagent_id: string;
+  tool_name?: string;
+  tool_preview?: string;
+  text?: string;
+}
+
+/** Subagent error event payload. */
+export interface SubagentErrorPayload {
+  subagent_id: string;
+  status?: string;
+  text?: string;
+}
+
+/** Subagent record for delegation tree viewer. */
+export interface SubagentRecord {
+  subagent_id: string;
+  parent_id?: string;
+  depth: number;
+  model?: string;
+  goal: string;
+  status: 'running' | 'complete' | 'error' | 'paused';
+  task_count?: number;
+  task_index?: number;
+  tool_count?: number;
+  toolsets?: string[];
+  input_tokens?: number;
+  output_tokens?: number;
+  reasoning_tokens?: number;
+  api_calls?: number;
+  cost_usd?: number;
+  files_read?: number;
+  files_written?: number;
+  summary?: string;
+  duration_seconds?: number;
+  tool_preview?: string;
+  error_text?: string;
+}
+
 /** Gateway ready event payload. */
 export interface GatewayReadyPayload {
   skin?: GatewaySkin;

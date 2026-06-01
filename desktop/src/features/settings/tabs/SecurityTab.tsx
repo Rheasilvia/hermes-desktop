@@ -55,10 +55,10 @@ export const SecurityTab: Component = () => {
           <For each={security()?.dangerous_commands ?? []}>
             {(cmd) => (
               <Pill
-                label={cmd}
                 onRemove={() => removeDangerousCommand(cmd)}
-                removable
-              />
+              >
+                {cmd}
+              </Pill>
             )}
           </For>
         </div>

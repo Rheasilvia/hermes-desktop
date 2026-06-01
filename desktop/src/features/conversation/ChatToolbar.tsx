@@ -9,6 +9,8 @@ interface ChatToolbarProps {
   sidePanelActive: boolean;
   onToggleSidePanel: () => void;
   onOpenGitView: () => void;
+  onToggleDelegationPanel: () => void;
+  delegationPanelActive: boolean;
   modelSelectorSlot?: any;
 }
 
@@ -28,6 +30,15 @@ export const ChatToolbar: Component<ChatToolbarProps> = (props) => {
           aria-label={props.sidePanelActive ? 'Hide workspace panel' : 'Show workspace panel'}
         >
           <Icon name="panel-right" size={16} />
+        </button>
+        <button
+          type="button"
+          class={`${styles.iconBtn} ${props.delegationPanelActive ? styles.iconBtnActive : ''}`}
+          onClick={props.onToggleDelegationPanel}
+          title={props.delegationPanelActive ? 'Hide delegation panel' : 'Show delegation panel'}
+          aria-label={props.delegationPanelActive ? 'Hide delegation panel' : 'Show delegation panel'}
+        >
+          <Icon name="users" size={16} />
         </button>
         <MoreMenu panelOpen={props.sidePanelActive} onOpenGitView={props.onOpenGitView} />
       </div>
