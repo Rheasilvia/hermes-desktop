@@ -18,7 +18,6 @@ const TABS = [
   { id: 'active', label: 'Active' },
   { id: 'paused', label: 'Paused' },
   { id: 'delivery', label: 'Delivery' },
-  // { id: 'history', label: 'History' },  // TODO: re-enable when execution history is tracked
 ];
 
 export const CronView: Component = () => {

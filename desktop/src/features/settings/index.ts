@@ -1,10 +1,3 @@
 export { SettingsView } from './SettingsView.js';
 export { ConfigField } from './ConfigField.js';
 export type { ConfigFieldProps } from './ConfigField.js';
-export { GeneralTab } from './tabs/GeneralTab.js';
-export { AgentTab } from './tabs/AgentTab.js';
-export { MemoryTab } from './tabs/MemoryTab.js';
-export { SecurityTab } from './tabs/SecurityTab.js';
-export { VoiceTab } from './tabs/VoiceTab.js';
-export { BrowserTab } from './tabs/BrowserTab.js';
-export { YamlTab } from './tabs/YamlTab.js';
