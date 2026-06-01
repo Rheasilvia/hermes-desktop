@@ -85,6 +85,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         tokenCount: null,
       });
     }
+    if (live.todos.length > 0) {
+      blocks.push({
+        type: 'todo_list',
+        id: 'live-todos',
+        toolId: live.activeTools[0]?.id ?? 'todo',
+        todos: live.todos,
+      });
+    }
     if (live.streamingText) {
       blocks.push({
         type: 'text',

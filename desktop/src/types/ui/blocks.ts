@@ -11,7 +11,15 @@ export type MessageBlock =
   | ToolCallBlock
   | ReasoningBlock
   | RichContentBlock
-  | AttachmentBlock;
+  | AttachmentBlock
+  | TodoListBlock;
+
+export interface TodoListBlock {
+  type: 'todo_list';
+  id: string;
+  toolId: string;
+  todos: import('../gateway.js').TodoItem[];
+}
 
 export interface TextBlock {
   type: 'text';

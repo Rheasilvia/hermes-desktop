@@ -37,7 +37,7 @@ export type {
   ToolGeneratingPayload, ToolErrorPayload, ApprovalRequestPayload, ClarifyRequestPayload,
   SudoRequestPayload, SecretRequestPayload, BackgroundCompletePayload, BtwCompletePayload,
   ErrorPayload, GatewayStderrPayload, ProtocolErrorPayload,
-  SessionTitleUpdatePayload
+  SessionTitleUpdatePayload, TodoItem
 } from './gateway.js';
 export { SESSION_METHODS, PROMPT_METHODS, CONFIG_METHODS, TOOLS_METHODS, MODEL_METHODS, APPROVAL_METHODS, CLARIFY_METHODS, SUDO_METHODS, SECRET_METHODS } from './gateway.js';
 
@@ -89,6 +89,7 @@ export type { ConversationMessage, ParsedToolCall, MessageAttachment } from './d
 export type {
   MessageBlock, TextBlock, CodeBlock, ReasoningBlock,
   ToolCallBlock, RichContentBlock, RichContentKind, AttachmentBlock,
+  TodoListBlock,
 } from './ui/blocks.js';
 export type {
   ChartData, ChartDataset, WebSearchResult, WebSearchResultItem,

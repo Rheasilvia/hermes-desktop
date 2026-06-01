@@ -38,6 +38,7 @@ function makeLiveTurnState(sessionId: string): LiveTurnState {
     streamingText: '',
     reasoningText: '',
     activeTools: [],
+    todos: [],
     errorMessage: null,
     pendingApproval: null,
     pendingClarify: null,
@@ -309,6 +310,9 @@ export const chatStore = {
               }
             : t
         ),
+        todos: payload.todos && payload.todos.length > 0
+          ? [...state.liveState.todos, ...payload.todos]
+          : state.liveState.todos,
       },
     }));
   },
@@ -356,6 +360,15 @@ export const chatStore = {
         durationMs: t.durationMs,
       }));
 
+      const todoBlocks = live.todos.length > 0
+        ? [{
+            type: 'todo_list' as const,
+            id: nextBlockId(),
+            toolId: live.activeTools[0]?.id ?? 'todo',
+            todos: live.todos,
+          }]
+        : [];
+
       const blocks = [
         ...(live.reasoningText ? [{
           type: 'reasoning' as const,
@@ -365,6 +378,7 @@ export const chatStore = {
           tokenCount: null,
         }] : []),
         ...toolBlocks,
+        ...todoBlocks,
         ...parseBlocks(payload.text),
       ];
 
