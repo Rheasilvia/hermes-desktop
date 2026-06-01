@@ -100,3 +100,14 @@ def get_model_service(request: Request):
         from .model_service import ModelService
         request.app.state.model_svc = ModelService(request.app.state.cfg.hermes_home)
     return request.app.state.model_svc
+
+
+def get_command_service(request: Request):
+    if not hasattr(request.app.state, "command_svc"):
+        from .command_service import CommandService
+        request.app.state.command_svc = CommandService(
+            hermes_home=request.app.state.cfg.hermes_home,
+            session_service=get_session_service(request),
+            agent_pool=get_agent_pool(request),
+        )
+    return request.app.state.command_svc
