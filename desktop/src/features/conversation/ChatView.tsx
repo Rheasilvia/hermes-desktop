@@ -17,8 +17,9 @@ import type {
   SubagentCompletePayload,
   SubagentToolPayload,
   SubagentErrorPayload,
+  TodoItem,
 } from '@/types/gateway.js';
-import type { RenderedMessage } from '@/types/index.js';
+import type { RenderedMessage, TodoListBlock } from '@/types/index.js';
 import type { MessageActionType } from '@/types/ui/message.js';
 import { chatStore } from '@/stores/chat.js';
 import { sidePanelStore } from '@/stores/side-panel.js';
@@ -43,6 +44,7 @@ import { Icon } from '@/ui/atoms/Icon.js';
 import { ApprovalCard } from './ApprovalCard.js';
 import { ClarificationCard } from './ClarificationCard.js';
 import { MemoryContextCard } from './MemoryContextCard.js';
+import { TodoPanel } from './TodoPanel.js';
 import { JumpToBottom } from './JumpToBottom.js';
 import { liveToRow } from './toolCallMappers.js';
 import styles from './ChatView.module.css';
@@ -91,14 +93,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         tokenCount: null,
       });
     }
-    if (live.todos.length > 0) {
-      blocks.push({
-        type: 'todo_list',
-        id: 'live-todos',
-        toolId: live.activeTools[0]?.id ?? 'todo',
-        todos: live.todos,
-      });
-    }
     if (live.streamingText) {
       blocks.push({
         type: 'text',
@@ -108,6 +102,112 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     }
     return blocks;
   });
+
+  // ── Floating TodoPanel state ──────────────────────────────────────────
+
+  const [panelManuallyClosed, setPanelManuallyClosed] = createSignal(false);
+  const [panelExiting, setPanelExiting] = createSignal(false);
+  const [isPaused, setIsPaused] = createSignal(false);
+  const [showUndoBar, setShowUndoBar] = createSignal(false);
+  const [incompleteCount, setIncompleteCount] = createSignal(0);
+  let autoCloseTimer: ReturnType<typeof setTimeout> | undefined;
+  let undoBarTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const hasActiveTodoTool = createMemo(() =>
+    liveState().activeTools.some((t) => t.name === 'todo' && t.status === 'running')
+  );
+
+  const panelTodos = createMemo((): TodoItem[] => {
+    const live = liveState();
+    // During streaming, live state is the authoritative source
+    if (isStreaming() && live.todos.length > 0) return live.todos;
+    // Not streaming: check the most recent assistant message for persisted todo_list blocks
+    const msgs = messages();
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role !== 'assistant') continue;
+      const todoBlock = m.blocks.find((b): b is TodoListBlock => b.type === 'todo_list');
+      if (todoBlock) return todoBlock.todos;
+      break;
+    }
+    return [];
+  });
+
+  const allTodosComplete = createMemo(() => {
+    const todos = panelTodos();
+    return todos.length > 0 && todos.every((t) => t.status === 'completed' || t.status === 'cancelled');
+  });
+
+  const showFloatingPanel = createMemo(() =>
+    !panelManuallyClosed() && (panelTodos().length > 0 || hasActiveTodoTool())
+  );
+
+  // Auto-close when all todos complete
+  createEffect(() => {
+    clearTimeout(autoCloseTimer);
+    if (allTodosComplete() && showFloatingPanel() && !isPaused()) {
+      autoCloseTimer = setTimeout(() => {
+        doClosePanel();
+      }, 2000);
+    }
+  });
+
+  // Reset on new turn
+  createEffect(() => {
+    if (isStreaming() && !hasActiveTodoTool() && liveState().todos.length === 0) {
+      setPanelManuallyClosed(false);
+      setIsPaused(false);
+      setShowUndoBar(false);
+    }
+  });
+
+  // ── Floating TodoPanel handlers ────────────────────────────────────────
+
+  const doClosePanel = () => {
+    setPanelExiting(true);
+    setTimeout(() => {
+      setPanelManuallyClosed(true);
+      setPanelExiting(false);
+      setShowUndoBar(false);
+    }, 150);
+  };
+
+  const handleTodoPanelClose = () => {
+    const todos = panelTodos();
+    const incomplete = todos.filter((t) => t.status === 'pending' || t.status === 'in_progress');
+    const hasIncomplete = incomplete.length > 0;
+
+    if (hasIncomplete && isStreaming()) {
+      void chatStore.cancelMessage(sessionId());
+      setIsPaused(true);
+    }
+    if (hasIncomplete) {
+      setIncompleteCount(incomplete.length);
+      setShowUndoBar(true);
+      undoBarTimer = setTimeout(() => {
+        setShowUndoBar(false);
+        doClosePanel();
+      }, 5000);
+    } else {
+      doClosePanel();
+    }
+  };
+
+  const handleUndoClose = () => {
+    clearTimeout(undoBarTimer);
+    setShowUndoBar(false);
+    setPanelManuallyClosed(false);
+    setIsPaused(false);
+  };
+
+  const handleTodoPanelPause = () => {
+    if (isPaused()) {
+      setIsPaused(false);
+    } else {
+      void chatStore.cancelMessage(sessionId());
+      setIsPaused(true);
+    }
+  };
 
   function computeDateSeparators(msgs: RenderedMessage[]): Map<number, string> {
     const separators = new Map<number, string>();
@@ -555,6 +655,29 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 scrollToBottom({ force: true, behavior: 'smooth' });
               }}
             />
+            {/* Floating TodoPanel — positioned above input via absolute positioning */}
+            <Show when={showFloatingPanel() || panelExiting()}>
+              <div
+                class={styles.todoDock}
+                classList={{ [styles.todoDockExiting]: panelExiting() }}
+              >
+                <TodoPanel
+                  todos={panelTodos()}
+                  isStreaming={isStreaming()}
+                  isPaused={isPaused()}
+                  floating
+                  exiting={panelExiting()}
+                  onClose={handleTodoPanelClose}
+                  onPause={handleTodoPanelPause}
+                />
+                <Show when={showUndoBar()}>
+                  <div class={styles.undoBar}>
+                    <span>Chat paused · {incompleteCount()} task{incompleteCount() !== 1 ? 's' : ''} incomplete</span>
+                    <button class={styles.undoBtn} onClick={handleUndoClose}>Undo</button>
+                  </div>
+                </Show>
+              </div>
+            </Show>
             <Show when={liveState().pendingApproval || liveState().pendingClarify}>
               <div class={styles.cardDock}>
                 <Show when={liveState().pendingApproval}>

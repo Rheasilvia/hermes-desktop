@@ -120,7 +120,8 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
       if (e.key === 'Enter' || e.key === 'Tab') e.preventDefault();
       return;
     }
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Cmd+Enter (macOS) / Ctrl+Enter (Windows/Linux) to send
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSend();
     }

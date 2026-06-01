@@ -360,11 +360,20 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     this.slash = { exec: notImplemented('slash.exec') };
     this.command = { dispatch: notImplemented('command.dispatch') };
     this.delegation = {
-      status: notImplemented('delegation.status'),
-      pause: notImplemented('delegation.pause'),
+      status: async () => {
+        console.warn('delegation.status RPC not implemented — returning empty status');
+        return { active: [], paused: false, max_spawn_depth: 0 };
+      },
+      pause: async () => {
+        console.warn('delegation.pause RPC not implemented — pause is UI-only');
+        return { paused: false };
+      },
     };
     this.subagent = {
-      interrupt: notImplemented('subagent.interrupt'),
+      interrupt: async () => {
+        console.warn('subagent.interrupt RPC not implemented — interrupt unavailable');
+        return { found: false, subagent_id: '' };
+      },
     };
   }
 
@@ -474,12 +483,20 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           if (tc) {
             let args: Record<string, unknown> = {};
             try { args = JSON.parse(inputAccumulator.get(id) ?? '{}'); } catch { /* leave empty */ }
+            const todos = Array.isArray(payload.todos)
+              ? (payload.todos as Array<Record<string, unknown>>).map((t) => ({
+                  id: String(t.id ?? ''),
+                  content: String(t.content ?? ''),
+                  status: String(t.status ?? 'pending') as 'cancelled' | 'completed' | 'in_progress' | 'pending',
+                }))
+              : undefined;
             pendingTools.set(id, {
               ...tc,
               arguments: args,
               status: 'complete',
               outputSummary: payload.summary != null ? String(payload.summary) : null,
               durationMs: payload.duration_s != null ? Math.round(Number(payload.duration_s) * 1000) : null,
+              todos,
             });
           }
           break;
