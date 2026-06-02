@@ -672,3 +672,94 @@ fn parse_range(s: &str) -> (u32, u32) {
     let count: u32 = parts.next().unwrap_or("1").parse().unwrap_or(1);
     (start, count)
 }
+
+// ── Git Branch Commands ────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct GitBranchInfo {
+    pub current: String,
+    pub branches: Vec<String>,
+}
+
+/// Returns the current branch and all local branches for the given directory.
+#[tauri::command]
+pub fn get_git_branches(cwd: String) -> Result<GitBranchInfo, String> {
+    use std::process::Command;
+
+    let canonical = std::path::PathBuf::from(&cwd)
+        .canonicalize()
+        .map_err(|e| format!("directory not found: {}", e))?;
+
+    if !canonical.is_dir() {
+        return Err("directory not found".into());
+    }
+
+    let output = Command::new("git")
+        .args(["branch", "--list"])
+        .current_dir(&canonical)
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "git not available".into()
+            } else {
+                format!("git branch failed: {}", e)
+            }
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git branch failed: {}", stderr.trim()));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut current = String::new();
+    let mut branches: Vec<String> = Vec::new();
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(name) = trimmed.strip_prefix("* ") {
+            current = name.to_string();
+            branches.push(name.to_string());
+        } else {
+            branches.push(trimmed.to_string());
+        }
+    }
+
+    Ok(GitBranchInfo { current, branches })
+}
+
+/// Runs `git checkout <branch>` in the given directory.
+#[tauri::command]
+pub fn checkout_git_branch(cwd: String, branch: String) -> Result<(), String> {
+    use std::process::Command;
+
+    let canonical = std::path::PathBuf::from(&cwd)
+        .canonicalize()
+        .map_err(|e| format!("directory not found: {}", e))?;
+
+    if !canonical.is_dir() {
+        return Err("directory not found".into());
+    }
+
+    let output = Command::new("git")
+        .args(["checkout", &branch])
+        .current_dir(&canonical)
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "git not available".into()
+            } else {
+                format!("git checkout failed: {}", e)
+            }
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git checkout failed: {}", stderr.trim()));
+    }
+
+    Ok(())
+}

@@ -42,6 +42,8 @@ pub fn run() {
             commands::get_workspace_root,
             commands::list_workspace_children,
             commands::run_git_diff,
+            commands::get_git_branches,
+            commands::checkout_git_branch,
             commands::read_workspace_file,
             commands::reveal_in_finder,
             sidecar_info,
