@@ -88,3 +88,25 @@ describe('handleMessageComplete — tool blocks', () => {
     expect((toolBlock as { durationMs: number | null }).durationMs).toBe(800);
   });
 });
+
+describe('appendUserMessage — slash command metadata', () => {
+  const SESSION_SLASH = 'test-session-slash';
+  beforeEach(() => {
+    chatStore.clearMessages(SESSION_SLASH);
+  });
+
+  it('attaches slashCommand and keeps the compact text in blocks', () => {
+    chatStore.appendUserMessage(SESSION_SLASH, '/arxiv 这是什么命令？', { command: 'arxiv', args: '这是什么命令？' });
+    const messages = chatStore.getMessages(SESSION_SLASH);
+    const msg = messages[messages.length - 1];
+    expect(msg.slashCommand).toEqual({ command: 'arxiv', args: '这是什么命令？' });
+    const text = msg.blocks.filter((b) => b.type === 'text').map((b) => (b as { content: string }).content).join('');
+    expect(text).toBe('/arxiv 这是什么命令？');
+  });
+
+  it('leaves slashCommand undefined for a normal message', () => {
+    chatStore.appendUserMessage(SESSION_SLASH, 'just a message');
+    const messages = chatStore.getMessages(SESSION_SLASH);
+    expect(messages[messages.length - 1].slashCommand).toBeUndefined();
+  });
+});

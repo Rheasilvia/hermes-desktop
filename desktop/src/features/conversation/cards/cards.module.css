@@ -1,0 +1,186 @@
+/* Command-card framework — DESIGN.md "Cards & Containers":
+   Ivory surface, comfortably-rounded (8px), warm borders, generous padding. */
+
+.dock {
+  margin: 0 0 8px;
+  outline: none;
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border-light, var(--color-border));
+}
+
+.headerIcon {
+  color: var(--color-on-surface-muted);
+  flex-shrink: 0;
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--color-on-surface-dim);
+  flex: 1;
+  min-width: 0;
+}
+
+.close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-on-surface-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.close:hover { background: var(--color-background-alt); color: var(--color-on-surface); }
+.close:focus-visible,
+.rowPrimary:focus-visible,
+.rowTrailing:focus-visible {
+  outline: 2px solid var(--color-ring, var(--color-primary));
+  outline-offset: -2px;
+}
+
+.body {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* ── List archetype ── */
+.list { display: flex; flex-direction: column; }
+
+.row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-border-light, var(--color-border));
+}
+.row:last-child { border-bottom: none; }
+.row:hover { background: var(--color-hover-overlay); }
+
+.rowPrimary {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.rowPrimary:disabled { cursor: default; }
+
+.rowTrailing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-on-surface-muted);
+  cursor: pointer;
+}
+.rowTrailing:hover { color: var(--color-danger, var(--color-error)); background: var(--color-background-alt); }
+
+/* ── Key/value archetype ── */
+.kv { display: flex; flex-direction: column; padding: 4px 0; }
+.kvRow {
+  display: flex;
+  gap: 12px;
+  padding: 5px 12px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+.kvLabel { color: var(--color-on-surface-dim); min-width: 96px; flex-shrink: 0; }
+.kvValue { color: var(--color-on-surface); min-width: 0; overflow-wrap: anywhere; }
+
+/* ── Output archetype ── */
+.output {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-on-surface);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── Shared list-item text bits ── */
+.itemTitle {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.itemMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--color-on-surface-muted);
+}
+.itemPreview {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--color-on-surface-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topRow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+
+/* ── State rows (loading / empty / error) ── */
+.state {
+  padding: 14px 12px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--color-on-surface-dim);
+  text-align: center;
+}
+.error { color: var(--color-danger, var(--color-error)); }
+.retry {
+  margin-left: 8px;
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+.skeleton {
+  height: 40px;
+  margin: 6px 12px;
+  border-radius: 6px;
+  background: var(--color-background-alt);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }

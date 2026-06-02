@@ -211,7 +211,7 @@ export const chatStore = {
     }
   },
 
-  appendUserMessage(sessionId: string, text: string): void {
+  appendUserMessage(sessionId: string, text: string, slashCommand?: { command: string; args: string }): void {
     getOrCreateChatState(sessionId);
     const msg: RenderedMessage = {
       id: nextEphemeralId(),
@@ -224,6 +224,7 @@ export const chatStore = {
       isStreaming: false,
       actions: ['copy', 'edit', 'delete'],
       toolName: null,
+      slashCommand,
     };
     updateChatState(sessionId, (state) => ({
       ...state,

@@ -3,6 +3,7 @@
  * Defines the contract between the UI and the Hermes gateway.
  */
 
+import type { CardType } from '@/types/command-card.js';
 import type {
   SessionMeta,
   SessionMessage,
@@ -280,12 +281,17 @@ export interface CompleteMethods {
   path(params: { partial: string }): Promise<string[]>;
 }
 
+/** Lifecycle session actions performed by the frontend (mirror of backend ActionName). */
+export type CommandAction = 'new' | 'branch' | 'resume' | 'title';
+
 export type CommandResult =
   | { kind: 'output'; message: string; name?: string }
   | { kind: 'send'; message: string; name?: string }
   | { kind: 'skill'; message: string; name?: string }
   | { kind: 'unsupported'; message: string; name?: string }
-  | { kind: 'error'; message: string; name?: string };
+  | { kind: 'error'; message: string; name?: string }
+  | { kind: 'action'; action: CommandAction; message?: string; name?: string }
+  | { kind: 'card'; cardType: CardType; text?: string; name?: string };
 
 /** Slash execution method group. */
 export interface SlashMethods {

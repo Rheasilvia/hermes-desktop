@@ -22,4 +22,10 @@ export interface RenderedMessage {
   actions: MessageAction[];
   /** For role='tool' messages: the name of the tool that produced this result. */
   toolName: string | null;
+  /**
+   * Set when this user message was a slash command. Drives the styled command
+   * bubble (a `/command` label + the typed content). NOTE: the LLM received the
+   * full expanded prompt, not this compact form.
+   */
+  slashCommand?: { command: string; args: string };
 }

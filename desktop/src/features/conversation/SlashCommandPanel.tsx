@@ -10,8 +10,6 @@ export interface SlashCommand {
   icon?: string;
 }
 
-export type SlashCommandCategory = 'Built-in' | 'Skills' | 'Memory';
-
 const CATEGORY_COLORS: Record<string, { text: string; bg: string }> = {
   'Built-in': { text: 'var(--color-on-surface-dim)', bg: 'var(--color-background-alt)' },
   'Skills': { text: 'var(--color-primary)', bg: 'var(--color-primary-light)' },
@@ -22,6 +20,64 @@ const CATEGORY_ICONS: Record<string, string> = {
   'Built-in': 'terminal',
   'Skills': 'zap',
   'Memory': 'brain',
+};
+
+// Preferred ordering for browse mode; any category not listed here is appended
+// alphabetically. Covers the shared registry categories plus dynamic sources.
+// Skills lead — they're the most commonly used commands.
+const CATEGORY_ORDER = [
+  'Skills',
+  'Tools & Skills',
+  'Session',
+  'Configuration',
+  'Info',
+  'Memory',
+  'User commands',
+  'Built-in',
+];
+
+function getIconName(cmd: SlashCommand): string {
+  if (cmd.icon) return cmd.icon;
+  const cat = cmd.category ?? 'Built-in';
+  return CATEGORY_ICONS[cat] ?? 'terminal';
+}
+
+/** A single selectable command row, shared by browse and filter modes. */
+const CommandRow: Component<{
+  cmd: SlashCommand;
+  selected: boolean;
+  onSelect: () => void;
+  onHover: () => void;
+}> = (props) => {
+  let ref: HTMLDivElement | undefined;
+  // Keep the keyboard-selected row visible: scroll it into view inside the
+  // (overflow-y:auto) panel as the selection moves via ArrowUp/ArrowDown.
+  createEffect(() => {
+    // Optional call: scrollIntoView is unimplemented in jsdom (tests).
+    if (props.selected) ref?.scrollIntoView?.({ block: 'nearest' });
+  });
+  return (
+    <div
+      ref={ref}
+      class={styles.commandRow}
+      classList={{ [styles.commandRowSelected]: props.selected }}
+      onClick={props.onSelect}
+      onMouseEnter={props.onHover}
+    >
+      <div class={styles.iconWrapper}>
+        <Icon name={getIconName(props.cmd) as any} size={12} />
+      </div>
+      <div class={styles.commandInfo}>
+        <span
+          class={styles.commandName}
+          style={{ 'font-weight': props.selected ? '600' : 'normal' }}
+        >
+          /{props.cmd.command}
+        </span>
+        <span class={styles.commandDesc}>{props.cmd.description}</span>
+      </div>
+    </div>
+  );
 };
 
 interface SlashCommandPanelProps {
@@ -55,16 +111,20 @@ export const SlashCommandPanel: Component<SlashCommandPanelProps> = (props) => {
     return groups;
   };
 
+  // Every category present, ordered: known categories first, then the rest
+  // alphabetically — so browse mode shows ALL commands, not a hardcoded subset.
+  const orderedCategories = (): string[] => {
+    const groups = groupedCommands();
+    const known = CATEGORY_ORDER.filter((c) => groups.has(c));
+    const rest = [...groups.keys()].filter((c) => !CATEGORY_ORDER.includes(c)).sort();
+    return [...known, ...rest];
+  };
+
+  // Flat list in the same order as rendered, for keyboard navigation.
   const flatCommands = (): SlashCommand[] => {
     if (isBrowseMode()) {
-      const result: SlashCommand[] = [];
       const groups = groupedCommands();
-      const order: SlashCommandCategory[] = ['Built-in', 'Skills', 'Memory'];
-      for (const cat of order) {
-        const cmds = groups.get(cat);
-        if (cmds) result.push(...cmds);
-      }
-      return result;
+      return orderedCategories().flatMap((cat) => groups.get(cat) ?? []);
     }
     return filteredCommands();
   };
@@ -128,47 +188,40 @@ export const SlashCommandPanel: Component<SlashCommandPanelProps> = (props) => {
     };
   });
 
-  const getIconName = (cmd: SlashCommand): string => {
-    if (cmd.icon) return cmd.icon;
-    const cat = cmd.category ?? 'Built-in';
-    return CATEGORY_ICONS[cat] ?? 'terminal';
-  };
-
   const renderBrowseMode = () => {
     const groups = groupedCommands();
-    const order: SlashCommandCategory[] = ['Built-in', 'Skills', 'Memory'];
-    let globalIndex = 0;
-
+    const flat = flatCommands();
     return (
       <>
         <div class={styles.browseHeader}>All Commands</div>
         <div class={styles.divider} />
-        <For each={order}>
-          {(cat, catIdx) => {
-            const cmds = groups.get(cat);
-            if (!cmds || cmds.length === 0) return null;
+        <For each={orderedCategories()}>
+          {(cat) => {
+            const cmds = groups.get(cat) ?? [];
             const colors = CATEGORY_COLORS[cat] ?? CATEGORY_COLORS['Built-in'];
-            const isLast = catIdx() === order.length - 1;
             return (
               <>
-                <div
-                  class={styles.browseRow}
-                  classList={{ [styles.commandRowSelected]: globalIndex === selectedIndex() }}
-                  onClick={() => props.onSelect(cmds[0])}
-                  onMouseEnter={() => setSelectedIndex(globalIndex)}
-                >
+                <div class={styles.groupHeader}>
                   <span
                     class={styles.categoryBadge}
                     style={{ color: colors.text, background: colors.bg }}
                   >
                     {cat.toUpperCase()}
                   </span>
-                  <span class={styles.categoryCommands}>
-                    {cmds.map((c) => `/${c.command}`).join('  ')}
-                  </span>
                 </div>
-                {!isLast && <div class={styles.categoryDivider} />}
-                {(() => { globalIndex++; return null; })()}
+                <For each={cmds}>
+                  {(cmd) => {
+                    const idx = flat.indexOf(cmd);
+                    return (
+                      <CommandRow
+                        cmd={cmd}
+                        selected={idx === selectedIndex()}
+                        onSelect={() => props.onSelect(cmd)}
+                        onHover={() => setSelectedIndex(idx)}
+                      />
+                    );
+                  }}
+                </For>
               </>
             );
           }}
@@ -189,30 +242,14 @@ export const SlashCommandPanel: Component<SlashCommandPanelProps> = (props) => {
         </div>
         <div class={styles.divider} />
         <For each={cmds}>
-          {(cmd, idx) => {
-            const isSelected = () => idx() === selectedIndex();
-            return (
-              <div
-                class={styles.commandRow}
-                classList={{ [styles.commandRowSelected]: isSelected() }}
-                onClick={() => props.onSelect(cmd)}
-                onMouseEnter={() => setSelectedIndex(idx())}
-              >
-                <div class={styles.iconWrapper}>
-                  <Icon name={getIconName(cmd) as any} size={12} />
-                </div>
-                <div class={styles.commandInfo}>
-                  <span
-                    class={styles.commandName}
-                    style={{ 'font-weight': isSelected() ? '600' : 'normal' }}
-                  >
-                    /{cmd.command}
-                  </span>
-                  <span class={styles.commandDesc}>{cmd.description}</span>
-                </div>
-              </div>
-            );
-          }}
+          {(cmd, idx) => (
+            <CommandRow
+              cmd={cmd}
+              selected={idx() === selectedIndex()}
+              onSelect={() => props.onSelect(cmd)}
+              onHover={() => setSelectedIndex(idx())}
+            />
+          )}
         </For>
       </>
     );

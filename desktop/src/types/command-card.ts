@@ -1,0 +1,10 @@
+/**
+ * Inline command-card kinds rendered in the command-card dock. Lives in
+ * `@/types` (not `@/services/gateway`) so card components can import it without
+ * tripping the D7 "no gateway import" lint rule. Mirrors the backend
+ * `CardType` Literal in `desktop_backend/schemas/commands.py`.
+ */
+export type CardType =
+  | 'sessions' | 'tools' | 'skills' | 'cron' | 'plugins' | 'memory' | 'platforms'
+  | 'logs' | 'agents' | 'usage' | 'status' | 'model' | 'config' | 'help'
+  | 'account' | 'output' | 'notice';

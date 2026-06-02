@@ -5,6 +5,7 @@ import { SlashCommandPanel, type SlashCommand } from '../SlashCommandPanel.js';
 const MOCK_COMMANDS: SlashCommand[] = [
   { command: 'help', description: 'Show available commands.', category: 'Built-in', icon: 'info' },
   { command: 'clear', description: 'Clear conversation history.', category: 'Built-in', icon: 'x' },
+  { command: 'new', description: 'Start a new session.', category: 'Session', icon: 'plus' },
   { command: 'summarize', description: 'Summarize the conversation.', category: 'Skills', icon: 'file-text' },
   { command: 'review', description: 'Run code review.', category: 'Skills', icon: 'file-check' },
   { command: 'remember', description: 'Store in long-term memory.', category: 'Memory', icon: 'save' },
@@ -28,6 +29,39 @@ describe('SlashCommandPanel', () => {
     expect(screen.getByText('BUILT-IN')).toBeDefined();
     expect(screen.getByText('SKILLS')).toBeDefined();
     expect(screen.getByText('MEMORY')).toBeDefined();
+  });
+
+  test('browse mode lists commands from non-hardcoded categories (e.g. Session)', () => {
+    render(() => (
+      <SlashCommandPanel
+        commands={MOCK_COMMANDS}
+        filter=""
+        visible={true}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />
+    ));
+
+    // The Session category and its command must both render in browse mode —
+    // the old hardcoded ['Built-in','Skills','Memory'] order dropped them.
+    expect(screen.getByText('SESSION')).toBeDefined();
+    expect(screen.getByText('/new')).toBeDefined();
+  });
+
+  test('browse mode lists Skills before Session (most-used first)', () => {
+    render(() => (
+      <SlashCommandPanel
+        commands={MOCK_COMMANDS}
+        filter=""
+        visible={true}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />
+    ));
+    const skills = screen.getByText('SKILLS');
+    const session = screen.getByText('SESSION');
+    // Skills appears earlier in the document than Session.
+    expect(skills.compareDocumentPosition(session) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   test('renders filter mode with results count when filter is not empty', () => {
