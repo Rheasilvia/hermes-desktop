@@ -3,11 +3,22 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from rich.console import Console
+
+# Matches ANSI/VT escape sequences (CSI colour + cursor codes). NO_COLOR handles
+# the CLI's Rich consoles at the source; this strips the residue from CLI paths
+# that embed hardcoded \033[..m literals (which no env setting can suppress),
+# so nothing renders as garbled "乱码" in the monospace output card.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
 
 from ..schemas.commands import CommandCatalogItem, CommandResult, SlashCompleteItem
 
@@ -42,7 +53,6 @@ _CARD_COMMANDS: dict[str, str] = {
     "agents": "agents",
     "usage": "usage",
     "status": "status",
-    "config": "config", "browser": "config", "voice": "config",
     "help": "help",
 }
 
@@ -51,10 +61,12 @@ _CARD_COMMANDS: dict[str, str] = {
 # (command → card_type). Side-effecting members (save/rollback/update/curator/
 # kanban) are best-effort; demote to _DEFERRED if any prove unsafe/interactive.
 _CLI_CARD: dict[str, str] = {
-    "logs": "logs",
-    "whoami": "account", "profile": "account", "gquota": "account",
+    "profile": "account", "gquota": "account",
     "insights": "output", "debug": "output", "save": "output",
     "rollback": "output", "curator": "output", "kanban": "output", "update": "output",
+    # config/browser/voice have no clean live-data endpoint (the /settings API is
+    # desktop-UI-only); render the CLI's real config text via an output card.
+    "config": "output", "browser": "output", "voice": "output",
 }
 
 # Live-turn + stateful-toggle commands that can't safely use the throwaway CLI
@@ -71,9 +83,14 @@ _TERMINAL_ONLY = frozenset({
     "copy", "paste", "image", "quit", "exit", "details", "handoff", "snapshot",
 })
 
-# Catalog/help "supported" flag derives from these two — single source of truth,
+# Registry/TUI commands that exist upstream but have no working Desktop
+# implementation (no headless CLI slash handler). Hidden from autocomplete and
+# surfaced as "not available" if typed directly.
+_DESKTOP_UNAVAILABLE = frozenset({"whoami", "logs"})
+
+# Catalog/help "supported" flag derives from this union — single source of truth,
 # so the catalog can't drift from the dispatch buckets.
-_UNSUPPORTED = _TERMINAL_ONLY | _DEFERRED
+_UNSUPPORTED = _TERMINAL_ONLY | _DEFERRED | _DESKTOP_UNAVAILABLE
 _TUI_EXTRA = (
     ("compact", "Toggle compact display mode", "TUI"),
     ("details", "Control agent detail visibility", "TUI"),
@@ -220,13 +237,17 @@ class CommandService:
         if card_type:
             return CommandResult(kind="card", card_type=card_type)
 
-        # CLI-only commands: capture the CLI text and wrap it in a card.
+        # CLI-only commands: capture the CLI text and wrap it in a card. If the
+        # CLI couldn't handle the command (unknown/unavailable), surface that as
+        # a notice instead of dumping the raw error into an output card.
         cli_card = _CLI_CARD.get(name)
         if cli_card:
-            text = self._run_cli_command(name, arg, session_id).message
-            return CommandResult(kind="card", card_type=cli_card, message=text)
+            result = self._run_cli_command(name, arg, session_id)
+            if result.kind != "output":
+                return result
+            return CommandResult(kind="card", card_type=cli_card, message=result.message)
 
-        if name in _DEFERRED:
+        if name in _DEFERRED or name in _DESKTOP_UNAVAILABLE:
             return CommandResult(kind="unsupported", message=f"/{name} is not available in Desktop yet.")
         if name in _TERMINAL_ONLY:
             return CommandResult(kind="unsupported", message=f"/{name} is a terminal-only command in Desktop.")
@@ -373,35 +394,46 @@ class CommandService:
             return CommandResult(kind="unsupported", message=f"/{name} is unavailable in Desktop: {exc}")
 
         command = f"/{name} {arg}".strip()
-        old_home = os.environ.get("HERMES_HOME")
-        old_session = os.environ.get("HERMES_SESSION_KEY")
-        os.environ["HERMES_HOME"] = str(self._hermes_home)
+        # NO_COLOR/TERM suppress colour at the source for the CLI's Rich consoles
+        # (the proper fix); HERMES_HOME/SESSION_KEY scope the throwaway CLI to
+        # this session. Saved and restored so we don't leak into the process env.
+        overrides = {
+            "HERMES_HOME": str(self._hermes_home),
+            "NO_COLOR": "1",
+            "TERM": "dumb",
+        }
         if session_id:
-            os.environ["HERMES_SESSION_KEY"] = session_id
+            overrides["HERMES_SESSION_KEY"] = session_id
+        saved_env = {k: os.environ.get(k) for k in overrides}
+        os.environ.update(overrides)
         buf = io.StringIO()
         old_cprint = getattr(cli_mod, "_cprint", None)
         try:
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 cli = HermesCLI(compact=True, resume=session_id, verbose=False)
-            cli.console = Console(file=buf, force_terminal=False, width=120)
+            # Narrower width than a real terminal so Rich tables/panels fit the
+            # command-card dock without wrapping mid-row.
+            cli.console = Console(file=buf, force_terminal=False, width=80)
             if old_cprint is not None:
                 cli_mod._cprint = lambda text: print(text)
             with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
                 cli.process_command(command)
-            return CommandResult(kind="output", message=buf.getvalue().strip() or "Command completed.")
+            # Safety net for the few CLI paths that embed hardcoded ANSI literals
+            # (e.g. the "Unknown command" line) which NO_COLOR can't reach.
+            output = _strip_ansi(buf.getvalue()).strip()
+            if output.lower().startswith("unknown command"):
+                return CommandResult(kind="unsupported", message=f"/{name} is not available in Desktop yet.")
+            return CommandResult(kind="output", message=output or "Command completed.")
         except Exception as exc:
             return CommandResult(kind="error", message=f"Command failed: {exc}")
         finally:
             if old_cprint is not None:
                 cli_mod._cprint = old_cprint
-            if old_home is None:
-                os.environ.pop("HERMES_HOME", None)
-            else:
-                os.environ["HERMES_HOME"] = old_home
-            if old_session is None:
-                os.environ.pop("HERMES_SESSION_KEY", None)
-            else:
-                os.environ["HERMES_SESSION_KEY"] = old_session
+            for key, prev in saved_env.items():
+                if prev is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = prev
 
     def _help_text(self) -> str:
         lines = ["Available slash commands:"]

@@ -1,5 +1,6 @@
 import { createResource, type Component } from 'solid-js';
 import { getGateway } from '@/stores/context.js';
+import { api } from '@/services/api/index.js';
 import { Pill } from '@/ui/atoms/Pill.js';
 import { ChatCard } from './ChatCard.js';
 import { CardList, CardRow, type ListState } from './CardList.js';
@@ -15,16 +16,20 @@ function asState<T>(res: { (): T[] | undefined; loading: boolean; error: unknown
   };
 }
 
+// No per-tool endpoint exists; surface the configurable toolsets instead.
 export const ToolsCard: Component<CardComponentProps> = (props) => {
-  const [data, { refetch }] = createResource(() => getGateway()?.tools.list() ?? []);
+  const [data, { refetch }] = createResource(async () => (await api.skills().listToolsets()).items);
   return (
-    <ChatCard title="Tools" icon="wrench" onClose={props.onDismiss}>
-      <CardList state={asState(data)} empty="No tools registered." onRetry={refetch}>
+    <ChatCard title="Toolsets" icon="wrench" onClose={props.onDismiss}>
+      <CardList state={asState(data)} empty="No toolsets available." onRetry={refetch}>
         {(t) => (
           <CardRow>
             <div class={styles.topRow}>
-              <span class={styles.itemTitle}>{t.name}</span>
-              <Pill variant="secondary">{t.toolset}</Pill>
+              <span class={styles.itemTitle}>{t.label || t.name}</span>
+              <span class={styles.itemMeta}>
+                <Pill variant="secondary">{t.tools.length} tool{t.tools.length !== 1 ? 's' : ''}</Pill>
+                {t.enabled ? '' : 'off'}
+              </span>
             </div>
             {t.description ? <p class={styles.itemPreview}>{t.description}</p> : null}
           </CardRow>
@@ -35,7 +40,7 @@ export const ToolsCard: Component<CardComponentProps> = (props) => {
 };
 
 export const SkillsCard: Component<CardComponentProps> = (props) => {
-  const [data, { refetch }] = createResource(() => getGateway()?.skills.list() ?? []);
+  const [data, { refetch }] = createResource(async () => (await api.skills().listSkills()).items);
   return (
     <ChatCard title="Skills" icon="zap" onClose={props.onDismiss}>
       <CardList state={asState(data)} empty="No skills available." onRetry={refetch}>
@@ -57,17 +62,19 @@ export const SkillsCard: Component<CardComponentProps> = (props) => {
 };
 
 export const CronCard: Component<CardComponentProps> = (props) => {
-  const [data, { refetch }] = createResource(() => getGateway()?.cron.list() ?? []);
+  const [data, { refetch }] = createResource(async () => (await api.cron().list()).items);
   return (
     <ChatCard title="Scheduled jobs" icon="clock" onClose={props.onDismiss}>
       <CardList state={asState(data)} empty="No scheduled jobs." onRetry={refetch}>
         {(j) => (
           <CardRow>
             <div class={styles.topRow}>
-              <span class={styles.itemTitle}>{j.name}</span>
-              <span class={styles.itemMeta}>{j.schedule_display}</span>
+              <span class={styles.itemTitle}>{j.prompt}</span>
+              <span class={styles.itemMeta}>
+                <Pill variant="secondary">{j.schedule}</Pill>
+                {j.enabled ? '' : 'paused'}
+              </span>
             </div>
-            <p class={styles.itemPreview}>{j.prompt}</p>
           </CardRow>
         )}
       </CardList>
@@ -76,16 +83,20 @@ export const CronCard: Component<CardComponentProps> = (props) => {
 };
 
 export const PluginsCard: Component<CardComponentProps> = (props) => {
-  const [data, { refetch }] = createResource(() => getGateway()?.mcp.list() ?? []);
+  const [data, { refetch }] = createResource(async () => (await api.plugins().getHub()).plugins);
   return (
-    <ChatCard title="MCP plugins" icon="plug" onClose={props.onDismiss}>
-      <CardList state={asState(data)} empty="No MCP servers configured." onRetry={refetch}>
-        {(m) => (
+    <ChatCard title="Plugins" icon="plug" onClose={props.onDismiss}>
+      <CardList state={asState(data)} empty="No plugins installed." onRetry={refetch}>
+        {(p) => (
           <CardRow>
             <div class={styles.topRow}>
-              <span class={styles.itemTitle}>{m.name}</span>
+              <span class={styles.itemTitle}>{p.name}</span>
+              <span class={styles.itemMeta}>
+                <Pill variant="secondary">{p.runtime_status}</Pill>
+                {p.version}
+              </span>
             </div>
-            <p class={styles.itemPreview}>{m.url || m.command || ''}</p>
+            {p.description ? <p class={styles.itemPreview}>{p.description}</p> : null}
           </CardRow>
         )}
       </CardList>

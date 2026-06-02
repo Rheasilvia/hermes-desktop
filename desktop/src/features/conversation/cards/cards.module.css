@@ -2,7 +2,10 @@
    Ivory surface, comfortably-rounded (8px), warm borders, generous padding. */
 
 .dock {
+  /* 32px horizontal inset matches MessageInput's .wrapper padding so the card
+     edges line up with the input box (same inset as the approval .cardDock). */
   margin: 0 0 8px;
+  padding: 0 32px;
   outline: none;
 }
 
@@ -122,8 +125,8 @@
   margin: 0;
   padding: 10px 12px;
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.55;
   color: var(--color-on-surface);
   white-space: pre-wrap;
   overflow-wrap: anywhere;

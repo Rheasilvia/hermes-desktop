@@ -37,11 +37,34 @@ import type {
   SkillInfo,
   ModelOption,
   CommandResult,
+  CommandAction,
 } from './types.js';
 import type { ParsedToolCall } from '@/types/index.js';
+import type { CardType } from '@/types/command-card.js';
 import { httpClient, type HttpClient } from '@/services/api/http-client.js';
 
 const API_PREFIX = '/desktop/api';
+
+/**
+ * Normalize the raw command-exec JSON from the backend into the frontend
+ * `CommandResult` union. The backend (`desktop_backend/schemas/commands.py`)
+ * emits snake_case `card_type` and stuffs all text into `message`; the frontend
+ * card union reads `cardType` + `text`. Without this remap the fields land as
+ * `undefined`, so every card command fell back to an empty "No output." card.
+ */
+export function mapCommandResult(r: Record<string, unknown>): CommandResult {
+  const kind = String(r.kind ?? 'error');
+  const name = typeof r.name === 'string' ? r.name : undefined;
+  const message = typeof r.message === 'string' ? r.message : '';
+  if (kind === 'card') {
+    return { kind: 'card', cardType: r.card_type as CardType, text: message || undefined, name };
+  }
+  if (kind === 'action') {
+    return { kind: 'action', action: r.action as CommandAction, message, name };
+  }
+  // output | send | skill | unsupported | error
+  return { kind: kind as 'output' | 'send' | 'skill' | 'unsupported' | 'error', message, name };
+}
 
 type EventHandler<K extends keyof GatewayEventMap> = (payload: GatewayEventMap[K]) => void;
 
@@ -369,16 +392,16 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       path: notImplemented('complete.path'),
     };
     this.slash = {
-      exec: async (params): Promise<CommandResult> => this.http.post<CommandResult>(
-        `${API_PREFIX}/commands/slash/exec`,
-        params,
-      ),
+      exec: async (params): Promise<CommandResult> =>
+        mapCommandResult(
+          await this.http.post<Record<string, unknown>>(`${API_PREFIX}/commands/slash/exec`, params),
+        ),
     };
     this.command = {
-      dispatch: async (params): Promise<CommandResult> => this.http.post<CommandResult>(
-        `${API_PREFIX}/commands/dispatch`,
-        params,
-      ),
+      dispatch: async (params): Promise<CommandResult> =>
+        mapCommandResult(
+          await this.http.post<Record<string, unknown>>(`${API_PREFIX}/commands/dispatch`, params),
+        ),
     };
     this.delegation = {
       status: async () => {

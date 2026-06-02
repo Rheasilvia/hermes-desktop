@@ -11,12 +11,14 @@ import typing
 
 import pytest
 
-from desktop_backend.schemas.commands import ActionName, CardType
+from desktop_backend.schemas.commands import ActionName, CardType, CommandResult
 from desktop_backend.services.command_service import (
+    _strip_ansi,
     _CARD_COMMANDS,
     _CLI_CARD,
     _DEFERRED,
     _DESKTOP_HIDDEN,
+    _DESKTOP_UNAVAILABLE,
     _INLINE_HANDLED,
     _SESSION_ACTION_ALIASES,
     _SESSION_ACTIONS,
@@ -54,7 +56,6 @@ def _make_service(tmp_path) -> CommandService:
         ("memory", "", "card", None, "memory"),
         ("status", "", "card", None, "status"),
         ("usage", "", "card", None, "usage"),
-        ("config", "", "card", None, "config"),
         ("help", "", "card", None, "help"),
         # Deferred + terminal-only
         ("yolo", "", "unsupported", None, None),
@@ -84,6 +85,56 @@ def test_title_passes_name_through_as_message(tmp_path):
     assert result.message == "Renamed"
 
 
+@pytest.mark.parametrize("command", ["config", "browser", "voice"])
+def test_config_commands_render_cli_output_card(tmp_path, command):
+    """config/browser/voice have no live-data endpoint — they render the CLI's
+    captured text in an output card (not a 'config' live card)."""
+    svc = _make_service(tmp_path)
+    svc._run_cli_command = lambda *a, **k: CommandResult(kind="output", message="cfg text")  # type: ignore[assignment]
+    result = svc.exec(session_id="s1", command=command, args="")
+    assert result.kind == "card"
+    assert result.card_type == "output"
+    assert result.message == "cfg text"
+
+
+def test_strip_ansi_removes_escape_codes():
+    """CLI colour codes must be stripped so the output card isn't garbled."""
+    raw = "\x1b[1;31mUnknown command: /logs\x1b[0m\n\x1b[2;3mhi\x1b[0m"
+    assert _strip_ansi(raw) == "Unknown command: /logs\nhi"
+
+
+def test_cli_card_unknown_command_becomes_unsupported(tmp_path):
+    """A CLI 'Unknown command' reply surfaces as a clean notice, not a dumped
+    error in an output card."""
+    svc = _make_service(tmp_path)
+    svc._run_cli_command = lambda *a, **k: CommandResult(kind="unsupported", message="nope")  # type: ignore[assignment]
+    result = svc.exec(session_id="s1", command="insights", args="")
+    assert result.kind == "unsupported"
+    assert result.card_type is None
+
+
+def test_cli_card_output_becomes_card(tmp_path):
+    svc = _make_service(tmp_path)
+    svc._run_cli_command = lambda *a, **k: CommandResult(kind="output", message="line one")  # type: ignore[assignment]
+    result = svc.exec(session_id="s1", command="insights", args="")
+    assert result.kind == "card"
+    assert result.card_type == "output"
+    assert result.message == "line one"
+
+
+def test_unavailable_commands_hidden_from_autocomplete(tmp_path):
+    """logs/whoami exist upstream but have no Desktop handler — they must be
+    hidden from suggestions and resolve to a clean 'not available' notice."""
+    svc = _make_service(tmp_path)
+    suggested = {item.command for item in svc.complete_slash("")}
+    assert "logs" not in suggested
+    assert "whoami" not in suggested
+    for name in ("logs", "whoami"):
+        result = svc.exec(session_id="s1", command=name, args="")
+        assert result.kind == "unsupported"
+        assert result.card_type is None
+
+
 def test_complete_slash_hides_unsupported_commands(tmp_path):
     svc = _make_service(tmp_path)
     suggested = {item.command for item in svc.complete_slash("")}
@@ -105,7 +156,7 @@ def test_bare_model_renders_model_card(tmp_path):
 
 def test_unsupported_is_single_source_of_truth():
     """Catalog 'supported' flag derives from this union — guard against drift."""
-    assert _UNSUPPORTED == _TERMINAL_ONLY | _DEFERRED
+    assert _UNSUPPORTED == _TERMINAL_ONLY | _DEFERRED | _DESKTOP_UNAVAILABLE
 
 
 def test_emittable_actions_are_valid_actionnames():
@@ -144,6 +195,7 @@ def test_buckets_are_disjoint():
         "cli_card": frozenset(_CLI_CARD),
         "deferred": _DEFERRED,
         "terminal": _TERMINAL_ONLY,
+        "unavailable": _DESKTOP_UNAVAILABLE,
         "inline": _INLINE_HANDLED,
     }
     names = list(buckets.items())
@@ -168,6 +220,7 @@ def test_every_registry_command_is_categorized():
         | frozenset(_CLI_CARD)
         | _DEFERRED
         | _TERMINAL_ONLY
+        | _DESKTOP_UNAVAILABLE
         | _INLINE_HANDLED
     )
     uncategorized = [
