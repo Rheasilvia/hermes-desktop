@@ -12,18 +12,6 @@ export const OutputCard: Component<CardComponentProps> = (props) => (
   </ChatCard>
 );
 
-export const LogsCard: Component<CardComponentProps> = (props) => (
-  <ChatCard title="Logs" icon="file-text" onClose={props.onDismiss}>
-    <CardOutput text={props.text} empty="No recent log lines." />
-  </ChatCard>
-);
-
-export const AccountCard: Component<CardComponentProps> = (props) => (
-  <ChatCard title="Account" icon="user" onClose={props.onDismiss}>
-    <CardOutput text={props.text} />
-  </ChatCard>
-);
-
 /** Deferred / terminal-only / error commands → a short notice (plain text). */
 export const NoticeCard: Component<CardComponentProps> = (props) => (
   <ChatCard title="Not available" icon="alert-circle" onClose={props.onDismiss}>

@@ -1,6 +1,7 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, For, Show } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { fuzzyScore } from '@/utils/fuzzy.js';
 import styles from './SlashCommandPanel.module.css';
 
 export interface SlashCommand {
@@ -93,12 +94,30 @@ export const SlashCommandPanel: Component<SlashCommandPanelProps> = (props) => {
 
   const isBrowseMode = () => props.filter.trim() === '';
 
+  // Rank by NAME relevance first (fuzzy: exact > prefix > substring > subsequence).
+  // Description is only a last-resort *substring* match scored in a low band, so a
+  // command whose name matches always outranks a description-only hit, and stray
+  // letters scattered through a description don't produce noisy results.
+  const scoreCommand = (cmd: SlashCommand, q: string): number => {
+    const name = fuzzyScore(q, cmd.command);
+    if (name > -Infinity) return name;
+    const idx = cmd.description.toLowerCase().indexOf(q.toLowerCase());
+    return idx === -1 ? -Infinity : 100 - idx;
+  };
+
   const filteredCommands = (): SlashCommand[] => {
     if (isBrowseMode()) return props.commands;
-    const q = props.filter.toLowerCase();
-    return props.commands.filter(
-      (c) => c.command.toLowerCase().includes(q) || c.description.toLowerCase().includes(q)
-    );
+    const q = props.filter.trim();
+    return props.commands
+      .map((c) => ({ c, score: scoreCommand(c, q) }))
+      .filter((r) => r.score > -Infinity)
+      // Best score first; tie-break on shorter then alphabetical command name.
+      .sort((a, b) =>
+        b.score - a.score ||
+        a.c.command.length - b.c.command.length ||
+        a.c.command.localeCompare(b.c.command),
+      )
+      .map((r) => r.c);
   };
 
   const groupedCommands = (): Map<string, SlashCommand[]> => {

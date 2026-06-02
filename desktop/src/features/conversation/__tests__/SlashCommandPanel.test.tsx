@@ -138,6 +138,21 @@ describe('SlashCommandPanel', () => {
     expect(screen.queryByText('/help')).toBeNull();
   });
 
+  test('ranks a name match above a description-only match', () => {
+    const cmds: SlashCommand[] = [
+      // 'resume' appears only in this command's DESCRIPTION.
+      { command: 'branch', description: 'Resume-friendly fork point', category: 'Session', icon: 'git-branch' },
+      // ...and as this command's NAME — it must render first.
+      { command: 'resume', description: 'Reopen a saved session', category: 'Session', icon: 'play' },
+    ];
+    render(() => (
+      <SlashCommandPanel commands={cmds} filter="resume" visible={true} onSelect={vi.fn()} onClose={vi.fn()} />
+    ));
+    const resume = screen.getByText('/resume');
+    const branch = screen.getByText('/branch');
+    expect(resume.compareDocumentPosition(branch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   test('shows no results when filter matches nothing', () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();

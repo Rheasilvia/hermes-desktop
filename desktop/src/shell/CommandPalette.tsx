@@ -2,6 +2,7 @@ import type { Component } from 'solid-js';
 import { createSignal, createMemo, Show, For, onMount, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { commandPaletteOpen, closeCommandPalette, isMac } from '@/services/keyboard.js';
+import { fuzzyMatch, highlightMatch } from '@/utils/fuzzy.js';
 import styles from './CommandPalette.module.css';
 
 export interface PaletteAction {
@@ -15,33 +16,6 @@ export interface PaletteAction {
 
 interface Props {
   actions: PaletteAction[];
-}
-
-function fuzzyMatch(query: string, text: string): boolean {
-  const q = query.toLowerCase();
-  const t = text.toLowerCase();
-  let qi = 0;
-  for (let i = 0; i < t.length && qi < q.length; i++) {
-    if (t[i] === q[qi]) qi++;
-  }
-  return qi === q.length;
-}
-
-function highlightMatch(query: string, text: string): string {
-  if (!query) return text;
-  const q = query.toLowerCase();
-  const result: string[] = [];
-  let qi = 0;
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    if (qi < q.length && char.toLowerCase() === q[qi]) {
-      result.push(`<mark>${char}</mark>`);
-      qi++;
-    } else {
-      result.push(char);
-    }
-  }
-  return result.join('');
 }
 
 export const CommandPalette: Component<Props> = (props) => {

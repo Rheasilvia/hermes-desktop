@@ -33,7 +33,18 @@ describe('MessageInput slash commands', () => {
     });
   });
 
-  test('submits slash text through onSend instead of swallowing Enter', async () => {
+  test('submits slash text through onSend on Cmd/Ctrl+Enter', async () => {
+    const onSend = vi.fn();
+    render(() => <MessageInput onSend={onSend} />);
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    fireEvent.input(input, { target: { value: '/help now' } });
+    fireEvent.keyDown(input, { key: 'Enter', metaKey: true });
+
+    expect(onSend).toHaveBeenCalledWith('/help now', undefined);
+  });
+
+  test('plain Enter does not send (newline only — avoids accidental submit)', async () => {
     const onSend = vi.fn();
     render(() => <MessageInput onSend={onSend} />);
 
@@ -41,7 +52,7 @@ describe('MessageInput slash commands', () => {
     fireEvent.input(input, { target: { value: '/help now' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
 
-    expect(onSend).toHaveBeenCalledWith('/help now', undefined);
+    expect(onSend).not.toHaveBeenCalled();
   });
 });
 

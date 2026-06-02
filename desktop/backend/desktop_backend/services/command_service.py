@@ -20,6 +20,44 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 def _strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
+
+def _fuzzy_score(query: str, text: str) -> float:
+    """Relevance of ``query`` against ``text`` (higher better; -inf = no match).
+    Tiers: exact > prefix > contiguous substring > in-order subsequence."""
+    q = query.lower().strip()
+    t = text.lower()
+    if not q:
+        return 0.0
+    if t == q:
+        return 1000.0
+    if t.startswith(q):
+        return 800.0 - len(t)
+    idx = t.find(q)
+    if idx != -1:
+        return 600.0 - idx - len(t) * 0.1
+    qi = 0
+    score = 0.0
+    last = -2
+    for i, ch in enumerate(t):
+        if qi < len(q) and ch == q[qi]:
+            score += 4 if i == last + 1 else 1  # contiguous chars worth more
+            last = i
+            qi += 1
+    if qi != len(q):
+        return float("-inf")
+    return 300.0 + score - len(t) * 0.1
+
+
+def _command_score(query: str, command: str, description: str) -> float:
+    """Rank a command by NAME relevance first; fall back to a low-band *substring*
+    match in the description so name matches always outrank description-only hits
+    and scattered description letters don't pollute results."""
+    name = _fuzzy_score(query, command)
+    if name != float("-inf"):
+        return name
+    idx = description.lower().find(query.lower())
+    return float("-inf") if idx == -1 else 100.0 - idx
+
 from ..schemas.commands import CommandCatalogItem, CommandResult, SlashCompleteItem
 
 
@@ -27,7 +65,7 @@ from ..schemas.commands import CommandCatalogItem, CommandResult, SlashCompleteI
 _DESKTOP_HIDDEN = frozenset({"sethome", "set-home", "commands", "approve", "deny", "start", "topic", "restart", "platform"})
 
 # Commands handled inline by exec() with a built-in Desktop behavior (no card).
-_INLINE_HANDLED = frozenset({"queue", "model", "stop"})
+_INLINE_HANDLED = frozenset({"queue", "stop"})
 
 # Lifecycle session commands → a frontend session action (create/branch/rename/
 # resume). Read-only browse commands (sessions/history) are cards, not actions.
@@ -41,32 +79,30 @@ _SESSION_ACTION_ALIASES: dict[str, str] = {"clear": "new"}
 # Commands that render an inline card in the command-card dock from live
 # gateway/store data (command → card_type). The frontend card fetches via the
 # same gateway/store method the corresponding page uses; the backend only emits
-# the card_type (thin dispatcher, no data assembly here).
-_CARD_COMMANDS: dict[str, str] = {
-    "sessions": "sessions", "history": "sessions",
-    "tools": "tools", "toolsets": "tools",
-    "skills": "skills", "bundles": "skills",
-    "cron": "cron",
-    "plugins": "plugins",
-    "memory": "memory",
-    "platforms": "platforms",
-    "agents": "agents",
-    "usage": "usage",
-    "status": "status",
-    "help": "help",
-}
+# the card_type (thin dispatcher, no data assembly here). Commands whose data is
+# already owned by a dedicated management page live in _PAGE_MANAGED instead.
+_CARD_COMMANDS: dict[str, str] = {}
 
 # CLI-only commands with no structured gateway source: run the headless
 # HermesCLI, capture its text, and render it inside an output-style card
-# (command → card_type). Side-effecting members (save/rollback/update/curator/
-# kanban) are best-effort; demote to _DEFERRED if any prove unsafe/interactive.
-_CLI_CARD: dict[str, str] = {
-    "profile": "account", "gquota": "account",
-    "insights": "output", "debug": "output", "save": "output",
-    "rollback": "output", "curator": "output", "kanban": "output", "update": "output",
-    # config/browser/voice have no clean live-data endpoint (the /settings API is
-    # desktop-UI-only); render the CLI's real config text via an output card.
-    "config": "output", "browser": "output", "voice": "output",
+# (command → card_type). Currently empty — the CLI passthrough commands were
+# trimmed (see _DESKTOP_TRIMMED). The _run_cli_command bridge below is kept so a
+# command can be re-enabled here with a one-line map entry.
+_CLI_CARD: dict[str, str] = {}
+
+# Commands superseded by a dedicated Desktop management page. Hidden from
+# autocomplete; typing one directly points the user at the owning page instead
+# of rendering a duplicate inline card (command → human page label).
+_PAGE_MANAGED: dict[str, str] = {
+    "sessions": "Sessions", "history": "Sessions",
+    "tools": "Skills", "toolsets": "Skills",
+    "skills": "Skills", "bundles": "Skills",
+    "cron": "Cron",
+    "plugins": "Plugins",
+    "memory": "Memory",
+    "usage": "Model", "model": "Model",
+    "config": "Settings", "browser": "Settings", "voice": "Settings",
+    "logs": "Gateway",
 }
 
 # Live-turn + stateful-toggle commands that can't safely use the throwaway CLI
@@ -86,15 +122,24 @@ _TERMINAL_ONLY = frozenset({
 # Registry/TUI commands that exist upstream but have no working Desktop
 # implementation (no headless CLI slash handler). Hidden from autocomplete and
 # surfaced as "not available" if typed directly.
-_DESKTOP_UNAVAILABLE = frozenset({"whoami", "logs"})
+_DESKTOP_UNAVAILABLE = frozenset({"whoami"})
+
+# Commands intentionally not surfaced in Desktop — low value vs the StatusBar,
+# the ⌘K command palette, or dedicated pages. Hidden from autocomplete; a direct
+# invocation returns a "not available" notice. Desktop keeps the autocomplete
+# focused on session lifecycle commands + skills.
+_DESKTOP_TRIMMED = frozenset({
+    "status", "help", "platforms", "agents",
+    "profile", "gquota", "insights", "debug", "save",
+    "rollback", "curator", "kanban", "update",
+})
 
 # Catalog/help "supported" flag derives from this union — single source of truth,
 # so the catalog can't drift from the dispatch buckets.
-_UNSUPPORTED = _TERMINAL_ONLY | _DEFERRED | _DESKTOP_UNAVAILABLE
+_UNSUPPORTED = _TERMINAL_ONLY | _DEFERRED | _DESKTOP_UNAVAILABLE | frozenset(_PAGE_MANAGED) | _DESKTOP_TRIMMED
 _TUI_EXTRA = (
     ("compact", "Toggle compact display mode", "TUI"),
     ("details", "Control agent detail visibility", "TUI"),
-    ("logs", "Show recent gateway log lines", "TUI"),
     ("mouse", "Set mouse tracking preset [on|off|toggle|wheel|buttons|all]", "TUI"),
 )
 
@@ -188,8 +233,8 @@ class CommandService:
         query = text[1:].lower().strip()
         # Browse mode (empty query) is uncapped so a bare "/" lists everything.
         limit = None if not query else _SLASH_COMPLETE_LIMIT
-        items: list[SlashCompleteItem] = []
         seen: set[str] = set()
+        scored: list[tuple[float, SlashCompleteItem]] = []
 
         for raw in self.catalog()["items"]:
             command = str(raw.get("command") or "")
@@ -199,19 +244,27 @@ class CommandService:
             # directly still returns an explicit "not available" message.
             if not raw.get("supported", True):
                 continue
-            haystack = f"{command} {raw.get('description') or ''}".lower()
-            if query and query not in haystack and not command.lower().startswith(query):
-                continue
+            description = str(raw.get("description") or "")
+            if query:
+                score = _command_score(query, command, description)
+                if score == float("-inf"):
+                    continue
+            else:
+                score = 0.0
             seen.add(command)
-            items.append(SlashCompleteItem(
+            scored.append((score, SlashCompleteItem(
                 command=command,
-                description=str(raw.get("description") or ""),
+                description=description,
                 category=raw.get("category") or None,
                 icon=raw.get("icon") or None,
-            ))
-            if limit is not None and len(items) >= limit:
-                break
-        return items
+            )))
+
+        # Rank best-first for a query; browse mode keeps catalog/category order
+        # (Python's sort is stable, so equal scores preserve insertion order).
+        if query:
+            scored.sort(key=lambda pair: pair[0], reverse=True)
+        items = [item for _, item in scored]
+        return items[:limit] if limit is not None else items
 
     def exec(self, *, session_id: str | None, command: str, args: str | None = None, raw: str | None = None) -> CommandResult:
         name, arg = self._parse(command=command, args=args, raw=raw)
@@ -232,6 +285,12 @@ class CommandService:
         if action is not None:
             return CommandResult(kind="action", action=action, message=arg)
 
+        # Commands superseded by a dedicated management page — point the user
+        # there instead of rendering a duplicate inline card.
+        page = _PAGE_MANAGED.get(name)
+        if page:
+            return CommandResult(kind="unsupported", message=f"/{name} is managed in the {page} page.")
+
         # Commands that render an inline card from live gateway/store data.
         card_type = _CARD_COMMANDS.get(name)
         if card_type:
@@ -249,6 +308,8 @@ class CommandService:
 
         if name in _DEFERRED or name in _DESKTOP_UNAVAILABLE:
             return CommandResult(kind="unsupported", message=f"/{name} is not available in Desktop yet.")
+        if name in _DESKTOP_TRIMMED:
+            return CommandResult(kind="unsupported", message=f"/{name} is not available in Desktop.")
         if name in _TERMINAL_ONLY:
             return CommandResult(kind="unsupported", message=f"/{name} is a terminal-only command in Desktop.")
 
@@ -270,8 +331,6 @@ class CommandService:
         if bundle is not None:
             return bundle
 
-        if name == "model":
-            return self._handle_model(arg, session_id)
         if name == "stop":
             try:
                 from tools.process_registry import process_registry
@@ -367,24 +426,6 @@ class CommandService:
             return CommandResult(kind="skill", message=msg + suffix, name=", ".join(loaded_names))
         except Exception as exc:
             return CommandResult(kind="error", message=f"Skill bundle failed: {exc}")
-
-    def _handle_model(self, arg: str, session_id: str | None) -> CommandResult:
-        if not arg:
-            return CommandResult(kind="card", card_type="model")
-        if not session_id:
-            return CommandResult(kind="error", message="session_id is required for /model.")
-        if "/" in arg and " " not in arg:
-            provider, model = arg.split("/", 1)
-        else:
-            parts = arg.split()
-            if len(parts) >= 2:
-                provider, model = parts[0], parts[1]
-            else:
-                return CommandResult(kind="unsupported", message="Use /model <provider>/<model> in Desktop, or use the model picker.")
-        self._session_service.set_provider(session_id, provider, model)
-        with contextlib.suppress(Exception):
-            self._agent_pool.evict(session_id)
-        return CommandResult(kind="output", message=f"Session model set to {provider}/{model}.")
 
     def _run_cli_command(self, name: str, arg: str, session_id: str | None) -> CommandResult:
         try:

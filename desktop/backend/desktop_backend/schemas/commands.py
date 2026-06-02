@@ -42,16 +42,15 @@ class SlashCompleteResponse(BaseModel):
 ActionName = Literal["new", "branch", "resume", "title"]
 
 # Inline-card kinds rendered in the command-card dock above the chat input.
-CardType = Literal[
-    "sessions", "tools", "skills", "cron", "plugins", "memory", "platforms",
-    "logs", "agents", "usage", "status", "model", "config", "help",
-    "account", "output", "notice",
-]
+# Desktop's slash set is session lifecycle + skills; no command emits a data card
+# anymore (model/usage/etc. live on their pages). The dock only shows `notice`,
+# synthesized on the frontend for redirect/unsupported/error/output results.
+CardType = Literal["notice"]
 
 
 class CommandResult(BaseModel):
     kind: Literal["output", "send", "skill", "unsupported", "error", "action", "card"]
-    message: str = ""  # text payload for card_type in {logs, account, output, notice}
+    message: str = ""  # text payload for card_type in {account, output, notice}
     name: Optional[str] = None
     action: Optional[ActionName] = None
     card_type: Optional[CardType] = None
