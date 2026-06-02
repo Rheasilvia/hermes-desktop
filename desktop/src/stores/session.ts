@@ -5,7 +5,6 @@
 import { createSignal, createMemo } from 'solid-js';
 import type { SessionListItem, SessionMeta } from '@/types/index.js';
 import { getGateway } from './context.js';
-import { modelStore } from './models.js';
 
 const [sessions, setSessions] = createSignal<SessionListItem[]>([]);
 const [activeSessionId, setActiveSessionId] = createSignal<string | null>(null);
@@ -79,18 +78,16 @@ export const sessionStore = {
     setIsLoading(true);
     setError(null);
     try {
-      const effectiveProvider = params.provider ?? modelStore.activeProvider ?? undefined;
-      const effectiveModel = params.model ?? modelStore.activeModel ?? undefined;
-      const meta = await gateway.session.create({
-        ...params,
-        provider: effectiveProvider,
-        model: effectiveModel,
-      });
+      // Pass params straight through. A blank `createSession({})` must reach
+      // the backend as `create({})` so the empty-session reuse guard fires and
+      // the backend resolves the default (Model Page primary) model itself.
+      // Do NOT inject modelStore.activeModel here — it is session-scoped state
+      // (ChatView syncs it on session switch), so injecting it would make new
+      // conversations inherit the previously-viewed session's model and would
+      // defeat the backend reuse guard.
+      const meta = await gateway.session.create(params);
       await this.loadSessions();
       setActiveSessionId(meta.id);
-      if (meta.id && effectiveProvider && effectiveModel) {
-        this.setSessionModel(meta.id, effectiveProvider, effectiveModel);
-      }
       return meta;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create session');
