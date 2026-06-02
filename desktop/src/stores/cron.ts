@@ -123,7 +123,7 @@ function mapJob(api: ApiCronJob): CronJob {
     created_at: api.created_at,
     next_run_at: next ? next.toISOString() : null,
     last_run_at: api.last_run_at ?? null,
-    last_status: api.last_status ?? null,
+    last_status: api.last_status === 'ok' || api.last_status === 'error' ? api.last_status : null,
     last_error: api.last_error ?? null,
     last_delivery_error: null,
     deliver: 'local',

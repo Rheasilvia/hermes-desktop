@@ -55,7 +55,7 @@ describe('handleMessageComplete — tool blocks', () => {
       name: 'terminal',
       duration_s: 0.1,
     });
-    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { text: 'Here is the result', usage: null });
+    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { text: 'Here is the result', usage: undefined });
 
     const messages = chatStore.getMessages(SESSION_MSG_COMPLETE);
     const lastMsg = messages[messages.length - 1];
@@ -77,7 +77,7 @@ describe('handleMessageComplete — tool blocks', () => {
       summary: 'Done',
       duration_s: 0.8,
     });
-    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { text: 'Result text', usage: null });
+    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { text: 'Result text', usage: undefined });
 
     const messages = chatStore.getMessages(SESSION_MSG_COMPLETE);
     const lastMsg = messages[messages.length - 1];

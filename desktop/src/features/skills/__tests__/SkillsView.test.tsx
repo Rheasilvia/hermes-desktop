@@ -146,7 +146,7 @@ describe('SkillsView', () => {
 
   it('optimistically updates toggle state before API responds', async () => {
     let resolveFn!: () => void;
-    mockToggleSkill.mockReturnValue(new Promise((r) => { resolveFn = r; }));
+    mockToggleSkill.mockReturnValue(new Promise<void>((r) => { resolveFn = r; }));
 
     render(() => <SkillsView />);
     await waitFor(() => screen.getAllByRole('switch'));

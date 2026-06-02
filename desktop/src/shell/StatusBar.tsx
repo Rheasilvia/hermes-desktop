@@ -15,6 +15,7 @@ export const StatusBar: Component = () => {
     switch (state) {
       case 'connected': return 'Connected';
       case 'connecting': return 'Connecting...';
+      case 'reconnecting': return 'Reconnecting...';
       case 'disconnected': return 'Disconnected';
     }
   };
