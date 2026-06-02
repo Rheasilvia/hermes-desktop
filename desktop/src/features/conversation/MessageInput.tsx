@@ -4,6 +4,7 @@ import { fileChipQueue } from '@/stores/file-chip-queue.js';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Icon } from '@/ui/atoms/Icon';
 import { WorkspacePicker } from './WorkspacePicker';
+import { GitBranchPicker } from './GitBranchPicker';
 import { SlashCommandPanel, type SlashCommand } from './SlashCommandPanel';
 import { getGateway } from '@/stores/context.js';
 import styles from './MessageInput.module.css';
@@ -284,6 +285,10 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
               editable={props.isNewConversation}
               disabled={!props.isNewConversation}
               onChange={props.onWorkspaceChange}
+            />
+            <GitBranchPicker
+              workspacePath={props.workspacePath}
+              disabled={props.disabled}
             />
           </div>
 
