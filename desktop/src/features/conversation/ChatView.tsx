@@ -35,6 +35,9 @@ import { MessageBubble } from './MessageBubble.js';
 import { AssistantMessage } from './AssistantMessage.js';
 import type { MessageBlock } from '@/types/index.js';
 import { MessageInput } from './MessageInput.js';
+import { runCommandAction } from './commandActions.js';
+import { CommandCardDock } from './cards/CommandCardDock.js';
+import type { ActiveCommandCard } from './cards/CommandCardRenderer.js';
 import { ModelSelector } from './ModelSelector.js';
 import { ChatToolbar } from './ChatToolbar.js';
 import { WorkspaceSidePanel } from './WorkspaceSidePanel.js';
@@ -324,52 +327,90 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     }
   });
 
-  const sendPrompt = async (text: string) => {
-    chatStore.appendUserMessage(sessionId(), text);
-    await chatStore.sendMessage(sessionId(), text);
+  // `promptText` always goes to the LLM verbatim. `display`, when given,
+  // overrides what the transcript shows — so a slash command's huge expanded
+  // prompt stays out of the bubble while the model still receives it.
+  const sendPrompt = async (
+    promptText: string,
+    display?: { text: string; slashCommand?: { command: string; args: string } },
+  ) => {
+    chatStore.appendUserMessage(sessionId(), display?.text ?? promptText, display?.slashCommand);
+    await chatStore.sendMessage(sessionId(), promptText);
   };
 
-  const showCommandResult = (result: CommandResult) => {
-    if (result.kind === 'send' || result.kind === 'skill') {
-      void sendPrompt(result.message);
-      return;
+  // The active command card shown in the above-input dock (ephemeral, one at a
+  // time). Slash command results render here, NOT in the chat transcript.
+  const [commandCard, setCommandCard] = createSignal<ActiveCommandCard | null>(null);
+  const dismissCommandCard = () => {
+    setCommandCard(null);
+    // Return focus to the composer (the single chat textarea).
+    queueMicrotask(() => (document.querySelector('textarea') as HTMLTextAreaElement | null)?.focus());
+  };
+  const noticeCard = (text: string) => setCommandCard({ cardType: 'notice', text });
+
+  const showCommandResult = async (result: CommandResult, ctx: { command: string; args: string }) => {
+    switch (result.kind) {
+      case 'card':
+        setCommandCard({ cardType: result.cardType, text: result.text });
+        return;
+      case 'skill': {
+        // The LLM gets the full expanded skill prompt; the bubble shows only the
+        // compact command the user actually typed.
+        const compact = ctx.args ? `/${ctx.command} ${ctx.args}` : `/${ctx.command}`;
+        void sendPrompt(result.message, { text: compact, slashCommand: { command: ctx.command, args: ctx.args } });
+        return;
+      }
+      case 'send':
+        void sendPrompt(result.message);
+        return;
+      case 'action':
+        await runCommandAction(result, {
+          sessionId: sessionId(),
+          navigate,
+          sessionStore,
+          notify: noticeCard,
+        });
+        return;
+      case 'unsupported':
+        noticeCard(result.message);
+        return;
+      case 'error':
+        noticeCard(`Command error: ${result.message}`);
+        return;
+      default:
+        noticeCard(result.message || 'Command produced no output.');
     }
-    const prefix = result.kind === 'unsupported' ? 'Unsupported command' : result.kind === 'error' ? 'Command error' : '';
-    chatStore.appendLocalMessage(sessionId(), prefix ? `${prefix}: ${result.message}` : result.message);
   };
 
   const handleSlashCommand = async (text: string) => {
     const gateway = getGateway();
     if (!gateway) {
-      chatStore.appendLocalMessage(sessionId(), 'Command error: gateway is not connected.');
+      noticeCard('Command error: gateway is not connected.');
       return;
     }
     const raw = text.trim();
     const withoutSlash = raw.slice(1).trim();
     const [command, ...rest] = withoutSlash.split(/\s+/);
     const args = rest.join(' ');
-    chatStore.appendUserMessage(sessionId(), raw);
+    // No transcript echo — a slash command's result lives in the dock. Resolve
+    // via slash.exec, falling back to command.dispatch only if the RPC itself
+    // is unavailable. Act on the result once, afterwards.
+    const params = { session_id: sessionId(), command, args, raw };
+    let result: CommandResult;
     try {
-      const result = await gateway.slash.exec({
-        session_id: sessionId(),
-        command,
-        args,
-        raw,
-      });
-      showCommandResult(result);
+      result = await gateway.slash.exec(params);
     } catch {
       try {
-        const result = await gateway.command.dispatch({
-          session_id: sessionId(),
-          command,
-          args,
-          raw,
-        });
-        showCommandResult(result);
+        result = await gateway.command.dispatch(params);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        chatStore.appendLocalMessage(sessionId(), `Command error: ${msg}`);
+        noticeCard(`Command error: ${err instanceof Error ? err.message : String(err)}`);
+        return;
       }
+    }
+    try {
+      await showCommandResult(result, { command, args });
+    } catch (err) {
+      noticeCard(`Command error: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -379,6 +420,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       await handleSlashCommand(trimmed);
       return;
     }
+    setCommandCard(null); // sending a real message dismisses any command card
     await sendPrompt(text);
   };
 
@@ -753,6 +795,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                   />
                 </Show>
               </div>
+            </Show>
+
+            {/* Command-card dock — a pending approval/clarify takes precedence. */}
+            <Show when={commandCard() && !liveState().pendingApproval && !liveState().pendingClarify}>
+              <CommandCardDock card={commandCard()!} onDismiss={dismissCommandCard} />
             </Show>
 
             <MessageInput

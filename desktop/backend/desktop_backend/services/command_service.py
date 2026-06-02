@@ -12,14 +12,78 @@ from rich.console import Console
 from ..schemas.commands import CommandCatalogItem, CommandResult, SlashCompleteItem
 
 
+# Commands hidden from the Desktop catalog entirely (gateway/messaging plumbing).
 _DESKTOP_HIDDEN = frozenset({"sethome", "set-home", "commands", "approve", "deny", "start", "topic", "restart", "platform"})
-_UNSUPPORTED = frozenset({"clear", "redraw", "history", "save", "handoff", "config", "gquota", "statusbar", "skin", "indicator", "busy", "tools", "toolsets", "skills", "cron", "reload", "browser", "plugins", "platforms", "copy", "paste", "image", "quit", "exit", "mouse", "logs", "details"})
+
+# Commands handled inline by exec() with a built-in Desktop behavior (no card).
+_INLINE_HANDLED = frozenset({"queue", "model", "stop"})
+
+# Lifecycle session commands → a frontend session action (create/branch/rename/
+# resume). Read-only browse commands (sessions/history) are cards, not actions.
+_SESSION_ACTIONS = frozenset({"new", "branch", "resume", "title"})
+
+# Commands whose Desktop behavior maps onto a session action (command → action).
+# /clear's TUI purpose is "clear screen and start a new session" — the screen-clear
+# has no Desktop meaning, so it resolves to the same fresh-session action as /new.
+_SESSION_ACTION_ALIASES: dict[str, str] = {"clear": "new"}
+
+# Commands that render an inline card in the command-card dock from live
+# gateway/store data (command → card_type). The frontend card fetches via the
+# same gateway/store method the corresponding page uses; the backend only emits
+# the card_type (thin dispatcher, no data assembly here).
+_CARD_COMMANDS: dict[str, str] = {
+    "sessions": "sessions", "history": "sessions",
+    "tools": "tools", "toolsets": "tools",
+    "skills": "skills", "bundles": "skills",
+    "cron": "cron",
+    "plugins": "plugins",
+    "memory": "memory",
+    "platforms": "platforms",
+    "agents": "agents",
+    "usage": "usage",
+    "status": "status",
+    "config": "config", "browser": "config", "voice": "config",
+    "help": "help",
+}
+
+# CLI-only commands with no structured gateway source: run the headless
+# HermesCLI, capture its text, and render it inside an output-style card
+# (command → card_type). Side-effecting members (save/rollback/update/curator/
+# kanban) are best-effort; demote to _DEFERRED if any prove unsafe/interactive.
+_CLI_CARD: dict[str, str] = {
+    "logs": "logs",
+    "whoami": "account", "profile": "account", "gquota": "account",
+    "insights": "output", "debug": "output", "save": "output",
+    "rollback": "output", "curator": "output", "kanban": "output", "update": "output",
+}
+
+# Live-turn + stateful-toggle commands that can't safely use the throwaway CLI
+# instance yet — surfaced with an explicit "not available" message.
+_DEFERRED = frozenset({
+    "retry", "steer", "goal", "subgoal", "undo", "background", "compress",
+    "compact", "yolo", "fast", "reasoning", "personality", "verbose",
+    "footer", "codex-runtime", "reload", "reload-mcp", "reload-skills",
+})
+
+# Terminal/TUI-only commands with no Desktop equivalent.
+_TERMINAL_ONLY = frozenset({
+    "redraw", "statusbar", "skin", "indicator", "busy", "mouse",
+    "copy", "paste", "image", "quit", "exit", "details", "handoff", "snapshot",
+})
+
+# Catalog/help "supported" flag derives from these two — single source of truth,
+# so the catalog can't drift from the dispatch buckets.
+_UNSUPPORTED = _TERMINAL_ONLY | _DEFERRED
 _TUI_EXTRA = (
     ("compact", "Toggle compact display mode", "TUI"),
     ("details", "Control agent detail visibility", "TUI"),
     ("logs", "Show recent gateway log lines", "TUI"),
     ("mouse", "Set mouse tracking preset [on|off|toggle|wheel|buttons|all]", "TUI"),
 )
+
+# Max autocomplete suggestions for a non-empty query. Browse mode (empty query,
+# i.e. a bare "/") is uncapped so the panel can list every available command.
+_SLASH_COMPLETE_LIMIT = 30
 
 
 class CommandService:
@@ -105,12 +169,18 @@ class CommandService:
     def complete_slash(self, partial: str) -> list[SlashCompleteItem]:
         text = partial if partial.startswith("/") else f"/{partial.lstrip('/')}"
         query = text[1:].lower().strip()
+        # Browse mode (empty query) is uncapped so a bare "/" lists everything.
+        limit = None if not query else _SLASH_COMPLETE_LIMIT
         items: list[SlashCompleteItem] = []
         seen: set[str] = set()
 
         for raw in self.catalog()["items"]:
             command = str(raw.get("command") or "")
             if not command or command in seen:
+                continue
+            # Don't suggest commands that aren't usable in Desktop — typing one
+            # directly still returns an explicit "not available" message.
+            if not raw.get("supported", True):
                 continue
             haystack = f"{command} {raw.get('description') or ''}".lower()
             if query and query not in haystack and not command.lower().startswith(query):
@@ -122,7 +192,7 @@ class CommandService:
                 category=raw.get("category") or None,
                 icon=raw.get("icon") or None,
             ))
-            if len(items) >= 30:
+            if limit is not None and len(items) >= limit:
                 break
         return items
 
@@ -137,15 +207,32 @@ class CommandService:
             if not arg:
                 return CommandResult(kind="error", message="usage: /queue <prompt>")
             return CommandResult(kind="send", message=arg)
-        if name in {"steer", "goal", "subgoal", "retry"}:
-            return CommandResult(kind="unsupported", message=f"/{name} depends on TUI live-turn state and is not available in Desktop yet.")
-        if name in {"new", "sessions", "resume"}:
-            return CommandResult(kind="unsupported", message=f"Use the Desktop sessions sidebar for /{name}.")
-        if name in {"branch"}:
-            return CommandResult(kind="unsupported", message="Use the Desktop branch action; slash /branch is not wired to Desktop session cloning yet.")
-        if name in _UNSUPPORTED:
+
+        # Lifecycle session commands (and aliases like /clear) → frontend action.
+        action = _SESSION_ACTION_ALIASES.get(name)
+        if action is None and name in _SESSION_ACTIONS:
+            action = name
+        if action is not None:
+            return CommandResult(kind="action", action=action, message=arg)
+
+        # Commands that render an inline card from live gateway/store data.
+        card_type = _CARD_COMMANDS.get(name)
+        if card_type:
+            return CommandResult(kind="card", card_type=card_type)
+
+        # CLI-only commands: capture the CLI text and wrap it in a card.
+        cli_card = _CLI_CARD.get(name)
+        if cli_card:
+            text = self._run_cli_command(name, arg, session_id).message
+            return CommandResult(kind="card", card_type=cli_card, message=text)
+
+        if name in _DEFERRED:
+            return CommandResult(kind="unsupported", message=f"/{name} is not available in Desktop yet.")
+        if name in _TERMINAL_ONLY:
             return CommandResult(kind="unsupported", message=f"/{name} is a terminal-only command in Desktop.")
 
+        # Dynamic commands (not in the static registry): user quick commands,
+        # plugin commands, and skill / skill-bundle invocations.
         quick = self._handle_quick_command(name, arg, session_id)
         if quick is not None:
             return quick
@@ -162,14 +249,8 @@ class CommandService:
         if bundle is not None:
             return bundle
 
-        if name == "help":
-            return CommandResult(kind="output", message=self._help_text())
         if name == "model":
             return self._handle_model(arg, session_id)
-        if name in {"compress", "compact"}:
-            return CommandResult(kind="unsupported", message="Desktop conversation compression is not available through slash commands yet.")
-        if name == "status":
-            return CommandResult(kind="output", message=self._status_text(session_id))
         if name == "stop":
             try:
                 from tools.process_registry import process_registry
@@ -178,7 +259,10 @@ class CommandService:
             except Exception as exc:
                 return CommandResult(kind="error", message=f"Failed to stop processes: {exc}")
 
-        return self._run_cli_command(name, arg, session_id)
+        # Safe default: any command not explicitly categorized — including a
+        # newly-added registry entry that nobody mapped for Desktop — is
+        # surfaced explicitly instead of being silently run via the CLI.
+        return CommandResult(kind="unsupported", message=f"/{name} is not available in Desktop yet.")
 
     def _parse(self, *, command: str, args: str | None, raw: str | None) -> tuple[str, str]:
         text = (raw or command or "").strip()
@@ -265,7 +349,7 @@ class CommandService:
 
     def _handle_model(self, arg: str, session_id: str | None) -> CommandResult:
         if not arg:
-            return CommandResult(kind="unsupported", message="Open the Desktop model picker to switch models.")
+            return CommandResult(kind="card", card_type="model")
         if not session_id:
             return CommandResult(kind="error", message="session_id is required for /model.")
         if "/" in arg and " " not in arg:

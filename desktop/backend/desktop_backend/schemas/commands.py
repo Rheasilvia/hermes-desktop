@@ -38,8 +38,21 @@ class SlashCompleteResponse(BaseModel):
     items: list[SlashCompleteItem]
 
 
+# Lifecycle session actions performed by the frontend (no card, no navigation).
+ActionName = Literal["new", "branch", "resume", "title"]
+
+# Inline-card kinds rendered in the command-card dock above the chat input.
+CardType = Literal[
+    "sessions", "tools", "skills", "cron", "plugins", "memory", "platforms",
+    "logs", "agents", "usage", "status", "model", "config", "help",
+    "account", "output", "notice",
+]
+
+
 class CommandResult(BaseModel):
-    kind: Literal["output", "send", "skill", "unsupported", "error"]
-    message: str
+    kind: Literal["output", "send", "skill", "unsupported", "error", "action", "card"]
+    message: str = ""  # text payload for card_type in {logs, account, output, notice}
     name: Optional[str] = None
+    action: Optional[ActionName] = None
+    card_type: Optional[CardType] = None
 

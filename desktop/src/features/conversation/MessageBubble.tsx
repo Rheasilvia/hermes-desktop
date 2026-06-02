@@ -31,6 +31,7 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
             .filter((b): b is TextBlock => b.type === 'text')
             .map((b) => b.content)
             .join('\n')}
+          slashCommand={props.message.slashCommand}
           timestamp={props.message.timestamp || undefined}
           onAction={props.onAction}
         />
