@@ -4,7 +4,4 @@
  * tripping the D7 "no gateway import" lint rule. Mirrors the backend
  * `CardType` Literal in `desktop_backend/schemas/commands.py`.
  */
-export type CardType =
-  | 'sessions' | 'tools' | 'skills' | 'cron' | 'plugins' | 'memory' | 'platforms'
-  | 'logs' | 'agents' | 'usage' | 'status' | 'model' | 'config' | 'help'
-  | 'account' | 'output' | 'notice';
+export type CardType = 'notice';

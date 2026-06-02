@@ -7,7 +7,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  z-index: var(--z-sticky);
+  /* Sits just below the input popover layer (--z-dropdown) so any popup opening
+     above the input — the slash command panel, model/workspace/more menus —
+     renders on top of this floating button instead of being covered by it. */
+  z-index: calc(var(--z-dropdown) - 1);
   pointer-events: none;
 }
 

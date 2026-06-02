@@ -5,11 +5,7 @@ import type { CardType } from '@/types/command-card.js';
 // Every CardType the backend can emit must have a renderer. The `satisfies`
 // clause guards this at compile time; this guards it at runtime too (and fails
 // loudly if a type is added to the union but forgotten in the registry).
-const ALL_CARD_TYPES: CardType[] = [
-  'sessions', 'tools', 'skills', 'cron', 'plugins', 'memory', 'platforms',
-  'logs', 'agents', 'usage', 'status', 'model', 'config', 'help',
-  'account', 'output', 'notice',
-];
+const ALL_CARD_TYPES: CardType[] = ['notice'];
 
 describe('cardRegistry', () => {
   test('resolves every CardType to a component with chrome metadata', () => {

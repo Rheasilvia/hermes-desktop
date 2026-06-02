@@ -67,16 +67,6 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     return t.startsWith('/') && !t.includes(' ') && !t.includes('\n') && slashPanelOpen();
   };
 
-  // The typed text is a complete, no-arg command exactly matching a known one
-  // (e.g. "/tools"). Such commands submit on Enter (run → card) instead of
-  // selecting an autocomplete suggestion.
-  const typedCompleteCommand = (): string | null => {
-    const t = text().trim();
-    if (!t.startsWith('/') || /\s/.test(t)) return null;
-    const name = t.slice(1).toLowerCase();
-    return slashCommands().some((c) => c.command.toLowerCase() === name) ? name : null;
-  };
-
   const handleSend = () => {
     const value = text().trim();
     if ((!value && attachments().length === 0) || props.disabled) return;
@@ -133,35 +123,25 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   });
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    // Enter on a complete no-arg command runs it (→ dock card). Bypass the
-    // panel's Enter-to-select by stopping propagation before it sees the event.
-    if (isSlashMode() && e.key === 'Enter' && !e.shiftKey && typedCompleteCommand()) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      setSlashPanelOpen(false);
-      handleSend();
-      return;
-    }
-    // Slash command WITH args (contains a space → no autocomplete panel):
-    // plain Enter submits it (run → dock card), like a complete command.
+    // While the slash autocomplete panel is open, let it own navigation +
+    // Enter-to-select. preventDefault keeps the textarea caret/newline still;
+    // we DON'T stopPropagation so the panel's document listener acts next.
+    // (Cmd/Ctrl+Enter skips this and falls through to the send branch below.)
     if (
-      e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey &&
-      text().trim().startsWith('/') && /\s/.test(text().trim())
+      isSlashMode() && !e.metaKey && !e.ctrlKey &&
+      (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Escape' ||
+       e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))
     ) {
-      e.preventDefault();
-      handleSend();
-      return;
-    }
-    if (isSlashMode() && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab')) {
-      // Let SlashCommandPanel handle navigation, escape, Enter, and Tab
-      // selection. Prevent the textarea caret from moving (arrows) or the
-      // newline/blur (Enter/Tab) so focus stays put while the panel is open.
       if (e.key !== 'Escape') e.preventDefault();
       return;
     }
-    // Cmd+Enter (macOS) / Ctrl+Enter (Windows/Linux) to send
+    // Cmd+Enter (macOS) / Ctrl+Enter (Windows/Linux) is the only send trigger —
+    // for prose messages and slash commands alike. Plain Enter / Shift+Enter
+    // insert a newline, so a stray Enter can never fire off a half-typed message.
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
+      e.stopImmediatePropagation();
+      setSlashPanelOpen(false);
       handleSend();
     }
   };

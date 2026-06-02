@@ -11,15 +11,19 @@ import typing
 
 import pytest
 
-from desktop_backend.schemas.commands import ActionName, CardType, CommandResult
+from desktop_backend.schemas.commands import ActionName, CardType
 from desktop_backend.services.command_service import (
+    _command_score,
+    _fuzzy_score,
     _strip_ansi,
     _CARD_COMMANDS,
     _CLI_CARD,
     _DEFERRED,
     _DESKTOP_HIDDEN,
+    _DESKTOP_TRIMMED,
     _DESKTOP_UNAVAILABLE,
     _INLINE_HANDLED,
+    _PAGE_MANAGED,
     _SESSION_ACTION_ALIASES,
     _SESSION_ACTIONS,
     _TERMINAL_ONLY,
@@ -46,17 +50,9 @@ def _make_service(tmp_path) -> CommandService:
         ("resume", "Foo", "action", "resume", None),
         ("title", "Hi", "action", "title", None),
         ("clear", "", "action", "new", None),          # /clear → fresh session
-        # Live-data inline cards
-        ("history", "", "card", None, "sessions"),
-        ("sessions", "", "card", None, "sessions"),
-        ("tools", "", "card", None, "tools"),
-        ("skills", "", "card", None, "skills"),
-        ("cron", "", "card", None, "cron"),
-        ("plugins", "", "card", None, "plugins"),
-        ("memory", "", "card", None, "memory"),
-        ("status", "", "card", None, "status"),
-        ("usage", "", "card", None, "usage"),
-        ("help", "", "card", None, "help"),
+        # No inline-card commands remain — Desktop is trimmed to session lifecycle
+        # + skills. /model (bare) is the only card, covered separately. status/
+        # help/platforms/agents are now hidden (see the trimmed test).
         # Deferred + terminal-only
         ("yolo", "", "unsupported", None, None),
         ("reasoning", "", "unsupported", None, None),
@@ -86,15 +82,26 @@ def test_title_passes_name_through_as_message(tmp_path):
 
 
 @pytest.mark.parametrize("command", ["config", "browser", "voice"])
-def test_config_commands_render_cli_output_card(tmp_path, command):
-    """config/browser/voice have no live-data endpoint — they render the CLI's
-    captured text in an output card (not a 'config' live card)."""
+def test_config_commands_redirect_to_settings_page(tmp_path, command):
+    """config/browser/voice are owned by the Settings page tabs — they no longer
+    render a CLI output card; they redirect the user to the page."""
+    result = _make_service(tmp_path).exec(session_id="s1", command=command, args="")
+    assert result.kind == "unsupported"
+    assert result.card_type is None
+    assert "Settings" in result.message
+
+
+def test_page_managed_commands_redirect(tmp_path):
+    """Every page-superseded command is hidden from autocomplete and, if typed
+    directly, returns a notice pointing at its owning page (no duplicate card)."""
     svc = _make_service(tmp_path)
-    svc._run_cli_command = lambda *a, **k: CommandResult(kind="output", message="cfg text")  # type: ignore[assignment]
-    result = svc.exec(session_id="s1", command=command, args="")
-    assert result.kind == "card"
-    assert result.card_type == "output"
-    assert result.message == "cfg text"
+    suggested = {item.command for item in svc.complete_slash("")}
+    for name, page in _PAGE_MANAGED.items():
+        assert name not in suggested, f"{name} should be hidden from autocomplete"
+        result = svc.exec(session_id="s1", command=name, args="")
+        assert result.kind == "unsupported"
+        assert result.card_type is None
+        assert page in result.message, f"{name} should point to the {page} page"
 
 
 def test_strip_ansi_removes_escape_codes():
@@ -103,36 +110,28 @@ def test_strip_ansi_removes_escape_codes():
     assert _strip_ansi(raw) == "Unknown command: /logs\nhi"
 
 
-def test_cli_card_unknown_command_becomes_unsupported(tmp_path):
-    """A CLI 'Unknown command' reply surfaces as a clean notice, not a dumped
-    error in an output card."""
-    svc = _make_service(tmp_path)
-    svc._run_cli_command = lambda *a, **k: CommandResult(kind="unsupported", message="nope")  # type: ignore[assignment]
-    result = svc.exec(session_id="s1", command="insights", args="")
-    assert result.kind == "unsupported"
-    assert result.card_type is None
-
-
-def test_cli_card_output_becomes_card(tmp_path):
-    svc = _make_service(tmp_path)
-    svc._run_cli_command = lambda *a, **k: CommandResult(kind="output", message="line one")  # type: ignore[assignment]
-    result = svc.exec(session_id="s1", command="insights", args="")
-    assert result.kind == "card"
-    assert result.card_type == "output"
-    assert result.message == "line one"
-
-
-def test_unavailable_commands_hidden_from_autocomplete(tmp_path):
-    """logs/whoami exist upstream but have no Desktop handler — they must be
-    hidden from suggestions and resolve to a clean 'not available' notice."""
+def test_trimmed_commands_hidden_from_autocomplete(tmp_path):
+    """Low-value commands (cards + CLI passthroughs) are hidden from autocomplete
+    and resolve to a clean 'not available' notice if typed directly."""
     svc = _make_service(tmp_path)
     suggested = {item.command for item in svc.complete_slash("")}
-    assert "logs" not in suggested
-    assert "whoami" not in suggested
-    for name in ("logs", "whoami"):
+    for name in _DESKTOP_TRIMMED:
+        assert name not in suggested, f"{name} should be hidden from autocomplete"
         result = svc.exec(session_id="s1", command=name, args="")
         assert result.kind == "unsupported"
         assert result.card_type is None
+
+
+def test_unavailable_commands_hidden_from_autocomplete(tmp_path):
+    """whoami exists upstream but has no Desktop handler — it must be hidden from
+    suggestions and resolve to a clean 'not available' notice. (logs moved to
+    _PAGE_MANAGED → Gateway page; covered by test_page_managed_commands_redirect.)"""
+    svc = _make_service(tmp_path)
+    suggested = {item.command for item in svc.complete_slash("")}
+    assert "whoami" not in suggested
+    result = svc.exec(session_id="s1", command="whoami", args="")
+    assert result.kind == "unsupported"
+    assert result.card_type is None
 
 
 def test_complete_slash_hides_unsupported_commands(tmp_path):
@@ -143,20 +142,43 @@ def test_complete_slash_hides_unsupported_commands(tmp_path):
     assert "redraw" not in suggested
     assert not (suggested & set(_DEFERRED))
     assert not (suggested & set(_TERMINAL_ONLY))
-    # ...but supported ones still are.
-    assert "help" in suggested
-    assert "tools" in suggested
+    # ...nor page-managed duplicates (sessions/tools/cron/…)...
+    assert not (suggested & set(_PAGE_MANAGED))
+    # ...nor trimmed low-value commands (status/help/insights/…).
+    assert not (suggested & set(_DESKTOP_TRIMMED))
+    # ...but supported session-lifecycle commands still are.
+    assert "new" in suggested
+    assert "resume" in suggested
 
 
-def test_bare_model_renders_model_card(tmp_path):
-    result = _make_service(tmp_path)._handle_model("", "s1")
-    assert result.kind == "card"
-    assert result.card_type == "model"
+def test_fuzzy_score_tiers():
+    """exact > prefix > contiguous substring > subsequence > no-match."""
+    assert _fuzzy_score("new", "new") > _fuzzy_score("new", "newish")        # exact > prefix
+    assert _fuzzy_score("new", "newish") > _fuzzy_score("ew", "anew")        # prefix > substring
+    assert _fuzzy_score("nw", "new") > float("-inf")                          # subsequence matches
+    assert _fuzzy_score("xyz", "new") == float("-inf")                        # no match
+
+
+def test_command_score_prioritises_name_over_description():
+    """A name match always outranks a description-only (substring) match."""
+    name_hit = _command_score("res", "resume", "irrelevant text")
+    desc_hit = _command_score("res", "branch", "restore something")
+    assert name_hit > desc_hit
+    # A query that hits neither name nor description is dropped.
+    assert _command_score("zzz", "branch", "create a branch") == float("-inf")
+
+
+def test_complete_slash_ranks_name_matches_first(tmp_path):
+    """A query matching a command NAME (prefix) leads over description-only hits."""
+    svc = _make_service(tmp_path)
+    ordered = [i.command for i in svc.complete_slash("/res")]
+    assert "resume" in ordered, ordered
+    assert ordered[0].startswith("res"), ordered[:5]
 
 
 def test_unsupported_is_single_source_of_truth():
     """Catalog 'supported' flag derives from this union — guard against drift."""
-    assert _UNSUPPORTED == _TERMINAL_ONLY | _DEFERRED | _DESKTOP_UNAVAILABLE
+    assert _UNSUPPORTED == _TERMINAL_ONLY | _DEFERRED | _DESKTOP_UNAVAILABLE | frozenset(_PAGE_MANAGED) | _DESKTOP_TRIMMED
 
 
 def test_emittable_actions_are_valid_actionnames():
@@ -173,7 +195,7 @@ def test_emittable_card_types_are_valid_cardtypes():
     drift (a command mapped to an unknown card_type) at test time instead.
     """
     valid = set(typing.get_args(CardType))
-    emittable = set(_CARD_COMMANDS.values()) | set(_CLI_CARD.values()) | {"model", "notice"}
+    emittable = set(_CARD_COMMANDS.values()) | set(_CLI_CARD.values()) | {"notice"}
     assert not (emittable - valid), f"card_types absent from CardType: {emittable - valid}"
 
 
@@ -196,6 +218,8 @@ def test_buckets_are_disjoint():
         "deferred": _DEFERRED,
         "terminal": _TERMINAL_ONLY,
         "unavailable": _DESKTOP_UNAVAILABLE,
+        "page_managed": frozenset(_PAGE_MANAGED),
+        "trimmed": _DESKTOP_TRIMMED,
         "inline": _INLINE_HANDLED,
     }
     names = list(buckets.items())
@@ -221,6 +245,8 @@ def test_every_registry_command_is_categorized():
         | _DEFERRED
         | _TERMINAL_ONLY
         | _DESKTOP_UNAVAILABLE
+        | frozenset(_PAGE_MANAGED)
+        | _DESKTOP_TRIMMED
         | _INLINE_HANDLED
     )
     uncategorized = [
