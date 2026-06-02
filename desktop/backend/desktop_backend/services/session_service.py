@@ -52,6 +52,21 @@ class SessionService:
         if model_hint:
             return model_hint, None
 
+        # Prefer the configured active model (the Model Page primary) so a new
+        # conversation defaults to it, carrying its provider too. This must take
+        # precedence over recent-session inheritance: otherwise a new chat would
+        # adopt whatever model the last session happened to use.
+        try:
+            from ..readers.hermes_config import read_active_model
+            active = read_active_model(self._hermes_home)
+            m = active.get("model")
+            if m:
+                return m, active.get("provider")
+        except Exception:
+            log.exception("failed to read active model from config")
+
+        # Fallback: inherit the model of the most recent desktop session when no
+        # active model is configured.
         try:
             rows = self._state.list_sessions_rich(
                 source="desktop",
@@ -65,15 +80,6 @@ class SessionService:
                     return m, None
         except Exception:
             log.exception("failed to query recent sessions for model fallback")
-
-        try:
-            from ..readers.hermes_config import read_active_model
-            active = read_active_model(self._hermes_home)
-            m = active.get("model")
-            if m:
-                return m, active.get("provider")
-        except Exception:
-            log.exception("failed to read active model from config")
 
         return None, None
 
