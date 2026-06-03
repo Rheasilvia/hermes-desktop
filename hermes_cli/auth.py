@@ -617,6 +617,15 @@ ZAI_ENDPOINTS = [
 ]
 
 
+# In-memory cache for Z.AI endpoint detection.  The file-based cache in
+# auth.json survives restarts, but every process does its own probe on
+# first use.  This module-level cache avoids redundant probes within the
+# same process lifetime (e.g. when the desktop backend build-agent code-path
+# calls resolve_api_key_provider_credentials for every new session).
+_zai_endpoint_mem_cache: dict | None = None
+_zai_endpoint_mem_cache_lock = threading.Lock()
+
+
 def detect_zai_endpoint(api_key: str, timeout: float = 8.0) -> Optional[Dict[str, str]]:
     """Probe z.ai endpoints to find one that accepts this API key.
 

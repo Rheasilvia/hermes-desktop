@@ -66,26 +66,33 @@ class AgentExecutionService:
         from tools.terminal_cwd import set_terminal_cwd, reset_terminal_cwd
         from tools.path_approval import set_workspace_context, reset_workspace_context
 
+        _t0_total = time.time()
         entry = self._pool.get_pooled_entry(session_id)
         workspace_cwd = getattr(entry.agent if entry else None, "workspace_cwd", None)
         cwd_token = set_terminal_cwd(workspace_cwd)
         ws_tokens = set_workspace_context(workspace_cwd, session_id)
 
         try:
+            _t0 = time.time()
             llm_messages = self._state.get_messages_as_conversation(session_id)
+            log.info("[perf] _run_turn get_messages_as_conversation: %.2fs", time.time() - _t0)
 
             from .context_normalizer import normalize_messages
+            _t0 = time.time()
             normalized = normalize_messages(llm_messages)
+            log.info("[perf] _run_turn normalize_messages: %.2fs", time.time() - _t0)
 
             agent = entry.agent
 
             self._touch_session(session_id)
             self._apply_kimi_coding_mode(agent)
 
+            _t0_call = time.time()
             result = agent.run_conversation(
                 user_message=user_message,
                 conversation_history=normalized,
             )
+            log.info("[perf] _run_turn run_conversation total: %.2fs", time.time() - _t0_call)
 
             # If interrupted before any assistant tokens, the user message was
             # already persisted to the LLM session DB by _persist_session inside
@@ -100,14 +107,15 @@ class AgentExecutionService:
             elif isinstance(result, str):
                 final_text = result
 
-            seq = self._ui.append(session_id, "message.complete", {
+            payload = {
                 "text": final_text,
                 "rendered": False,
-            })
-            self._bus.publish(session_id, seq, "message.complete", {
-                "text": final_text,
-                "rendered": False,
-            })
+            }
+            usage = self._get_usage(session_id, agent)
+            if usage is not None:
+                payload["usage"] = usage
+            seq = self._ui.append(session_id, "message.complete", payload)
+            self._bus.publish(session_id, seq, "message.complete", payload)
 
             self._session_svc.backfill_model_if_unset(
                 session_id, getattr(agent, "model", "")
@@ -123,6 +131,90 @@ class AgentExecutionService:
             reset_terminal_cwd(cwd_token)
             reset_workspace_context(ws_tokens)
             self._pool.mark_idle(session_id)
+            log.info("[perf] _run_turn total wall-clock: %.2fs", time.time() - _t0_total)
+
+    def _get_usage(self, session_id: str, agent: Any) -> dict[str, Any] | None:
+        """Return frontend-compatible usage from the durable session aggregate."""
+
+        row = self._state.get_session(session_id)
+        if row is None:
+            return None
+
+        def _int_row(name: str) -> int:
+            value = row.get(name, 0) or 0
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
+
+        input_tokens = _int_row("input_tokens")
+        output_tokens = _int_row("output_tokens")
+        cache_read_tokens = _int_row("cache_read_tokens")
+        cache_write_tokens = _int_row("cache_write_tokens")
+        reasoning_tokens = _int_row("reasoning_tokens")
+
+        usage: dict[str, Any] = {
+            "model": row.get("model") or getattr(agent, "model", "") or "",
+            "input": input_tokens,
+            "output": output_tokens,
+            "cache_read": cache_read_tokens,
+            "cache_write": cache_write_tokens,
+            "reasoning": reasoning_tokens,
+            "prompt": input_tokens + cache_read_tokens + cache_write_tokens,
+            "completion": output_tokens,
+            "total": (
+                input_tokens
+                + output_tokens
+                + cache_read_tokens
+                + cache_write_tokens
+                + reasoning_tokens
+            ),
+            "calls": _int_row("api_call_count"),
+        }
+
+        actual_cost = row.get("actual_cost_usd")
+        estimated_cost = row.get("estimated_cost_usd")
+        cost = actual_cost if actual_cost is not None else estimated_cost
+        if cost is not None:
+            try:
+                usage["cost_usd"] = float(cost)
+            except (TypeError, ValueError):
+                pass
+        for source_key, target_key in (
+            ("cost_status", "cost_status"),
+            ("cost_source", "cost_source"),
+            ("pricing_version", "pricing_version"),
+            ("billing_provider", "billing_provider"),
+            ("billing_base_url", "billing_base_url"),
+            ("billing_mode", "billing_mode"),
+        ):
+            value = row.get(source_key)
+            if value is not None:
+                usage[target_key] = value
+
+        comp = getattr(agent, "context_compressor", None)
+        if comp:
+            ctx_used = getattr(comp, "last_prompt_tokens", 0) or usage["total"] or 0
+            ctx_max = getattr(comp, "context_length", 0) or 0
+            try:
+                ctx_used_int = int(ctx_used)
+                ctx_max_int = int(ctx_max)
+            except (TypeError, ValueError):
+                ctx_used_int = 0
+                ctx_max_int = 0
+            if ctx_max_int:
+                usage["context_used"] = ctx_used_int
+                usage["context_max"] = ctx_max_int
+                usage["context_percent"] = max(
+                    0,
+                    min(100, round(ctx_used_int / ctx_max_int * 100)),
+                )
+            try:
+                usage["compressions"] = int(getattr(comp, "compression_count", 0) or 0)
+            except (TypeError, ValueError):
+                usage["compressions"] = 0
+
+        return usage
 
     def _rollback_orphaned_llm_user_message(self, session_id: str, agent: Any) -> None:
         """Remove a trailing user message from the LLM session DB after an interrupt.

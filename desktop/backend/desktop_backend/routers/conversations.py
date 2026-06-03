@@ -38,13 +38,32 @@ router = APIRouter()
 async def create_session(
     body: CreateSessionRequest,
     svc=Depends(get_session_service),
+    pool=Depends(get_agent_pool),
 ):
-    return svc.create_session(
+    result = svc.create_session(
         workspace_path=body.workspace_path,
         system_prompt=body.system_prompt,
         model=body.model,
         provider=body.provider,
     )
+    # Pre-warm the agent in a background thread so the first prompt.execute
+    # doesn't hit the full cold-start path (credential resolution, system
+    # prompt build, tool loading — all synchronous in get_or_create).
+    sid = result.get("session_id") or result.get("id") or ""
+    if sid and (body.provider or body.model):
+        import threading
+        import logging
+        _log = logging.getLogger(__name__)
+
+        def _warm():
+            try:
+                pool.get_or_create(sid)
+                _log.info("[prewarm] agent pre-warmed for new session %s", sid)
+            except Exception:
+                _log.debug("[prewarm] background build for %s failed (non-fatal)", sid, exc_info=True)
+
+        threading.Thread(target=_warm, daemon=True, name=f"prewarm-{sid[:8]}").start()
+    return result
 
 
 @router.get("/sessions")
@@ -138,6 +157,9 @@ async def prompt_execute(
     title_svc=Depends(get_title_service),
     exec_svc=Depends(get_agent_execution_service),
 ):
+    import time, logging
+    _log = logging.getLogger(__name__)
+    _t0 = time.time()
     sid = body.session_id
 
     if session_svc.get_session(sid) is None:
@@ -162,6 +184,8 @@ async def prompt_execute(
     # Execute agent turn in daemon thread — returns 202 immediately
     exec_svc.execute_turn(sid, body.message)
 
+    _log.info("[perf] prompt_execute total: %.2fs (sid=%s provider=%r model=%r)",
+              time.time() - _t0, sid, body.provider, body.model)
     return {"status": "accepted", "session_id": sid}
 
 

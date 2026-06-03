@@ -202,20 +202,23 @@ def build_app(cfg: Config) -> FastAPI:
             return
 
         def _do_prewarm():
+            _t0 = time.time()
             try:
                 sessions = session_db.list_sessions_rich(
                     source="desktop",
                     include_children=False,
                     order_by_last_active=True,
-                    limit=3,
+                    limit=5,
                 )
-                for sess in sessions[:3]:
+                for sess in sessions[:5]:
                     sid = str(sess.get("id") or sess.get("session_id") or "")
                     if sid:
+                        _t_s = time.time()
                         agent_pool.get_or_create(sid)
-                        log.info("[prewarm] agent ready for session %s", sid)
+                        log.info("[prewarm] agent ready for session %s (%.2fs)", sid, time.time() - _t_s)
             except Exception:
                 log.exception("[prewarm] background thread failed")
+            log.info("[prewarm] all agents pre-warmed in %.2fs", time.time() - _t0)
 
         threading.Thread(target=_do_prewarm, daemon=True, name="agent-prewarm").start()
 

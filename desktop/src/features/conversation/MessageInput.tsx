@@ -320,10 +320,14 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
             </button>
           </Show>
         </div>
+        <ContextUsageBar
+          contextUsed={props.contextUsage?.contextUsed ?? null}
+          contextMax={props.contextUsage?.contextMax ?? null}
+          contextPercent={props.contextUsage?.contextPercent ?? null}
+          costUsd={props.contextUsage?.costUsd ?? null}
+          totalTokens={props.contextUsage?.totalTokens ?? null}
+        />
       </div>
-      <Show when={props.contextUsage}>
-        <ContextUsageBar {...props.contextUsage!} />
-      </Show>
     </div>
   );
 };

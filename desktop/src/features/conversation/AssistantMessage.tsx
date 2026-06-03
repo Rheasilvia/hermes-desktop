@@ -12,6 +12,7 @@ import type {
   TodoListBlock,
   MessageAction,
   ToolCallRow,
+  LiveToolCall,
 } from '@/types/index.js';
 import { parseMarkdown } from '@/utils/markdown.js';
 import { CodeBlock } from './CodeBlock.js';
@@ -29,7 +30,9 @@ interface AssistantMessageProps {
   isStreaming?: boolean;
   actions?: MessageAction[];
   onAction?: (action: MessageActionType) => void;
-  liveToolRows?: ToolCallRow[];
+  /** Live tool calls from the createStore array — passed raw to preserve SolidJS
+   *  store-key identity so <For> only re-renders changed items. */
+  liveTools?: LiveToolCall[];
   /** Whether this is the last assistant message (controls retry button visibility). */
   isLast?: boolean;
   /** Whether action buttons should be disabled (e.g. while another turn is streaming). */
@@ -120,17 +123,17 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
           </Show>
         </div>
         {/* TurnActivityPanel outside <For> — preserves ThinkingIndicator RAF stability */}
-        <Show when={reasoningBlock() || firstToolGroup() || (props.liveToolRows && props.liveToolRows.length > 0)}>
+        <Show when={reasoningBlock() || firstToolGroup() || (props.liveTools && props.liveTools.length > 0)}>
           <TurnActivityPanel
             reasoning={reasoningBlock() ? {
               content: reasoningBlock()!.content,
               isStreaming: reasoningBlock()!.isStreaming,
               tokenCount: reasoningBlock()!.tokenCount,
             } : undefined}
-            toolRows={props.liveToolRows ?? (firstToolGroup()?.blocks ?? []).map(blockToRow)}
+            toolRows={props.liveTools ?? (firstToolGroup()?.blocks ?? []).map(blockToRow)}
             isLive={
-              props.liveToolRows
-                ? props.liveToolRows.some(r => r.status === 'generating' || r.status === 'running')
+              props.liveTools
+                ? props.liveTools.some(r => r.status === 'generating' || r.status === 'running')
                 : (firstToolGroup()?.blocks ?? []).some(b => b.status === 'streaming' || b.status === 'running')
             }
           />

@@ -1,7 +1,7 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
-import type { ToolCallRow } from '@/types/index.js';
+import type { ToolCallRow, LiveToolCall } from '@/types/index.js';
 import styles from './TurnActivityPanel.module.css';
 
 interface ReasoningData {
@@ -12,7 +12,10 @@ interface ReasoningData {
 
 export interface TurnActivityPanelProps {
   reasoning?: ReasoningData;
-  toolRows?: ToolCallRow[];
+  /** Tool rows — accepts both LiveToolCall[] (store-proxy, identity-stable)
+   *  and ToolCallRow[] (completed-tool blocks). Fields accessed are the
+   *  intersection (id, name, status, durationMs). */
+  toolRows?: LiveToolCall[] | ToolCallRow[];
   isLive?: boolean;
 }
 
@@ -230,7 +233,8 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
             <div class={styles.sectionLabel}>Tools</div>
             <div class={styles.toolList}>
               <For each={props.toolRows}>
-                {(row) => {
+                {(r) => {
+                  const row = r as ToolCallRow;
                   const isOpen = () => expandedTools().has(row.id);
                   return (
                     <div class={styles.toolRow}>

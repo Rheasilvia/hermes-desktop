@@ -51,7 +51,7 @@ import { ClarificationCard } from './ClarificationCard.js';
 import { MemoryContextCard } from './MemoryContextCard.js';
 import { TodoPanel } from './TodoPanel.js';
 import { JumpToBottom } from './JumpToBottom.js';
-import { liveToRow } from './toolCallMappers.js';
+import type { LiveToolCall } from '@/types/index.js';
 import styles from './ChatView.module.css';
 
 interface ChatViewProps {
@@ -108,6 +108,13 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     return blocks;
   });
 
+  // Raw access to the createStore proxy array — preserves SolidJS native
+  // store-key tracking so <For> only re-renders changed items.  Previous
+  // approach of .map(liveToRow) created new ToolCallRow refs every cycle,
+  // causing <For> to reconstruct all DOM nodes and replay CSS entry
+  // animations (rowSlideIn) on every tool update.
+  const liveTools = createMemo(() => liveState().activeTools);
+
   // ── Floating TodoPanel state ──────────────────────────────────────────
 
   const [panelManuallyClosed, setPanelManuallyClosed] = createSignal(false);
@@ -119,7 +126,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let undoBarTimer: ReturnType<typeof setTimeout> | undefined;
 
   const hasActiveTodoTool = createMemo(() =>
-    liveState().activeTools.some((t) => t.name === 'todo' && t.status === 'running')
+    liveTools().some((t) => t.name === 'todo' && t.status === 'running')
   );
 
   const panelTodos = createMemo((): TodoItem[] => {
@@ -759,11 +766,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                     );
                   }}
                 </For>
-                <Show when={liveBlocks().length > 0 || liveState().activeTools.length > 0}>
+                <Show when={liveBlocks().length > 0 || liveTools().length > 0}>
                   <AssistantMessage
                     blocks={liveBlocks()}
                     isStreaming={true}
-                    liveToolRows={liveState().activeTools.map(liveToRow)}
+                    liveTools={liveTools()}
                   />
                 </Show>
                 <div ref={messagesEndRef} />

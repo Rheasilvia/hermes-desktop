@@ -178,6 +178,7 @@ class AgentPool:
 
     def _build_agent(self, session_id: str) -> Any:
         """Create a new AIAgent with desktop_backend callbacks wired in."""
+        _t0_total = time.time()
         from agent.agent_init import init_agent
         from run_agent import AIAgent
 
@@ -188,6 +189,7 @@ class AgentPool:
         # Step 1: Read provider and workspace_path from session_desktop_meta
         provider = None
         workspace_path = None
+        _t0 = time.time()
         try:
             conn = desktop_connect(self._hermes_home)
             ensure_schema(conn)
@@ -201,6 +203,7 @@ class AgentPool:
             conn.close()
         except Exception as e:
             log.debug(f"Failed to read session_desktop_meta: {e}")
+        log.info("[perf] _build_agent step1 meta read: %.2fs", time.time() - _t0)
 
         # Step 2: Read model from session record
         session = self._session_db.get_session(session_id) if self._session_db else None
@@ -224,6 +227,7 @@ class AgentPool:
             # If overlay doesn't have base_url/api_key, resolve from credential pool
             # so init_agent can correctly auto-detect api_mode (e.g. anthropic_messages
             # for MiniMax's /anthropic endpoint).
+            _t0_cred = time.time()
             if not base_url or not api_key:
                 try:
                     import os as _os
@@ -250,6 +254,7 @@ class AgentPool:
                         api_key = str(creds.get("api_key") or "").strip()
                 except Exception:
                     pass
+            log.info("[perf] _build_agent credential resolution: %.2fs (provider=%r)", time.time() - _t0_cred, provider)
 
         log.info(
             "[agent_pool] building agent: provider=%r model=%r base_url=%r",
@@ -265,6 +270,7 @@ class AgentPool:
         )
 
         # Wire callbacks
+        _t0_init = time.time()
         init_agent(
             agent,
             session_id=session_id,
@@ -311,6 +317,8 @@ class AgentPool:
             except Exception:
                 pass
 
+        log.info("[perf] _build_agent init_agent: %.2fs | total: %.2fs (provider=%r model=%r)",
+                 time.time() - _t0_init, time.time() - _t0_total, provider, model)
         return agent, model, provider
 
     def _evict_if_needed(self) -> None:
