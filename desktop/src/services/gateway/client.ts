@@ -115,6 +115,8 @@ export class GatewayClient {
     resume: (sessionId: string): Promise<void> =>
       this.call('session.resume', { session_id: sessionId }),
     interrupt: (): Promise<void> => this.call('session.interrupt'),
+    undo: (sessionId: string): Promise<{ removed: number }> =>
+      this.call('session.undo', { session_id: sessionId }),
     messages: (sessionId: string): Promise<SessionMessage[]> =>
       this.call('session.messages', { session_id: sessionId }),
   };

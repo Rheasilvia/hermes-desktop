@@ -1,0 +1,46 @@
+.container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px;
+}
+
+.progressTrack {
+  flex: 1;
+  height: 2px;
+  background: var(--color-border);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 0.4s ease;
+}
+
+.barNormal {
+  background: var(--color-primary);
+}
+
+.barWarning {
+  background: var(--color-warning, #e6a817);
+}
+
+.barCritical {
+  background: var(--color-error, #e05252);
+}
+
+.labels {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.label {
+  font-size: 11px;
+  color: var(--color-on-surface-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

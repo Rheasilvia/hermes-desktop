@@ -6,7 +6,7 @@
 import type { Role } from '../message.js';
 import type { MessageBlock } from './blocks.js';
 
-export type MessageActionType = 'copy' | 'retry' | 'edit' | 'delete' | 'branch' | 'like' | 'dislike' | 'more';
+export type MessageActionType = 'copy' | 'retry' | 'undo' | 'edit' | 'delete' | 'branch' | 'like' | 'dislike' | 'more';
 export type MessageAction = MessageActionType;
 
 export interface RenderedMessage {

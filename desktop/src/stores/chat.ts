@@ -1,8 +1,12 @@
 /**
  * Chat state store - per-session messages, streaming state, tool calls.
+ *
+ * Uses SolidJS createStore for fine-grained reactivity: tool event handlers
+ * update only the affected field/row, not the entire ChatState object.
+ * This prevents ToolCallTree from re-rendering all rows on every progress event.
  */
 
-import { createSignal } from 'solid-js';
+import { createStore, produce } from 'solid-js/store';
 import type {
   MessageDeltaPayload,
   MessageCompletePayload,
@@ -19,9 +23,11 @@ import type { RenderedMessage } from '@/types/ui/message.js';
 import type { LiveTurnState, LiveToolCall, MemoryContextItem } from '@/types/ui/turn.js';
 import type { ConversationMessage, ParsedToolCall } from '@/types/domain/message.js';
 import type { ToolCallBlock } from '@/types/ui/blocks.js';
+import type { TextBlock } from '@/types/ui/blocks.js';
 import { parseMessage, parseBlocks } from '@/utils/messageParser.js';
 import { getGateway } from './context.js';
 import { modelStore } from './models.js';
+import { sessionUsage } from './usage.js';
 
 // ── Chat State ────────────────────────────────────────────────────────────
 
@@ -47,27 +53,18 @@ function makeLiveTurnState(sessionId: string): LiveTurnState {
   };
 }
 
-const [chatStates, setChatStates] = createSignal<Map<string, ChatState>>(new Map());
+// Fine-grained store: each session's ChatState is tracked at field level.
+// Tool event handlers use path selectors so only the changed row re-renders.
+const [chatStates, setChatStates] = createStore<Record<string, ChatState>>({});
 
-function getOrCreateChatState(sessionId: string): ChatState {
-  const states = chatStates();
-  let state = states.get(sessionId);
-  if (!state) {
-    state = { messages: [], liveState: makeLiveTurnState(sessionId), isLoadingMessages: false };
-    const newStates = new Map(states);
-    newStates.set(sessionId, state);
-    setChatStates(newStates);
+function ensureSession(sessionId: string): void {
+  if (!chatStates[sessionId]) {
+    setChatStates(sessionId, {
+      messages: [],
+      liveState: makeLiveTurnState(sessionId),
+      isLoadingMessages: false,
+    });
   }
-  return state;
-}
-
-function updateChatState(sessionId: string, updater: (state: ChatState) => ChatState): void {
-  const states = chatStates();
-  const current = states.get(sessionId);
-  if (!current) return;
-  const newStates = new Map(states);
-  newStates.set(sessionId, updater(current));
-  setChatStates(newStates);
 }
 
 let _ephemeralCounter = 0;
@@ -85,13 +82,10 @@ function sessionMsgToDomain(msg: SessionMessage, sessionId: string): Conversatio
   const rawCalls = msg.tool_calls;
   if (rawCalls && Array.isArray(rawCalls)) {
     toolCalls = (rawCalls as Array<
-      // OpenAI wire format
       | { id: string; type: 'function'; status?: 'complete' | 'error' | 'running'; function: { name: string; arguments: string } }
-      // ParsedToolCall format (produced by aggregateEventRows)
       | ParsedToolCall
     >).map((tc) => {
       if ('function' in tc && tc.function != null) {
-        // OpenAI wire format: { id, type: 'function', function: { name, arguments: string } }
         return {
           id: tc.id,
           name: tc.function.name,
@@ -102,7 +96,6 @@ function sessionMsgToDomain(msg: SessionMessage, sessionId: string): Conversatio
           })(),
         } satisfies ParsedToolCall;
       } else {
-        // ParsedToolCall format: { id, name, arguments: object, status?, outputSummary?, durationMs? }
         const ptc = tc as ParsedToolCall;
         return {
           id: ptc.id,
@@ -135,32 +128,31 @@ function sessionMsgToDomain(msg: SessionMessage, sessionId: string): Conversatio
 
 export const chatStore = {
   getMessages(sessionId: string): RenderedMessage[] {
-    return chatStates().get(sessionId)?.messages ?? [];
+    return chatStates[sessionId]?.messages ?? [];
   },
 
   getLiveState(sessionId: string): LiveTurnState {
-    const state = chatStates().get(sessionId);
-    return state?.liveState ?? makeLiveTurnState(sessionId);
+    return chatStates[sessionId]?.liveState ?? makeLiveTurnState(sessionId);
   },
 
   isStreaming(sessionId: string): boolean {
-    const status = chatStates().get(sessionId)?.liveState.status;
+    const status = chatStates[sessionId]?.liveState.status;
     return status === 'streaming' || status === 'tool_running';
   },
 
   getError(sessionId: string): string | null {
-    return chatStates().get(sessionId)?.liveState.errorMessage ?? null;
+    return chatStates[sessionId]?.liveState.errorMessage ?? null;
   },
 
   isLoadingMessages(sessionId: string): boolean {
-    return chatStates().get(sessionId)?.isLoadingMessages ?? false;
+    return chatStates[sessionId]?.isLoadingMessages ?? false;
   },
 
   async loadMessages(sessionId: string): Promise<void> {
     const gateway = getGateway();
     if (!gateway) return;
-    getOrCreateChatState(sessionId);
-    updateChatState(sessionId, (state) => ({ ...state, isLoadingMessages: true }));
+    ensureSession(sessionId);
+    setChatStates(sessionId, 'isLoadingMessages', true);
     try {
       const rawMessages = await gateway.session.messages(sessionId);
       const rendered = rawMessages.map((m) => parseMessage(sessionMsgToDomain(m, sessionId)));
@@ -171,17 +163,15 @@ export const chatStore = {
             { category: 'Previous Decision', content: 'Chose Vitest over Jest for unit testing.' },
           ]
         : null;
-      updateChatState(sessionId, (state) => ({
-        ...state,
-        messages: rendered,
-        isLoadingMessages: false,
-        liveState: { ...state.liveState, memoryContext },
+      setChatStates(sessionId, produce((s) => {
+        s.messages = rendered;
+        s.isLoadingMessages = false;
+        s.liveState.memoryContext = memoryContext;
       }));
     } catch {
-      updateChatState(sessionId, (state) => ({
-        ...state,
-        isLoadingMessages: false,
-        liveState: { ...state.liveState, errorMessage: 'Failed to load messages' },
+      setChatStates(sessionId, produce((s) => {
+        s.isLoadingMessages = false;
+        s.liveState.errorMessage = 'Failed to load messages';
       }));
     }
   },
@@ -189,11 +179,9 @@ export const chatStore = {
   async sendMessage(sessionId: string, text: string): Promise<boolean> {
     const gateway = getGateway();
     if (!gateway) return false;
-    getOrCreateChatState(sessionId);
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: { ...makeLiveTurnState(sessionId), status: 'streaming' },
-    }));
+    ensureSession(sessionId);
+    setChatStates(sessionId, 'liveState', makeLiveTurnState(sessionId));
+    setChatStates(sessionId, 'liveState', 'status', 'streaming');
     try {
       await gateway.prompt.execute({
         message: text,
@@ -203,16 +191,14 @@ export const chatStore = {
       });
       return true;
     } catch {
-      updateChatState(sessionId, (state) => ({
-        ...state,
-        liveState: { ...state.liveState, status: 'error', errorMessage: 'Failed to send message' },
-      }));
+      setChatStates(sessionId, 'liveState', 'status', 'error');
+      setChatStates(sessionId, 'liveState', 'errorMessage', 'Failed to send message');
       return false;
     }
   },
 
   appendUserMessage(sessionId: string, text: string, slashCommand?: { command: string; args: string }): void {
-    getOrCreateChatState(sessionId);
+    ensureSession(sessionId);
     const msg: RenderedMessage = {
       id: nextEphemeralId(),
       sessionId,
@@ -226,14 +212,11 @@ export const chatStore = {
       toolName: null,
       slashCommand,
     };
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      messages: [...state.messages, msg],
-    }));
+    setChatStates(sessionId, 'messages', (msgs) => [...msgs, msg]);
   },
 
   appendLocalMessage(sessionId: string, text: string, role: 'assistant' | 'system' = 'assistant'): void {
-    getOrCreateChatState(sessionId);
+    ensureSession(sessionId);
     const msg: RenderedMessage = {
       id: nextEphemeralId(),
       sessionId,
@@ -246,39 +229,23 @@ export const chatStore = {
       actions: ['copy'],
       toolName: null,
     };
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      messages: [...state.messages, msg],
-    }));
+    setChatStates(sessionId, 'messages', (msgs) => [...msgs, msg]);
   },
 
   handleMessageStart(sessionId: string): void {
-    getOrCreateChatState(sessionId);
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: { ...makeLiveTurnState(sessionId), status: 'streaming' },
-    }));
+    ensureSession(sessionId);
+    setChatStates(sessionId, 'liveState', makeLiveTurnState(sessionId));
+    setChatStates(sessionId, 'liveState', 'status', 'streaming');
   },
 
   handleDelta(sessionId: string, payload: MessageDeltaPayload): void {
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: {
-        ...state.liveState,
-        streamingText: state.liveState.streamingText + (payload.text ?? ''),
-        status: 'streaming',
-      },
-    }));
+    setChatStates(sessionId, 'liveState', 'streamingText',
+      (t) => t + (payload.text ?? ''));
+    setChatStates(sessionId, 'liveState', 'status', 'streaming');
   },
 
   handleReasoningDelta(sessionId: string, text: string): void {
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: {
-        ...state.liveState,
-        reasoningText: state.liveState.reasoningText + text,
-      },
-    }));
+    setChatStates(sessionId, 'liveState', 'reasoningText', (t) => t + text);
   },
 
   handleToolStart(sessionId: string, payload: ToolStartPayload): void {
@@ -291,111 +258,216 @@ export const chatStore = {
       resultSummary: null,
       durationMs: null,
     };
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: {
-        ...state.liveState,
-        status: 'tool_running',
-        activeTools: [...state.liveState.activeTools, newTool],
-      },
-    }));
+    setChatStates(sessionId, 'liveState', 'status', 'tool_running');
+    setChatStates(sessionId, 'liveState', 'activeTools',
+      (tools) => [...tools, newTool]);
   },
 
   handleToolProgress(sessionId: string, payload: ToolProgressPayload): void {
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: {
-        ...state.liveState,
-        activeTools: state.liveState.activeTools.map((t) =>
-          t.name === payload.name
-            ? { ...t, progressPreview: payload.preview ?? payload.progress ?? null }
-            : t
-        ),
-      },
-    }));
+    setChatStates(
+      sessionId, 'liveState', 'activeTools',
+      (t) => t.name === payload.name,
+      'progressPreview',
+      payload.preview ?? payload.progress ?? null,
+    );
   },
 
   handleToolComplete(sessionId: string, payload: ToolCompletePayload): void {
     const durationMs = payload.duration_s != null ? Math.round(payload.duration_s * 1000) : null;
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: {
-        ...state.liveState,
-        status: 'streaming',
-        activeTools: state.liveState.activeTools.map((t) =>
-          t.id === payload.tool_id
-            ? {
-                ...t,
-                status: 'complete' as const,
-                resultSummary: payload.summary ?? null,
-                durationMs,
-              }
-            : t
-        ),
-        todos: payload.todos && payload.todos.length > 0
-          ? payload.todos
-          : state.liveState.todos,
-        todosToolId: payload.todos && payload.todos.length > 0
-          ? payload.tool_id
-          : state.liveState.todosToolId,
-      },
-    }));
+    setChatStates(
+      sessionId, 'liveState', 'activeTools',
+      (t) => t.id === payload.tool_id,
+      produce((t) => {
+        t.status = 'complete';
+        t.resultSummary = payload.summary ?? null;
+        t.durationMs = durationMs;
+      }),
+    );
+    setChatStates(sessionId, 'liveState', 'status', 'streaming');
+    if (payload.todos && payload.todos.length > 0) {
+      setChatStates(sessionId, 'liveState', 'todos', payload.todos);
+      setChatStates(sessionId, 'liveState', 'todosToolId', payload.tool_id);
+    }
   },
 
   handleToolGenerating(sessionId: string, payload: ToolGeneratingPayload): void {
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: {
-        ...state.liveState,
-        activeTools: state.liveState.activeTools.map((t) =>
-          t.id === payload.tool_id
-            ? { ...t, status: 'generating', inputPreview: (t.inputPreview ?? '') + payload.text }
-            : t
-        ),
-      },
-    }));
+    setChatStates(
+      sessionId, 'liveState', 'activeTools',
+      (t) => t.id === payload.tool_id,
+      produce((t) => {
+        t.status = 'generating';
+        t.inputPreview = (t.inputPreview ?? '') + payload.text;
+      }),
+    );
   },
 
   handleToolError(sessionId: string, payload: ToolErrorPayload): void {
     const durationMs = payload.duration_s != null ? Math.round(payload.duration_s * 1000) : null;
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: {
-        ...state.liveState,
-        status: 'streaming',
-        activeTools: state.liveState.activeTools.map((t) =>
-          t.id === payload.tool_id ? { ...t, status: 'error', durationMs } : t
-        ),
-      },
-    }));
+    setChatStates(
+      sessionId, 'liveState', 'activeTools',
+      (t) => t.id === payload.tool_id,
+      produce((t) => {
+        t.status = 'error';
+        t.durationMs = durationMs;
+      }),
+    );
+    setChatStates(sessionId, 'liveState', 'status', 'streaming');
   },
 
   handleMessageComplete(sessionId: string, payload: MessageCompletePayload): void {
-    updateChatState(sessionId, (state) => {
-      const live = state.liveState;
-      const hasTodos = live.todos.length > 0;
-      const toolBlocks: ToolCallBlock[] = live.activeTools
-        .filter((t) => !hasTodos || t.name !== 'todo')
-        .map((t) => ({
-          type: 'tool_call' as const,
-          id: `tc-${t.id}`,
-          toolId: t.id,
-          name: t.name,
-          status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
-          inputPreview: t.inputPreview,
-          outputSummary: t.resultSummary,
-          inlineDiff: null,
-          durationMs: t.durationMs,
-        }));
+    const live = chatStates[sessionId]?.liveState;
+    if (!live) return;
 
-      const todoBlocks = hasTodos
-        ? [{
-            type: 'todo_list' as const,
-            id: nextBlockId(),
-            toolId: live.todosToolId ?? live.activeTools[0]?.id ?? 'todo',
-            todos: live.todos,
-          }]
-        : [];
+    const hasTodos = live.todos.length > 0;
+    const toolBlocks: ToolCallBlock[] = live.activeTools
+      .filter((t) => !hasTodos || t.name !== 'todo')
+      .map((t) => ({
+        type: 'tool_call' as const,
+        id: `tc-${t.id}`,
+        toolId: t.id,
+        name: t.name,
+        status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
+        inputPreview: t.inputPreview,
+        outputSummary: t.resultSummary,
+        inlineDiff: null,
+        durationMs: t.durationMs,
+      }));
+
+    const todoBlocks = hasTodos
+      ? [{
+          type: 'todo_list' as const,
+          id: nextBlockId(),
+          toolId: live.todosToolId ?? live.activeTools[0]?.id ?? 'todo',
+          todos: live.todos,
+        }]
+      : [];
+
+    const blocks = [
+      ...(live.reasoningText ? [{
+        type: 'reasoning' as const,
+        id: nextBlockId(),
+        content: live.reasoningText,
+        isStreaming: false,
+        tokenCount: null,
+      }] : []),
+      ...toolBlocks,
+      ...todoBlocks,
+      ...parseBlocks(payload.text),
+    ];
+
+    const finalMsg: RenderedMessage = {
+      id: nextEphemeralId(),
+      sessionId,
+      role: 'assistant',
+      blocks,
+      timestamp: Date.now() / 1000,
+      tokenCount: payload.usage?.total ?? null,
+      finishReason: null,
+      isStreaming: false,
+      actions: ['copy', 'retry', 'like', 'dislike', 'more'],
+      toolName: null,
+    };
+
+    setChatStates(sessionId, produce((s) => {
+      s.messages = [...s.messages, finalMsg];
+      s.liveState = makeLiveTurnState(sessionId);
+      s.isLoadingMessages = false;
+    }));
+
+    if (payload.usage) {
+      sessionUsage.update(sessionId, {
+        context_used: payload.usage.context_used,
+        context_max: payload.usage.context_max,
+        context_percent: payload.usage.context_percent,
+        cost_usd: payload.usage.cost_usd,
+        total: payload.usage.total,
+      });
+    }
+  },
+
+  handleError(sessionId: string, message: string): void {
+    setChatStates(sessionId, 'liveState', 'status', 'error');
+    setChatStates(sessionId, 'liveState', 'errorMessage', message);
+  },
+
+  clearMessages(sessionId: string): void {
+    ensureSession(sessionId);
+    setChatStates(sessionId, {
+      messages: [],
+      liveState: makeLiveTurnState(sessionId),
+      isLoadingMessages: false,
+    });
+    sessionUsage.reset(sessionId);
+  },
+
+  clearError(sessionId: string): void {
+    setChatStates(sessionId, 'liveState', produce((live) => {
+      live.errorMessage = null;
+      if (live.status === 'error') live.status = 'idle';
+    }));
+  },
+
+  /**
+   * Remove the last assistant turn (and optionally the preceding user message)
+   * from the message list. Returns the last user message text for retry.
+   */
+  removeLastTurn(sessionId: string): string | null {
+    const messages = chatStates[sessionId]?.messages ?? [];
+    // Find the last assistant message index
+    let lastAssistantIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') { lastAssistantIdx = i; break; }
+    }
+    if (lastAssistantIdx === -1) return null;
+
+    // Find the user message immediately before the assistant message
+    let userIdx = -1;
+    for (let i = lastAssistantIdx - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') { userIdx = i; break; }
+    }
+
+    const userMsg = userIdx !== -1 ? messages[userIdx] : null;
+    const lastUserText = userMsg?.blocks
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as TextBlock).content)
+      .join('') ?? null;
+
+    // Cut from userIdx (or lastAssistantIdx if no user msg found)
+    const cutFrom = userIdx !== -1 ? userIdx : lastAssistantIdx;
+    setChatStates(sessionId, 'messages', (msgs) => msgs.slice(0, cutFrom));
+    return lastUserText;
+  },
+
+  async cancelMessage(sessionId: string): Promise<void> {
+    const state = chatStates[sessionId];
+    if (state && (state.liveState.status === 'streaming' || state.liveState.status === 'tool_running')) {
+      try {
+        const gw = getGateway();
+        if (gw) await gw.session.interrupt(sessionId);
+      } catch {
+        // interrupt may fail if already completed — ignore
+      }
+
+      const live = chatStates[sessionId]?.liveState;
+      if (!live) return;
+
+      const hasContent = live.reasoningText || live.streamingText || live.activeTools.length > 0;
+      if (!hasContent) {
+        setChatStates(sessionId, 'liveState', makeLiveTurnState(sessionId));
+        return;
+      }
+
+      const toolBlocks: ToolCallBlock[] = live.activeTools.map((t) => ({
+        type: 'tool_call' as const,
+        id: `tc-${t.id}`,
+        toolId: t.id,
+        name: t.name,
+        status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
+        inputPreview: t.inputPreview,
+        outputSummary: null,
+        inlineDiff: null,
+        durationMs: t.durationMs,
+      }));
 
       const blocks = [
         ...(live.reasoningText ? [{
@@ -405,162 +477,60 @@ export const chatStore = {
           isStreaming: false,
           tokenCount: null,
         }] : []),
+        ...(live.streamingText ? [{
+          type: 'text' as const,
+          id: nextBlockId(),
+          content: live.streamingText,
+        }] : []),
         ...toolBlocks,
-        ...todoBlocks,
-        ...parseBlocks(payload.text),
+        ...(live.todos.length > 0 ? [{
+          type: 'todo_list' as const,
+          id: nextBlockId(),
+          toolId: live.todosToolId ?? live.activeTools[0]?.id ?? 'todo',
+          todos: live.todos,
+        }] : []),
       ];
 
-      const finalMsg: RenderedMessage = {
+      const partialMsg: RenderedMessage = {
         id: nextEphemeralId(),
         sessionId,
         role: 'assistant',
         blocks,
         timestamp: Date.now() / 1000,
-        tokenCount: payload.usage?.total ?? null,
+        tokenCount: null,
         finishReason: null,
         isStreaming: false,
         actions: ['copy', 'retry', 'like', 'dislike', 'more'],
         toolName: null,
       };
 
-      return {
-        messages: [...state.messages, finalMsg],
-        liveState: makeLiveTurnState(sessionId),
-        isLoadingMessages: false,
-      };
-    });
-  },
-
-  handleError(sessionId: string, message: string): void {
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: { ...state.liveState, status: 'error', errorMessage: message },
-    }));
-  },
-
-  clearMessages(sessionId: string): void {
-    getOrCreateChatState(sessionId);
-    updateChatState(sessionId, () => ({
-      messages: [],
-      liveState: makeLiveTurnState(sessionId),
-      isLoadingMessages: false,
-    }));
-  },
-
-  clearError(sessionId: string): void {
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: {
-        ...state.liveState,
-        errorMessage: null,
-        status: state.liveState.status === 'error' ? 'idle' : state.liveState.status,
-      },
-    }));
-  },
-
-  async cancelMessage(sessionId: string): Promise<void> {
-    const states = chatStates();
-    const state = states.get(sessionId);
-    if (state && (state.liveState.status === 'streaming' || state.liveState.status === 'tool_running')) {
-      try {
-        const gw = getGateway();
-        if (gw) await gw.session.interrupt(sessionId);
-      } catch {
-        // interrupt may fail if already completed — ignore
-      }
-      updateChatState(sessionId, (s) => {
-        const live = s.liveState;
-        const hasContent = live.reasoningText || live.streamingText || live.activeTools.length > 0;
-        if (!hasContent) {
-          return { ...s, liveState: makeLiveTurnState(sessionId) };
-        }
-        const toolBlocks: ToolCallBlock[] = live.activeTools.map((t) => ({
-          type: 'tool_call' as const,
-          id: `tc-${t.id}`,
-          toolId: t.id,
-          name: t.name,
-          status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
-          inputPreview: t.inputPreview,
-          outputSummary: null,
-          inlineDiff: null,
-          durationMs: t.durationMs,
-        }));
-        const blocks = [
-          ...(live.reasoningText ? [{
-            type: 'reasoning' as const,
-            id: nextBlockId(),
-            content: live.reasoningText,
-            isStreaming: false,
-            tokenCount: null,
-          }] : []),
-          ...(live.streamingText ? [{
-            type: 'text' as const,
-            id: nextBlockId(),
-            content: live.streamingText,
-          }] : []),
-          ...toolBlocks,
-          ...(live.todos.length > 0 ? [{
-            type: 'todo_list' as const,
-            id: nextBlockId(),
-            toolId: live.todosToolId ?? live.activeTools[0]?.id ?? 'todo',
-            todos: live.todos,
-          }] : []),
-        ];
-        const partialMsg: RenderedMessage = {
-          id: nextEphemeralId(),
-          sessionId,
-          role: 'assistant',
-          blocks,
-          timestamp: Date.now() / 1000,
-          tokenCount: null,
-          finishReason: null,
-          isStreaming: false,
-          actions: ['copy', 'retry', 'like', 'dislike', 'more'],
-          toolName: null,
-        };
-        return {
-          messages: [...s.messages, partialMsg],
-          liveState: makeLiveTurnState(sessionId),
-          isLoadingMessages: false,
-        };
-      });
+      setChatStates(sessionId, produce((s) => {
+        s.messages = [...s.messages, partialMsg];
+        s.liveState = makeLiveTurnState(sessionId);
+        s.isLoadingMessages = false;
+      }));
     }
   },
 
   handleApprovalRequest(sessionId: string, payload: ApprovalRequestPayload): void {
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: {
-        ...state.liveState,
-        pendingApproval: {
-          command: payload.command,
-          description: payload.description,
-          is_path_approval: payload.is_path_approval,
-        },
-      },
-    }));
+    setChatStates(sessionId, 'liveState', 'pendingApproval', {
+      command: payload.command,
+      description: payload.description,
+      is_path_approval: payload.is_path_approval,
+    });
   },
 
   handleClarifyRequest(sessionId: string, payload: ClarifyRequestPayload): void {
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: {
-        ...state.liveState,
-        pendingClarify: {
-          requestId: payload.request_id,
-          question: payload.question,
-          choices: payload.choices ?? null,
-        },
-      },
-    }));
+    setChatStates(sessionId, 'liveState', 'pendingClarify', {
+      requestId: payload.request_id,
+      question: payload.question,
+      choices: payload.choices ?? null,
+    });
   },
 
   async respondApproval(sessionId: string, choice: boolean | string): Promise<void> {
-    const pending = chatStates().get(sessionId)?.liveState.pendingApproval;
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: { ...state.liveState, pendingApproval: null },
-    }));
+    const pending = chatStates[sessionId]?.liveState.pendingApproval;
+    setChatStates(sessionId, 'liveState', 'pendingApproval', null);
     const gw = getGateway();
     if (gw && pending) {
       const resolvedChoice = (typeof choice === 'string' ? choice : (choice ? 'once' : 'deny')) as 'once' | 'session' | 'always' | 'deny';
@@ -569,18 +539,12 @@ export const chatStore = {
   },
 
   async respondClarify(sessionId: string, requestId: string, text: string): Promise<void> {
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: { ...state.liveState, pendingClarify: null },
-    }));
+    setChatStates(sessionId, 'liveState', 'pendingClarify', null);
     const gw = getGateway();
     if (gw) await gw.clarify.respond({ session_id: sessionId, request_id: requestId, answer: text }).catch(() => {});
   },
 
   setMemoryContext(sessionId: string, items: MemoryContextItem[] | null): void {
-    updateChatState(sessionId, (state) => ({
-      ...state,
-      liveState: { ...state.liveState, memoryContext: items },
-    }));
+    setChatStates(sessionId, 'liveState', 'memoryContext', items);
   },
 };
