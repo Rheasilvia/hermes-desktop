@@ -15,6 +15,10 @@ interface MessageBubbleProps {
   showDateSeparator?: boolean;
   dateSeparatorLabel?: string;
   onAction?: (action: MessageActionType) => void;
+  /** Passed to AssistantMessage to control retry button visibility. */
+  isLast?: boolean;
+  /** Passed to AssistantMessage to disable action buttons while streaming. */
+  actionsDisabled?: boolean;
 }
 
 export const MessageBubble: Component<MessageBubbleProps> = (props) => {
@@ -43,6 +47,8 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
           isStreaming={props.message.isStreaming}
           actions={props.message.actions}
           onAction={props.onAction}
+          isLast={props.isLast}
+          actionsDisabled={props.actionsDisabled}
         />
       </Show>
       <Show when={role() === 'tool'}>

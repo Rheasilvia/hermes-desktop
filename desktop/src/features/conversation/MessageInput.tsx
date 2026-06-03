@@ -6,6 +6,7 @@ import { Icon } from '@/ui/atoms/Icon';
 import { WorkspacePicker } from './WorkspacePicker';
 import { GitBranchPicker } from './GitBranchPicker';
 import { SlashCommandPanel, type SlashCommand } from './SlashCommandPanel';
+import { ContextUsageBar, type ContextUsageProps } from './ContextUsageBar';
 import { getGateway } from '@/stores/context.js';
 import styles from './MessageInput.module.css';
 
@@ -27,6 +28,7 @@ interface MessageInputProps {
   onWorkspaceChange?: (path: string) => void;
   editDraft?: Accessor<string | null>;
   clearEditDraft?: () => void;
+  contextUsage?: ContextUsageProps;
 }
 
 function formatFileSize(bytes: number): string {
@@ -319,6 +321,9 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
           </Show>
         </div>
       </div>
+      <Show when={props.contextUsage}>
+        <ContextUsageBar {...props.contextUsage!} />
+      </Show>
     </div>
   );
 };

@@ -22,6 +22,7 @@ import type {
 import type { RenderedMessage, TodoListBlock } from '@/types/index.js';
 import type { MessageActionType } from '@/types/ui/message.js';
 import { chatStore } from '@/stores/chat.js';
+import { sessionUsage } from '@/stores/usage.js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 import { gitViewStore } from '@/stores/git-view.js';
 import { delegationStore } from '@/stores/delegation.js';
@@ -443,10 +444,37 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         setEditDraft(textContent);
         break;
       }
-      case 'retry':
+      case 'retry': {
+        if (isStreaming()) break;
+        const gateway = getGateway();
+        if (!gateway) break;
+        const lastUserText = chatStore.removeLastTurn(sid);
+        if (!lastUserText) break;
+        try {
+          await gateway.session.undo(sid);
+        } catch {
+          // undo may fail if backend already cleaned up — proceed with resend anyway
+        }
+        await sendPrompt(lastUserText);
         break;
-      case 'branch':
+      }
+      case 'branch': {
+        const meta = await sessionStore.branchSession(sid);
+        if (meta) navigate(`/conversation/${meta.id}`);
         break;
+      }
+      case 'undo': {
+        if (isStreaming()) break;
+        const gateway = getGateway();
+        if (!gateway) break;
+        chatStore.removeLastTurn(sid);
+        try {
+          await gateway.session.undo(sid);
+        } catch {
+          // undo may fail if backend already cleaned up — UI is already updated
+        }
+        break;
+      }
       case 'like':
       case 'dislike':
         break;
@@ -725,6 +753,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                         showDateSeparator={dateSeparators().has(idx)}
                         dateSeparatorLabel={dateSeparators().get(idx)}
                         onAction={onAction}
+                        isLast={idx === messages().length - 1}
+                        actionsDisabled={isStreaming()}
                       />
                     );
                   }}
@@ -816,6 +846,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
               }}
               editDraft={editDraft}
               clearEditDraft={() => setEditDraft(null)}
+              contextUsage={sessionUsage.get(sessionId())}
             />
           </div>
         </div>

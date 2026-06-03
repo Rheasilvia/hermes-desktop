@@ -118,6 +118,7 @@ export interface SessionMethods {
   branch(sessionId: string): Promise<SessionMeta>;
   resume(sessionId: string): Promise<void>;
   interrupt(sessionId: string): Promise<void>;
+  undo(sessionId: string): Promise<{ removed: number }>;
   messages(sessionId: string): Promise<SessionMessage[]>;
 }
 

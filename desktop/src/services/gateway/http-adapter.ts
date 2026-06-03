@@ -203,6 +203,11 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         await this.http.post(`${API_PREFIX}/sessions/${sessionId}/interrupt`, {});
       },
 
+      undo: async (sessionId: string): Promise<{ removed: number }> => {
+        const r = await this.http.post<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}/undo`, {});
+        return { removed: Number(r.removed ?? 0) };
+      },
+
       messages: async (sessionId: string): Promise<SessionMessage[]> => {
         const rows = await this.http.get<Array<Record<string, unknown>>>(`${API_PREFIX}/sessions/${sessionId}/messages`);
         return this.aggregateEventRows(sessionId, rows);

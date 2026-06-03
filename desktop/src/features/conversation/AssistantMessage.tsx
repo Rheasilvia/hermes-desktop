@@ -30,6 +30,10 @@ interface AssistantMessageProps {
   actions?: MessageAction[];
   onAction?: (action: MessageActionType) => void;
   liveToolRows?: ToolCallRow[];
+  /** Whether this is the last assistant message (controls retry button visibility). */
+  isLast?: boolean;
+  /** Whether action buttons should be disabled (e.g. while another turn is streaming). */
+  actionsDisabled?: boolean;
 }
 
 type BlockGroup =
@@ -169,7 +173,12 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
           <span class={styles.streamingCursor} />
         </Show>
         <Show when={showActions() && props.onAction}>
-          <MessageActionBar variant="ai" onAction={props.onAction!} />
+          <MessageActionBar
+            variant="ai"
+            onAction={props.onAction!}
+            disabled={props.actionsDisabled}
+            isLast={props.isLast}
+          />
         </Show>
       </div>
     </div>

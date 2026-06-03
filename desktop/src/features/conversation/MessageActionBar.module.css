@@ -48,3 +48,9 @@
 .alignRight {
   right: 0;
 }
+
+.actionButtonDisabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
