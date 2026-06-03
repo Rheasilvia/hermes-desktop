@@ -7,6 +7,7 @@ export interface ContextUsageProps {
   contextMax: number | null;
   contextPercent: number | null;
   costUsd: number | null;
+  totalTokens: number | null;
 }
 
 function fmtK(n: number): string {
@@ -15,41 +16,23 @@ function fmtK(n: number): string {
   return String(n);
 }
 
-function getBarClass(percent: number): string {
-  if (percent >= 95) return styles.barCritical;
-  if (percent >= 80) return styles.barWarning;
-  return styles.barNormal;
+function tokenLabel(n: number): string {
+  return `${fmtK(n)} ${n === 1 ? 'token' : 'tokens'}`;
 }
 
 export const ContextUsageBar: Component<ContextUsageProps> = (props) => {
-  const hasData = () => props.contextUsed !== null || props.costUsd !== null;
+  const tokenCount = () => props.totalTokens ?? 0;
+  const hasContext = () => props.contextUsed !== null && props.contextMax !== null;
 
   return (
-    <Show when={hasData()}>
-      <div class={styles.container}>
-        <Show when={props.contextPercent !== null}>
-          <div class={styles.progressTrack}>
-            <div
-              class={`${styles.progressFill} ${getBarClass(props.contextPercent!)}`}
-              style={{ width: `${Math.min(100, props.contextPercent!)}%` }}
-            />
-          </div>
-        </Show>
-        <div class={styles.labels}>
-          <Show when={props.contextUsed !== null}>
-            <span class={styles.label}>
-              {fmtK(props.contextUsed!)}
-              <Show when={props.contextMax !== null}>
-                /{fmtK(props.contextMax!)}
-              </Show>
-              {' tok'}
-            </span>
-          </Show>
-          <Show when={props.costUsd !== null && props.costUsd! > 0}>
-            <span class={styles.label}>${props.costUsd!.toFixed(4)}</span>
-          </Show>
-        </div>
-      </div>
-    </Show>
+    <div class={styles.container} aria-label="Token usage">
+      <span class={styles.metric}>{tokenLabel(tokenCount())}</span>
+      <Show when={hasContext()}>
+        <span class={styles.separator}>·</span>
+        <span class={styles.metric}>
+          {fmtK(props.contextUsed!)} / {fmtK(props.contextMax!)} context
+        </span>
+      </Show>
+    </div>
   );
 };

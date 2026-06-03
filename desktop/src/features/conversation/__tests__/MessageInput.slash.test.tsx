@@ -1,5 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
+import { createSignal } from 'solid-js';
 import { describe, test, expect, vi, beforeEach } from 'vitest';
+import type { ContextUsageProps } from '../ContextUsageBar.js';
 import { MessageInput } from '../MessageInput.js';
 
 const completeSlash = vi.fn();
@@ -54,5 +56,35 @@ describe('MessageInput slash commands', () => {
 
     expect(onSend).not.toHaveBeenCalled();
   });
-});
 
+  test('updates token usage when context usage changes after render', async () => {
+    let setUsage!: (usage: ContextUsageProps) => void;
+
+    const Harness = () => {
+      const [usage, updateUsage] = createSignal<ContextUsageProps>({
+        contextUsed: null,
+        contextMax: null,
+        contextPercent: null,
+        costUsd: null,
+        totalTokens: null,
+      });
+      setUsage = updateUsage;
+      return <MessageInput onSend={vi.fn()} contextUsage={usage()} />;
+    };
+
+    render(() => <Harness />);
+    expect(screen.getByText('0 tokens')).toBeDefined();
+
+    setUsage({
+      contextUsed: null,
+      contextMax: null,
+      contextPercent: null,
+      costUsd: null,
+      totalTokens: 1234,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('1.2k tokens')).toBeDefined();
+    });
+  });
+});

@@ -278,36 +278,65 @@ class TestPromptExecute:
 
         # Mock the agent pool's _build_agent so it doesn't try to import real hermes internals
         from desktop_backend.services.agent_pool import AgentPool
+        db = client.app.state.session_db
+        original_update_token_counts = db.update_token_counts
+        update_token_counts_calls = 0
 
         class _FakeAgent:
             def __init__(self):
                 self._interrupted = False
+                self.model = "gpt-4"
+                self.provider = "openai"
+                self.base_url = None
             def interrupt(self):
                 self._interrupted = True
             def run_conversation(self, user_message, conversation_history):
+                db.update_token_counts(
+                    sid,
+                    input_tokens=100,
+                    output_tokens=50,
+                    model="gpt-4",
+                    estimated_cost_usd=0.001,
+                    billing_provider="openai",
+                    api_call_count=1,
+                )
                 return {"final_response": "mock response"}
 
-        with patch.object(AgentPool, "_build_agent", return_value=_FakeAgent()):
+        def _counting_update_token_counts(*args, **kwargs):
+            nonlocal update_token_counts_calls
+            update_token_counts_calls += 1
+            return original_update_token_counts(*args, **kwargs)
+
+        with (
+            patch.object(AgentPool, "_build_agent", return_value=(_FakeAgent(), "gpt-4", "openai")),
+            patch.object(db, "update_token_counts", side_effect=_counting_update_token_counts),
+        ):
             resp = client.post("/desktop/api/prompt/execute", json={
                 "message": "hello world",
                 "session_id": sid,
             })
 
-        assert resp.status_code == 202
-        data = resp.json()
-        assert data["status"] == "accepted"
-        assert data["session_id"] == sid
+            assert resp.status_code == 202
+            data = resp.json()
+            assert data["status"] == "accepted"
+            assert data["session_id"] == sid
 
-        # Give the daemon thread time to complete
-        time.sleep(0.2)
+            # Give the daemon thread time to complete
+            time.sleep(0.2)
 
-        # Verify ui_messages were written
-        resp2 = client.get(f"/desktop/api/sessions/{sid}/messages")
-        msgs = resp2.json()
-        assert len(msgs) >= 2  # user + message.complete at minimum
-        types = [m["type"] for m in msgs]
-        assert "user" in types
-        assert "message.complete" in types
+            # Verify ui_messages were written
+            resp2 = client.get(f"/desktop/api/sessions/{sid}/messages")
+            msgs = resp2.json()
+            assert len(msgs) >= 2  # user + message.complete at minimum
+            types = [m["type"] for m in msgs]
+            assert "user" in types
+            assert "message.complete" in types
+            complete = next(m for m in msgs if m["type"] == "message.complete")
+            assert complete["payload"]["usage"]["total"] == 150
+            assert complete["payload"]["usage"]["input"] == 100
+            assert complete["payload"]["usage"]["output"] == 50
+            assert complete["payload"]["usage"]["cost_usd"] == 0.001
+            assert update_token_counts_calls == 1
 
     def test_turn_error_produces_error_row(self, client):
         """When the agent raises, a turn_error ui_message is written."""
@@ -322,7 +351,7 @@ class TestPromptExecute:
             def run_conversation(self, user_message, conversation_history):
                 raise RuntimeError("simulated model failure")
 
-        with patch.object(AgentPool, "_build_agent", return_value=_FailingAgent()):
+        with patch.object(AgentPool, "_build_agent", return_value=(_FailingAgent(), "gpt-4", "openai")):
             resp = client.post("/desktop/api/prompt/execute", json={
                 "message": "test",
                 "session_id": sid,
@@ -358,7 +387,7 @@ class TestPromptExecute:
                     time.sleep(0.05)
                 return "interrupted"
 
-        with patch.object(AgentPool, "_build_agent", return_value=_BlockingAgent()):
+        with patch.object(AgentPool, "_build_agent", return_value=(_BlockingAgent(), "gpt-4", "openai")):
             # First prompt — starts and blocks
             resp1 = client.post("/desktop/api/prompt/execute", json={
                 "message": "first",
@@ -402,7 +431,7 @@ class TestInterrupt:
                     time.sleep(0.05)
                 return "interrupted"
 
-        with patch.object(AgentPool, "_build_agent", return_value=_InterruptibleAgent()):
+        with patch.object(AgentPool, "_build_agent", return_value=(_InterruptibleAgent(), "gpt-4", "openai")):
             client.post("/desktop/api/prompt/execute", json={
                 "message": "test",
                 "session_id": sid,

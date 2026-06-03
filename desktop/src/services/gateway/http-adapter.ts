@@ -808,9 +808,10 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 5_000);
 
-      this.eventSource = new EventSource(this.eventSourceUrl);
+      const eventSource = new EventSource(this.eventSourceUrl);
+      this.eventSource = eventSource;
 
-      this.eventSource.onopen = () => {
+      eventSource.onopen = () => {
         clearTimeout(timer);
         this.state = 'connected';
         // Replay missed events for all known sessions
@@ -822,7 +823,10 @@ export class HttpGatewayAdapter implements GatewayAdapter {
 
     // Backend includes `type` in the JSON data payload, so a single onmessage
     // handler routes all event types through dispatchSseEvent.
-    this.eventSource.onmessage = (e: MessageEvent) => {
+    const eventSource = this.eventSource;
+    if (!eventSource) return;
+
+    eventSource.onmessage = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
         if (data.type) {
@@ -831,7 +835,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       } catch { /* ignore non-JSON frames (keepalives) */ }
     };
 
-    this.eventSource.onerror = () => {
+    eventSource.onerror = () => {
       if (this.state === 'connected') {
         this.state = 'reconnecting';
       }
