@@ -7,7 +7,6 @@
 
 /* Theme imports — last so overrides take effect */
 @import "./themes/dark.css";
-@import "./themes/earth.css";
 
 body {
   font-family: var(--font-sans);

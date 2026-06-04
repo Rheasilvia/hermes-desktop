@@ -1,9 +1,9 @@
 import { uiStore } from '@/stores/ui.js';
 import { loadDesktopSettings, type DesktopSettings } from './desktop-settings.js';
 
-export type ThemeName = 'light' | 'dark' | 'earth';
+export type ThemeName = 'light' | 'dark';
 
-const THEMES: ThemeName[] = ['light', 'dark', 'earth'];
+const THEMES: ThemeName[] = ['light', 'dark'];
 const STORAGE_KEY_THEME = 'hermes-desktop-theme';
 
 export function setTheme(name: ThemeName): void {
@@ -29,7 +29,7 @@ function getSystemPreference(): ThemeName {
 }
 
 function isValidTheme(t: string | undefined): t is ThemeName {
-  return t === 'light' || t === 'dark' || t === 'earth';
+  return t === 'light' || t === 'dark';
 }
 
 /** Initialise theme from desktop settings → localStorage → system preference. */

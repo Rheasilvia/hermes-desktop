@@ -2,7 +2,7 @@ import type { Component } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import styles from './MessageActionBar.module.css';
 
-export type MessageActionType = 'copy' | 'retry' | 'undo' | 'edit' | 'delete' | 'branch' | 'like' | 'dislike' | 'more';
+export type MessageActionType = 'copy' | 'retry' | 'undo' | 'edit' | 'delete' | 'branch';
 
 interface MessageAction {
   type: MessageActionType;
@@ -19,9 +19,6 @@ const AI_ACTIONS: MessageAction[] = [
   { type: 'copy', icon: 'copy', label: 'Copy' },
   { type: 'retry', icon: 'refresh-cw', label: 'Retry' },
   { type: 'undo', icon: 'corner-up-left', label: 'Undo this turn' },
-  { type: 'like', icon: 'thumbs-up', label: 'Like' },
-  { type: 'dislike', icon: 'thumbs-down', label: 'Dislike' },
-  { type: 'more', icon: 'ellipsis', label: 'More' },
 ];
 
 interface MessageActionBarProps {

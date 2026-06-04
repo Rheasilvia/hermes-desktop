@@ -12,7 +12,7 @@ const SETTINGS_PATH = 'desktop/settings.json';
 const LOCALSTORAGE_KEY = 'hermes-desktop-settings';
 
 export interface DesktopSettings {
-  theme: 'light' | 'dark' | 'earth';
+  theme: 'light' | 'dark';
   language: string;
   fontSize: number;
   reducedMotion: boolean;

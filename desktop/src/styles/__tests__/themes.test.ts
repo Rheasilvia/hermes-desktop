@@ -36,19 +36,6 @@ describe('theme tokens', () => {
     }
   });
 
-  it('earth theme overrides core overlay + primary tokens', () => {
-    const earth = readStyle('themes/earth.css');
-    expect(earth).toMatch(/\[data-theme="earth"\]/);
-    for (const token of [
-      '--color-hover-overlay',
-      '--color-active-overlay',
-      '--color-primary-soft',
-      '--color-primary-strong',
-    ]) {
-      expect(earth, `earth.css missing override for ${token}`).toContain(token);
-    }
-  });
-
   it('dark theme darkens callout + date-separator surfaces', () => {
     const dark = readStyle('themes/dark.css');
     expect(dark).toContain('--color-callout-bg');

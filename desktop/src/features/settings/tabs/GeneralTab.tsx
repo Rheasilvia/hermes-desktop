@@ -36,17 +36,12 @@ const THEME_SWATCHES: ThemeSwatch[] = [
   {
     name: 'light',
     label: 'Light',
-    colors: ['#FFFFFF', '#F5F0E8', '#C75B3A', '#2D2D2D'],
+    colors: ['#eef2ff', '#ffffff', '#0053fd', '#17171a'],
   },
   {
     name: 'dark',
     label: 'Dark',
-    colors: ['#2D2D2D', '#1A1A1A', '#D46A4A', '#E5E5E5'],
-  },
-  {
-    name: 'earth',
-    label: 'Earth',
-    colors: ['#F5F0E8', '#EDE7DE', '#B5522D', '#3D3529'],
+    colors: ['#0e1119', '#161c2d', '#5b8dff', '#dce4f5'],
   },
 ];
 

@@ -1,72 +1,73 @@
 /* ============================================
    HERMES DESKTOP — DESIGN TOKENS
-   Aligned with designs/*.pen warm parchment system
+   Aligned with DESIGN.md Nous Blue system
    ============================================ */
 
 :root {
   /* --- Colors: Brand --- */
-  --color-parchment: #f5f4ed;
-  --color-terracotta: #c96442;
-  --color-sage: #7A8B6F;
-  --color-charcoal: #141413;
-  --color-charcoal-warm: #4d4c48;  /* DESIGN.md button text, subheadings */
-  --color-cream: #faf9f5;
-  --color-stone: #5e5d59;
-  --color-warm-gray: #e8e6dc;
+  --color-parchment: #f8faff;
+  --color-terracotta: #0053fd;
+  --color-sage: #1f8a65;
+  --color-charcoal: #17171a;
+  --color-charcoal-warm: color-mix(in srgb, #17171a 74%, transparent);
+  --color-cream: #ffffff;
+  --color-stone: color-mix(in srgb, #17171a 54%, transparent);
+  --color-warm-gray: color-mix(in srgb, #0053fd 16%, color-mix(in srgb, #17171a 7%, transparent));
 
   /* --- Colors: Semantic --- */
-  --color-primary: var(--color-terracotta);
-  --color-primary-hover: #b5522d;
-  --color-primary-light: rgba(201, 100, 66, 0.1);
-  --color-secondary: var(--color-sage);
-  --color-secondary-hover: #6A7B5F;
-  --color-secondary-light: rgba(122, 139, 111, 0.1);
+  --color-primary: #0053fd;
+  --color-primary-hover: #0044d0;
+  --color-primary-light: color-mix(in srgb, #0053fd 8%, color-mix(in srgb, #17171a 5%, transparent));
+  --color-secondary: color-mix(in srgb, #0053fd 10%, #f0f4ff);
+  --color-secondary-hover: color-mix(in srgb, #0053fd 15%, #e8efff);
+  --color-secondary-light: color-mix(in srgb, #0053fd 5%, color-mix(in srgb, #17171a 4%, transparent));
 
   /* Logo accent (secondary tone for the AGENT half of the wordmark). */
   --logo-accent-2: var(--color-primary-hover);
 
   /* --- Colors: Surface --- */
-  --color-surface: #faf9f5;
+  --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
-  --color-surface-overlay: rgba(20, 20, 19, 0.5);
-  --color-background: var(--color-parchment);
-  --color-background-alt: var(--color-cream);
+  --color-surface-overlay: rgba(23, 23, 26, 0.5);
+  --color-background: #eef2ff;
+  --color-background-alt: #e8efff;
 
   /* --- Colors: Text --- */
-  --color-on-surface: var(--color-charcoal);
-  --color-on-surface-muted: var(--color-stone);
-  --color-on-surface-dim: #87867f;
-  --color-on-primary: #ffffff;
-  --color-on-secondary: #ffffff;
+  --color-on-surface: #17171a;
+  --color-on-surface-muted: color-mix(in srgb, #17171a 74%, transparent);
+  --color-on-surface-dim: color-mix(in srgb, #17171a 54%, transparent);
+  --color-on-primary: #fcfcfc;
+  --color-on-secondary: #17171a;
 
   /* --- Colors: Border --- */
-  --color-border: var(--color-warm-gray);
-  --color-border-light: #f0eee6;
-  --color-border-focus: var(--color-terracotta);
+  --color-border: #c8d5f5;
+  --color-border-light: #dce7fa;
+  --color-border-focus: #0053fd;
 
   /* --- Colors: Hover/Active overlays (substrate-aware; dark theme inverts) --- */
-  --color-hover-overlay: rgba(20, 20, 19, 0.04);
-  --color-active-overlay: rgba(20, 20, 19, 0.08);
+  --color-hover-overlay: color-mix(in srgb, #0053fd 3%, color-mix(in srgb, #17171a 3%, transparent));
+  --color-active-overlay: color-mix(in srgb, #0053fd 8%, color-mix(in srgb, #17171a 5%, transparent));
 
-  /* --- Colors: Primary alpha scale (replaces ad-hoc rgba(201,100,66,X)) --- */
-  --color-primary-soft: rgba(201, 100, 66, 0.06);
-  --color-primary-strong: rgba(201, 100, 66, 0.20);
+  /* --- Colors: Primary alpha scale --- */
+  --color-primary-soft: color-mix(in srgb, #0053fd 5%, color-mix(in srgb, #17171a 4%, transparent));
+  --color-primary-strong: color-mix(in srgb, #0053fd 24%, color-mix(in srgb, #17171a 10%, transparent));
 
   /* --- Colors: Status --- */
-  --color-success: var(--color-sage);
-  --color-warning: #ffd60a;
-  --color-error: #b53333;
-  --color-info: #5B8FB9;
+  --color-success: #1f8a65;
+  --color-warning: #db704b;
+  --color-error: #cf2d56;
+  --color-info: #0053fd;
 
   /* --- Colors: Status surface tints --- */
-  --color-success-surface: rgba(122, 139, 111, 0.10);
-  --color-warning-surface: rgba(255, 214, 10, 0.12);
-  --color-info-surface: rgba(91, 143, 185, 0.10);
+  --color-success-surface: rgba(31, 138, 101, 0.10);
+  --color-warning-surface: rgba(219, 112, 75, 0.12);
+  --color-error-surface: rgba(207, 45, 86, 0.06);
+  --color-info-surface: rgba(0, 83, 253, 0.08);
 
   /* --- Typography: Font Families --- */
   --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --font-sans: "Segoe WPC", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
 
   /* --- Typography: Size Scale --- */
   --text-xs: 0.75rem;    /* 12px */
@@ -115,11 +116,11 @@
   --radius-full: 50%;
 
   /* --- Shadows --- */
-  --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.06), 0 1px 3px rgba(20, 20, 19, 0.08);
-  --shadow-md: 0 4px 6px rgba(20, 20, 19, 0.06), 0 2px 4px rgba(20, 20, 19, 0.08);
-  --shadow-lg: 0 10px 15px rgba(20, 20, 19, 0.08), 0 4px 6px rgba(20, 20, 19, 0.06);
-  --shadow-xl: 0 20px 25px rgba(20, 20, 19, 0.1), 0 8px 10px rgba(20, 20, 19, 0.06);
-  --shadow-inset: inset 0 2px 4px rgba(20, 20, 19, 0.06);
+  --shadow-sm: 0 1px 2px rgba(17, 17, 26, 0.06), 0 1px 3px rgba(17, 17, 26, 0.08);
+  --shadow-md: 0 4px 6px rgba(17, 17, 26, 0.06), 0 2px 4px rgba(17, 17, 26, 0.08);
+  --shadow-lg: 0 10px 15px rgba(17, 17, 26, 0.08), 0 4px 6px rgba(17, 17, 26, 0.06);
+  --shadow-xl: 0 20px 25px rgba(17, 17, 26, 0.1), 0 8px 10px rgba(17, 17, 26, 0.06);
+  --shadow-inset: inset 0 2px 4px rgba(17, 17, 26, 0.06);
 
   /* --- Transitions --- */
   --transition-fast: 150ms ease;
@@ -135,22 +136,19 @@
   --z-toast: 500;
 
   /* --- Conversation: Code Blocks --- */
-  --color-code-block-bg: #30302e;
-  --color-code-block-header: #3e3e3b;
+  --color-code-block-bg: #1e2030;
+  --color-code-block-header: #252840;
 
   /* --- Conversation: Callout Boxes --- */
-  --color-callout-bg: #fff8f5;
-  --color-callout-border: #f0c4b4;
+  --color-callout-bg: color-mix(in srgb, #f8faff 85%, #e8eeff);
+  --color-callout-border: color-mix(in srgb, #0053fd 16%, color-mix(in srgb, #17171a 7%, transparent));
 
   /* --- Conversation: Tool Calls --- */
-  --color-tool-active: #c96442;
-  --color-tool-done: #3d8a5e;
-
-  /* --- Conversation: Error --- */
-  --color-error-surface: rgba(181, 51, 51, 0.06);
+  --color-tool-active: #0053fd;
+  --color-tool-done: #1f8a65;
 
   /* --- Conversation: Date Separator --- */
-  --color-date-separator: #e8e6dc;
+  --color-date-separator: color-mix(in srgb, #0053fd 10%, color-mix(in srgb, #17171a 5%, transparent));
 
   /* --- Conversation: Message Radius --- */
   --radius-user-bubble: 12px 12px 2px 12px;
@@ -159,8 +157,8 @@
   /* --- Diff View Colors --- */
   --diff-addition-color: var(--color-success);
   --diff-deletion-color: var(--color-error);
-  --diff-addition-bg: rgba(90, 143, 108, 0.08);
-  --diff-deletion-bg: rgba(181, 51, 51, 0.06);
+  --diff-addition-bg: rgba(31, 138, 101, 0.08);
+  --diff-deletion-bg: rgba(207, 45, 86, 0.06);
 
   /* --- Layout --- */
   --sidebar-width: 240px;
