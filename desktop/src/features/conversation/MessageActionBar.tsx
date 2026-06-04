@@ -18,7 +18,7 @@ const USER_ACTIONS: MessageAction[] = [
 const AI_ACTIONS: MessageAction[] = [
   { type: 'copy', icon: 'copy', label: 'Copy' },
   { type: 'retry', icon: 'refresh-cw', label: 'Retry' },
-  { type: 'undo', icon: 'corner-up-left', label: 'Undo this turn' },
+  { type: 'undo', icon: 'corner-down-left', label: 'Undo this turn' },
 ];
 
 interface MessageActionBarProps {
