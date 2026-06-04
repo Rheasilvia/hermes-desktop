@@ -20,7 +20,7 @@ import { ToolCallPanel } from './ToolCallPanel.js';
 import { TurnActivityPanel } from './TurnActivityPanel.js';
 import { RichContentRenderer } from './RichContentRenderer.js';
 import { AttachmentRenderer } from './AttachmentRenderer.js';
-import { blockToRow } from './toolCallMappers.js';
+import { blockToRow, liveToRow } from './toolCallMappers.js';
 import { MessageActionBar, type MessageActionType } from './MessageActionBar.js';
 import styles from './AssistantMessage.module.css';
 
@@ -33,6 +33,8 @@ interface AssistantMessageProps {
   /** Live tool calls from the createStore array — passed raw to preserve SolidJS
    *  store-key identity so <For> only re-renders changed items. */
   liveTools?: LiveToolCall[];
+  /** Pre-mapped ToolCallRow array — use when rows are already in presentation shape. */
+  liveToolRows?: ToolCallRow[];
   /** Whether this is the last assistant message (controls retry button visibility). */
   isLast?: boolean;
   /** Whether action buttons should be disabled (e.g. while another turn is streaming). */
@@ -124,8 +126,11 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
     return firstToolGroup() ? g.slice(1) : g;
   });
 
+  const activeLiveRows = (): ToolCallRow[] | undefined =>
+    props.liveToolRows ?? props.liveTools?.map(liveToRow);
+
   const hasRenderableContent = createMemo(() =>
-    (props.liveTools?.length ?? 0) > 0 || props.blocks.some(isRenderableBlock)
+    (activeLiveRows()?.length ?? 0) > 0 || props.blocks.some(isRenderableBlock)
   );
 
   return (
@@ -144,17 +149,17 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
             </Show>
           </div>
           {/* TurnActivityPanel outside <For> — preserves ThinkingIndicator RAF stability */}
-          <Show when={reasoningBlock() || firstToolGroup() || (props.liveTools && props.liveTools.length > 0)}>
+          <Show when={reasoningBlock() || firstToolGroup() || (activeLiveRows()?.length ?? 0) > 0}>
             <TurnActivityPanel
               reasoning={reasoningBlock() ? {
                 content: reasoningBlock()!.content,
                 isStreaming: reasoningBlock()!.isStreaming,
                 tokenCount: reasoningBlock()!.tokenCount,
               } : undefined}
-              toolRows={props.liveTools ?? (firstToolGroup()?.blocks ?? []).map(blockToRow)}
+              toolRows={activeLiveRows() ?? (firstToolGroup()?.blocks ?? []).map(blockToRow)}
               isLive={
-                props.liveTools
-                  ? props.isStreaming || props.liveTools.some(r => r.status === 'generating' || r.status === 'running')
+                activeLiveRows()
+                  ? props.isStreaming || (activeLiveRows()?.some(r => r.status === 'generating' || r.status === 'running') ?? false)
                   : (firstToolGroup()?.blocks ?? []).some(b => b.status === 'streaming' || b.status === 'running')
               }
             />

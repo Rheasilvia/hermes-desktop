@@ -261,27 +261,46 @@ export const chatStore = {
   },
 
   handleToolStart(sessionId: string, payload: ToolStartPayload): void {
-    const newTool: LiveToolCall = {
-      id: payload.tool_id,
-      name: payload.name,
-      status: 'running',
-      inputPreview: payload.context ?? null,
-      progressPreview: null,
-      resultSummary: null,
-      durationMs: null,
-    };
     setChatStates(sessionId, 'liveState', 'status', 'tool_running');
-    setChatStates(sessionId, 'liveState', 'activeTools',
-      (tools) => [...tools, newTool]);
+    setChatStates(sessionId, 'liveState', 'activeTools', (tools) => {
+      const existing = tools.findIndex((t) => t.id === payload.tool_id);
+      if (existing >= 0) {
+        // Deduplicate: update in place, preserving any accumulated inputPreview
+        return tools.map((t, i) =>
+          i === existing ? { ...t, name: payload.name, status: 'running' as const } : t
+        );
+      }
+      const newTool: LiveToolCall = {
+        id: payload.tool_id,
+        name: payload.name,
+        status: 'running',
+        inputPreview: payload.context ?? null,
+        progressPreview: null,
+        resultSummary: null,
+        durationMs: null,
+      };
+      return [...tools, newTool];
+    });
   },
 
   handleToolProgress(sessionId: string, payload: ToolProgressPayload): void {
-    setChatStates(
-      sessionId, 'liveState', 'activeTools',
-      (t) => t.name === payload.name,
-      'progressPreview',
-      payload.preview ?? payload.progress ?? null,
-    );
+    const preview = payload.preview ?? payload.progress ?? null;
+    if (payload.tool_id) {
+      // Prefer exact tool_id match when available
+      setChatStates(
+        sessionId, 'liveState', 'activeTools',
+        (t) => t.id === payload.tool_id,
+        'progressPreview',
+        preview,
+      );
+    } else {
+      // Legacy: no tool_id — update the latest running tool with matching name
+      const tools = chatStates[sessionId]?.liveState.activeTools ?? [];
+      const idx = latestMatchingToolIndex(tools, payload.name);
+      if (idx >= 0) {
+        setChatStates(sessionId, 'liveState', 'activeTools', idx, 'progressPreview', preview);
+      }
+    }
   },
 
   handleToolComplete(sessionId: string, payload: ToolCompletePayload): void {
@@ -303,14 +322,28 @@ export const chatStore = {
   },
 
   handleToolGenerating(sessionId: string, payload: ToolGeneratingPayload): void {
-    setChatStates(
-      sessionId, 'liveState', 'activeTools',
-      (t) => t.id === payload.tool_id,
-      produce((t) => {
-        t.status = 'generating';
-        t.inputPreview = (t.inputPreview ?? '') + payload.text;
-      }),
-    );
+    setChatStates(sessionId, 'liveState', 'activeTools', (tools) => {
+      const idx = tools.findIndex((t) => t.id === payload.tool_id);
+      if (idx >= 0) {
+        // Tool already exists — accumulate input and mark generating
+        return tools.map((t, i) =>
+          i === idx
+            ? { ...t, status: 'generating' as const, inputPreview: (t.inputPreview ?? '') + payload.text }
+            : t
+        );
+      }
+      // Tool not yet started — pre-create it so inputPreview is ready for tool.start
+      const newTool: LiveToolCall = {
+        id: payload.tool_id,
+        name: payload.name,
+        status: 'generating',
+        inputPreview: payload.text,
+        progressPreview: null,
+        resultSummary: null,
+        durationMs: null,
+      };
+      return [...tools, newTool];
+    });
   },
 
   handleToolError(sessionId: string, payload: ToolErrorPayload): void {
@@ -366,6 +399,14 @@ export const chatStore = {
       ...todoBlocks,
       ...parseBlocks(payload.text),
     ];
+
+    if (blocks.length === 0) {
+      setChatStates(sessionId, produce((s) => {
+        s.liveState = makeLiveTurnState(sessionId);
+        s.isLoadingMessages = false;
+      }));
+      return;
+    }
 
     const finalMsg: RenderedMessage = {
       id: nextEphemeralId(),
