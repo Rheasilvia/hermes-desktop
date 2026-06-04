@@ -1,7 +1,7 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, onCleanup, Index, Show } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
-import type { ToolCallRow, LiveToolCall } from '@/types/index.js';
+import type { ToolCallRow } from '@/types/index.js';
 import styles from './TurnActivityPanel.module.css';
 
 interface ReasoningData {
@@ -12,10 +12,7 @@ interface ReasoningData {
 
 export interface TurnActivityPanelProps {
   reasoning?: ReasoningData;
-  /** Tool rows — accepts both LiveToolCall[] (store-proxy, identity-stable)
-   *  and ToolCallRow[] (completed-tool blocks). Fields accessed are the
-   *  intersection (id, name, status, durationMs). */
-  toolRows?: LiveToolCall[] | ToolCallRow[];
+  toolRows?: ToolCallRow[];
   isLive?: boolean;
 }
 
