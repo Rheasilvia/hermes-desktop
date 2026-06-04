@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { chatStore } from '../chat';
 
 // Use unique session IDs per test suite to avoid cross-test signal bleed.
@@ -179,5 +179,51 @@ describe('appendUserMessage — slash command metadata', () => {
     chatStore.appendUserMessage(SESSION_SLASH, 'just a message');
     const messages = chatStore.getMessages(SESSION_SLASH);
     expect(messages[messages.length - 1].slashCommand).toBeUndefined();
+  });
+});
+
+describe('conversation turn stability', () => {
+  const SESSION_TURN = 'test-session-turn-stability';
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    chatStore.clearMessages(SESSION_TURN);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('ignores late stream events after an interrupt barrier', async () => {
+    chatStore.handleMessageStart(SESSION_TURN);
+    chatStore.handleDelta(SESSION_TURN, { session_id: SESSION_TURN, text: 'partial' });
+
+    await chatStore.cancelMessage(SESSION_TURN);
+    chatStore.handleDelta(SESSION_TURN, { session_id: SESSION_TURN, text: ' late' });
+    chatStore.handleMessageComplete(SESSION_TURN, { session_id: SESSION_TURN, text: 'partial late', usage: undefined });
+
+    const messages = chatStore.getMessages(SESSION_TURN);
+    expect(messages).toHaveLength(1);
+    expect(chatStore.getLiveState(SESSION_TURN).streamingText).toBe('');
+    expect(chatStore.getDiagnostics(SESSION_TURN).droppedLateEvents).toBe(2);
+  });
+
+  it('moves an accepted turn to stalled when no stream events arrive before the watchdog timeout', () => {
+    chatStore.markPromptAccepted(SESSION_TURN);
+
+    vi.advanceTimersByTime(90_000);
+
+    expect(chatStore.getLiveState(SESSION_TURN).status).toBe('stalled');
+    expect(chatStore.getDiagnostics(SESSION_TURN).turnState).toBe('stalled');
+  });
+
+  it('keeps the accepted turn active when a stream event arrives before the watchdog timeout', () => {
+    chatStore.markPromptAccepted(SESSION_TURN);
+    vi.advanceTimersByTime(30_000);
+    chatStore.handleDelta(SESSION_TURN, { session_id: SESSION_TURN, text: 'hello' });
+    vi.advanceTimersByTime(70_000);
+
+    expect(chatStore.getLiveState(SESSION_TURN).status).toBe('streaming');
+    expect(chatStore.getLiveState(SESSION_TURN).streamingText).toBe('hello');
   });
 });

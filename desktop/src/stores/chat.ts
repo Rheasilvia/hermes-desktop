@@ -33,10 +33,19 @@ import { sessionUsage } from './usage.js';
 
 // ── Chat State ────────────────────────────────────────────────────────────
 
+const TURN_STALLED_TIMEOUT_MS = 80_000;
+
 interface ChatState {
   messages: RenderedMessage[];
   liveState: LiveTurnState;
   isLoadingMessages: boolean;
+}
+
+export interface ConversationDiagnosticsSnapshot {
+  sessionId: string;
+  turnState: LiveTurnState['status'];
+  lastEventAt: number | null;
+  droppedLateEvents: number;
 }
 
 function makeLiveTurnState(sessionId: string): LiveTurnState {
@@ -58,6 +67,10 @@ function makeLiveTurnState(sessionId: string): LiveTurnState {
 // Fine-grained store: each session's ChatState is tracked at field level.
 // Tool event handlers use path selectors so only the changed row re-renders.
 const [chatStates, setChatStates] = createStore<Record<string, ChatState>>({});
+const stalledTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const lastEventAtBySession = new Map<string, number>();
+const droppedLateEventsBySession = new Map<string, number>();
+const interruptedBarrierBySession = new Set<string>();
 
 function ensureSession(sessionId: string): void {
   if (!chatStates[sessionId]) {
@@ -86,6 +99,46 @@ function latestMatchingToolIndex(tools: LiveToolCall[], name: string): number {
     }
   }
   return -1;
+}
+
+function clearStalledTimer(sessionId: string): void {
+  const timer = stalledTimers.get(sessionId);
+  if (timer) clearTimeout(timer);
+  stalledTimers.delete(sessionId);
+}
+
+function armStalledTimer(sessionId: string): void {
+  clearStalledTimer(sessionId);
+  stalledTimers.set(sessionId, setTimeout(() => {
+    const state = chatStates[sessionId]?.liveState.status;
+    if (state === 'submitting' || state === 'accepted') {
+      setChatStates(sessionId, 'liveState', 'status', 'stalled');
+    }
+  }, TURN_STALLED_TIMEOUT_MS));
+}
+
+function noteLiveEvent(sessionId: string): void {
+  lastEventAtBySession.set(sessionId, Date.now());
+  clearStalledTimer(sessionId);
+}
+
+function beginLiveTurn(sessionId: string, status: LiveTurnState['status']): void {
+  ensureSession(sessionId);
+  interruptedBarrierBySession.delete(sessionId);
+  setChatStates(sessionId, 'liveState', makeLiveTurnState(sessionId));
+  setChatStates(sessionId, 'liveState', 'status', status);
+  lastEventAtBySession.set(sessionId, Date.now());
+  if (status === 'submitting' || status === 'accepted') {
+    armStalledTimer(sessionId);
+  } else {
+    clearStalledTimer(sessionId);
+  }
+}
+
+function dropIfInterrupted(sessionId: string): boolean {
+  if (!interruptedBarrierBySession.has(sessionId)) return false;
+  droppedLateEventsBySession.set(sessionId, (droppedLateEventsBySession.get(sessionId) ?? 0) + 1);
+  return true;
 }
 
 /** Convert a legacy SessionMessage (gateway wire format) to a domain ConversationMessage. */
@@ -149,11 +202,20 @@ export const chatStore = {
 
   isStreaming(sessionId: string): boolean {
     const status = chatStates[sessionId]?.liveState.status;
-    return status === 'streaming' || status === 'tool_running';
+    return status === 'submitting' || status === 'accepted' || status === 'streaming' || status === 'tool_running' || status === 'stalled';
   },
 
   getError(sessionId: string): string | null {
     return chatStates[sessionId]?.liveState.errorMessage ?? null;
+  },
+
+  getDiagnostics(sessionId: string): ConversationDiagnosticsSnapshot {
+    return {
+      sessionId,
+      turnState: chatStates[sessionId]?.liveState.status ?? 'idle',
+      lastEventAt: lastEventAtBySession.get(sessionId) ?? null,
+      droppedLateEvents: droppedLateEventsBySession.get(sessionId) ?? 0,
+    };
   },
 
   isLoadingMessages(sessionId: string): boolean {
@@ -191,9 +253,7 @@ export const chatStore = {
   async sendMessage(sessionId: string, text: string): Promise<boolean> {
     const gateway = getGateway();
     if (!gateway) return false;
-    ensureSession(sessionId);
-    setChatStates(sessionId, 'liveState', makeLiveTurnState(sessionId));
-    setChatStates(sessionId, 'liveState', 'status', 'streaming');
+    beginLiveTurn(sessionId, 'submitting');
     try {
       await gateway.prompt.execute({
         message: text,
@@ -201,9 +261,11 @@ export const chatStore = {
         provider: modelStore.activeProvider ?? undefined,
         model: modelStore.activeModel ?? undefined,
       });
+      this.markPromptAccepted(sessionId);
       return true;
     } catch {
-      setChatStates(sessionId, 'liveState', 'status', 'error');
+      clearStalledTimer(sessionId);
+      setChatStates(sessionId, 'liveState', 'status', 'failed');
       setChatStates(sessionId, 'liveState', 'errorMessage', 'Failed to send message');
       return false;
     }
@@ -245,22 +307,30 @@ export const chatStore = {
   },
 
   handleMessageStart(sessionId: string): void {
-    ensureSession(sessionId);
-    setChatStates(sessionId, 'liveState', makeLiveTurnState(sessionId));
-    setChatStates(sessionId, 'liveState', 'status', 'streaming');
+    beginLiveTurn(sessionId, 'streaming');
+  },
+
+  markPromptAccepted(sessionId: string): void {
+    beginLiveTurn(sessionId, 'accepted');
   },
 
   handleDelta(sessionId: string, payload: MessageDeltaPayload): void {
+    if (dropIfInterrupted(sessionId)) return;
+    noteLiveEvent(sessionId);
     setChatStates(sessionId, 'liveState', 'streamingText',
       (t) => t + (payload.text ?? ''));
     setChatStates(sessionId, 'liveState', 'status', 'streaming');
   },
 
   handleReasoningDelta(sessionId: string, text: string): void {
+    if (dropIfInterrupted(sessionId)) return;
+    noteLiveEvent(sessionId);
     setChatStates(sessionId, 'liveState', 'reasoningText', (t) => t + text);
   },
 
   handleToolStart(sessionId: string, payload: ToolStartPayload): void {
+    if (dropIfInterrupted(sessionId)) return;
+    noteLiveEvent(sessionId);
     setChatStates(sessionId, 'liveState', 'status', 'tool_running');
     setChatStates(sessionId, 'liveState', 'activeTools', (tools) => {
       const existing = tools.findIndex((t) => t.id === payload.tool_id);
@@ -284,6 +354,8 @@ export const chatStore = {
   },
 
   handleToolProgress(sessionId: string, payload: ToolProgressPayload): void {
+    if (dropIfInterrupted(sessionId)) return;
+    noteLiveEvent(sessionId);
     const preview = payload.preview ?? payload.progress ?? null;
     if (payload.tool_id) {
       // Prefer exact tool_id match when available
@@ -304,6 +376,8 @@ export const chatStore = {
   },
 
   handleToolComplete(sessionId: string, payload: ToolCompletePayload): void {
+    if (dropIfInterrupted(sessionId)) return;
+    noteLiveEvent(sessionId);
     const durationMs = payload.duration_s != null ? Math.round(payload.duration_s * 1000) : null;
     setChatStates(
       sessionId, 'liveState', 'activeTools',
@@ -322,6 +396,8 @@ export const chatStore = {
   },
 
   handleToolGenerating(sessionId: string, payload: ToolGeneratingPayload): void {
+    if (dropIfInterrupted(sessionId)) return;
+    noteLiveEvent(sessionId);
     setChatStates(sessionId, 'liveState', 'activeTools', (tools) => {
       const idx = tools.findIndex((t) => t.id === payload.tool_id);
       if (idx >= 0) {
@@ -347,6 +423,8 @@ export const chatStore = {
   },
 
   handleToolError(sessionId: string, payload: ToolErrorPayload): void {
+    if (dropIfInterrupted(sessionId)) return;
+    noteLiveEvent(sessionId);
     const durationMs = payload.duration_s != null ? Math.round(payload.duration_s * 1000) : null;
     setChatStates(
       sessionId, 'liveState', 'activeTools',
@@ -360,6 +438,8 @@ export const chatStore = {
   },
 
   handleMessageComplete(sessionId: string, payload: MessageCompletePayload): void {
+    if (dropIfInterrupted(sessionId)) return;
+    noteLiveEvent(sessionId);
     const live = chatStates[sessionId]?.liveState;
     if (!live) return;
 
@@ -439,6 +519,7 @@ export const chatStore = {
   },
 
   handleError(sessionId: string, message: string): void {
+    clearStalledTimer(sessionId);
     setChatStates(sessionId, 'liveState', 'status', 'error');
     setChatStates(sessionId, 'liveState', 'errorMessage', message);
   },
@@ -450,13 +531,17 @@ export const chatStore = {
       liveState: makeLiveTurnState(sessionId),
       isLoadingMessages: false,
     });
+    clearStalledTimer(sessionId);
+    interruptedBarrierBySession.delete(sessionId);
+    lastEventAtBySession.delete(sessionId);
+    droppedLateEventsBySession.delete(sessionId);
     sessionUsage.reset(sessionId);
   },
 
   clearError(sessionId: string): void {
     setChatStates(sessionId, 'liveState', produce((live) => {
       live.errorMessage = null;
-      if (live.status === 'error') live.status = 'idle';
+      if (live.status === 'error' || live.status === 'failed') live.status = 'idle';
     }));
   },
 
@@ -493,7 +578,14 @@ export const chatStore = {
 
   async cancelMessage(sessionId: string): Promise<void> {
     const state = chatStates[sessionId];
-    if (state && (state.liveState.status === 'streaming' || state.liveState.status === 'tool_running')) {
+    const cancellable = state && (
+      state.liveState.status === 'submitting' ||
+      state.liveState.status === 'accepted' ||
+      state.liveState.status === 'streaming' ||
+      state.liveState.status === 'tool_running' ||
+      state.liveState.status === 'stalled'
+    );
+    if (cancellable) {
       try {
         const gw = getGateway();
         if (gw) await gw.session.interrupt(sessionId);
@@ -503,6 +595,8 @@ export const chatStore = {
 
       const live = chatStates[sessionId]?.liveState;
       if (!live) return;
+      interruptedBarrierBySession.add(sessionId);
+      clearStalledTimer(sessionId);
 
       const hasContent = live.reasoningText || live.streamingText || live.activeTools.length > 0;
       if (!hasContent) {
