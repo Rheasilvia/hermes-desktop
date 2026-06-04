@@ -3538,8 +3538,12 @@ def _agent_cbs(sid: str) -> dict:
         "tool_progress_callback": lambda event_type, name=None, preview=None, args=None, **kwargs: _on_tool_progress(
             sid, event_type, name, preview, args, **kwargs
         ),
-        "tool_gen_callback": lambda name: _tool_progress_enabled(sid)
-        and _emit("tool.generating", sid, {"name": name}),
+        "tool_gen_callback": lambda name, tool_id=None: _tool_progress_enabled(sid)
+        and _emit(
+            "tool.generating",
+            sid,
+            {"name": name, **({"tool_id": tool_id} if tool_id else {})},
+        ),
         "thinking_callback": lambda text: _emit("thinking.delta", sid, {"text": text}),
         "reasoning_callback": lambda text: _emit(
             "reasoning.delta",
@@ -3976,7 +3980,7 @@ def _preview_restart_callbacks(parent: str, task_id: str) -> dict:
         "tool_start_callback": tool_start,
         "tool_complete_callback": tool_complete,
         "tool_progress_callback": tool_progress,
-        "tool_gen_callback": lambda name: progress(f"Preparing {name}"),
+        "tool_gen_callback": lambda name, tool_id=None: progress(f"Preparing {name}"),
         "status_callback": lambda kind, text=None: progress(text if text is not None else kind),
     }
 

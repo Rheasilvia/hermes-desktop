@@ -9,6 +9,7 @@ import styles from './cards.module.css';
  */
 export const CommandCardDock: Component<{
   card: ActiveCommandCard;
+  embedded?: boolean;
   onDismiss: () => void;
 }> = (props) => {
   let ref: HTMLDivElement | undefined;
@@ -25,6 +26,7 @@ export const CommandCardDock: Component<{
     <div
       ref={ref}
       class={styles.dock}
+      classList={{ [styles.dockEmbedded]: props.embedded }}
       role="region"
       aria-label="Command result"
       tabindex={-1}

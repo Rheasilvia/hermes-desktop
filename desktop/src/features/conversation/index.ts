@@ -1,6 +1,8 @@
 export { ChatView } from './ChatView.js';
 export { ApprovalCard } from './ApprovalCard.js';
 export { ClarificationCard } from './ClarificationCard.js';
+export { PermissionRequestCard } from './turn/PermissionRequestCard.js';
+export { PromptDock } from './turn/PromptDock.js';
 export { MemoryContextCard } from './MemoryContextCard.js';
 export { SlashCommandPanel } from './SlashCommandPanel.js';
 export { MessageBubble } from './MessageBubble.js';

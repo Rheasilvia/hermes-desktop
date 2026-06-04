@@ -13,6 +13,9 @@ import { getGateway } from './context.js';
 interface DelegationState {
   subagents: Record<string, SubagentRecord>;
   paused: boolean;
+  pausePending: boolean;
+  interruptPendingById: Record<string, boolean>;
+  error: string | null;
   sortMode: 'spawn-order' | 'slowest' | 'status' | 'busiest';
   filterMode: 'all' | 'running' | 'failed' | 'leaves';
 }
@@ -20,6 +23,9 @@ interface DelegationState {
 const [state, setState] = createStore<DelegationState>({
   subagents: {},
   paused: false,
+  pausePending: false,
+  interruptPendingById: {},
+  error: null,
   sortMode: 'spawn-order',
   filterMode: 'all',
 });
@@ -27,6 +33,9 @@ const [state, setState] = createStore<DelegationState>({
 export const delegationStore = {
   get subagents() { return state.subagents; },
   get paused() { return state.paused; },
+  get pausePending() { return state.pausePending; },
+  get interruptPendingById() { return state.interruptPendingById; },
+  get error() { return state.error; },
   get sortMode() { return state.sortMode; },
   get filterMode() { return state.filterMode; },
 
@@ -84,13 +93,41 @@ export const delegationStore = {
     }));
   },
 
-  setPaused(paused: boolean) {
+  async setPaused(paused: boolean): Promise<void> {
+    const previous = state.paused;
     setState('paused', paused);
+    setState('pausePending', true);
+    setState('error', null);
     const gateway = getGateway();
-    if (gateway) {
-      gateway.delegation.pause({ paused }).catch(() => {
-        console.warn('delegation.pause RPC not available — pause is local-only');
-      });
+    if (!gateway) {
+      setState('pausePending', false);
+      return;
+    }
+    try {
+      const result = await gateway.delegation.pause({ paused });
+      setState('paused', result.paused);
+    } catch (err) {
+      setState('paused', previous);
+      setState('error', err instanceof Error ? err.message : 'Delegation pause failed');
+    } finally {
+      setState('pausePending', false);
+    }
+  },
+
+  async interruptSubagent(subagentId: string): Promise<void> {
+    setState('interruptPendingById', subagentId, true);
+    setState('error', null);
+    const gateway = getGateway();
+    if (!gateway) {
+      setState('interruptPendingById', subagentId, false);
+      return;
+    }
+    try {
+      await gateway.subagent.interrupt({ subagent_id: subagentId });
+    } catch (err) {
+      setState('error', err instanceof Error ? err.message : 'Subagent interrupt failed');
+    } finally {
+      setState('interruptPendingById', subagentId, false);
     }
   },
 
@@ -105,6 +142,9 @@ export const delegationStore = {
   clear() {
     setState('subagents', {});
     setState('paused', false);
+    setState('pausePending', false);
+    setState('interruptPendingById', {});
+    setState('error', null);
   },
 };
 

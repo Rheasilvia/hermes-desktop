@@ -303,6 +303,7 @@ export interface ToolStartPayload {
 
 /** Tool progress event payload. */
 export interface ToolProgressPayload {
+  tool_id?: string;
   name: string;
   preview?: string;
   progress?: string;

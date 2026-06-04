@@ -62,6 +62,11 @@
   border-color: var(--color-border-prominent);
 }
 
+.pauseBtn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
 .pauseBtnActive {
   background: var(--color-primary-soft);
   color: var(--color-terracotta);
@@ -79,6 +84,18 @@
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--color-border-light);
   flex-shrink: 0;
+}
+
+.errorBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-error-surface);
+  color: var(--color-error);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .toolbarGroup {
@@ -176,6 +193,41 @@
 .card:hover {
   border-color: var(--color-border);
   box-shadow: var(--shadow-sm);
+}
+
+.rowCard {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  overflow: hidden;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.rowCard:hover {
+  border-color: var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.rowActionBtn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-on-surface-muted);
+  cursor: pointer;
+}
+
+.rowActionBtn:hover {
+  background: var(--color-background-alt);
+  color: var(--color-on-surface);
+}
+
+.rowActionBtn:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .cardHeader {

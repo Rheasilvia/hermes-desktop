@@ -55,6 +55,24 @@ def test_is_destructive_command_treats_install_as_mutating():
     assert run_agent._is_destructive_command("install template.env .env") is True
 
 
+def test_fire_tool_gen_started_forwards_tool_id(agent):
+    events = []
+    agent.tool_gen_callback = lambda name, tool_id=None: events.append((name, tool_id))
+
+    agent._fire_tool_gen_started("web_search", "tool_123")
+
+    assert events == [("web_search", "tool_123")]
+
+
+def test_fire_tool_gen_started_keeps_legacy_callback_compatibility(agent):
+    events = []
+    agent.tool_gen_callback = lambda name: events.append(name)
+
+    agent._fire_tool_gen_started("web_search", "tool_123")
+
+    assert events == ["web_search"]
+
+
 @pytest.fixture()
 def agent():
     """Minimal AIAgent with mocked OpenAI client and tool loading."""

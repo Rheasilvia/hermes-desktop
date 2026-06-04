@@ -39,7 +39,7 @@ describe('dispatchSseEvent — tool.generating', () => {
 });
 
 describe('dispatchSseEvent — tool.progress', () => {
-  it('emits tool.progress event (was silently dropped)', () => {
+  it('emits tool.progress event with tool_id when present', () => {
     const adapter = makeAdapter();
     const received: unknown[] = [];
     adapter.on('tool.progress', (payload) => received.push(payload));
@@ -48,11 +48,15 @@ describe('dispatchSseEvent — tool.progress', () => {
       session_id: 'sess_1',
       seq: 2,
       type: 'tool.progress',
-      payload: { name: 'web_search', preview: '3/10 results fetched' },
+      payload: { tool_id: 'tool_1', name: 'web_search', preview: '3/10 results fetched' },
     });
 
     expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({ name: 'web_search', preview: '3/10 results fetched' });
+    expect(received[0]).toMatchObject({
+      tool_id: 'tool_1',
+      name: 'web_search',
+      preview: '3/10 results fetched',
+    });
   });
 });
 
@@ -136,5 +140,31 @@ describe('aggregateEventRows — tool call reconstruction', () => {
     const tc = messages[0].tool_calls;
     expect(tc[0].name).toBe('read_file');    // arrived first → seq 0
     expect(tc[1].name).toBe('web_search');   // arrived second → seq 1
+  });
+
+  it('reconstructs a tool call from tool.generating before duplicate tool.start', () => {
+    const adapter = makeAdapter();
+
+    const rows = [
+      { seq: 1, type: 'tool.generating', payload: { tool_id: 'tool_1', name: 'web_search', text: '{"query":"test"}' } },
+      { seq: 2, type: 'tool.start', payload: { tool_id: 'tool_1', name: 'web_search' } },
+      { seq: 3, type: 'tool.start', payload: { tool_id: 'tool_1', name: 'web_search' } },
+      { seq: 4, type: 'tool.complete', payload: { tool_id: 'tool_1', name: 'web_search', summary: 'Found results' } },
+      { seq: 5, type: 'message.complete', payload: { text: '', usage: null } },
+    ];
+
+    const messages = (adapter as any).aggregateEventRows('sess_1', rows);
+    const assistantMsg = messages.find((m: any) => m.role === 'assistant');
+
+    expect(assistantMsg).toBeDefined();
+    expect(assistantMsg.content).toBe('');
+    expect(assistantMsg.tool_calls).toHaveLength(1);
+    expect(assistantMsg.tool_calls[0]).toMatchObject({
+      id: 'tool_1',
+      name: 'web_search',
+      status: 'complete',
+      arguments: { query: 'test' },
+      outputSummary: 'Found results',
+    });
   });
 });

@@ -792,7 +792,7 @@ def stream_converse_with_callbacks(
         on_text_delta: Called with each text chunk as it arrives. Only fires
             when no tool_use blocks have been seen (same semantics as the
             Anthropic and chat_completions streaming paths).
-        on_tool_start: Called with the tool name when a toolUse block begins.
+        on_tool_start: Called with the tool name and toolUseId when a toolUse block begins.
             Lets the TUI show a spinner while tool arguments are generated.
         on_reasoning_delta: Called with reasoning/thinking text chunks.
             Bedrock surfaces thinking via ``reasoning`` content block deltas
@@ -832,7 +832,10 @@ def stream_converse_with_callbacks(
                     "input_json": "",
                 }
                 if on_tool_start:
-                    on_tool_start(current_tool["name"])
+                    try:
+                        on_tool_start(current_tool["name"], current_tool["toolUseId"] or None)
+                    except TypeError:
+                        on_tool_start(current_tool["name"])
 
         elif "contentBlockDelta" in event:
             delta = event["contentBlockDelta"].get("delta", {})

@@ -12,6 +12,10 @@ import type {
   ReasoningDeltaPayload,
   ApprovalRequestPayload,
   ClarifyRequestPayload,
+  SudoRequestPayload,
+  SecretRequestPayload,
+  BackgroundCompletePayload,
+  BtwCompletePayload,
   SubagentStartPayload,
   SubagentProgressPayload,
   SubagentCompletePayload,
@@ -26,6 +30,7 @@ import { sessionUsage } from '@/stores/usage.js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 import { gitViewStore } from '@/stores/git-view.js';
 import { delegationStore } from '@/stores/delegation.js';
+import { backgroundTaskStore, recentBackgroundTasks } from '@/stores/background-tasks.js';
 import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { sessionStore } from '@/stores/session.js';
 import { modelStore } from '@/stores/models.js';
@@ -46,12 +51,14 @@ import { EmptyChatState } from './EmptyChatState.js';
 import { ErrorBanner } from './ErrorBanner.js';
 import { WorkspaceBanner } from './WorkspaceBanner.js';
 import { Icon } from '@/ui/atoms/Icon.js';
-import { ApprovalCard } from './ApprovalCard.js';
 import { ClarificationCard } from './ClarificationCard.js';
 import { MemoryContextCard } from './MemoryContextCard.js';
 import { TodoPanel } from './TodoPanel.js';
 import { JumpToBottom } from './JumpToBottom.js';
-import type { LiveToolCall } from '@/types/index.js';
+import { liveToRow } from './toolCallMappers.js';
+import { PromptDock, type PromptDockItem } from './turn/PromptDock.js';
+import { PermissionRequestCard } from './turn/PermissionRequestCard.js';
+import { BackgroundTaskDock } from './background/BackgroundTaskDock.js';
 import styles from './ChatView.module.css';
 
 interface ChatViewProps {
@@ -67,6 +74,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let messagesEndRef: HTMLDivElement | undefined;
   let chatBodyRef: HTMLDivElement | undefined;
   let messageListRef: HTMLDivElement | undefined;
+  let scrollRafId: number | undefined;
+  let pendingScrollOpts: { force?: boolean; behavior?: ScrollBehavior } | undefined;
   let diffPanelEl: HTMLDivElement | undefined;
   let dragHandleEl: HTMLDivElement | undefined;
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
@@ -152,6 +161,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const showFloatingPanel = createMemo(() =>
     !panelManuallyClosed() && (panelTodos().length > 0 || hasActiveTodoTool())
+  );
+
+  const blockingPromptActive = createMemo(() =>
+    Boolean(liveState().pendingPermission || liveState().pendingClarify)
   );
 
   // Auto-close when all todos complete
@@ -250,10 +263,24 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const scrollToBottom = (opts?: { force?: boolean; behavior?: ScrollBehavior }) => {
     if (!opts?.force && userScrolledUp()) return;
-    requestAnimationFrame(() => {
-      messagesEndRef?.scrollIntoView({ behavior: opts?.behavior ?? 'smooth' });
+    pendingScrollOpts = opts;
+    if (scrollRafId !== undefined) return;
+    scrollRafId = requestAnimationFrame(() => {
+      const nextOpts = pendingScrollOpts;
+      scrollRafId = undefined;
+      pendingScrollOpts = undefined;
+      if (!nextOpts?.force && userScrolledUp()) return;
+      messagesEndRef?.scrollIntoView({ behavior: nextOpts?.behavior ?? 'auto' });
     });
   };
+
+  onCleanup(() => {
+    if (scrollRafId !== undefined) {
+      cancelAnimationFrame(scrollRafId);
+      scrollRafId = undefined;
+      pendingScrollOpts = undefined;
+    }
+  });
 
   const handleScroll = () => {
     const el = messageListRef;
@@ -297,8 +324,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   });
 
   createEffect(() => {
-    const hasCard = !!(liveState().pendingApproval || liveState().pendingClarify);
-    if (hasCard) {
+    if (blockingPromptActive()) {
       scrollToBottom({ force: true });
     }
   });
@@ -526,8 +552,24 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     chatStore.handleApprovalRequest(sessionId(), payload);
   };
 
+  const onSudoRequest = (payload: SudoRequestPayload) => {
+    chatStore.handleSudoRequest(sessionId(), payload);
+  };
+
+  const onSecretRequest = (payload: SecretRequestPayload) => {
+    chatStore.handleSecretRequest(sessionId(), payload);
+  };
+
   const onClarifyRequest = (payload: ClarifyRequestPayload) => {
     chatStore.handleClarifyRequest(sessionId(), payload);
+  };
+
+  const onBackgroundComplete = (payload: BackgroundCompletePayload) => {
+    backgroundTaskStore.handleComplete(payload);
+  };
+
+  const onBtwComplete = (payload: BtwCompletePayload) => {
+    backgroundTaskStore.handleBtwComplete(payload);
   };
 
   const onSubagentStart = (payload: SubagentStartPayload) => {
@@ -646,7 +688,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     gateway.on('tool.generating', onToolGenerating);
     gateway.on('tool.error', onToolError);
     gateway.on('approval.request', onApprovalRequest);
+    gateway.on('sudo.request', onSudoRequest);
+    gateway.on('secret.request', onSecretRequest);
     gateway.on('clarify.request', onClarifyRequest);
+    gateway.on('background.complete', onBackgroundComplete);
+    gateway.on('btw.complete', onBtwComplete);
     gateway.on('subagent.start', onSubagentStart);
     gateway.on('subagent.progress', onSubagentProgress);
     gateway.on('subagent.complete', onSubagentComplete);
@@ -667,12 +713,119 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     gateway.off('tool.generating', onToolGenerating);
     gateway.off('tool.error', onToolError);
     gateway.off('approval.request', onApprovalRequest);
+    gateway.off('sudo.request', onSudoRequest);
+    gateway.off('secret.request', onSecretRequest);
     gateway.off('clarify.request', onClarifyRequest);
+    gateway.off('background.complete', onBackgroundComplete);
+    gateway.off('btw.complete', onBtwComplete);
     gateway.off('subagent.start', onSubagentStart);
     gateway.off('subagent.progress', onSubagentProgress);
     gateway.off('subagent.complete', onSubagentComplete);
     gateway.off('subagent.tool', onSubagentTool);
     gateway.off('subagent.error', onSubagentError);
+  });
+
+  const handleMaskedPermissionSubmit = (requestId: string, value: string) => {
+    const permission = liveState().pendingPermission;
+    if (!permission) return;
+    if (permission.kind === 'sudo') {
+      void chatStore.respondSudo(sessionId(), requestId, value);
+    } else if (permission.kind === 'secret') {
+      void chatStore.respondSecret(sessionId(), requestId, value);
+    }
+  };
+
+  const handlePermissionCancel = () => {
+    const permission = liveState().pendingPermission;
+    if (!permission) return;
+    if (permission.kind === 'approval') {
+      void chatStore.respondApproval(sessionId(), 'deny');
+    } else if (permission.kind === 'sudo' && permission.requestId) {
+      void chatStore.respondSudo(sessionId(), permission.requestId, '');
+    } else if (permission.kind === 'secret' && permission.requestId) {
+      void chatStore.respondSecret(sessionId(), permission.requestId, '');
+    }
+  };
+
+  const promptDockItems = createMemo<PromptDockItem[]>(() => {
+    const items: PromptDockItem[] = [];
+    const live = liveState();
+    const permission = live.pendingPermission;
+    const clarify = live.pendingClarify;
+
+    if (permission) {
+      items.push({
+        id: `permission-${permission.kind}-${permission.requestId ?? permission.command}`,
+        content: (
+          <PermissionRequestCard
+            permission={permission}
+            onApprovalChoice={(choice) => void chatStore.respondApproval(sessionId(), choice)}
+            onMaskedSubmit={handleMaskedPermissionSubmit}
+            onCancel={handlePermissionCancel}
+          />
+        ),
+      });
+    }
+
+    if (clarify) {
+      items.push({
+        id: `clarify-${clarify.requestId}`,
+        content: (
+          <ClarificationCard
+            question={clarify.question}
+            choices={clarify.choices}
+            onRespond={(text) => void chatStore.respondClarify(sessionId(), clarify.requestId, text)}
+          />
+        ),
+      });
+    }
+
+    if (!permission && !clarify && (showFloatingPanel() || panelExiting())) {
+      items.push({
+        id: 'todo-panel',
+        content: (
+          <>
+            <TodoPanel
+              todos={panelTodos()}
+              isStreaming={isStreaming()}
+              isPaused={isPaused()}
+              floating
+              exiting={panelExiting()}
+              onClose={handleTodoPanelClose}
+              onPause={handleTodoPanelPause}
+            />
+            <Show when={showUndoBar()}>
+              <div class={styles.undoBar}>
+                <span>Chat paused · {incompleteCount()} task{incompleteCount() !== 1 ? 's' : ''} incomplete</span>
+                <button class={styles.undoBtn} onClick={handleUndoClose}>Undo</button>
+              </div>
+            </Show>
+          </>
+        ),
+      });
+    }
+
+    if (!permission && !clarify && commandCard()) {
+      items.push({
+        id: 'command-card',
+        content: <CommandCardDock card={commandCard()!} embedded onDismiss={dismissCommandCard} />,
+      });
+    }
+
+    const backgroundTasks = recentBackgroundTasks().slice(0, 3);
+    if (!permission && !clarify && backgroundTasks.length > 0) {
+      items.push({
+        id: 'background-tasks',
+        content: (
+          <BackgroundTaskDock
+            tasks={backgroundTasks}
+            onDismiss={(id) => backgroundTaskStore.dismiss(id)}
+          />
+        ),
+      });
+    }
+
+    return items;
   });
 
   return (
@@ -746,7 +899,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 class={styles.messageList}
                 onScroll={handleScroll}
                 style={{
-                  "padding-bottom": (liveState().pendingApproval || liveState().pendingClarify) ? '60px' : undefined,
+                  "padding-bottom": blockingPromptActive() ? '60px' : undefined,
                 }}
               >
                 <For each={messages()}>
@@ -788,61 +941,12 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 scrollToBottom({ force: true, behavior: 'smooth' });
               }}
             />
-            {/* Floating TodoPanel — positioned above input via absolute positioning */}
-            <Show when={showFloatingPanel() || panelExiting()}>
-              <div
-                class={styles.todoDock}
-                classList={{ [styles.todoDockExiting]: panelExiting() }}
-              >
-                <TodoPanel
-                  todos={panelTodos()}
-                  isStreaming={isStreaming()}
-                  isPaused={isPaused()}
-                  floating
-                  exiting={panelExiting()}
-                  onClose={handleTodoPanelClose}
-                  onPause={handleTodoPanelPause}
-                />
-                <Show when={showUndoBar()}>
-                  <div class={styles.undoBar}>
-                    <span>Chat paused · {incompleteCount()} task{incompleteCount() !== 1 ? 's' : ''} incomplete</span>
-                    <button class={styles.undoBtn} onClick={handleUndoClose}>Undo</button>
-                  </div>
-                </Show>
-              </div>
-            </Show>
-            <Show when={liveState().pendingApproval || liveState().pendingClarify}>
-              <div class={styles.cardDock}>
-                <Show when={liveState().pendingApproval}>
-                  <ApprovalCard
-                    command={liveState().pendingApproval!.command}
-                    description={liveState().pendingApproval!.description}
-                    onAllow={() => void chatStore.respondApproval(sessionId(), 'once')}
-                    onDeny={() => void chatStore.respondApproval(sessionId(), 'deny')}
-                    onAllowSession={liveState().pendingApproval!.is_path_approval
-                      ? () => void chatStore.respondApproval(sessionId(), 'session')
-                      : undefined}
-                  />
-                </Show>
-                <Show when={liveState().pendingClarify}>
-                  <ClarificationCard
-                    question={liveState().pendingClarify!.question}
-                    choices={liveState().pendingClarify!.choices}
-                    onRespond={(text) => void chatStore.respondClarify(sessionId(), liveState().pendingClarify!.requestId, text)}
-                  />
-                </Show>
-              </div>
-            </Show>
-
-            {/* Command-card dock — a pending approval/clarify takes precedence. */}
-            <Show when={commandCard() && !liveState().pendingApproval && !liveState().pendingClarify}>
-              <CommandCardDock card={commandCard()!} onDismiss={dismissCommandCard} />
-            </Show>
+            <PromptDock items={promptDockItems()} />
 
             <MessageInput
               onSend={handleSend}
               onStop={() => chatStore.cancelMessage(sessionId())}
-              disabled={isStreaming() || !modelStore.activeModel}
+              disabled={isStreaming() || blockingPromptActive() || !modelStore.activeModel}
               isStreaming={isStreaming()}
               modelSlot={(dimmed, disabled) => <ModelSelector sessionId={sessionId()} dimmed={dimmed} disabled={disabled} />}
               workspacePath={workspacePath()}

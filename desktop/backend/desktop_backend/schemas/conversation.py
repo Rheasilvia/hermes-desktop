@@ -59,6 +59,16 @@ class ClarifyRespondRequest(BaseModel):
     answer: str
 
 
+class SudoRespondRequest(BaseModel):
+    request_id: str
+    password: str = ""
+
+
+class SecretRespondRequest(BaseModel):
+    request_id: str
+    value: str = ""
+
+
 # ── Response models ────────────────────────────────────────────────────────
 
 

@@ -64,6 +64,22 @@ const AttachmentBlockView: Component<{ block: AttachmentBlock }> = (props) => (
   <AttachmentRenderer block={props.block} />
 );
 
+function isRenderableBlock(block: MessageBlock): boolean {
+  switch (block.type) {
+    case 'text':
+    case 'code':
+    case 'reasoning':
+      return 'content' in block && String(block.content).trim().length > 0;
+    case 'tool_call':
+    case 'todo_list':
+    case 'rich_content':
+    case 'attachment':
+      return true;
+    default:
+      return false;
+  }
+}
+
 export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
   const [showActions, setShowActions] = createSignal(false);
 
@@ -108,82 +124,88 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
     return firstToolGroup() ? g.slice(1) : g;
   });
 
+  const hasRenderableContent = createMemo(() =>
+    (props.liveTools?.length ?? 0) > 0 || props.blocks.some(isRenderableBlock)
+  );
+
   return (
-    <div
-      class={styles.row}
-      onMouseEnter={() => setShowActions(true)}
-      onMouseLeave={() => setShowActions(false)}
-    >
-      <HermesAvatar size={40} />
-      <div class={styles.content}>
-        <div class={styles.header}>
-          <span class={styles.senderLabel}>Hermes</span>
-          <Show when={props.timestamp}>
-            <span class={styles.timestamp}>{formatTimestamp(props.timestamp!)}</span>
+    <Show when={hasRenderableContent()}>
+      <div
+        class={styles.row}
+        onMouseEnter={() => setShowActions(true)}
+        onMouseLeave={() => setShowActions(false)}
+      >
+        <HermesAvatar size={40} />
+        <div class={styles.content}>
+          <div class={styles.header}>
+            <span class={styles.senderLabel}>Hermes</span>
+            <Show when={props.timestamp}>
+              <span class={styles.timestamp}>{formatTimestamp(props.timestamp!)}</span>
+            </Show>
+          </div>
+          {/* TurnActivityPanel outside <For> — preserves ThinkingIndicator RAF stability */}
+          <Show when={reasoningBlock() || firstToolGroup() || (props.liveTools && props.liveTools.length > 0)}>
+            <TurnActivityPanel
+              reasoning={reasoningBlock() ? {
+                content: reasoningBlock()!.content,
+                isStreaming: reasoningBlock()!.isStreaming,
+                tokenCount: reasoningBlock()!.tokenCount,
+              } : undefined}
+              toolRows={props.liveTools ?? (firstToolGroup()?.blocks ?? []).map(blockToRow)}
+              isLive={
+                props.liveTools
+                  ? props.isStreaming || props.liveTools.some(r => r.status === 'generating' || r.status === 'running')
+                  : (firstToolGroup()?.blocks ?? []).some(b => b.status === 'streaming' || b.status === 'running')
+              }
+            />
           </Show>
-        </div>
-        {/* TurnActivityPanel outside <For> — preserves ThinkingIndicator RAF stability */}
-        <Show when={reasoningBlock() || firstToolGroup() || (props.liveTools && props.liveTools.length > 0)}>
-          <TurnActivityPanel
-            reasoning={reasoningBlock() ? {
-              content: reasoningBlock()!.content,
-              isStreaming: reasoningBlock()!.isStreaming,
-              tokenCount: reasoningBlock()!.tokenCount,
-            } : undefined}
-            toolRows={props.liveTools ?? (firstToolGroup()?.blocks ?? []).map(blockToRow)}
-            isLive={
-              props.liveTools
-                ? props.liveTools.some(r => r.status === 'generating' || r.status === 'running')
-                : (firstToolGroup()?.blocks ?? []).some(b => b.status === 'streaming' || b.status === 'running')
-            }
-          />
-        </Show>
-        <For each={remainingGroups()}>
-          {(group) => {
-            if (group.type === 'tool_group') {
-              const isLive = group.blocks.some(
-                (b) => b.status === 'streaming' || b.status === 'running'
-              );
-              return (
-                <ToolCallPanel
-                  rows={group.blocks.map(blockToRow)}
-                  isLive={isLive}
-                />
-              );
-            }
-            const block = group.block;
-            switch (block.type) {
-              case 'text':
-                return <TextBlockView block={block as TextBlock} />;
-              case 'code':
+          <For each={remainingGroups()}>
+            {(group) => {
+              if (group.type === 'tool_group') {
+                const isLive = group.blocks.some(
+                  (b) => b.status === 'streaming' || b.status === 'running'
+                );
                 return (
-                  <CodeBlock
-                    content={(block as CodeBlockType).content}
-                    language={(block as CodeBlockType).language}
-                    filename={(block as CodeBlockType).filename}
+                  <ToolCallPanel
+                    rows={group.blocks.map(blockToRow)}
+                    isLive={isLive}
                   />
                 );
-              case 'rich_content':
-                return <RichContentBlockView block={block as RichContentBlock} />;
-              case 'attachment':
-                return <AttachmentBlockView block={block as AttachmentBlock} />;
-              default:
-                return null;
-            }
-          }}
-        </For>
-        <Show when={props.isStreaming && props.blocks.some((b) => b.type !== 'reasoning')}>
-          <span class={styles.streamingCursor} />
-        </Show>
-        <Show when={showActions() && props.onAction}>
-          <MessageActionBar
-            variant="ai"
-            onAction={props.onAction!}
-            disabled={props.actionsDisabled}
-            isLast={props.isLast}
-          />
-        </Show>
+              }
+              const block = group.block;
+              switch (block.type) {
+                case 'text':
+                  return <TextBlockView block={block as TextBlock} />;
+                case 'code':
+                  return (
+                    <CodeBlock
+                      content={(block as CodeBlockType).content}
+                      language={(block as CodeBlockType).language}
+                      filename={(block as CodeBlockType).filename}
+                    />
+                  );
+                case 'rich_content':
+                  return <RichContentBlockView block={block as RichContentBlock} />;
+                case 'attachment':
+                  return <AttachmentBlockView block={block as AttachmentBlock} />;
+                default:
+                  return null;
+              }
+            }}
+          </For>
+          <Show when={props.isStreaming && props.blocks.some((b) => b.type !== 'reasoning')}>
+            <span class={styles.streamingCursor} />
+          </Show>
+          <Show when={showActions() && props.onAction}>
+            <MessageActionBar
+              variant="ai"
+              onAction={props.onAction!}
+              disabled={props.actionsDisabled}
+              isLast={props.isLast}
+            />
+          </Show>
+        </div>
       </div>
-    </div>
+    </Show>
   );
 };

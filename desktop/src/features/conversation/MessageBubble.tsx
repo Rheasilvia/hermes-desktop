@@ -21,6 +21,24 @@ interface MessageBubbleProps {
   actionsDisabled?: boolean;
 }
 
+function hasRenderableAssistantBlocks(message: RenderedMessage): boolean {
+  return message.blocks.some((block) => {
+    switch (block.type) {
+      case 'text':
+      case 'code':
+      case 'reasoning':
+        return 'content' in block && String(block.content).trim().length > 0;
+      case 'tool_call':
+      case 'todo_list':
+      case 'rich_content':
+      case 'attachment':
+        return true;
+      default:
+        return false;
+    }
+  });
+}
+
 export const MessageBubble: Component<MessageBubbleProps> = (props) => {
   const role = () => props.message.role;
 
@@ -40,7 +58,7 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
           onAction={props.onAction}
         />
       </Show>
-      <Show when={role() === 'assistant'}>
+      <Show when={role() === 'assistant' && hasRenderableAssistantBlocks(props.message)}>
         <AssistantMessage
           blocks={props.message.blocks}
           timestamp={props.message.timestamp || undefined}

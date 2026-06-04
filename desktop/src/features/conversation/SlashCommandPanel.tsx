@@ -1,7 +1,8 @@
 import type { Component } from 'solid-js';
-import { createSignal, createEffect, For, Show } from 'solid-js';
+import { createMemo } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { fuzzyScore } from '@/utils/fuzzy.js';
+import { CompletionPanel, type CompletionItem } from './composer/CompletionPanel.js';
 import styles from './SlashCommandPanel.module.css';
 
 export interface SlashCommand {
@@ -43,44 +44,6 @@ function getIconName(cmd: SlashCommand): string {
   return CATEGORY_ICONS[cat] ?? 'terminal';
 }
 
-/** A single selectable command row, shared by browse and filter modes. */
-const CommandRow: Component<{
-  cmd: SlashCommand;
-  selected: boolean;
-  onSelect: () => void;
-  onHover: () => void;
-}> = (props) => {
-  let ref: HTMLDivElement | undefined;
-  // Keep the keyboard-selected row visible: scroll it into view inside the
-  // (overflow-y:auto) panel as the selection moves via ArrowUp/ArrowDown.
-  createEffect(() => {
-    // Optional call: scrollIntoView is unimplemented in jsdom (tests).
-    if (props.selected) ref?.scrollIntoView?.({ block: 'nearest' });
-  });
-  return (
-    <div
-      ref={ref}
-      class={styles.commandRow}
-      classList={{ [styles.commandRowSelected]: props.selected }}
-      onClick={props.onSelect}
-      onMouseEnter={props.onHover}
-    >
-      <div class={styles.iconWrapper}>
-        <Icon name={getIconName(props.cmd) as any} size={12} />
-      </div>
-      <div class={styles.commandInfo}>
-        <span
-          class={styles.commandName}
-          style={{ 'font-weight': props.selected ? '600' : 'normal' }}
-        >
-          /{props.cmd.command}
-        </span>
-        <span class={styles.commandDesc}>{props.cmd.description}</span>
-      </div>
-    </div>
-  );
-};
-
 interface SlashCommandPanelProps {
   commands: SlashCommand[];
   filter: string;
@@ -90,8 +53,6 @@ interface SlashCommandPanelProps {
 }
 
 export const SlashCommandPanel: Component<SlashCommandPanelProps> = (props) => {
-  const [selectedIndex, setSelectedIndex] = createSignal(0);
-
   const isBrowseMode = () => props.filter.trim() === '';
 
   // Rank by NAME relevance first (fuzzy: exact > prefix > substring > subsequence).
@@ -105,7 +66,7 @@ export const SlashCommandPanel: Component<SlashCommandPanelProps> = (props) => {
     return idx === -1 ? -Infinity : 100 - idx;
   };
 
-  const filteredCommands = (): SlashCommand[] => {
+  const filteredCommands = createMemo((): SlashCommand[] => {
     if (isBrowseMode()) return props.commands;
     const q = props.filter.trim();
     return props.commands
@@ -118,9 +79,9 @@ export const SlashCommandPanel: Component<SlashCommandPanelProps> = (props) => {
         a.c.command.localeCompare(b.c.command),
       )
       .map((r) => r.c);
-  };
+  });
 
-  const groupedCommands = (): Map<string, SlashCommand[]> => {
+  const groupedCommands = createMemo((): Map<string, SlashCommand[]> => {
     const groups = new Map<string, SlashCommand[]>();
     for (const cmd of filteredCommands()) {
       const cat = cmd.category ?? 'Built-in';
@@ -128,159 +89,64 @@ export const SlashCommandPanel: Component<SlashCommandPanelProps> = (props) => {
       groups.get(cat)!.push(cmd);
     }
     return groups;
-  };
+  });
 
   // Every category present, ordered: known categories first, then the rest
   // alphabetically — so browse mode shows ALL commands, not a hardcoded subset.
-  const orderedCategories = (): string[] => {
+  const orderedCategories = createMemo((): string[] => {
     const groups = groupedCommands();
     const known = CATEGORY_ORDER.filter((c) => groups.has(c));
     const rest = [...groups.keys()].filter((c) => !CATEGORY_ORDER.includes(c)).sort();
     return [...known, ...rest];
-  };
+  });
 
   // Flat list in the same order as rendered, for keyboard navigation.
-  const flatCommands = (): SlashCommand[] => {
+  const flatCommands = createMemo((): SlashCommand[] => {
     if (isBrowseMode()) {
       const groups = groupedCommands();
       return orderedCategories().flatMap((cat) => groups.get(cat) ?? []);
     }
     return filteredCommands();
-  };
-
-  createEffect(() => {
-    if (props.visible) {
-      setSelectedIndex(0);
-    }
   });
 
-  createEffect(() => {
-    props.filter;
-    setSelectedIndex(0);
-  });
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (!props.visible) return;
-    const cmds = flatCommands();
-    if (cmds.length === 0) return;
-
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        e.stopPropagation();
-        setSelectedIndex((i) => (i + 1) % cmds.length);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        e.stopPropagation();
-        setSelectedIndex((i) => (i - 1 + cmds.length) % cmds.length);
-        break;
-      case 'Enter':
-        if (e.shiftKey) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (cmds[selectedIndex()]) {
-          props.onSelect(cmds[selectedIndex()]);
-        }
-        break;
-      case 'Tab':
-        e.preventDefault();
-        e.stopPropagation();
-        if (cmds[selectedIndex()]) {
-          props.onSelect(cmds[selectedIndex()]);
-        }
-        break;
-      case 'Escape':
-        e.preventDefault();
-        e.stopPropagation();
-        props.onClose();
-        break;
-    }
-  };
-
-  createEffect(() => {
-    if (props.visible) {
-      document.addEventListener('keydown', handleKeyDown);
-    }
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  });
-
-  const renderBrowseMode = () => {
-    const groups = groupedCommands();
-    const flat = flatCommands();
-    return (
-      <>
-        <div class={styles.browseHeader}>All Commands</div>
-        <div class={styles.divider} />
-        <For each={orderedCategories()}>
-          {(cat) => {
-            const cmds = groups.get(cat) ?? [];
-            const colors = CATEGORY_COLORS[cat] ?? CATEGORY_COLORS['Built-in'];
-            return (
-              <>
-                <div class={styles.groupHeader}>
-                  <span
-                    class={styles.categoryBadge}
-                    style={{ color: colors.text, background: colors.bg }}
-                  >
-                    {cat.toUpperCase()}
-                  </span>
-                </div>
-                <For each={cmds}>
-                  {(cmd) => {
-                    const idx = flat.indexOf(cmd);
-                    return (
-                      <CommandRow
-                        cmd={cmd}
-                        selected={idx === selectedIndex()}
-                        onSelect={() => props.onSelect(cmd)}
-                        onHover={() => setSelectedIndex(idx)}
-                      />
-                    );
-                  }}
-                </For>
-              </>
-            );
-          }}
-        </For>
-      </>
-    );
-  };
-
-  const renderFilterMode = () => {
-    const cmds = flatCommands();
-    return (
-      <>
-        <div class={styles.panelHeader}>
-          <Icon name="search" size={12} />
-          <span class={styles.panelHeaderText}>
-            Commands · {cmds.length} result{cmds.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-        <div class={styles.divider} />
-        <For each={cmds}>
-          {(cmd, idx) => (
-            <CommandRow
-              cmd={cmd}
-              selected={idx() === selectedIndex()}
-              onSelect={() => props.onSelect(cmd)}
-              onHover={() => setSelectedIndex(idx())}
-            />
-          )}
-        </For>
-      </>
-    );
-  };
+  const completionItems = createMemo((): CompletionItem[] => flatCommands().map((cmd) => ({
+    id: cmd.command,
+    title: `/${cmd.command}`,
+    description: cmd.description,
+    icon: <Icon name={getIconName(cmd) as any} size={12} />,
+    category: isBrowseMode() ? (cmd.category ?? 'Built-in') : undefined,
+    data: cmd,
+  })));
 
   return (
-    <Show when={props.visible}>
-      <div class={styles.panel}>
-        <Show when={!isBrowseMode()} fallback={renderBrowseMode()}>
-          {renderFilterMode()}
-        </Show>
-      </div>
-    </Show>
+    <CompletionPanel
+      visible={props.visible}
+      header={
+        isBrowseMode()
+          ? <span class={styles.browseHeader}>All Commands</span>
+          : (
+            <>
+              <Icon name="search" size={12} />
+              <span class={styles.panelHeaderText}>
+                Commands · {flatCommands().length} result{flatCommands().length !== 1 ? 's' : ''}
+              </span>
+            </>
+          )
+      }
+      items={completionItems()}
+      renderCategory={(category) => {
+        const colors = CATEGORY_COLORS[category] ?? CATEGORY_COLORS['Built-in'];
+        return (
+          <span
+            class={styles.categoryBadge}
+            style={{ color: colors.text, background: colors.bg }}
+          >
+            {category.toUpperCase()}
+          </span>
+        );
+      }}
+      onSelect={(item) => props.onSelect(item.data as SlashCommand)}
+      onClose={props.onClose}
+    />
   );
 };

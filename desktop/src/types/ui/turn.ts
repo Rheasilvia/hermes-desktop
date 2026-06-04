@@ -4,10 +4,14 @@
 
 export type TurnStatus = 'idle' | 'streaming' | 'tool_running' | 'error' | 'interrupted';
 
-export interface PendingApproval {
+export interface PendingPermission {
+  kind: 'approval' | 'secret' | 'sudo';
+  requestId?: string;
   command: string;
   description: string;
-  is_path_approval?: boolean;
+  prompt?: string;
+  envVar?: string;
+  isPathApproval?: boolean;
 }
 
 export interface PendingClarify {
@@ -33,7 +37,7 @@ export interface LiveTurnState {
   todosToolId: string | null;
   todos: TodoItem[];
   errorMessage: string | null;
-  pendingApproval: PendingApproval | null;
+  pendingPermission: PendingPermission | null;
   pendingClarify: PendingClarify | null;
   memoryContext: MemoryContextItem[] | null;
 }

@@ -1,5 +1,5 @@
 import type { Accessor, Component } from 'solid-js';
-import { createSignal, createEffect, Show, For } from 'solid-js';
+import { createSignal, createEffect, Show } from 'solid-js';
 import { fileChipQueue } from '@/stores/file-chip-queue.js';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Icon } from '@/ui/atoms/Icon';
@@ -7,14 +7,9 @@ import { WorkspacePicker } from './WorkspacePicker';
 import { GitBranchPicker } from './GitBranchPicker';
 import { SlashCommandPanel, type SlashCommand } from './SlashCommandPanel';
 import { ContextUsageBar, type ContextUsageProps } from './ContextUsageBar';
+import { AttachmentChips, type AttachmentChip } from './composer/AttachmentChips.js';
 import { getGateway } from '@/stores/context.js';
 import styles from './MessageInput.module.css';
-
-interface AttachmentChip {
-  name: string;
-  size: number;
-  path: string;
-}
 
 interface MessageInputProps {
   onSend: (text: string, attachments?: AttachmentChip[]) => void;
@@ -29,12 +24,6 @@ interface MessageInputProps {
   editDraft?: Accessor<string | null>;
   clearEditDraft?: () => void;
   contextUsage?: ContextUsageProps;
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / 1048576).toFixed(1)}MB`;
 }
 
 export const MessageInput: Component<MessageInputProps> = (props) => {
@@ -224,26 +213,8 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
           onSelect={handleSlashSelect}
           onClose={handleSlashClose}
         />
-        {/* Attachment chips */}
         <Show when={hasAttachments()}>
-          <div class={styles.chipsRow}>
-            <For each={attachments()}>
-              {(chip, idx) => (
-                <div class={styles.attachmentChip}>
-                  <Icon name="file-code" size={12} class={styles.chipIcon} />
-                  <span class={styles.chipName}>{chip.name}</span>
-                  <button
-                    class={styles.chipRemove}
-                    type="button"
-                    onClick={() => removeAttachment(idx())}
-                    aria-label={`Remove ${chip.name}`}
-                  >
-                    <Icon name="x" size={10} />
-                  </button>
-                </div>
-              )}
-            </For>
-          </div>
+          <AttachmentChips attachments={attachments()} onRemove={removeAttachment} />
         </Show>
 
         {/* Textarea */}

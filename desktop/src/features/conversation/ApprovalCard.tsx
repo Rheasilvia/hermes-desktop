@@ -1,6 +1,5 @@
 import type { Component } from 'solid-js';
-import { Show } from 'solid-js';
-import styles from './ApprovalCard.module.css';
+import { PermissionRequestCard } from './turn/PermissionRequestCard.js';
 
 interface ApprovalCardProps {
   command: string;
@@ -12,23 +11,20 @@ interface ApprovalCardProps {
 
 export const ApprovalCard: Component<ApprovalCardProps> = (props) => {
   return (
-    <div class={styles.card}>
-      <div class={styles.main}>
-        <span class={styles.dots}>
-          <span class={`${styles.dot} ${styles.dot1}`} />
-          <span class={`${styles.dot} ${styles.dot2}`} />
-          <span class={`${styles.dot} ${styles.dot3}`} />
-        </span>
-        <span class={styles.title}>Waiting for approval</span>
-        <span class={styles.command}>{props.command}</span>
-      </div>
-      <div class={styles.buttons}>
-        <button class={styles.denyBtn} onClick={props.onDeny}>Deny</button>
-        <Show when={props.onAllowSession}>
-          <button class={styles.allowBtn} onClick={props.onAllowSession}>Allow for session</button>
-        </Show>
-        <button class={styles.allowBtn} onClick={props.onAllow}>Allow</button>
-      </div>
-    </div>
+    <PermissionRequestCard
+      permission={{
+        kind: 'approval',
+        command: props.command,
+        description: props.description,
+        isPathApproval: Boolean(props.onAllowSession),
+      }}
+      onApprovalChoice={(choice) => {
+        if (choice === 'deny') props.onDeny();
+        else if (choice === 'session') props.onAllowSession?.();
+        else props.onAllow();
+      }}
+      onMaskedSubmit={() => {}}
+      onCancel={props.onDeny}
+    />
   );
 };
