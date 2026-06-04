@@ -1,13 +1,16 @@
 /**
  * TypeScript types matching hermes-agent Python data structures.
  * Barrel export for all type modules.
+ *
+ * Wire types (HTTP/SSE/Rust payload shapes) are now under @/types/wire/*.
+ * Prefer direct wire imports for new code; this barrel remains for backwards compat.
  */
+
+// Wire types — HTTP/SSE/Rust payload shapes (prefer @/types/wire/* for new code)
+export * from './wire/index.js';
 
 // Message types
 export type { Role, ToolCall, ToolCallFunction, Usage, Message, ReasoningItem, MessageDelta, MessageComplete, MessageStatus } from './message.js';
-
-// Session types
-export type { SessionMeta, SessionMessage, SessionUsage, SessionInfo, McpServerStatus, SessionListItem, Session } from './session.js';
 
 // Tool types
 export type { ToolParameter, ToolSchema, ToolEnvVar, ToolEntry, ToolsetInfo, ActiveTool, ToolStartEvent, ToolProgressEvent, ToolCompleteEvent, ToolGeneratingEvent } from './tool.js';
@@ -27,25 +30,6 @@ export type {
 // Command types
 export type { CommandCategory, CommandSubcommand, CommandDef, CommandCatalog } from './command.js';
 
-// Gateway types
-export type {
-  RpcRequest, RpcResponse, RpcError, RpcResult, GatewayEvent, GatewayMethod,
-  GatewayReadyPayload, GatewaySkin, SessionInfoPayload, SessionUsagePayload,
-  MessageStartPayload, MessageDeltaPayload, MessageCompletePayload, MessageStatusPayload,
-  ThinkingDeltaPayload, ReasoningDeltaPayload, ReasoningAvailablePayload,
-  StatusUpdatePayload, ToolStartPayload, ToolProgressPayload, ToolCompletePayload,
-  ToolGeneratingPayload, ToolErrorPayload, ApprovalRequestPayload, ClarifyRequestPayload,
-  SudoRequestPayload, SecretRequestPayload, BackgroundCompletePayload, BtwCompletePayload,
-  ErrorPayload, GatewayStderrPayload, ProtocolErrorPayload,
-  SessionTitleUpdatePayload, TodoItem,
-  SubagentStartPayload, SubagentProgressPayload, SubagentCompletePayload,
-  SubagentToolPayload, SubagentErrorPayload, SubagentRecord,
-} from './gateway.js';
-export { SESSION_METHODS, PROMPT_METHODS, CONFIG_METHODS, TOOLS_METHODS, MODEL_METHODS, APPROVAL_METHODS, CLARIFY_METHODS, SUDO_METHODS, SECRET_METHODS } from './gateway.js';
-
-// Model types
-export type { ProviderEntry, ModelOption } from './model.js';
-
 // Cron types
 export type { ScheduleKind, Schedule, Repeat, DeliveryKind, Delivery, CronJob, CreateCronJobParams, UpdateCronJobParams } from './cron.js';
 
@@ -64,20 +48,8 @@ export type {
 // MCP types
 export type { McpTransport, McpAuthType, McpServer, McpOAuthConfig, McpSamplingConfig, McpTool, McpInputSchema, McpSchemaProperty, McpConnectionStatus } from './mcp.js';
 
-// Diff types
-export type { LineKind, DiffLine, DiffHunk, FileStatus, DiffFile, DiffSummary, GitDiffResult } from './diff.js';
-
 // Workspace tree types
 export type { WorkspaceTreeNodeKind, WorkspaceTreeNode, WorkspaceChildrenResult, WorkspaceTreeRow } from './workspace-tree.js';
-
-// Analytics types
-export type {
-  ModelCapabilities,
-  ModelUsageStat,
-  UsageTotals,
-  ModelAnalyticsResponse,
-  AnalyticsPeriod,
-} from './analytics.js';
 
 // DB row types (snake_case, mirrors SQLite columns)
 export type { DbSession, DbDesktopSessionMeta } from './db/session.js';
