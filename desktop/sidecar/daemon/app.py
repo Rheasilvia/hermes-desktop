@@ -184,6 +184,7 @@ def build_app(cfg: Config) -> FastAPI:
     @app.on_event("startup")
     def _prewarm_agents():
         import threading
+        import time
 
         try:
             from hermes_state import SessionDB
