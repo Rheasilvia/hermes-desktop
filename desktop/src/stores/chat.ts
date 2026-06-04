@@ -17,6 +17,8 @@ import type {
   ToolErrorPayload,
   ApprovalRequestPayload,
   ClarifyRequestPayload,
+  SudoRequestPayload,
+  SecretRequestPayload,
 } from '@/types/gateway.js';
 import type { SessionMessage } from '@/types/session.js';
 import type { RenderedMessage } from '@/types/ui/message.js';
@@ -47,7 +49,7 @@ function makeLiveTurnState(sessionId: string): LiveTurnState {
     todosToolId: null,
     todos: [],
     errorMessage: null,
-    pendingApproval: null,
+    pendingPermission: null,
     pendingClarify: null,
     memoryContext: null,
   };
@@ -74,6 +76,16 @@ function nextEphemeralId(): string {
 
 function nextBlockId(): string {
   return `b-${++_ephemeralCounter}`;
+}
+
+function latestMatchingToolIndex(tools: LiveToolCall[], name: string): number {
+  for (let idx = tools.length - 1; idx >= 0; idx -= 1) {
+    const tool = tools[idx];
+    if (tool.name === name && (tool.status === 'generating' || tool.status === 'running')) {
+      return idx;
+    }
+  }
+  return -1;
 }
 
 /** Convert a legacy SessionMessage (gateway wire format) to a domain ConversationMessage. */
@@ -253,7 +265,7 @@ export const chatStore = {
       id: payload.tool_id,
       name: payload.name,
       status: 'running',
-      inputPreview: null,
+      inputPreview: payload.context ?? null,
       progressPreview: null,
       resultSummary: null,
       durationMs: null,
@@ -491,6 +503,11 @@ export const chatStore = {
         }] : []),
       ];
 
+      if (blocks.length === 0) {
+        setChatStates(sessionId, 'liveState', makeLiveTurnState(sessionId));
+        return;
+      }
+
       const partialMsg: RenderedMessage = {
         id: nextEphemeralId(),
         sessionId,
@@ -513,10 +530,31 @@ export const chatStore = {
   },
 
   handleApprovalRequest(sessionId: string, payload: ApprovalRequestPayload): void {
-    setChatStates(sessionId, 'liveState', 'pendingApproval', {
+    setChatStates(sessionId, 'liveState', 'pendingPermission', {
+      kind: 'approval',
       command: payload.command,
       description: payload.description,
-      is_path_approval: payload.is_path_approval,
+      isPathApproval: payload.is_path_approval,
+    });
+  },
+
+  handleSudoRequest(sessionId: string, payload: SudoRequestPayload): void {
+    setChatStates(sessionId, 'liveState', 'pendingPermission', {
+      kind: 'sudo',
+      requestId: payload.request_id,
+      command: 'sudo',
+      description: 'Hermes needs your local sudo password to continue.',
+    });
+  },
+
+  handleSecretRequest(sessionId: string, payload: SecretRequestPayload): void {
+    setChatStates(sessionId, 'liveState', 'pendingPermission', {
+      kind: 'secret',
+      requestId: payload.request_id,
+      command: payload.env_var,
+      description: payload.prompt || `Enter ${payload.env_var}`,
+      prompt: payload.prompt,
+      envVar: payload.env_var,
     });
   },
 
@@ -529,13 +567,25 @@ export const chatStore = {
   },
 
   async respondApproval(sessionId: string, choice: boolean | string): Promise<void> {
-    const pending = chatStates[sessionId]?.liveState.pendingApproval;
-    setChatStates(sessionId, 'liveState', 'pendingApproval', null);
+    const pending = chatStates[sessionId]?.liveState.pendingPermission;
+    setChatStates(sessionId, 'liveState', 'pendingPermission', null);
     const gw = getGateway();
-    if (gw && pending) {
+    if (gw && pending?.kind === 'approval') {
       const resolvedChoice = (typeof choice === 'string' ? choice : (choice ? 'once' : 'deny')) as 'once' | 'session' | 'always' | 'deny';
       await gw.approval.respond({ session_id: sessionId, command: pending.command, choice: resolvedChoice }).catch(() => {});
     }
+  },
+
+  async respondSudo(sessionId: string, requestId: string, password: string): Promise<void> {
+    setChatStates(sessionId, 'liveState', 'pendingPermission', null);
+    const gw = getGateway();
+    if (gw) await gw.sudo.respond({ request_id: requestId, password }).catch(() => {});
+  },
+
+  async respondSecret(sessionId: string, requestId: string, value: string): Promise<void> {
+    setChatStates(sessionId, 'liveState', 'pendingPermission', null);
+    const gw = getGateway();
+    if (gw) await gw.secret.respond({ request_id: requestId, value }).catch(() => {});
   },
 
   async respondClarify(sessionId: string, requestId: string, text: string): Promise<void> {

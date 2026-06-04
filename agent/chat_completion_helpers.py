@@ -1692,9 +1692,9 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                     agent._fire_stream_delta(text)
                     deltas_were_sent["yes"] = True
 
-                def _on_tool(name):
+                def _on_tool(name, tool_id=None):
                     _fire_first()
-                    agent._fire_tool_gen_started(name)
+                    agent._fire_tool_gen_started(name, tool_id)
 
                 def _on_reasoning(text):
                     _fire_first()
@@ -2015,7 +2015,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                     if name and idx not in tool_gen_notified:
                         tool_gen_notified.add(idx)
                         _fire_first_delta()
-                        agent._fire_tool_gen_started(name)
+                        agent._fire_tool_gen_started(name, entry.get("id") or None)
                         # Record the partial tool-call name so the outer
                         # stub-builder can surface a user-visible warning
                         # if streaming dies before this tool's arguments
@@ -2228,7 +2228,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                         tool_name = getattr(block, "name", None)
                         if tool_name:
                             _fire_first_delta()
-                            agent._fire_tool_gen_started(tool_name)
+                            agent._fire_tool_gen_started(tool_name, getattr(block, "id", None))
 
                 elif event_type == "content_block_delta":
                     delta = getattr(event, "delta", None)

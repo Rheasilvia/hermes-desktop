@@ -413,7 +413,10 @@ class AgentPool:
             self._emit_ui_message(session_id, "reasoning.delta", {"text": text})
         return cb
 
-    def _make_tool_gen_cb(self, session_id: str) -> Callable[[str], None]:
-        def cb(text: str) -> None:
-            self._emit_ui_message(session_id, "tool.generating", {"text": text})
+    def _make_tool_gen_cb(self, session_id: str) -> Callable[[str, str | None], None]:
+        def cb(name: str, tool_id: str | None = None) -> None:
+            payload = {"name": name, "text": name}
+            if tool_id:
+                payload["tool_id"] = tool_id
+            self._emit_ui_message(session_id, "tool.generating", payload)
         return cb

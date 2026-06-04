@@ -2,41 +2,9 @@ import type { Component } from 'solid-js';
 import { Show, For, createMemo } from 'solid-js';
 import { delegationStore, subagentList } from '@/stores/delegation.js';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { DelegationControls } from './DelegationControls.js';
+import { SubagentRow } from './SubagentRow.js';
 import styles from './DelegationSidePanel.module.css';
-
-const sortLabels: Record<typeof delegationStore.sortMode, string> = {
-  'spawn-order': 'Spawn',
-  'slowest': 'Slowest',
-  'status': 'Status',
-  'busiest': 'Busiest',
-};
-
-const filterLabels: Record<typeof delegationStore.filterMode, string> = {
-  'all': 'All',
-  'running': 'Running',
-  'failed': 'Failed',
-  'leaves': 'Leaves',
-};
-
-function statusIcon(status: string): import('@/ui/atoms/Icon.js').IconName {
-  switch (status) {
-    case 'running': return 'loader';
-    case 'complete': return 'check-circle';
-    case 'error': return 'alert-circle';
-    case 'paused': return 'square';
-    default: return 'cpu';
-  }
-}
-
-function statusClass(status: string): string {
-  switch (status) {
-    case 'running': return styles.statusRunning;
-    case 'complete': return styles.statusComplete;
-    case 'error': return styles.statusError;
-    case 'paused': return styles.statusPaused;
-    default: return '';
-  }
-}
 
 export const DelegationSidePanel: Component = () => {
   const filteredList = createMemo(() => {
@@ -74,57 +42,7 @@ export const DelegationSidePanel: Component = () => {
 
   return (
     <div class={styles.panel}>
-      <div class={styles.header}>
-        <div class={styles.headerTitle}>
-          <Icon name="users" size={16} />
-          <span>Delegation</span>
-          <span class={styles.badge}>{subagentList().length}</span>
-        </div>
-        <button
-          type="button"
-          class={`${styles.pauseBtn} ${delegationStore.paused ? styles.pauseBtnActive : ''}`}
-          onClick={() => delegationStore.setPaused(!delegationStore.paused)}
-          title={delegationStore.paused ? 'Resume delegation' : 'Pause delegation'}
-        >
-          <Icon name={delegationStore.paused ? 'play' : 'square'} size={14} />
-          <span>{delegationStore.paused ? 'Resume' : 'Pause'}</span>
-        </button>
-      </div>
-
-      <div class={styles.toolbar}>
-        <div class={styles.toolbarGroup}>
-          <span class={styles.toolbarLabel}>Sort</span>
-          <div class={styles.toolbarButtons}>
-            <For each={Object.entries(sortLabels)}>
-              {([key, label]) => (
-                <button
-                  type="button"
-                  class={`${styles.toolbarBtn} ${delegationStore.sortMode === key ? styles.toolbarBtnActive : ''}`}
-                  onClick={() => delegationStore.setSortMode(key as typeof delegationStore.sortMode)}
-                >
-                  {label}
-                </button>
-              )}
-            </For>
-          </div>
-        </div>
-        <div class={styles.toolbarGroup}>
-          <span class={styles.toolbarLabel}>Filter</span>
-          <div class={styles.toolbarButtons}>
-            <For each={Object.entries(filterLabels)}>
-              {([key, label]) => (
-                <button
-                  type="button"
-                  class={`${styles.toolbarBtn} ${delegationStore.filterMode === key ? styles.toolbarBtnActive : ''}`}
-                  onClick={() => delegationStore.setFilterMode(key as typeof delegationStore.filterMode)}
-                >
-                  {label}
-                </button>
-              )}
-            </For>
-          </div>
-        </div>
-      </div>
+      <DelegationControls subagentCount={subagentList().length} />
 
       <Show when={runningCount() > 0}>
         <div class={styles.runningBanner}>
@@ -136,48 +54,10 @@ export const DelegationSidePanel: Component = () => {
       <div class={styles.list} role="tree" aria-label="Subagent tree">
         <For each={sortedList()}>
           {(subagent) => (
-            <div
-              class={styles.card}
-              role="treeitem"
-              aria-level={(subagent.depth ?? 0) + 1}
-              aria-expanded={parentIds().has(subagent.subagent_id)}
-              tabindex={-1}
-              style={{ 'margin-left': `${(subagent.depth ?? 0) * 16}px` }}
-            >
-              <div class={styles.cardHeader}>
-                <span class={`${styles.statusDot} ${statusClass(subagent.status)}`}>
-                  <Icon name={statusIcon(subagent.status)} size={12} />
-                </span>
-                <span class={styles.cardGoal} title={subagent.goal}>
-                  {subagent.goal}
-                </span>
-                <span class={styles.cardModel}>{subagent.model}</span>
-              </div>
-              <div class={styles.cardMeta}>
-                <span class={styles.metaId}>{subagent.subagent_id.slice(0, 8)}</span>
-                {subagent.task_count != null && (
-                  <span class={styles.metaItem}>Task {subagent.task_index ?? 0}/{subagent.task_count}</span>
-                )}
-                {subagent.tool_count != null && subagent.tool_count > 0 && (
-                  <span class={styles.metaItem}>{subagent.tool_count} tools</span>
-                )}
-                {subagent.duration_seconds != null && (
-                  <span class={styles.metaItem}>{subagent.duration_seconds.toFixed(1)}s</span>
-                )}
-                {subagent.cost_usd != null && subagent.cost_usd > 0 && (
-                  <span class={styles.metaItem}>${subagent.cost_usd.toFixed(4)}</span>
-                )}
-              </div>
-              {subagent.tool_preview && (
-                <div class={styles.cardPreview}>{subagent.tool_preview}</div>
-              )}
-              {subagent.summary && (
-                <div class={styles.cardSummary}>{subagent.summary}</div>
-              )}
-              {subagent.error_text && (
-                <div class={styles.cardError}>{subagent.error_text}</div>
-              )}
-            </div>
+            <SubagentRow
+              subagent={subagent}
+              hasChildren={parentIds().has(subagent.subagent_id)}
+            />
           )}
         </For>
 

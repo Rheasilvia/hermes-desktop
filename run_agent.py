@@ -4320,10 +4320,10 @@ class AIAgent:
             except Exception:
                 pass
 
-    def _fire_tool_gen_started(self, tool_name: str) -> None:
+    def _fire_tool_gen_started(self, tool_name: str, tool_id: str | None = None) -> None:
         """Notify display layer that the model is generating tool call arguments.
 
-        Fires once per tool name when the streaming response begins producing
+        Fires once per tool call when the streaming response begins producing
         tool_call / tool_use tokens.  Gives the TUI a chance to show a spinner
         or status line so the user isn't staring at a frozen screen while a
         large tool payload (e.g. a 45 KB write_file) is being generated.
@@ -4331,7 +4331,12 @@ class AIAgent:
         cb = self.tool_gen_callback
         if cb is not None:
             try:
-                cb(tool_name)
+                cb(tool_name, tool_id)
+            except TypeError:
+                try:
+                    cb(tool_name)
+                except Exception:
+                    pass
             except Exception:
                 pass
 

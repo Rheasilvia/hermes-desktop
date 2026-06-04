@@ -5,6 +5,7 @@ import { chatStore } from '../chat';
 const SESSION_TOOL_COMPLETE = 'test-session-tool-complete';
 const SESSION_NULL_SUMMARY = 'test-session-null-summary';
 const SESSION_MSG_COMPLETE = 'test-session-msg-complete';
+const SESSION_TOOL_IDENTITY = 'test-session-tool-identity';
 
 describe('handleToolComplete', () => {
   beforeEach(() => {
@@ -86,6 +87,76 @@ describe('handleMessageComplete — tool blocks', () => {
     expect(toolBlock).toBeDefined();
     expect((toolBlock as { outputSummary: string | null }).outputSummary).toBe('Done');
     expect((toolBlock as { durationMs: number | null }).durationMs).toBe(800);
+  });
+});
+
+describe('live tool identity', () => {
+  beforeEach(() => {
+    chatStore.clearMessages(SESSION_TOOL_IDENTITY);
+  });
+
+  it('deduplicates repeated tool.start events by tool_id', () => {
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_1', name: 'web_search' });
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_1', name: 'web_search' });
+
+    const tools = chatStore.getLiveState(SESSION_TOOL_IDENTITY).activeTools;
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({ id: 'tool_1', name: 'web_search', status: 'running' });
+  });
+
+  it('merges tool.generating into tool.start with the same id', () => {
+    chatStore.handleToolGenerating(SESSION_TOOL_IDENTITY, {
+      tool_id: 'tool_1',
+      name: 'web_search',
+      text: '{"query"',
+    });
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_1', name: 'web_search' });
+
+    const tools = chatStore.getLiveState(SESSION_TOOL_IDENTITY).activeTools;
+    expect(tools).toHaveLength(1);
+    expect(tools[0].status).toBe('running');
+    expect(tools[0].inputPreview).toBe('{"query"');
+  });
+
+  it('updates only the tool row that matches tool.progress tool_id', () => {
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_a', name: 'bash' });
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_b', name: 'bash' });
+    chatStore.handleToolProgress(SESSION_TOOL_IDENTITY, {
+      tool_id: 'tool_b',
+      name: 'bash',
+      preview: 'running second command',
+    });
+
+    const tools = chatStore.getLiveState(SESSION_TOOL_IDENTITY).activeTools;
+    expect(tools.find((t) => t.id === 'tool_a')?.progressPreview).toBeNull();
+    expect(tools.find((t) => t.id === 'tool_b')?.progressPreview).toBe('running second command');
+  });
+
+  it('updates only the latest matching running tool for legacy progress events without id', () => {
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_a', name: 'bash' });
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_b', name: 'bash' });
+    chatStore.handleToolProgress(SESSION_TOOL_IDENTITY, {
+      name: 'bash',
+      preview: 'legacy progress',
+    });
+
+    const tools = chatStore.getLiveState(SESSION_TOOL_IDENTITY).activeTools;
+    expect(tools.find((t) => t.id === 'tool_a')?.progressPreview).toBeNull();
+    expect(tools.find((t) => t.id === 'tool_b')?.progressPreview).toBe('legacy progress');
+  });
+});
+
+describe('handleMessageComplete — empty assistant turns', () => {
+  const SESSION_EMPTY_COMPLETE = 'test-session-empty-complete';
+
+  beforeEach(() => {
+    chatStore.clearMessages(SESSION_EMPTY_COMPLETE);
+  });
+
+  it('does not append an assistant message when complete text and live blocks are empty', () => {
+    chatStore.handleMessageComplete(SESSION_EMPTY_COMPLETE, { text: '', usage: undefined });
+
+    expect(chatStore.getMessages(SESSION_EMPTY_COMPLETE)).toHaveLength(0);
   });
 });
 

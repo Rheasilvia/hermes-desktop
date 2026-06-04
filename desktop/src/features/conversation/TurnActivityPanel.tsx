@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
+import { createSignal, createEffect, onCleanup, Index, Show } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import type { ToolCallRow, LiveToolCall } from '@/types/index.js';
 import styles from './TurnActivityPanel.module.css';
@@ -75,6 +75,39 @@ function formatThinkSeconds(tokenCount: number | null): string {
   return `${Math.max(1, Math.round(tokenCount / 50))}s`;
 }
 
+const LiveToolRow: Component<{ row: () => ToolCallRow }> = (props) => {
+  const [entering, setEntering] = createSignal(true);
+  const isRowActive = () =>
+    props.row().status === 'generating' || props.row().status === 'running';
+
+  const timeoutId = window.setTimeout(() => setEntering(false), 220);
+  onCleanup(() => window.clearTimeout(timeoutId));
+
+  return (
+    <div class={`${styles.liveRow} ${entering() ? styles.liveRowEntering : ''}`}>
+      <span class={styles.connector} aria-hidden="true">└</span>
+      <Show
+        when={isRowActive()}
+        fallback={
+          <Icon
+            name={props.row().status === 'error' ? 'alert-circle' : 'check'}
+            size={12}
+            class={props.row().status === 'error' ? styles.errorIcon : styles.doneIcon}
+          />
+        }
+      >
+        <span class={`${styles.activeDot} ${styles.pulse}`} />
+      </Show>
+      <span class={`${styles.toolName} ${isRowActive() ? styles.toolNameActive : ''}`}>
+        {props.row().name}
+      </span>
+      <Show when={props.row().durationMs != null}>
+        <span class={styles.duration}>{formatDuration(props.row().durationMs!)}</span>
+      </Show>
+    </div>
+  );
+};
+
 // ── TurnActivityPanel ────────────────────────────────────────────────────────
 export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
   const [panelExpanded, setPanelExpanded] = createSignal(false);
@@ -146,39 +179,10 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
         </div>
 
         <Show when={hasTools()}>
-          <div class={styles.liveToolList}>
-            <For each={props.toolRows}>
-              {(row, index) => {
-                const isRowActive = () =>
-                  row.status === 'generating' || row.status === 'running';
-                return (
-                  <div
-                    class={styles.liveRow}
-                    style={{ 'animation-delay': `${index() * 50}ms` }}
-                  >
-                    <span class={styles.connector} aria-hidden="true">└</span>
-                    <Show
-                      when={isRowActive()}
-                      fallback={
-                        <Icon
-                          name={row.status === 'error' ? 'alert-circle' : 'check'}
-                          size={12}
-                          class={row.status === 'error' ? styles.errorIcon : styles.doneIcon}
-                        />
-                      }
-                    >
-                      <span class={`${styles.activeDot} ${styles.pulse}`} />
-                    </Show>
-                    <span class={`${styles.toolName} ${isRowActive() ? styles.toolNameActive : ''}`}>
-                      {row.name}
-                    </span>
-                    <Show when={row.durationMs != null}>
-                      <span class={styles.duration}>{formatDuration(row.durationMs!)}</span>
-                    </Show>
-                  </div>
-                );
-              }}
-            </For>
+          <div class={styles.liveToolList} aria-label="Live tool activity">
+            <Index each={props.toolRows ?? []}>
+              {(row) => <LiveToolRow row={row} />}
+            </Index>
           </div>
         </Show>
       </div>
@@ -232,10 +236,9 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
           <div class={styles.section}>
             <div class={styles.sectionLabel}>Tools</div>
             <div class={styles.toolList}>
-              <For each={props.toolRows}>
-                {(r) => {
-                  const row = r as ToolCallRow;
-                  const isOpen = () => expandedTools().has(row.id);
+              <Index each={props.toolRows ?? []}>
+                {(row) => {
+                  const isOpen = () => expandedTools().has(row().id);
                   return (
                     <div class={styles.toolRow}>
                       <span class={styles.connector} aria-hidden="true">└</span>
@@ -243,30 +246,30 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
                         <div class={styles.toolRowMain}>
                           <Icon
                             name={
-                              row.status === 'complete' ? 'check' :
-                              row.status === 'error' ? 'alert-circle' :
+                              row().status === 'complete' ? 'check' :
+                              row().status === 'error' ? 'alert-circle' :
                               'clock'
                             }
                             size={12}
                             class={
-                              row.status === 'complete' ? styles.doneIcon :
-                              row.status === 'error' ? styles.errorIcon :
+                              row().status === 'complete' ? styles.doneIcon :
+                              row().status === 'error' ? styles.errorIcon :
                               styles.neutralIcon
                             }
                           />
-                          <span class={styles.toolName}>{row.name}</span>
-                          <Show when={row.argumentPreview}>
-                            <span class={styles.argPreview}>{row.argumentPreview}</span>
+                          <span class={styles.toolName}>{row().name}</span>
+                          <Show when={row().argumentPreview}>
+                            <span class={styles.argPreview}>{row().argumentPreview}</span>
                           </Show>
-                          <Show when={row.durationMs != null}>
-                            <span class={styles.duration}>{formatDuration(row.durationMs!)}</span>
+                          <Show when={row().durationMs != null}>
+                            <span class={styles.duration}>{formatDuration(row().durationMs!)}</span>
                           </Show>
                           {/* ▶/▼ expands the tool result (second-level expand) */}
-                          <Show when={row.resultSummary}>
+                          <Show when={row().resultSummary}>
                             <button
                               class={styles.expandToolBtn}
                               type="button"
-                              onClick={() => toggleTool(row.id)}
+                              onClick={() => toggleTool(row().id)}
                               aria-label={isOpen() ? 'Hide result' : 'Show result'}
                             >
                               <Icon
@@ -276,14 +279,14 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
                             </button>
                           </Show>
                         </div>
-                        <Show when={isOpen() && row.resultSummary}>
-                          <pre class={styles.toolResult}>{row.resultSummary}</pre>
+                        <Show when={isOpen() && row().resultSummary}>
+                          <pre class={styles.toolResult}>{row().resultSummary}</pre>
                         </Show>
                       </div>
                     </div>
                   );
                 }}
-              </For>
+              </Index>
             </div>
           </div>
         </Show>

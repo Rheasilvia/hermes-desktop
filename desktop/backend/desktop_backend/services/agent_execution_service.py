@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import uuid
@@ -13,6 +14,21 @@ from .exceptions import SessionBusyError
 from .interfaces import SessionStateStore, UIMessageStore
 
 log = logging.getLogger(__name__)
+
+_pending_prompt_lock = threading.Lock()
+_pending_prompt_events: dict[str, threading.Event] = {}
+_pending_prompt_answers: dict[str, str] = {}
+
+
+def resolve_blocking_prompt(request_id: str, value: str) -> bool:
+    """Resolve a Desktop blocking prompt raised from the agent worker thread."""
+    with _pending_prompt_lock:
+        event = _pending_prompt_events.get(request_id)
+        if event is None:
+            return False
+        _pending_prompt_answers[request_id] = value
+        event.set()
+        return True
 
 
 class AgentExecutionService:
@@ -54,7 +70,7 @@ class AgentExecutionService:
 
         thread = threading.Thread(
             target=self._run_turn,
-            args=(session_id, user_message),
+            args=(session_id, user_message, user_seq),
             daemon=True,
             name=f"agent-turn-{session_id[:8]}",
         )
@@ -62,15 +78,21 @@ class AgentExecutionService:
         thread.start()
         return thread
 
-    def _run_turn(self, session_id: str, user_message: str) -> None:
+    def _run_turn(self, session_id: str, user_message: str, user_seq: int) -> None:
         from tools.terminal_cwd import set_terminal_cwd, reset_terminal_cwd
         from tools.path_approval import set_workspace_context, reset_workspace_context
+        from tools.terminal_tool import set_sudo_password_callback
+        from tools.skills_tool import set_secret_capture_callback
 
         _t0_total = time.time()
         entry = self._pool.get_pooled_entry(session_id)
         workspace_cwd = getattr(entry.agent if entry else None, "workspace_cwd", None)
         cwd_token = set_terminal_cwd(workspace_cwd)
         ws_tokens = set_workspace_context(workspace_cwd, session_id)
+        prev_interactive = os.environ.get("HERMES_INTERACTIVE")
+        os.environ["HERMES_INTERACTIVE"] = "1"
+        set_sudo_password_callback(lambda: self._block_for_prompt("sudo.request", session_id, {}, timeout=120))
+        set_secret_capture_callback(lambda env_var, prompt, metadata=None: self._capture_secret(session_id, env_var, prompt, metadata))
 
         try:
             _t0 = time.time()
@@ -107,15 +129,16 @@ class AgentExecutionService:
             elif isinstance(result, str):
                 final_text = result
 
-            payload = {
-                "text": final_text,
-                "rendered": False,
-            }
-            usage = self._get_usage(session_id, agent)
-            if usage is not None:
-                payload["usage"] = usage
-            seq = self._ui.append(session_id, "message.complete", payload)
-            self._bus.publish(session_id, seq, "message.complete", payload)
+            if final_text or self._has_renderable_turn_events(session_id, user_seq):
+                payload = {
+                    "text": final_text,
+                    "rendered": False,
+                }
+                usage = self._get_usage(session_id, agent)
+                if usage is not None:
+                    payload["usage"] = usage
+                seq = self._ui.append(session_id, "message.complete", payload)
+                self._bus.publish(session_id, seq, "message.complete", payload)
 
             self._session_svc.backfill_model_if_unset(
                 session_id, getattr(agent, "model", "")
@@ -128,6 +151,10 @@ class AgentExecutionService:
             self._bus.publish(session_id, seq, "error", {"message": error_msg})
 
         finally:
+            if prev_interactive is None:
+                os.environ.pop("HERMES_INTERACTIVE", None)
+            else:
+                os.environ["HERMES_INTERACTIVE"] = prev_interactive
             reset_terminal_cwd(cwd_token)
             reset_workspace_context(ws_tokens)
             self._pool.mark_idle(session_id)
@@ -215,6 +242,66 @@ class AgentExecutionService:
                 usage["compressions"] = 0
 
         return usage
+
+    def _has_renderable_turn_events(self, session_id: str, user_seq: int) -> bool:
+        """Return True when this turn emitted non-text blocks worth flushing."""
+        renderable_types = {
+            "reasoning.delta",
+            "tool.start",
+            "tool.generating",
+            "tool.complete",
+            "tool.error",
+            "tool.progress",
+            "todo.update",
+        }
+        try:
+            rows = self._ui.list_messages(session_id, since_seq=user_seq)
+        except Exception:
+            log.exception("failed to inspect ui_messages before message.complete")
+            return True
+        return any(str(row.get("type") or "") in renderable_types for row in rows)
+
+    def _block_for_prompt(self, event_type: str, session_id: str, payload: dict[str, Any], timeout: int = 120) -> str:
+        request_id = str(uuid.uuid4())
+        event = threading.Event()
+        with _pending_prompt_lock:
+            _pending_prompt_events[request_id] = event
+
+        full_payload = {**payload, "request_id": request_id}
+        seq = self._ui.append(session_id, event_type, full_payload)
+        self._bus.publish(session_id, seq, event_type, full_payload)
+
+        try:
+            if not event.wait(timeout):
+                return ""
+            with _pending_prompt_lock:
+                return _pending_prompt_answers.pop(request_id, "")
+        finally:
+            with _pending_prompt_lock:
+                _pending_prompt_events.pop(request_id, None)
+                _pending_prompt_answers.pop(request_id, None)
+
+    def _capture_secret(self, session_id: str, env_var: str, prompt: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"prompt": prompt, "env_var": env_var}
+        if metadata:
+            payload["metadata"] = metadata
+        value = self._block_for_prompt("secret.request", session_id, payload)
+        if not value:
+            return {
+                "success": True,
+                "stored_as": env_var,
+                "validated": False,
+                "skipped": True,
+                "message": "skipped",
+            }
+
+        from hermes_cli.config import save_env_value_secure
+
+        return {
+            **save_env_value_secure(env_var, value),
+            "skipped": False,
+            "message": "ok",
+        }
 
     def _rollback_orphaned_llm_user_message(self, session_id: str, agent: Any) -> None:
         """Remove a trailing user message from the LLM session DB after an interrupt.

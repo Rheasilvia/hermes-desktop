@@ -317,8 +317,16 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         };
       },
     };
-    this.sudo = { respond: notImplemented('sudo.respond') };
-    this.secret = { respond: notImplemented('secret.respond') };
+    this.sudo = {
+      respond: async (params: { request_id: string; password: string }): Promise<void> => {
+        await this.http.post(`${API_PREFIX}/sudo/respond`, params);
+      },
+    };
+    this.secret = {
+      respond: async (params: { request_id: string; value: string }): Promise<void> => {
+        await this.http.post(`${API_PREFIX}/secret/respond`, params);
+      },
+    };
     this.cron = { list: notImplemented('cron.list'), create: notImplemented('cron.create'), update: notImplemented('cron.update'), delete: notImplemented('cron.delete') };
     this.mcp = { list: notImplemented('mcp.list'), add: notImplemented('mcp.add'), remove: notImplemented('mcp.remove'), tools: notImplemented('mcp.tools') };
     this.memory = {
@@ -413,9 +421,9 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         console.warn('delegation.status RPC not implemented — returning empty status');
         return { active: [], paused: false, max_spawn_depth: 0 };
       },
-      pause: async () => {
+      pause: async (params) => {
         console.warn('delegation.pause RPC not implemented — pause is UI-only');
-        return { paused: false };
+        return { paused: params.paused };
       },
     };
     this.subagent = {
@@ -510,19 +518,32 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         }
         case 'tool.start': {
           const id = String(payload.tool_id ?? '');
+          const existing = pendingTools.get(id);
           pendingTools.set(id, {
             id,
-            name: String(payload.name ?? ''),
-            arguments: {},
+            name: String(payload.name ?? existing?.name ?? ''),
+            arguments: existing?.arguments ?? {},
             status: 'running',
-            outputSummary: null,
-            durationMs: null,
-            seqIndex: seqCounter++,
+            outputSummary: existing?.outputSummary ?? null,
+            durationMs: existing?.durationMs ?? null,
+            seqIndex: existing?.seqIndex ?? seqCounter++,
           });
           break;
         }
         case 'tool.generating': {
           const id = String(payload.tool_id ?? '');
+          if (!id) break;
+          if (!pendingTools.has(id)) {
+            pendingTools.set(id, {
+              id,
+              name: String(payload.name ?? ''),
+              arguments: {},
+              status: 'running',
+              outputSummary: null,
+              durationMs: null,
+              seqIndex: seqCounter++,
+            });
+          }
           inputAccumulator.set(id, (inputAccumulator.get(id) ?? '') + String(payload.text ?? ''));
           break;
         }
@@ -746,6 +767,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'tool.progress':
         this.emit('tool.progress', {
+          tool_id: payload.tool_id != null ? String(payload.tool_id) : undefined,
           name: String(payload.name ?? ''),
           preview: payload.preview != null ? String(payload.preview) : undefined,
           progress: payload.progress != null ? String(payload.progress) : undefined,
@@ -758,6 +780,18 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           is_path_approval: Boolean(payload.is_path_approval),
         } as GatewayEventMap['approval.request']);
         break;
+      case 'sudo.request':
+        this.emit('sudo.request', {
+          request_id: String(payload.request_id ?? ''),
+        } as GatewayEventMap['sudo.request']);
+        break;
+      case 'secret.request':
+        this.emit('secret.request', {
+          request_id: String(payload.request_id ?? ''),
+          prompt: String(payload.prompt ?? ''),
+          env_var: String(payload.env_var ?? ''),
+        } as GatewayEventMap['secret.request']);
+        break;
       case 'clarify.request':
         this.emit('clarify.request', {
           request_id: String(payload.request_id ?? ''),
@@ -769,6 +803,33 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         this.emit('message.start', {
           message_id: String(payload.message_id ?? ''),
         } as GatewayEventMap['message.start']);
+        break;
+      case 'status.update':
+        this.emit('status.update', {
+          kind: String(payload.kind ?? 'status'),
+          text: String(payload.text ?? ''),
+        } as GatewayEventMap['status.update']);
+        break;
+      case 'background.complete':
+        this.emit('background.complete', {
+          task_id: String(payload.task_id ?? ''),
+          text: String(payload.text ?? ''),
+        } as GatewayEventMap['background.complete']);
+        break;
+      case 'btw.complete':
+        this.emit('btw.complete', {
+          text: String(payload.text ?? ''),
+        } as GatewayEventMap['btw.complete']);
+        break;
+      case 'gateway.stderr':
+        this.emit('gateway.stderr', {
+          text: String(payload.text ?? ''),
+        } as GatewayEventMap['gateway.stderr']);
+        break;
+      case 'gateway.protocol_error':
+        this.emit('gateway.protocol_error', {
+          message: String(payload.message ?? ''),
+        } as GatewayEventMap['gateway.protocol_error']);
         break;
       case 'turn_error':
         this.emit('error', {
@@ -825,7 +886,6 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     // handler routes all event types through dispatchSseEvent.
     const eventSource = this.eventSource;
     if (!eventSource) return;
-
     eventSource.onmessage = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);

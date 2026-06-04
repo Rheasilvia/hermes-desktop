@@ -16,8 +16,10 @@ from ..schemas.conversation import (
     ClarifyRespondRequest,
     CreateSessionRequest,
     PromptExecuteRequest,
+    SecretRespondRequest,
     UpdateSessionRequest,
     SetSessionProviderRequest,
+    SudoRespondRequest,
 )
 from ..services.dependencies import (
     get_agent_execution_service,
@@ -256,4 +258,22 @@ async def clarify_respond(
         agent._pending_clarify = body.answer
     elif hasattr(agent, "resolve_clarify"):
         agent.resolve_clarify(body.request_id, body.answer)
+    return {"ok": True}
+
+
+@router.post("/sudo/respond")
+async def sudo_respond(body: SudoRespondRequest):
+    from ..services.agent_execution_service import resolve_blocking_prompt
+
+    if not resolve_blocking_prompt(body.request_id, body.password):
+        raise HTTPException(status_code=404, detail="NO_PENDING_SUDO_REQUEST")
+    return {"ok": True}
+
+
+@router.post("/secret/respond")
+async def secret_respond(body: SecretRespondRequest):
+    from ..services.agent_execution_service import resolve_blocking_prompt
+
+    if not resolve_blocking_prompt(body.request_id, body.value):
+        raise HTTPException(status_code=404, detail="NO_PENDING_SECRET_REQUEST")
     return {"ok": True}

@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { Show, For } from 'solid-js';
+import { Show, Index } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon';
 import type { ToolCallRow } from '@/types/index.js';
 import styles from './ToolCallTree.module.css';
@@ -18,10 +18,10 @@ const ToolCallTree: Component<ToolCallTreeProps> = (props) => {
   return (
     <div class={styles.container}>
       <div class={styles.header}>TOOL CALLS</div>
-      <For each={props.rows}>
+      <Index each={props.rows}>
         {(row) => {
           const isActive = () =>
-            row.status === 'generating' || row.status === 'running';
+            row().status === 'generating' || row().status === 'running';
 
           return (
             <div class={styles.row}>
@@ -34,12 +34,12 @@ const ToolCallTree: Component<ToolCallTreeProps> = (props) => {
                     when={isActive()}
                     fallback={
                       <Show
-                        when={row.status === 'complete'}
+                        when={row().status === 'complete'}
                         fallback={
                           <span class={styles.statusIcon}>
-                            <Icon
-                              name="alert-circle"
-                              size={12}
+                          <Icon
+                            name="alert-circle"
+                            size={12}
                               class={styles.errorIcon}
                             />
                           </span>
@@ -60,27 +60,27 @@ const ToolCallTree: Component<ToolCallTreeProps> = (props) => {
                   <span
                     class={`${styles.toolName} ${isActive() ? styles.active : ''}`}
                   >
-                    {row.name}
+                    {row().name}
                   </span>
-                  <Show when={row.argumentPreview}>
+                  <Show when={row().argumentPreview}>
                     <span class={styles.argumentPreview}>
-                      {row.argumentPreview}
+                      {row().argumentPreview}
                     </span>
                   </Show>
-                  <Show when={row.durationMs != null}>
+                  <Show when={row().durationMs != null}>
                     <span class={styles.duration}>
-                      {formatDuration(row.durationMs!)}
+                      {formatDuration(row().durationMs!)}
                     </span>
                   </Show>
                 </div>
-                <Show when={row.resultSummary}>
-                  <div class={styles.resultSummary}>{row.resultSummary}</div>
+                <Show when={row().resultSummary}>
+                  <div class={styles.resultSummary}>{row().resultSummary}</div>
                 </Show>
               </div>
             </div>
           );
         }}
-      </For>
+      </Index>
     </div>
   );
 };
