@@ -10,9 +10,6 @@ describe('ChatToolbar workspace side panel controls', () => {
         workspacePath="/workspace"
         sidePanelActive={false}
         onToggleSidePanel={onToggleSidePanel}
-        onOpenGitView={vi.fn()}
-        onToggleDelegationPanel={vi.fn()}
-        delegationPanelActive={false}
       />
     ));
 
@@ -21,22 +18,15 @@ describe('ChatToolbar workspace side panel controls', () => {
     expect(onToggleSidePanel).toHaveBeenCalledTimes(1);
   });
 
-  it('opens the Git tab from the More menu without closing the panel itself', () => {
-    const onOpenGitView = vi.fn();
+  it('reflects active state when panel is open', () => {
     render(() => (
       <ChatToolbar
         workspacePath="/workspace"
         sidePanelActive={true}
         onToggleSidePanel={vi.fn()}
-        onOpenGitView={onOpenGitView}
-        onToggleDelegationPanel={vi.fn()}
-        delegationPanelActive={false}
       />
     ));
 
-    fireEvent.click(screen.getByTitle('More options'));
-    fireEvent.click(screen.getByRole('button', { name: /Show Git View/i }));
-
-    expect(onOpenGitView).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Hide workspace panel' })).toBeTruthy();
   });
 });

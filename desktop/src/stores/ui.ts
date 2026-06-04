@@ -6,7 +6,7 @@
 import { createSignal, createEffect } from 'solid-js';
 import type { ConnectionState } from '@/services/gateway/types.js';
 
-type Theme = 'dark' | 'light' | 'earth';
+type Theme = 'dark' | 'light';
 
 const STORAGE_KEY_THEME = 'hermes-desktop-theme';
 const STORAGE_KEY_SIDEBAR = 'hermes-desktop-sidebar-collapsed';
@@ -19,7 +19,7 @@ const SIDEBAR_DEFAULT_WIDTH = 240;
 function loadPersistedTheme(): Theme {
   try {
     const stored = localStorage.getItem(STORAGE_KEY_THEME);
-    if (stored === 'dark' || stored === 'light' || stored === 'earth') {
+    if (stored === 'dark' || stored === 'light') {
       return stored;
     }
   } catch {}

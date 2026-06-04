@@ -60,12 +60,6 @@ describe('desktop-settings', () => {
       expect(document.documentElement.lang).toBe('en');
     });
 
-    test('applies earth theme correctly', () => {
-      const earthSettings: DesktopSettings = { ...mockSettings, theme: 'earth' };
-      applyDesktopSettings(earthSettings);
-      expect(document.documentElement.dataset.theme).toBe('earth');
-    });
-
     test('applies light theme correctly', () => {
       const lightSettings: DesktopSettings = { ...mockSettings, theme: 'light' };
       applyDesktopSettings(lightSettings);
@@ -76,7 +70,7 @@ describe('desktop-settings', () => {
   describe('loadDesktopSettings', () => {
     test('returns default settings when Tauri is unavailable', async () => {
       const settings = await loadDesktopSettings();
-      expect(settings.theme).toBe('earth');
+      expect(settings.theme).toBe('light');
       expect(settings.language).toBe('en');
       expect(settings.fontSize).toBe(100);
       expect(settings.reducedMotion).toBe(false);
@@ -101,7 +95,7 @@ describe('desktop-settings', () => {
   describe('loadDesktopSettings', () => {
     test('returns default settings when Tauri is unavailable and localStorage is empty', async () => {
       const settings = await loadDesktopSettings();
-      expect(settings.theme).toBe('earth');
+      expect(settings.theme).toBe('light');
       expect(settings.language).toBe('en');
       expect(settings.fontSize).toBe(100);
       expect(settings.reducedMotion).toBe(false);

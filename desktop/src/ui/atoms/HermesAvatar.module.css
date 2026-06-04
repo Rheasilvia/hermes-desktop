@@ -3,7 +3,8 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--color-parchment);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
   overflow: hidden;
   flex-shrink: 0;
   color: var(--color-on-surface);

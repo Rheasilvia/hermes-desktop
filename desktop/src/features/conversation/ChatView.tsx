@@ -508,11 +508,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         }
         break;
       }
-      case 'like':
-      case 'dislike':
-        break;
-      case 'more':
-        break;
     }
   };
 
@@ -835,12 +830,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         sessionTitle={sessionStore.activeSession?.title}
         sidePanelActive={sidePanelStore.isOpen()}
         onToggleSidePanel={() => sidePanelStore.toggle('workspace')}
-        onOpenGitView={() => {
-          sidePanelStore.open('git');
-          void gitViewStore.fetchDiff();
-        }}
-        onToggleDelegationPanel={() => sidePanelStore.toggle('delegation')}
-        delegationPanelActive={sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'delegation'}
       />
 
       <Show when={error()}>

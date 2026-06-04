@@ -55,8 +55,13 @@
 
 .navItemActive {
   color: var(--color-primary);
-  background: var(--color-surface-raised);
-  box-shadow: inset 0 -2px 0 0 var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: inset 2px 0 0 0 var(--color-primary);
+}
+
+.navItemActive:hover {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 
 .content {

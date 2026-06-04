@@ -1,80 +1,90 @@
 /* ============================================
-   HERMES DESKTOP — DARK THEME
+   HERMES DESKTOP — DARK THEME (Neutral Depth)
+   Near-black substrate · #5b8dff accent only
    ============================================ */
 
 [data-theme="dark"] {
   /* --- Colors: Brand --- */
-  --color-parchment: #1A1A1A;
-  --color-terracotta: #c96442;
-  --color-sage: #8FA882;
-  --color-charcoal: #E5E5E5;
-  --color-charcoal-warm: #C5C0B8;  /* lighter warm gray for button text in dark */
-  --color-cream: #222222;
-  --color-stone: #9B9589;
-  --color-warm-gray: #444444;
+  --color-parchment: #0e1119;
+  --color-terracotta: #5b8dff;
+  --color-sage: #4cc58a;
+  --color-charcoal: #dce4f5;
+  --color-charcoal-warm: rgba(220, 228, 245, 0.70);
+  --color-cream: #161c2d;
+  --color-stone: rgba(220, 228, 245, 0.50);
+  --color-warm-gray: #232c48;
 
   /* --- Colors: Semantic --- */
-  --color-primary: var(--color-terracotta);
-  --color-primary-hover: #b5522d;
-  --color-primary-light: rgba(201, 100, 66, 0.2);
-  --color-secondary: var(--color-sage);
-  --color-secondary-hover: #7E9672;
-  --color-secondary-light: rgba(143, 168, 130, 0.15);
+  --color-primary: #5b8dff;
+  --color-primary-hover: #4d7df0;
+  --color-primary-light: rgba(91, 141, 255, 0.15);
+  --color-secondary: #1e2540;
+  --color-secondary-hover: #252e4c;
+  --color-secondary-light: rgba(91, 141, 255, 0.08);
 
   /* --- Colors: Surface --- */
-  --color-surface: #2D2D2D;
-  --color-surface-raised: #353535;
-  --color-surface-overlay: rgba(0, 0, 0, 0.7);
-  --color-background: #1A1A1A;
-  --color-background-alt: #222222;
+  --color-surface: #161c2d;
+  --color-surface-raised: #1e2540;
+  --color-surface-overlay: rgba(0, 0, 0, 0.65);
+  --color-background: #0e1119;
+  --color-background-alt: #0b0e15;
 
   /* --- Colors: Text --- */
-  --color-on-surface: #E5E5E5;
-  --color-on-surface-muted: #9B9589;
-  --color-on-surface-dim: #6B6560;
-  --color-on-primary: #FFFFFF;
-  --color-on-secondary: #FFFFFF;
+  --color-on-surface: #dce4f5;
+  --color-on-surface-muted: #7a88a8;
+  --color-on-surface-dim: rgba(220, 228, 245, 0.45);
+  --color-on-primary: #ffffff;
+  --color-on-secondary: #dce4f5;
 
   /* --- Colors: Border --- */
-  --color-border: #444444;
-  --color-border-light: #333333;
-  --color-border-focus: var(--color-terracotta);
+  --color-border: rgba(255, 255, 255, 0.09);
+  --color-border-light: rgba(255, 255, 255, 0.05);
+  --color-border-focus: #5b8dff;
 
   /* --- Colors: Status --- */
-  --color-success: var(--color-sage);
-  --color-warning: #E6C36A;
-  --color-error: #E07A5F;
-  --color-info: #7FB3D5;
+  --color-success: #4cc58a;
+  --color-warning: #f09850;
+  --color-error: #f05070;
+  --color-info: #5b8dff;
 
-  /* --- Colors: Hover/Active overlays (light tint on dark substrate) --- */
-  --color-hover-overlay: rgba(255, 255, 255, 0.06);
-  --color-active-overlay: rgba(255, 255, 255, 0.10);
+  /* --- Colors: Hover/Active overlays --- */
+  --color-hover-overlay: rgba(255, 255, 255, 0.04);
+  --color-active-overlay: rgba(255, 255, 255, 0.08);
 
   /* --- Colors: Primary alpha scale --- */
-  --color-primary-soft: rgba(201, 100, 66, 0.10);
-  --color-primary-strong: rgba(201, 100, 66, 0.30);
+  --color-primary-soft: rgba(91, 141, 255, 0.10);
+  --color-primary-strong: rgba(91, 141, 255, 0.25);
 
-  /* --- Colors: Status surface tints (slightly stronger for visibility on dark) --- */
-  --color-success-surface: rgba(143, 168, 130, 0.16);
-  --color-warning-surface: rgba(230, 195, 106, 0.16);
-  --color-error-surface: rgba(224, 122, 95, 0.14);
-  --color-info-surface: rgba(127, 179, 213, 0.14);
+  /* --- Colors: Status surface tints --- */
+  --color-success-surface: rgba(76, 197, 138, 0.12);
+  --color-warning-surface: rgba(240, 152, 80, 0.14);
+  --color-error-surface: rgba(240, 80, 112, 0.12);
+  --color-info-surface: rgba(91, 141, 255, 0.12);
 
-  /* --- Conversation tokens (dark variants) --- */
-  --color-callout-bg: #3a2a26;
-  --color-callout-border: #5a3a32;
-  --color-date-separator: #444444;
+  /* --- Conversation tokens --- */
+  --color-callout-bg: #141828;
+  --color-callout-border: #252d48;
+  --color-date-separator: #1f2538;
+  --color-code-block-bg: #0a0c10;
+  --color-code-block-header: #121520;
 
-  /* --- Diff View Colors (dark) — brighter for visibility on dark bg --- */
-  --diff-addition-color: #73D673;
-  --diff-deletion-color: #FF6B6B;
-  --diff-addition-bg: rgba(115, 214, 115, 0.10);
-  --diff-deletion-bg: rgba(255, 107, 107, 0.08);
+  /* --- Conversation: Tool Calls --- */
+  --color-tool-active: #5b8dff;
+  --color-tool-done: #4cc58a;
+
+  /* --- Diff View Colors --- */
+  --diff-addition-color: #4cc58a;
+  --diff-deletion-color: #f05070;
+  --diff-addition-bg: rgba(76, 197, 138, 0.10);
+  --diff-deletion-bg: rgba(240, 80, 112, 0.10);
 
   /* --- Shadows --- */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.4), 0 4px 6px rgba(0, 0, 0, 0.3);
-  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.45), 0 8px 10px rgba(0, 0, 0, 0.3);
-  --shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.40), 0 1px 3px rgba(0, 0, 0, 0.55);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.40), 0 2px 4px rgba(0, 0, 0, 0.50);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.50), 0 4px 6px rgba(0, 0, 0, 0.40);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.55), 0 8px 10px rgba(0, 0, 0, 0.40);
+  --shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.40);
+
+  /* --- Logo --- */
+  --logo-accent-2: #4d7df0;
 }
