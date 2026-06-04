@@ -14,8 +14,8 @@ describe('handleToolComplete', () => {
   });
 
   it('stores summary from tool.complete payload', () => {
-    chatStore.handleToolStart(SESSION_TOOL_COMPLETE, { tool_id: 'tool_1', name: 'web_search' });
-    chatStore.handleToolComplete(SESSION_TOOL_COMPLETE, {
+    chatStore.handleToolStart(SESSION_TOOL_COMPLETE, { session_id: SESSION_TOOL_COMPLETE, tool_id: 'tool_1', name: 'web_search' });
+    chatStore.handleToolComplete(SESSION_TOOL_COMPLETE, { session_id: SESSION_TOOL_COMPLETE,
       tool_id: 'tool_1',
       name: 'web_search',
       summary: 'Found 5 results',
@@ -29,8 +29,8 @@ describe('handleToolComplete', () => {
   });
 
   it('sets resultSummary to null when summary absent', () => {
-    chatStore.handleToolStart(SESSION_NULL_SUMMARY, { tool_id: 'tool_2', name: 'bash' });
-    chatStore.handleToolComplete(SESSION_NULL_SUMMARY, {
+    chatStore.handleToolStart(SESSION_NULL_SUMMARY, { session_id: SESSION_NULL_SUMMARY, tool_id: 'tool_2', name: 'bash' });
+    chatStore.handleToolComplete(SESSION_NULL_SUMMARY, { session_id: SESSION_NULL_SUMMARY,
       tool_id: 'tool_2',
       name: 'bash',
       duration_s: 0.5,
@@ -50,13 +50,13 @@ describe('handleMessageComplete — tool blocks', () => {
     // Regression: tool cards jumped to message bottom after turn completed.
     // handleMessageComplete was building [reasoning, text, tools] but
     // parseMessage (DB path) builds [reasoning, tools, text].
-    chatStore.handleToolStart(SESSION_MSG_COMPLETE, { tool_id: 'order_tool', name: 'terminal' });
-    chatStore.handleToolComplete(SESSION_MSG_COMPLETE, {
+    chatStore.handleToolStart(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, tool_id: 'order_tool', name: 'terminal' });
+    chatStore.handleToolComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE,
       tool_id: 'order_tool',
       name: 'terminal',
       duration_s: 0.1,
     });
-    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { text: 'Here is the result', usage: undefined });
+    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, text: 'Here is the result', usage: undefined });
 
     const messages = chatStore.getMessages(SESSION_MSG_COMPLETE);
     const lastMsg = messages[messages.length - 1];
@@ -71,14 +71,14 @@ describe('handleMessageComplete — tool blocks', () => {
   });
 
   it('forwards resultSummary into ToolCallBlock.outputSummary', () => {
-    chatStore.handleToolStart(SESSION_MSG_COMPLETE, { tool_id: 'tool_3', name: 'web_search' });
-    chatStore.handleToolComplete(SESSION_MSG_COMPLETE, {
+    chatStore.handleToolStart(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, tool_id: 'tool_3', name: 'web_search' });
+    chatStore.handleToolComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE,
       tool_id: 'tool_3',
       name: 'web_search',
       summary: 'Done',
       duration_s: 0.8,
     });
-    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { text: 'Result text', usage: undefined });
+    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, text: 'Result text', usage: undefined });
 
     const messages = chatStore.getMessages(SESSION_MSG_COMPLETE);
     const lastMsg = messages[messages.length - 1];
@@ -96,8 +96,8 @@ describe('live tool identity', () => {
   });
 
   it('deduplicates repeated tool.start events by tool_id', () => {
-    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_1', name: 'web_search' });
-    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_1', name: 'web_search' });
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { session_id: SESSION_TOOL_IDENTITY, tool_id: 'tool_1', name: 'web_search' });
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { session_id: SESSION_TOOL_IDENTITY, tool_id: 'tool_1', name: 'web_search' });
 
     const tools = chatStore.getLiveState(SESSION_TOOL_IDENTITY).activeTools;
     expect(tools).toHaveLength(1);
@@ -105,12 +105,12 @@ describe('live tool identity', () => {
   });
 
   it('merges tool.generating into tool.start with the same id', () => {
-    chatStore.handleToolGenerating(SESSION_TOOL_IDENTITY, {
+    chatStore.handleToolGenerating(SESSION_TOOL_IDENTITY, { session_id: SESSION_TOOL_IDENTITY,
       tool_id: 'tool_1',
       name: 'web_search',
       text: '{"query"',
     });
-    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_1', name: 'web_search' });
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { session_id: SESSION_TOOL_IDENTITY, tool_id: 'tool_1', name: 'web_search' });
 
     const tools = chatStore.getLiveState(SESSION_TOOL_IDENTITY).activeTools;
     expect(tools).toHaveLength(1);
@@ -119,9 +119,9 @@ describe('live tool identity', () => {
   });
 
   it('updates only the tool row that matches tool.progress tool_id', () => {
-    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_a', name: 'bash' });
-    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_b', name: 'bash' });
-    chatStore.handleToolProgress(SESSION_TOOL_IDENTITY, {
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { session_id: SESSION_TOOL_IDENTITY, tool_id: 'tool_a', name: 'bash' });
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { session_id: SESSION_TOOL_IDENTITY, tool_id: 'tool_b', name: 'bash' });
+    chatStore.handleToolProgress(SESSION_TOOL_IDENTITY, { session_id: SESSION_TOOL_IDENTITY,
       tool_id: 'tool_b',
       name: 'bash',
       preview: 'running second command',
@@ -133,9 +133,9 @@ describe('live tool identity', () => {
   });
 
   it('updates only the latest matching running tool for legacy progress events without id', () => {
-    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_a', name: 'bash' });
-    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { tool_id: 'tool_b', name: 'bash' });
-    chatStore.handleToolProgress(SESSION_TOOL_IDENTITY, {
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { session_id: SESSION_TOOL_IDENTITY, tool_id: 'tool_a', name: 'bash' });
+    chatStore.handleToolStart(SESSION_TOOL_IDENTITY, { session_id: SESSION_TOOL_IDENTITY, tool_id: 'tool_b', name: 'bash' });
+    chatStore.handleToolProgress(SESSION_TOOL_IDENTITY, { session_id: SESSION_TOOL_IDENTITY,
       name: 'bash',
       preview: 'legacy progress',
     });
@@ -154,7 +154,7 @@ describe('handleMessageComplete — empty assistant turns', () => {
   });
 
   it('does not append an assistant message when complete text and live blocks are empty', () => {
-    chatStore.handleMessageComplete(SESSION_EMPTY_COMPLETE, { text: '', usage: undefined });
+    chatStore.handleMessageComplete(SESSION_EMPTY_COMPLETE, { session_id: SESSION_EMPTY_COMPLETE, text: '', usage: undefined });
 
     expect(chatStore.getMessages(SESSION_EMPTY_COMPLETE)).toHaveLength(0);
   });

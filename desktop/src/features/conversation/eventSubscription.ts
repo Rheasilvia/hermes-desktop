@@ -15,23 +15,23 @@ import { backgroundTaskStore } from '@/stores/background-tasks.js';
 import { delegationStore } from '@/stores/delegation.js';
 
 export function useGatewayEvents(opts: {
-  sessionId: () => string;
   getGateway: () => GatewayAdapter | null;
 }) {
-  const sid = opts.sessionId;
-
-  const onMessageDelta = (p: MessageDeltaPayload) => chatStore.handleDelta(sid(), p);
-  const onMessageComplete = (p: MessageCompletePayload) => chatStore.handleMessageComplete(sid(), p);
-  const onReasoningDelta = (p: ReasoningDeltaPayload) => chatStore.handleReasoningDelta(sid(), p.text);
-  const onToolStart = (p: ToolStartPayload) => chatStore.handleToolStart(sid(), p);
-  const onToolProgress = (p: ToolProgressPayload) => chatStore.handleToolProgress(sid(), p);
-  const onToolComplete = (p: ToolCompletePayload) => chatStore.handleToolComplete(sid(), p);
-  const onToolGenerating = (p: ToolGeneratingPayload) => chatStore.handleToolGenerating(sid(), p);
-  const onToolError = (p: ToolErrorPayload) => chatStore.handleToolError(sid(), p);
-  const onApprovalRequest = (p: ApprovalRequestPayload) => chatStore.handleApprovalRequest(sid(), p);
-  const onSudoRequest = (p: SudoRequestPayload) => chatStore.handleSudoRequest(sid(), p);
-  const onSecretRequest = (p: SecretRequestPayload) => chatStore.handleSecretRequest(sid(), p);
-  const onClarifyRequest = (p: ClarifyRequestPayload) => chatStore.handleClarifyRequest(sid(), p);
+  // All handlers use p.session_id from the event payload — not a closed-over
+  // session from the component. This ensures events are routed to the correct
+  // session even when the user has multiple sessions open or switches between them.
+  const onMessageDelta = (p: MessageDeltaPayload) => chatStore.handleDelta(p.session_id, p);
+  const onMessageComplete = (p: MessageCompletePayload) => chatStore.handleMessageComplete(p.session_id, p);
+  const onReasoningDelta = (p: ReasoningDeltaPayload) => chatStore.handleReasoningDelta(p.session_id, p.text);
+  const onToolStart = (p: ToolStartPayload) => chatStore.handleToolStart(p.session_id, p);
+  const onToolProgress = (p: ToolProgressPayload) => chatStore.handleToolProgress(p.session_id, p);
+  const onToolComplete = (p: ToolCompletePayload) => chatStore.handleToolComplete(p.session_id, p);
+  const onToolGenerating = (p: ToolGeneratingPayload) => chatStore.handleToolGenerating(p.session_id, p);
+  const onToolError = (p: ToolErrorPayload) => chatStore.handleToolError(p.session_id, p);
+  const onApprovalRequest = (p: ApprovalRequestPayload) => chatStore.handleApprovalRequest(p.session_id, p);
+  const onSudoRequest = (p: SudoRequestPayload) => chatStore.handleSudoRequest(p.session_id, p);
+  const onSecretRequest = (p: SecretRequestPayload) => chatStore.handleSecretRequest(p.session_id, p);
+  const onClarifyRequest = (p: ClarifyRequestPayload) => chatStore.handleClarifyRequest(p.session_id, p);
   const onBackgroundComplete = (p: BackgroundCompletePayload) => backgroundTaskStore.handleComplete(p);
   const onBtwComplete = (p: BtwCompletePayload) => backgroundTaskStore.handleBtwComplete(p);
   const onSubagentStart = (p: SubagentStartPayload) => delegationStore.handleStart(p);

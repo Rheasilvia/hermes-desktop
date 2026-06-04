@@ -664,10 +664,11 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         // User message already rendered by the UI; just track
         break;
       case 'message.delta':
-        this.emit('message.delta', { text: String(payload.text ?? '') } as GatewayEventMap['message.delta']);
+        this.emit('message.delta', { session_id: sid, text: String(payload.text ?? '') } as GatewayEventMap['message.delta']);
         break;
       case 'message.complete':
         this.emit('message.complete', {
+          session_id: sid,
           text: String(payload.text ?? ''),
           rendered: false,
           usage: payload.usage as GatewayEventMap['message.complete']['usage'],
@@ -675,7 +676,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         } as GatewayEventMap['message.complete']);
         break;
       case 'reasoning.delta':
-        this.emit('reasoning.delta', { text: String(payload.text ?? '') } as GatewayEventMap['reasoning.delta']);
+        this.emit('reasoning.delta', { session_id: sid, text: String(payload.text ?? '') } as GatewayEventMap['reasoning.delta']);
         break;
       case 'session.title_update':
         this.emit('session.title_update', {
@@ -685,12 +686,14 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'tool.start':
         this.emit('tool.start', {
+          session_id: sid,
           tool_id: String(payload.tool_id ?? ''),
           name: String(payload.name ?? ''),
         } as GatewayEventMap['tool.start']);
         break;
       case 'tool.complete': {
         const completePayload: GatewayEventMap['tool.complete'] = {
+          session_id: sid,
           tool_id: String(payload.tool_id ?? `${payload.name}_0`),
           name: String(payload.name ?? ''),
           summary: String(payload.summary ?? ''),
@@ -704,6 +707,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       }
       case 'tool.error':
         this.emit('tool.error', {
+          session_id: sid,
           tool_id: String(payload.tool_id ?? ''),
           name: String(payload.name ?? ''),
           error: String(payload.error ?? 'Unknown error'),
@@ -712,6 +716,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'tool.generating':
         this.emit('tool.generating', {
+          session_id: sid,
           tool_id: String(payload.tool_id ?? ''),
           name: String(payload.name ?? ''),
           text: String(payload.text ?? ''),
@@ -719,6 +724,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'subagent.start':
         this.emit('subagent.start', {
+          session_id: sid,
           subagent_id: String(payload.subagent_id ?? ''),
           goal: String(payload.goal ?? ''),
           parent_id: payload.parent_id != null ? String(payload.parent_id) : undefined,
@@ -730,6 +736,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'subagent.progress':
         this.emit('subagent.progress', {
+          session_id: sid,
           subagent_id: String(payload.subagent_id ?? ''),
           status: payload.status != null ? String(payload.status) : undefined,
           tool_count: payload.tool_count != null ? Number(payload.tool_count) : undefined,
@@ -738,6 +745,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'subagent.complete':
         this.emit('subagent.complete', {
+          session_id: sid,
           subagent_id: String(payload.subagent_id ?? ''),
           summary: payload.summary != null ? String(payload.summary) : undefined,
           duration_seconds: payload.duration_seconds != null ? Number(payload.duration_seconds) : undefined,
@@ -752,6 +760,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'subagent.tool':
         this.emit('subagent.tool', {
+          session_id: sid,
           subagent_id: String(payload.subagent_id ?? ''),
           tool_name: payload.tool_name != null ? String(payload.tool_name) : undefined,
           tool_preview: payload.tool_preview != null ? String(payload.tool_preview) : undefined,
@@ -760,6 +769,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'subagent.error':
         this.emit('subagent.error', {
+          session_id: sid,
           subagent_id: String(payload.subagent_id ?? ''),
           status: payload.status != null ? String(payload.status) : undefined,
           text: payload.text != null ? String(payload.text) : undefined,
@@ -767,6 +777,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'tool.progress':
         this.emit('tool.progress', {
+          session_id: sid,
           tool_id: payload.tool_id != null ? String(payload.tool_id) : undefined,
           name: String(payload.name ?? ''),
           preview: payload.preview != null ? String(payload.preview) : undefined,
@@ -775,6 +786,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'approval.request':
         this.emit('approval.request', {
+          session_id: sid,
           command: String(payload.command ?? ''),
           description: String(payload.description ?? ''),
           is_path_approval: Boolean(payload.is_path_approval),
@@ -782,11 +794,13 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'sudo.request':
         this.emit('sudo.request', {
+          session_id: sid,
           request_id: String(payload.request_id ?? ''),
         } as GatewayEventMap['sudo.request']);
         break;
       case 'secret.request':
         this.emit('secret.request', {
+          session_id: sid,
           request_id: String(payload.request_id ?? ''),
           prompt: String(payload.prompt ?? ''),
           env_var: String(payload.env_var ?? ''),
@@ -794,6 +808,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         break;
       case 'clarify.request':
         this.emit('clarify.request', {
+          session_id: sid,
           request_id: String(payload.request_id ?? ''),
           question: String(payload.question ?? ''),
           choices: (payload.choices as string[]) ?? [],
@@ -864,28 +879,13 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       this.eventSourceUrl = `${baseUrl}${API_PREFIX}/events/stream?token=${encodeURIComponent(token)}`;
     }
 
-    // Open SSE connection and wait for onopen so callers know the stream is live.
-    // 5-second timeout prevents blocking boot if SSE handshake stalls.
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 5_000);
+    // Create EventSource and register onmessage/onerror BEFORE awaiting onopen.
+    // The sidecar pushes pending_approval replay immediately on connection open,
+    // so onmessage must be live before the onopen promise resolves — otherwise
+    // those first frames are lost.
+    const eventSource = new EventSource(this.eventSourceUrl);
+    this.eventSource = eventSource;
 
-      const eventSource = new EventSource(this.eventSourceUrl);
-      this.eventSource = eventSource;
-
-      eventSource.onopen = () => {
-        clearTimeout(timer);
-        this.state = 'connected';
-        // Replay missed events for all known sessions
-        this._replayAllSessions();
-        this.emit('gateway.ready', { skin: undefined });
-        resolve();
-      };
-    });
-
-    // Backend includes `type` in the JSON data payload, so a single onmessage
-    // handler routes all event types through dispatchSseEvent.
-    const eventSource = this.eventSource;
-    if (!eventSource) return;
     eventSource.onmessage = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
@@ -901,6 +901,21 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       }
       // EventSource auto-reconnects; onopen will trigger replay
     };
+
+    // Wait for onopen so callers know the stream is live.
+    // 5-second timeout prevents blocking boot if SSE handshake stalls.
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 5_000);
+
+      eventSource.onopen = () => {
+        clearTimeout(timer);
+        this.state = 'connected';
+        // Replay missed events for all known sessions
+        this._replayAllSessions();
+        this.emit('gateway.ready', { skin: undefined });
+        resolve();
+      };
+    });
   }
 
   async disconnect(): Promise<void> {
