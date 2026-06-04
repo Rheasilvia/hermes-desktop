@@ -115,6 +115,7 @@ export type GatewayMethod =
 
 /** Subagent start event payload. */
 export interface SubagentStartPayload {
+  session_id: string;
   subagent_id: string;
   goal: string;
   parent_id?: string;
@@ -126,6 +127,7 @@ export interface SubagentStartPayload {
 
 /** Subagent progress event payload. */
 export interface SubagentProgressPayload {
+  session_id: string;
   subagent_id: string;
   status?: string;
   tool_count?: number;
@@ -134,6 +136,7 @@ export interface SubagentProgressPayload {
 
 /** Subagent complete event payload. */
 export interface SubagentCompletePayload {
+  session_id: string;
   subagent_id: string;
   summary?: string;
   duration_seconds?: number;
@@ -148,6 +151,7 @@ export interface SubagentCompletePayload {
 
 /** Subagent tool event payload. */
 export interface SubagentToolPayload {
+  session_id: string;
   subagent_id: string;
   tool_name?: string;
   tool_preview?: string;
@@ -156,6 +160,7 @@ export interface SubagentToolPayload {
 
 /** Subagent error event payload. */
 export interface SubagentErrorPayload {
+  session_id: string;
   subagent_id: string;
   status?: string;
   text?: string;
@@ -251,6 +256,7 @@ export interface MessageStartPayload {
 
 /** Message delta event payload. */
 export interface MessageDeltaPayload {
+  session_id: string;
   text?: string;
   reasoning?: string;
   tool_calls?: unknown[];
@@ -259,6 +265,7 @@ export interface MessageDeltaPayload {
 
 /** Message complete event payload. */
 export interface MessageCompletePayload {
+  session_id: string;
   text: string;
   rendered?: boolean;
   usage?: SessionUsagePayload;
@@ -280,6 +287,7 @@ export interface ThinkingDeltaPayload {
 
 /** Reasoning delta event payload. */
 export interface ReasoningDeltaPayload {
+  session_id: string;
   text: string;
 }
 
@@ -296,6 +304,7 @@ export interface StatusUpdatePayload {
 
 /** Tool start event payload. */
 export interface ToolStartPayload {
+  session_id: string;
   tool_id: string;
   name: string;
   context?: string;
@@ -303,6 +312,7 @@ export interface ToolStartPayload {
 
 /** Tool progress event payload. */
 export interface ToolProgressPayload {
+  session_id: string;
   tool_id?: string;
   name: string;
   preview?: string;
@@ -318,6 +328,7 @@ export interface TodoItem {
 
 /** Tool complete event payload. */
 export interface ToolCompletePayload {
+  session_id: string;
   tool_id: string;
   name: string;
   summary?: string;
@@ -328,6 +339,7 @@ export interface ToolCompletePayload {
 
 /** Tool generating event payload. */
 export interface ToolGeneratingPayload {
+  session_id: string;
   tool_id: string;
   name: string;
   text: string;
@@ -335,6 +347,7 @@ export interface ToolGeneratingPayload {
 
 /** Tool error event payload. */
 export interface ToolErrorPayload {
+  session_id: string;
   tool_id: string;
   name: string;
   error: string;
@@ -343,6 +356,7 @@ export interface ToolErrorPayload {
 
 /** Approval request event payload. */
 export interface ApprovalRequestPayload {
+  session_id: string;
   command: string;
   description: string;
   path?: string;
@@ -352,6 +366,7 @@ export interface ApprovalRequestPayload {
 
 /** Clarify request event payload. */
 export interface ClarifyRequestPayload {
+  session_id: string;
   question: string;
   choices?: string[] | null;
   request_id: string;
@@ -359,11 +374,13 @@ export interface ClarifyRequestPayload {
 
 /** Sudo request event payload. */
 export interface SudoRequestPayload {
+  session_id: string;
   request_id: string;
 }
 
 /** Secret request event payload. */
 export interface SecretRequestPayload {
+  session_id: string;
   prompt: string;
   env_var: string;
   request_id: string;

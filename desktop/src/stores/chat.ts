@@ -611,7 +611,11 @@ export const chatStore = {
     const pending = chatStates[sessionId]?.liveState.pendingPermission;
     setChatStates(sessionId, 'liveState', 'pendingPermission', null);
     const gw = getGateway();
-    if (gw && pending?.kind === 'approval') {
+    if (!pending) {
+      console.warn('[chatStore] respondApproval: no pendingPermission for session', sessionId);
+      return;
+    }
+    if (gw && pending.kind === 'approval') {
       const resolvedChoice = (typeof choice === 'string' ? choice : (choice ? 'once' : 'deny')) as 'once' | 'session' | 'always' | 'deny';
       await gw.approval.respond({ session_id: sessionId, command: pending.command, choice: resolvedChoice }).catch(() => {});
     }

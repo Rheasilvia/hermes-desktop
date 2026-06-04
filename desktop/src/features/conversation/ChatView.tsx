@@ -104,7 +104,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     navigate,
   });
 
-  useGatewayEvents({ sessionId, getGateway });
+  useGatewayEvents({ getGateway });
 
   // ── Floating TodoPanel state ──────────────────────────────────────────
 
