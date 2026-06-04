@@ -51,7 +51,7 @@ pub fn run() {
             updater::install_update,
         ])
         .setup(|app| {
-            // Spawn the desktop_backend Python sidecar in the background
+            // Spawn the daemon Python sidecar in the background
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 match sidecar::spawn(handle.clone()).await {

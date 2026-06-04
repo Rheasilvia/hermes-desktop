@@ -32,13 +32,13 @@ pub fn state() -> Arc<SidecarState> {
         .clone()
 }
 
-/// Kill any existing desktop_backend process to ensure a clean start.
+/// Kill any existing daemon process to ensure a clean start.
 fn kill_backend_process() {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         let _ = std::process::Command::new("pkill")
             .arg("-f")
-            .arg("desktop_backend")
+            .arg("daemon")
             .output();
     }
     #[cfg(target_os = "windows")]
@@ -78,10 +78,10 @@ pub async fn spawn_dev() -> Result<SidecarInfo> {
     cmd.arg("run");
     cmd.arg("--directory");
     // Tauri dev runs from src-tauri/, backend is in the parent desktop/ dir
-    cmd.arg("../backend");
+    cmd.arg("../sidecar");
     cmd.arg("python");
     cmd.arg("-m");
-    cmd.arg("desktop_backend");
+    cmd.arg("daemon");
     cmd.env("DESKTOP_BACKEND_PORT", port.to_string());
     cmd.env("DESKTOP_BACKEND_TOKEN", &token);
     cmd.env("HERMES_BACKEND_URL", &base_url);
@@ -205,9 +205,9 @@ fn release_binary(_handle: &tauri::AppHandle) -> Result<std::path::PathBuf> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("current_exe has no parent directory"))?;
     let exe_name = if cfg!(windows) {
-        "desktop_backend.exe"
+        "daemon.exe"
     } else {
-        "desktop_backend"
+        "daemon"
     };
     let candidate = dir.join(exe_name);
     if !candidate.exists() {

@@ -47,7 +47,7 @@ const API_PREFIX = '/desktop/api';
 
 /**
  * Normalize the raw command-exec JSON from the backend into the frontend
- * `CommandResult` union. The backend (`desktop_backend/schemas/commands.py`)
+ * `CommandResult` union. The backend (`daemon/schemas/commands.py`)
  * emits snake_case `card_type` and stuffs all text into `message`; the frontend
  * card union reads `cardType` + `text`. Without this remap the fields land as
  * `undefined`, so every card command fell back to an empty "No output." card.

@@ -121,7 +121,7 @@ The Rust layer in `src-tauri/` provides:
 
 ### Python Backend
 
-The standalone Python backend in `backend/desktop_backend/` serves the desktop API:
+The standalone Python backend in `sidecar/daemon/` serves the desktop API:
 - **Config**: Env-var driven (`DESKTOP_BACKEND_PORT`, `DESKTOP_BACKEND_TOKEN`). Dev defaults: port 18080, token `dev-secret`. Prod defaults: port 18081, token `prod-secret`.
 - **Auth**: Bearer token via `Authorization` header. Skipped when token is not configured.
 - **Model providers**: Mirrors the dashboard's `list_authenticated_providers()` logic — reads credentials from `~/.hermes/auth.json` credential pool, environment variables (via `PROVIDER_REGISTRY`), and `models_dev_cache.json`. Curated model lists parsed from `hermes_cli/models.py` via AST.

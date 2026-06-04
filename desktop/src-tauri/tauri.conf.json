@@ -30,7 +30,7 @@
   },
   "bundle": {
     "active": true,
-    "externalBin": ["../backend/dist/desktop_backend/desktop_backend"],
+    "externalBin": ["../sidecar/dist/daemon/daemon"],
     "targets": ["deb", "rpm", "appimage", "dmg", "nsis", "app"],
     "icon": [
       "icons/icon_32x32.png",
