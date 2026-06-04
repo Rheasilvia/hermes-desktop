@@ -271,10 +271,16 @@ export const chatStore = {
     }
   },
 
-  appendUserMessage(sessionId: string, text: string, slashCommand?: { command: string; args: string }): void {
+  appendUserMessage(
+    sessionId: string,
+    text: string,
+    slashCommand?: { command: string; args: string },
+    submitText = text,
+  ): RenderedMessage['id'] {
     ensureSession(sessionId);
+    const id = nextEphemeralId();
     const msg: RenderedMessage = {
-      id: nextEphemeralId(),
+      id,
       sessionId,
       role: 'user',
       blocks: text.trim() ? [{ type: 'text', id: nextBlockId(), content: text }] : [],
@@ -284,9 +290,30 @@ export const chatStore = {
       isStreaming: false,
       actions: ['copy', 'edit', 'delete'],
       toolName: null,
+      submitText,
       slashCommand,
     };
     setChatStates(sessionId, 'messages', (msgs) => [...msgs, msg]);
+    return id;
+  },
+
+  markUserMessageFailed(sessionId: string, messageId: RenderedMessage['id'], reason: string): boolean {
+    const messages = chatStates[sessionId]?.messages ?? [];
+    const index = messages.findIndex((message) => message.id === messageId && message.role === 'user');
+    if (index < 0) return false;
+    setChatStates(sessionId, 'messages', index, produce((message) => {
+      message.deliveryStatus = 'failed';
+      message.failedReason = reason;
+    }));
+    return true;
+  },
+
+  removeMessage(sessionId: string, messageId: RenderedMessage['id']): RenderedMessage | null {
+    const messages = chatStates[sessionId]?.messages ?? [];
+    const removed = messages.find((message) => message.id === messageId) ?? null;
+    if (!removed) return null;
+    setChatStates(sessionId, 'messages', (msgs) => msgs.filter((message) => message.id !== messageId));
+    return removed;
   },
 
   appendLocalMessage(sessionId: string, text: string, role: 'assistant' | 'system' = 'assistant'): void {

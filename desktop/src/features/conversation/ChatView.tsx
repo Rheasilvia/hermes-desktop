@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { Show, For, createEffect, onMount, createMemo, createSignal, Switch, Match, untrack } from 'solid-js';
+import { Show, For, createEffect, onMount, onCleanup, createMemo, createSignal, Switch, Match, untrack } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import type { TodoItem } from '@/types/gateway.js';
 import type { RenderedMessage, TodoListBlock } from '@/types/index.js';
@@ -11,11 +11,13 @@ import { gitViewStore } from '@/stores/git-view.js';
 import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { sessionStore } from '@/stores/session.js';
 import { modelStore } from '@/stores/models.js';
+import { uiStore } from '@/stores/ui.js';
 import { getGateway } from '@/stores/context.js';
+import type { ConnectionState } from '@/services/gateway/types.js';
 import { ROUTES } from '@/routes';
 import { MessageBubble } from './MessageBubble.js';
 import { AssistantMessage } from './AssistantMessage.js';
-import type { MessageBlock } from '@/types/index.js';
+import type { MessageBlock, TextBlock } from '@/types/index.js';
 import { MessageInput } from './MessageInput.js';
 import { CommandCardDock } from './cards/CommandCardDock.js';
 import { ModelSelector } from './ModelSelector.js';
@@ -24,6 +26,7 @@ import { WorkspaceSidePanel } from './WorkspaceSidePanel.js';
 import { EmptyChatState } from './EmptyChatState.js';
 import { ErrorBanner } from './ErrorBanner.js';
 import { WorkspaceBanner } from './WorkspaceBanner.js';
+import { ConversationRecoveryBanner } from './ConversationRecoveryBanner.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { ClarificationCard } from './ClarificationCard.js';
 import { MemoryContextCard } from './MemoryContextCard.js';
@@ -51,6 +54,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let diffPanelEl: HTMLDivElement | undefined;
   let dragHandleEl: HTMLDivElement | undefined;
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
+  const [connectionState, setConnectionState] = createSignal<ConnectionState>(uiStore.connectionState);
   let wasBusy = false;
   let suppressNextAutoDrain = false;
 
@@ -62,6 +66,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const isEmpty = createMemo(() => messages().length === 0);
   const canEditWorkspace = createMemo(() => !messages().some((m) => m.role === 'assistant'));
   const isLoading = () => chatStore.isLoadingMessages(sessionId());
+  const diagnostics = createMemo(() => chatStore.getDiagnostics(sessionId()));
 
   const liveBlocks = createMemo((): MessageBlock[] => {
     const live = liveState();
@@ -95,8 +100,12 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     promptText: string,
     display?: { text: string; slashCommand?: { command: string; args: string } },
   ) => {
-    chatStore.appendUserMessage(sessionId(), display?.text ?? promptText, display?.slashCommand);
-    await chatStore.sendMessage(sessionId(), promptText);
+    const sid = sessionId();
+    const messageId = chatStore.appendUserMessage(sid, display?.text ?? promptText, display?.slashCommand, promptText);
+    const ok = await chatStore.sendMessage(sid, promptText);
+    if (!ok) {
+      chatStore.markUserMessageFailed(sid, messageId, chatStore.getError(sid) ?? 'Failed to send message');
+    }
   };
 
   const { handleSlashCommand } = createSlashCommandRunner({
@@ -108,6 +117,17 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   });
 
   useGatewayEvents({ getGateway });
+
+  onMount(() => {
+    const syncConnectionState = () => {
+      const state = getGateway()?.getConnectionState() ?? uiStore.connectionState;
+      setConnectionState(state);
+      uiStore.setConnectionState(state);
+    };
+    syncConnectionState();
+    const timer = window.setInterval(syncConnectionState, 1_000);
+    onCleanup(() => window.clearInterval(timer));
+  });
 
   createEffect(() => {
     const sid = sessionId();
@@ -387,6 +407,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       }
       case 'retry': {
         if (isStreaming()) break;
+        if (message.role === 'user' && message.deliveryStatus === 'failed') {
+          const retryText = message.submitText
+            ?? message.blocks.filter((b) => b.type === 'text').map((b) => (b as TextBlock).content).join('\n');
+          const displayText = message.blocks.filter((b) => b.type === 'text').map((b) => (b as TextBlock).content).join('\n');
+          chatStore.removeMessage(sid, message.id);
+          await sendPrompt(retryText, message.slashCommand ? { text: displayText, slashCommand: message.slashCommand } : undefined);
+          break;
+        }
         const gateway = getGateway();
         if (!gateway) break;
         const lastUserText = chatStore.removeLastTurn(sid);
@@ -631,6 +659,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 scroll.setUserScrolledUp(false);
                 scroll.setUnreadCount(() => 0);
                 scroll.scrollToBottom({ force: true, behavior: 'smooth' });
+              }}
+            />
+            <ConversationRecoveryBanner
+              turnState={liveState().status}
+              connectionState={connectionState()}
+              diagnostics={{
+                lastEventAt: diagnostics().lastEventAt,
+                droppedLateEvents: diagnostics().droppedLateEvents,
               }}
             />
             <PromptDock items={promptDockItems()} />
