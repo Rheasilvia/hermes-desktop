@@ -167,10 +167,12 @@ describe('appendUserMessage — slash command metadata', () => {
   });
 
   it('attaches slashCommand and keeps the compact text in blocks', () => {
-    chatStore.appendUserMessage(SESSION_SLASH, '/arxiv 这是什么命令？', { command: 'arxiv', args: '这是什么命令？' });
+    const id = chatStore.appendUserMessage(SESSION_SLASH, '/arxiv 这是什么命令？', { command: 'arxiv', args: '这是什么命令？' }, 'expanded arxiv prompt');
     const messages = chatStore.getMessages(SESSION_SLASH);
     const msg = messages[messages.length - 1];
+    expect(msg.id).toBe(id);
     expect(msg.slashCommand).toEqual({ command: 'arxiv', args: '这是什么命令？' });
+    expect(msg.submitText).toBe('expanded arxiv prompt');
     const text = msg.blocks.filter((b) => b.type === 'text').map((b) => (b as { content: string }).content).join('');
     expect(text).toBe('/arxiv 这是什么命令？');
   });
@@ -179,6 +181,23 @@ describe('appendUserMessage — slash command metadata', () => {
     chatStore.appendUserMessage(SESSION_SLASH, 'just a message');
     const messages = chatStore.getMessages(SESSION_SLASH);
     expect(messages[messages.length - 1].slashCommand).toBeUndefined();
+  });
+
+  it('marks an optimistic user message as failed and can remove it for retry', () => {
+    const id = chatStore.appendUserMessage(SESSION_SLASH, 'please send');
+
+    expect(chatStore.markUserMessageFailed(SESSION_SLASH, id, 'Failed to send message')).toBe(true);
+    let messages = chatStore.getMessages(SESSION_SLASH);
+    expect(messages[messages.length - 1]).toMatchObject({
+      id,
+      deliveryStatus: 'failed',
+      failedReason: 'Failed to send message',
+    });
+
+    const removed = chatStore.removeMessage(SESSION_SLASH, id);
+    messages = chatStore.getMessages(SESSION_SLASH);
+    expect(removed?.id).toBe(id);
+    expect(messages.find((message) => message.id === id)).toBeUndefined();
   });
 });
 

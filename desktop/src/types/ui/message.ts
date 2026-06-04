@@ -22,6 +22,12 @@ export interface RenderedMessage {
   actions: MessageAction[];
   /** For role='tool' messages: the name of the tool that produced this result. */
   toolName: string | null;
+  /** Local-only delivery state for optimistic messages that have not persisted. */
+  deliveryStatus?: 'failed';
+  /** Reader-facing reason shown when an optimistic message could not be sent. */
+  failedReason?: string;
+  /** Original text submitted to the backend; may differ from compact slash display text. */
+  submitText?: string;
   /**
    * Set when this user message was a slash command. Drives the styled command
    * bubble (a `/command` label + the typed content). NOTE: the LLM received the

@@ -10,6 +10,8 @@ interface UserMessageProps {
    *  above the typed content instead of the raw (expanded) text. */
   slashCommand?: { command: string; args: string };
   timestamp?: number;
+  deliveryStatus?: 'failed';
+  failedReason?: string;
   onAction?: (action: MessageActionType) => void;
 }
 
@@ -44,6 +46,22 @@ export const UserMessage: Component<UserMessageProps> = (props) => {
         </div>
         <Show when={props.timestamp}>
           <span class={styles.timestamp}>{formatTimestamp(props.timestamp!)}</span>
+        </Show>
+        <Show when={props.deliveryStatus === 'failed'}>
+          <div class={styles.failedRow}>
+            <Icon name="alert-circle" size={13} />
+            <span>{props.failedReason ?? 'Failed to send message'}</span>
+            <Show when={props.onAction}>
+              <button
+                type="button"
+                class={styles.retryBtn}
+                onClick={() => props.onAction?.('retry')}
+              >
+                <Icon name="refresh-cw" size={12} />
+                <span>Retry</span>
+              </button>
+            </Show>
+          </div>
         </Show>
         <Show when={showActions() && props.onAction}>
           <MessageActionBar variant="user" onAction={props.onAction!} />

@@ -13,6 +13,7 @@ const [error, setError] = createSignal<string | null>(null);
 const [sessionModels, setSessionModels] = createSignal<
   Record<string, { provider: string; model: string }>
 >({});
+let resumeRequestEpoch = 0;
 
 const activeSession = createMemo(() => {
   const id = activeSessionId();
@@ -158,17 +159,24 @@ export const sessionStore = {
   async resumeSession(id: string): Promise<boolean> {
     const gateway = getGateway();
     if (!gateway) return false;
+    const requestEpoch = ++resumeRequestEpoch;
     setIsLoading(true);
     setError(null);
     try {
       await gateway.session.resume(id);
-      setActiveSessionId(id);
+      if (requestEpoch === resumeRequestEpoch) {
+        setActiveSessionId(id);
+      }
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to resume session');
+      if (requestEpoch === resumeRequestEpoch) {
+        setError(e instanceof Error ? e.message : 'Failed to resume session');
+      }
       return false;
     } finally {
-      setIsLoading(false);
+      if (requestEpoch === resumeRequestEpoch) {
+        setIsLoading(false);
+      }
     }
   },
 

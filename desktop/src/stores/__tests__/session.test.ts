@@ -140,3 +140,39 @@ describe('sessionStore new conversation creation', () => {
     expect(create).toHaveBeenCalledWith({ model: 'claude', system_prompt: 'be terse' });
   });
 });
+
+describe('sessionStore resume race guard', () => {
+  beforeEach(() => {
+    initializeStores(gatewayWithSessions([]).gateway);
+    sessionStore.setActiveSession(null);
+  });
+
+  it('does not let a slow earlier resume overwrite the latest requested session', async () => {
+    let resolveSlow!: () => void;
+    let resolveFast!: () => void;
+    const base = gatewayWithSessions([]).gateway;
+    const resume = vi.fn((id: string) => new Promise<void>((resolve) => {
+      if (id === 'slow-session') resolveSlow = resolve;
+      if (id === 'fast-session') resolveFast = resolve;
+    }));
+    const gateway = {
+      ...base,
+      session: {
+        ...base.session,
+        resume,
+      },
+    } as unknown as GatewayAdapter;
+    initializeStores(gateway);
+
+    const slow = sessionStore.resumeSession('slow-session');
+    const fast = sessionStore.resumeSession('fast-session');
+
+    resolveFast();
+    await fast;
+    expect(sessionStore.activeSessionId).toBe('fast-session');
+
+    resolveSlow();
+    await slow;
+    expect(sessionStore.activeSessionId).toBe('fast-session');
+  });
+});
