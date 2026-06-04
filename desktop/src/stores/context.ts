@@ -4,8 +4,7 @@
  */
 
 import type { GatewayAdapter } from '@/services/gateway/types.js';
-import { ModelAdapter } from '@/services/model-adapter/index.js';
-import { TauriFsAdapter, MemoryFsAdapter } from '@/services/model-adapter/fs-adapter.js';
+import { ModelAdapter, TauriFsAdapter, MemoryFsAdapter } from '@/domains/model/index.js';
 import { BUILT_IN_PROVIDERS } from './models.js';
 
 const isTauri = typeof window !== 'undefined' && !!(window as unknown as { __TAURI__?: unknown }).__TAURI__;
