@@ -57,7 +57,7 @@ Hermes Desktop uses a **Gateway Adapter Pattern** where all communication with t
 
 - **Frontend**: SolidJS with TypeScript, Vite build system, and modular CSS
 - **Desktop Shell**: Tauri v2 (Rust) providing native platform integration
-- **Backend**: Python sidecar (`desktop_backend`) serving as the API layer
+- **Backend**: Python sidecar (`daemon`) serving as the API layer
 - **State Management**: SolidJS stores with dependency injection
 - **Testing**: Vitest for unit tests, Playwright for E2E tests
 

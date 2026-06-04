@@ -7,7 +7,7 @@ This plan ranks the missing Desktop capabilities against the current TUI by impo
 ## P0 - Important and Urgent
 
 - [ ] Restore slash command discovery and execution in Desktop chat.
-  - Implement `complete.slash`, `slash.exec`, and `command.dispatch` equivalents in `desktop_backend`, or route through a shared command service with the same command registry semantics as TUI.
+  - Implement `complete.slash`, `slash.exec`, and `command.dispatch` equivalents in `daemon`, or route through a shared command service with the same command registry semantics as TUI.
   - Make `MessageInput` execute selected slash commands instead of sending them as plain prompts when appropriate.
   - Acceptance: `/help`, `/model`, `/sessions`, `/compress`, `/branch`, skill commands, and plugin/quick commands either work or return an explicit unsupported message.
 
@@ -81,7 +81,7 @@ This plan ranks the missing Desktop capabilities against the current TUI by impo
 - [ ] `cd desktop && npm run type-check`
 - [ ] `cd desktop && npm run lint`
 - [ ] `cd desktop && npm run test`
-- [ ] `cd desktop/backend && uv run pytest`
+- [ ] `cd desktop/sidecar && uv run pytest`
 - [ ] Manual: send a normal prompt, run a slash command, attach a file/image, approve a dangerous command, trigger clarify, interrupt, reconnect backend, and resume a non-Desktop session.
 
 ## Notes

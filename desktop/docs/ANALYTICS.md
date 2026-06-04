@@ -17,7 +17,7 @@ API Client (src/services/api/)
     ↓
 Analytics Transport (HTTP/Mock)
     ↓
-Python Backend (desktop_backend)
+Python Backend (daemon)
 ```
 
 ### Components

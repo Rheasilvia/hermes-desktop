@@ -17,8 +17,8 @@ echo "dev-token" > ~/.hermes/desktop/sidecar.token
 chmod 600 ~/.hermes/desktop/sidecar.token
 
 echo "==> 启动 Python 侧车..."
-cd "$REPO/desktop/backend"
-uv run python -m desktop_backend > /tmp/sidecar_stdout.txt 2>/dev/null &
+cd "$REPO/desktop/sidecar"
+uv run python -m daemon > /tmp/sidecar_stdout.txt 2>/dev/null &
 SIDECAR_PID=$!
 
 # 等待 READY

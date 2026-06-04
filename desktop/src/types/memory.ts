@@ -2,7 +2,7 @@
  * Memory and context file types for hermes-agent.
  *
  * Field names mirror the Pydantic models in
- * `desktop_backend/schemas/memory.py`. The cross-language parity test
+ * `daemon/schemas/memory.py`. The cross-language parity test
  * (`tests/unit/test_memory_schema_parity.py`) enforces both sides stay
  * in sync.
  */

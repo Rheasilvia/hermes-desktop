@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "backend": "DESKTOP_BACKEND_PORT=18080 DESKTOP_BACKEND_TOKEN=dev-secret uv run --directory backend python -m desktop_backend",
+    "backend": "DESKTOP_BACKEND_PORT=18080 DESKTOP_BACKEND_TOKEN=dev-secret uv run --directory sidecar python -m daemon",
     "build": "vite build",
     "tauri": "tauri",
-    "backend:build": "bash backend/scripts/build_dist.sh",
+    "backend:build": "bash sidecar/scripts/build_dist.sh",
     "tauri:dev": "npm run backend:build && tauri dev",
     "tauri:build": "tauri build",
     "type-check": "tsc --noEmit",

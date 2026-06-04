@@ -15,7 +15,7 @@ export default defineConfig({
     strictPort: true,
     watch: {
       // Exclude build output and Python backend dirs to avoid exhausting inotify watchers
-      ignored: ['**/src-tauri/target/**', '**/backend/**'],
+      ignored: ['**/src-tauri/target/**', '**/sidecar/**'],
     },
   },
   envPrefix: ["VITE_", "TAURI_"],

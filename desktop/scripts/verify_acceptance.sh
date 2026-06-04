@@ -3,7 +3,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
 echo "== A1: backend boundaries =="
-bash "$REPO/desktop/backend/scripts/check_boundaries.sh"
+bash "$REPO/desktop/sidecar/scripts/check_boundaries.sh"
 
 echo "== A2: backend dependencies =="
 ( cd "$REPO/desktop/backend" && uv sync --frozen --extra dev )
