@@ -4,6 +4,7 @@ import { Button } from '@/ui/atoms/Button.js';
 import { Input } from '@/ui/atoms/Input.js';
 import { Toggle } from '@/ui/atoms/Toggle.js';
 import type { PlatformId } from './PlatformConfig.js';
+import { PLATFORM_LIST, PLATFORM_DEFS } from '@/domains/gateway/platformRegistry.js';
 import styles from './SetupWizard.module.css';
 
 interface SetupWizardProps {
@@ -11,54 +12,7 @@ interface SetupWizardProps {
   onClose: () => void;
 }
 
-import type { IconName } from '@/ui/atoms/Icon.js';
 import { Icon } from '@/ui/atoms/Icon.js';
-
-interface PlatformOption {
-  id: PlatformId;
-  label: string;
-  icon: IconName;
-}
-
-const PLATFORMS: PlatformOption[] = [
-  { id: 'telegram', label: 'Telegram', icon: 'send' },
-  { id: 'discord', label: 'Discord', icon: 'message-circle' },
-  { id: 'slack', label: 'Slack', icon: 'smartphone' },
-  { id: 'whatsapp', label: 'WhatsApp', icon: 'smartphone' },
-  { id: 'signal', label: 'Signal', icon: 'lock' },
-  { id: 'homeassistant', label: 'Home Assistant', icon: 'home' },
-  { id: 'qqbot', label: 'QQ Bot', icon: 'terminal' },
-];
-
-const CREDENTIAL_FIELDS: Record<PlatformId, { name: string; label: string; type: 'text' | 'password'; placeholder: string }[]> = {
-  telegram: [
-    { name: 'bot_token', label: 'Bot Token', type: 'password', placeholder: '123456:ABC-DEF...' },
-  ],
-  discord: [
-    { name: 'token', label: 'Bot Token', type: 'password', placeholder: 'MTk4NjIy...' },
-  ],
-  slack: [
-    { name: 'bot_token', label: 'Bot Token', type: 'password', placeholder: 'xoxb-...' },
-    { name: 'signing_secret', label: 'Signing Secret', type: 'password', placeholder: 'abcdef123456...' },
-  ],
-  whatsapp: [
-    { name: 'phone_number_id', label: 'Phone Number ID', type: 'text', placeholder: '123456789' },
-    { name: 'access_token', label: 'Access Token', type: 'password', placeholder: 'EAAx...' },
-  ],
-  signal: [
-    { name: 'phone_number', label: 'Phone Number', type: 'text', placeholder: '+1234567890' },
-    { name: 'signal_cli_path', label: 'Signal CLI Path', type: 'text', placeholder: '/usr/local/bin/signal-cli' },
-  ],
-  homeassistant: [
-    { name: 'url', label: 'Home Assistant URL', type: 'text', placeholder: 'http://192.168.1.100:8123' },
-    { name: 'access_token', label: 'Long-Lived Access Token', type: 'password', placeholder: 'eyJ0eXAiOiJKV1Q...' },
-  ],
-  qqbot: [
-    { name: 'app_id', label: 'App ID', type: 'text', placeholder: '1012345678' },
-    { name: 'app_secret', label: 'App Secret', type: 'password', placeholder: 'a1b2c3d4...' },
-    { name: 'token', label: 'Token', type: 'password', placeholder: 'your-bot-token' },
-  ],
-};
 
 const TOTAL_STEPS = 4;
 
@@ -123,7 +77,7 @@ export const SetupWizard: Component<SetupWizardProps> = (props) => {
           <Match when={step() === 1}>
             <h3 class={styles.stepTitle}>Choose a Platform</h3>
             <div class={styles.platformGrid}>
-              <For each={PLATFORMS}>
+              <For each={PLATFORM_LIST}>
                 {(p) => (
                   <button
                     type="button"
@@ -148,7 +102,7 @@ export const SetupWizard: Component<SetupWizardProps> = (props) => {
             <Show when={selectedPlatform()} keyed>
               {(platform) => (
                 <div class={styles.formFields}>
-                  <For each={CREDENTIAL_FIELDS[platform]}>
+                  <For each={PLATFORM_DEFS[platform].credentialFields}>
                     {(field) => (
                       <Input
                         label={field.label}
