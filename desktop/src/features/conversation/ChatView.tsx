@@ -1,49 +1,23 @@
 import type { Component } from 'solid-js';
-import { Show, For, createEffect, onMount, onCleanup, createMemo, createSignal, Switch, Match, untrack } from 'solid-js';
+import { Show, For, createEffect, onMount, createMemo, createSignal, Switch, Match, untrack } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
-import type {
-  MessageDeltaPayload,
-  MessageCompletePayload,
-  ToolStartPayload,
-  ToolProgressPayload,
-  ToolCompletePayload,
-  ToolGeneratingPayload,
-  ToolErrorPayload,
-  ReasoningDeltaPayload,
-  ApprovalRequestPayload,
-  ClarifyRequestPayload,
-  SudoRequestPayload,
-  SecretRequestPayload,
-  BackgroundCompletePayload,
-  BtwCompletePayload,
-  SubagentStartPayload,
-  SubagentProgressPayload,
-  SubagentCompletePayload,
-  SubagentToolPayload,
-  SubagentErrorPayload,
-  TodoItem,
-} from '@/types/gateway.js';
+import type { TodoItem } from '@/types/gateway.js';
 import type { RenderedMessage, TodoListBlock } from '@/types/index.js';
 import type { MessageActionType } from '@/types/ui/message.js';
 import { chatStore } from '@/stores/chat.js';
 import { sessionUsage } from '@/stores/usage.js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 import { gitViewStore } from '@/stores/git-view.js';
-import { delegationStore } from '@/stores/delegation.js';
-import { backgroundTaskStore, recentBackgroundTasks } from '@/stores/background-tasks.js';
 import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { sessionStore } from '@/stores/session.js';
 import { modelStore } from '@/stores/models.js';
 import { getGateway } from '@/stores/context.js';
-import type { CommandResult } from '@/services/gateway/types.js';
 import { ROUTES } from '@/routes';
 import { MessageBubble } from './MessageBubble.js';
 import { AssistantMessage } from './AssistantMessage.js';
 import type { MessageBlock } from '@/types/index.js';
 import { MessageInput } from './MessageInput.js';
-import { runCommandAction } from './commandActions.js';
 import { CommandCardDock } from './cards/CommandCardDock.js';
-import type { ActiveCommandCard } from './cards/CommandCardRenderer.js';
 import { ModelSelector } from './ModelSelector.js';
 import { ChatToolbar } from './ChatToolbar.js';
 import { WorkspaceSidePanel } from './WorkspaceSidePanel.js';
@@ -55,42 +29,33 @@ import { ClarificationCard } from './ClarificationCard.js';
 import { MemoryContextCard } from './MemoryContextCard.js';
 import { TodoPanel } from './TodoPanel.js';
 import { JumpToBottom } from './JumpToBottom.js';
-import { liveToRow } from './toolCallMappers.js';
 import { PromptDock, type PromptDockItem } from './turn/PromptDock.js';
 import { PermissionRequestCard } from './turn/PermissionRequestCard.js';
 import { BackgroundTaskDock } from './background/BackgroundTaskDock.js';
+import { backgroundTaskStore, recentBackgroundTasks } from '@/stores/background-tasks.js';
+import { createScrollController } from './scrollController.js';
+import { createCommandCardState } from './commandCardState.js';
+import { createSlashCommandRunner } from './slashCommandRunner.js';
+import { useGatewayEvents } from './eventSubscription.js';
 import styles from './ChatView.module.css';
 
 interface ChatViewProps {
   sessionId?: string;
 }
 
-const NEAR_BOTTOM_THRESHOLD = 100;
-const SCROLL_PAUSE_THRESHOLD = 80;
-
 export const ChatView: Component<ChatViewProps> = (props) => {
   const navigate = useNavigate();
   const sessionId = () => props.sessionId ?? '';
-  let messagesEndRef: HTMLDivElement | undefined;
   let chatBodyRef: HTMLDivElement | undefined;
-  let messageListRef: HTMLDivElement | undefined;
-  let scrollRafId: number | undefined;
-  let pendingScrollOpts: { force?: boolean; behavior?: ScrollBehavior } | undefined;
   let diffPanelEl: HTMLDivElement | undefined;
   let dragHandleEl: HTMLDivElement | undefined;
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
-  const [isNearBottom, setIsNearBottom] = createSignal(true);
-  const [userScrolledUp, setUserScrolledUp] = createSignal(false);
-  const [unreadCount, setUnreadCount] = createSignal(0);
-  const [lastMessageCount, setLastMessageCount] = createSignal(0);
 
   const workspacePath = createMemo(() => sessionStore.activeSession?.workspace_path ?? null);
-
   const messages = (): RenderedMessage[] => chatStore.getMessages(sessionId());
   const liveState = () => chatStore.getLiveState(sessionId());
   const isStreaming = (): boolean => chatStore.isStreaming(sessionId());
   const error = (): string | null => chatStore.getError(sessionId());
-
   const isEmpty = createMemo(() => messages().length === 0);
   const canEditWorkspace = createMemo(() => !messages().some((m) => m.role === 'assistant'));
   const isLoading = () => chatStore.isLoadingMessages(sessionId());
@@ -99,30 +64,47 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     const live = liveState();
     const blocks: MessageBlock[] = [];
     if (live.reasoningText) {
-      blocks.push({
-        type: 'reasoning',
-        id: 'live-reasoning',
-        content: live.reasoningText,
-        isStreaming: true,
-        tokenCount: null,
-      });
+      blocks.push({ type: 'reasoning', id: 'live-reasoning', content: live.reasoningText, isStreaming: true, tokenCount: null });
     }
     if (live.streamingText) {
-      blocks.push({
-        type: 'text',
-        id: 'live-text',
-        content: live.streamingText,
-      });
+      blocks.push({ type: 'text', id: 'live-text', content: live.streamingText });
     }
     return blocks;
   });
 
-  // Raw access to the createStore proxy array — preserves SolidJS native
-  // store-key tracking so <For> only re-renders changed items.  Previous
-  // approach of .map(liveToRow) created new ToolCallRow refs every cycle,
-  // causing <For> to reconstruct all DOM nodes and replay CSS entry
-  // animations (rowSlideIn) on every tool update.
   const liveTools = createMemo(() => liveState().activeTools);
+
+  const blockingPromptActive = createMemo(() =>
+    Boolean(liveState().pendingPermission || liveState().pendingClarify)
+  );
+
+  // ── Extracted modules ─────────────────────────────────────────────────
+
+  const scroll = createScrollController({
+    getMessages: messages,
+    getLiveBlocks: liveBlocks,
+    getBlockingPromptActive: blockingPromptActive,
+  });
+
+  const cards = createCommandCardState();
+
+  const sendPrompt = async (
+    promptText: string,
+    display?: { text: string; slashCommand?: { command: string; args: string } },
+  ) => {
+    chatStore.appendUserMessage(sessionId(), display?.text ?? promptText, display?.slashCommand);
+    await chatStore.sendMessage(sessionId(), promptText);
+  };
+
+  const { handleSlashCommand } = createSlashCommandRunner({
+    sessionId,
+    getGateway,
+    sendPrompt,
+    noticeCard: cards.noticeCard,
+    navigate,
+  });
+
+  useGatewayEvents({ sessionId, getGateway });
 
   // ── Floating TodoPanel state ──────────────────────────────────────────
 
@@ -140,9 +122,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const panelTodos = createMemo((): TodoItem[] => {
     const live = liveState();
-    // During streaming, live state is the authoritative source
     if (isStreaming() && live.todos.length > 0) return live.todos;
-    // Not streaming: check the most recent assistant message for persisted todo_list blocks
     const msgs = messages();
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
@@ -163,21 +143,13 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     !panelManuallyClosed() && (panelTodos().length > 0 || hasActiveTodoTool())
   );
 
-  const blockingPromptActive = createMemo(() =>
-    Boolean(liveState().pendingPermission || liveState().pendingClarify)
-  );
-
-  // Auto-close when all todos complete
   createEffect(() => {
     clearTimeout(autoCloseTimer);
     if (allTodosComplete() && showFloatingPanel() && !isPaused()) {
-      autoCloseTimer = setTimeout(() => {
-        doClosePanel();
-      }, 2000);
+      autoCloseTimer = setTimeout(() => { doClosePanel(); }, 2000);
     }
   });
 
-  // Reset on new turn
   createEffect(() => {
     if (isStreaming() && !hasActiveTodoTool() && liveState().todos.length === 0) {
       setPanelManuallyClosed(false);
@@ -185,8 +157,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       setShowUndoBar(false);
     }
   });
-
-  // ── Floating TodoPanel handlers ────────────────────────────────────────
 
   const doClosePanel = () => {
     setPanelExiting(true);
@@ -201,7 +171,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     const todos = panelTodos();
     const incomplete = todos.filter((t) => t.status === 'pending' || t.status === 'in_progress');
     const hasIncomplete = incomplete.length > 0;
-
     if (hasIncomplete && isStreaming()) {
       void chatStore.cancelMessage(sessionId());
       setIsPaused(true);
@@ -234,6 +203,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     }
   };
 
+  // ── Date separators ───────────────────────────────────────────────────
+
   function computeDateSeparators(msgs: RenderedMessage[]): Map<number, string> {
     const separators = new Map<number, string>();
     let lastDay: string | null = null;
@@ -261,331 +232,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const dateSeparators = createMemo(() => computeDateSeparators(messages()));
 
-  const scrollToBottom = (opts?: { force?: boolean; behavior?: ScrollBehavior }) => {
-    if (!opts?.force && userScrolledUp()) return;
-    pendingScrollOpts = opts;
-    if (scrollRafId !== undefined) return;
-    scrollRafId = requestAnimationFrame(() => {
-      const nextOpts = pendingScrollOpts;
-      scrollRafId = undefined;
-      pendingScrollOpts = undefined;
-      if (!nextOpts?.force && userScrolledUp()) return;
-      messagesEndRef?.scrollIntoView({ behavior: nextOpts?.behavior ?? 'auto' });
-    });
-  };
-
-  onCleanup(() => {
-    if (scrollRafId !== undefined) {
-      cancelAnimationFrame(scrollRafId);
-      scrollRafId = undefined;
-      pendingScrollOpts = undefined;
-    }
-  });
-
-  const handleScroll = () => {
-    const el = messageListRef;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const near = distanceFromBottom < NEAR_BOTTOM_THRESHOLD;
-    setIsNearBottom(near);
-    if (near) {
-      setUserScrolledUp(false);
-      setUnreadCount(0);
-    } else if (distanceFromBottom > SCROLL_PAUSE_THRESHOLD) {
-      setUserScrolledUp(true);
-    }
-  };
-
-  createEffect(() => {
-    const msgs = messages();
-    const prevCount = lastMessageCount();
-    if (msgs.length > prevCount) {
-      if (userScrolledUp()) {
-        setUnreadCount((c) => c + (msgs.length - prevCount));
-      } else {
-        scrollToBottom();
-      }
-      setLastMessageCount(msgs.length);
-    } else if (msgs.length > 0 && prevCount === 0) {
-      setLastMessageCount(msgs.length);
-      scrollToBottom();
-    }
-  });
-
-  createEffect(() => {
-    const live = liveBlocks();
-    if (live.length > 0) {
-      if (userScrolledUp()) {
-        setUnreadCount((c) => c + 1);
-      } else {
-        scrollToBottom();
-      }
-    }
-  });
-
-  createEffect(() => {
-    if (blockingPromptActive()) {
-      scrollToBottom({ force: true });
-    }
-  });
-
-  // Sync model picker to the active session's model when switching sessions
-  createEffect(() => {
-    const sid = sessionStore.activeSessionId;
-    if (!sid) return;
-    // Prefer sessionModels cache (updated immediately on model switch)
-    const cached = sessionStore.getSessionModel(sid);
-    if (cached) {
-      modelStore.hydrateActiveModel(cached.provider, cached.model);
-      return;
-    }
-    // Fallback to session list data (from loadSessions)
-    const session = sessionStore.activeSession;
-    if (session?.provider && session?.model) {
-      modelStore.hydrateActiveModel(session.provider, session.model);
-    }
-  });
-
-  createEffect(() => {
-    const path = workspacePath();
-    gitViewStore.setWorkspacePath(path);
-    void workspaceTreeStore.setWorkspacePath(path);
-    if (path && sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git') {
-      void gitViewStore.fetchDiff();
-    }
-  });
-
-  createEffect(() => {
-    if (sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git' && workspacePath()) {
-      void gitViewStore.fetchDiff();
-    }
-  });
-
-  // `promptText` always goes to the LLM verbatim. `display`, when given,
-  // overrides what the transcript shows — so a slash command's huge expanded
-  // prompt stays out of the bubble while the model still receives it.
-  const sendPrompt = async (
-    promptText: string,
-    display?: { text: string; slashCommand?: { command: string; args: string } },
-  ) => {
-    chatStore.appendUserMessage(sessionId(), display?.text ?? promptText, display?.slashCommand);
-    await chatStore.sendMessage(sessionId(), promptText);
-  };
-
-  // The active command card shown in the above-input dock (ephemeral, one at a
-  // time). Slash command results render here, NOT in the chat transcript.
-  const [commandCard, setCommandCard] = createSignal<ActiveCommandCard | null>(null);
-  const dismissCommandCard = () => {
-    setCommandCard(null);
-    // Return focus to the composer (the single chat textarea).
-    queueMicrotask(() => (document.querySelector('textarea') as HTMLTextAreaElement | null)?.focus());
-  };
-  const noticeCard = (text: string) => setCommandCard({ cardType: 'notice', text });
-
-  const showCommandResult = async (result: CommandResult, ctx: { command: string; args: string }) => {
-    switch (result.kind) {
-      case 'card':
-        setCommandCard({ cardType: result.cardType, text: result.text });
-        return;
-      case 'skill': {
-        // The LLM gets the full expanded skill prompt; the bubble shows only the
-        // compact command the user actually typed.
-        const compact = ctx.args ? `/${ctx.command} ${ctx.args}` : `/${ctx.command}`;
-        void sendPrompt(result.message, { text: compact, slashCommand: { command: ctx.command, args: ctx.args } });
-        return;
-      }
-      case 'send':
-        void sendPrompt(result.message);
-        return;
-      case 'action':
-        await runCommandAction(result, {
-          sessionId: sessionId(),
-          navigate,
-          sessionStore,
-          notify: noticeCard,
-        });
-        return;
-      case 'unsupported':
-        noticeCard(result.message);
-        return;
-      case 'error':
-        noticeCard(`Command error: ${result.message}`);
-        return;
-      default:
-        noticeCard(result.message || 'Command produced no output.');
-    }
-  };
-
-  const handleSlashCommand = async (text: string) => {
-    const gateway = getGateway();
-    if (!gateway) {
-      noticeCard('Command error: gateway is not connected.');
-      return;
-    }
-    const raw = text.trim();
-    const withoutSlash = raw.slice(1).trim();
-    const [command, ...rest] = withoutSlash.split(/\s+/);
-    const args = rest.join(' ');
-    // No transcript echo — a slash command's result lives in the dock. Resolve
-    // via slash.exec, falling back to command.dispatch only if the RPC itself
-    // is unavailable. Act on the result once, afterwards.
-    const params = { session_id: sessionId(), command, args, raw };
-    let result: CommandResult;
-    try {
-      result = await gateway.slash.exec(params);
-    } catch {
-      try {
-        result = await gateway.command.dispatch(params);
-      } catch (err) {
-        noticeCard(`Command error: ${err instanceof Error ? err.message : String(err)}`);
-        return;
-      }
-    }
-    try {
-      await showCommandResult(result, { command, args });
-    } catch (err) {
-      noticeCard(`Command error: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  };
-
-  const handleSend = async (text: string, _attachments?: any[]) => {
-    const trimmed = text.trim();
-    if (trimmed.startsWith('/')) {
-      await handleSlashCommand(trimmed);
-      return;
-    }
-    setCommandCard(null); // sending a real message dismisses any command card
-    await sendPrompt(text);
-  };
-
-  const handleMessageAction = async (sid: string, action: MessageActionType, message: RenderedMessage) => {
-    switch (action) {
-      case 'copy':
-        // Copy message content to clipboard
-        const content = message.blocks
-          .filter((b) => b.type === 'text')
-          .map((b) => b.content)
-          .join('\n');
-        await navigator.clipboard.writeText(content);
-        break;
-      case 'edit': {
-        const textContent = message.blocks
-          .filter((b) => b.type === 'text')
-          .map((b) => (b as any).content as string)
-          .join('\n')
-          .trim();
-        setEditDraft(textContent);
-        break;
-      }
-      case 'retry': {
-        if (isStreaming()) break;
-        const gateway = getGateway();
-        if (!gateway) break;
-        const lastUserText = chatStore.removeLastTurn(sid);
-        if (!lastUserText) break;
-        try {
-          await gateway.session.undo(sid);
-        } catch {
-          // undo may fail if backend already cleaned up — proceed with resend anyway
-        }
-        await sendPrompt(lastUserText);
-        break;
-      }
-      case 'branch': {
-        const meta = await sessionStore.branchSession(sid);
-        if (meta) navigate(`/conversation/${meta.id}`);
-        break;
-      }
-      case 'undo': {
-        if (isStreaming()) break;
-        const gateway = getGateway();
-        if (!gateway) break;
-        chatStore.removeLastTurn(sid);
-        try {
-          await gateway.session.undo(sid);
-        } catch {
-          // undo may fail if backend already cleaned up — UI is already updated
-        }
-        break;
-      }
-    }
-  };
-
-  const onMessageDelta = (payload: MessageDeltaPayload) => {
-    chatStore.handleDelta(sessionId(), payload);
-  };
-
-  const onMessageComplete = (payload: MessageCompletePayload) => {
-    chatStore.handleMessageComplete(sessionId(), payload);
-  };
-
-  const onReasoningDelta = (payload: ReasoningDeltaPayload) => {
-    chatStore.handleReasoningDelta(sessionId(), payload.text);
-  };
-
-  const onToolStart = (payload: ToolStartPayload) => {
-    chatStore.handleToolStart(sessionId(), payload);
-  };
-
-  const onToolProgress = (payload: ToolProgressPayload) => {
-    chatStore.handleToolProgress(sessionId(), payload);
-  };
-
-  const onToolComplete = (payload: ToolCompletePayload) => {
-    chatStore.handleToolComplete(sessionId(), payload);
-  };
-
-  const onToolGenerating = (payload: ToolGeneratingPayload) => {
-    chatStore.handleToolGenerating(sessionId(), payload);
-  };
-
-  const onToolError = (payload: ToolErrorPayload) => {
-    chatStore.handleToolError(sessionId(), payload);
-  };
-
-  const onApprovalRequest = (payload: ApprovalRequestPayload) => {
-    chatStore.handleApprovalRequest(sessionId(), payload);
-  };
-
-  const onSudoRequest = (payload: SudoRequestPayload) => {
-    chatStore.handleSudoRequest(sessionId(), payload);
-  };
-
-  const onSecretRequest = (payload: SecretRequestPayload) => {
-    chatStore.handleSecretRequest(sessionId(), payload);
-  };
-
-  const onClarifyRequest = (payload: ClarifyRequestPayload) => {
-    chatStore.handleClarifyRequest(sessionId(), payload);
-  };
-
-  const onBackgroundComplete = (payload: BackgroundCompletePayload) => {
-    backgroundTaskStore.handleComplete(payload);
-  };
-
-  const onBtwComplete = (payload: BtwCompletePayload) => {
-    backgroundTaskStore.handleBtwComplete(payload);
-  };
-
-  const onSubagentStart = (payload: SubagentStartPayload) => {
-    delegationStore.handleStart(payload);
-  };
-
-  const onSubagentProgress = (payload: SubagentProgressPayload) => {
-    delegationStore.handleProgress(payload);
-  };
-
-  const onSubagentComplete = (payload: SubagentCompletePayload) => {
-    delegationStore.handleComplete(payload);
-  };
-
-  const onSubagentTool = (payload: SubagentToolPayload) => {
-    delegationStore.handleTool(payload);
-  };
-
-  const onSubagentError = (payload: SubagentErrorPayload) => {
-    delegationStore.handleError(payload);
-  };
+  // ── Side panel drag ───────────────────────────────────────────────────
 
   const handleDragStart = (e: MouseEvent) => {
     e.preventDefault();
@@ -625,13 +272,9 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
     const onUp = () => {
       if (rafId != null) cancelAnimationFrame(rafId);
-      if (diffPanelEl) {
-        diffPanelEl.style.transition = '';
-        diffPanelEl.style.willChange = '';
-      }
+      if (diffPanelEl) { diffPanelEl.style.transition = ''; diffPanelEl.style.willChange = ''; }
       if (dragHandleEl) dragHandleEl.classList.remove(styles.dragHandleActive);
       if (chatBodyRef) chatBodyRef.classList.remove(styles.chatBodyDragging);
-
       sidePanelStore.setPanelWidth(lastWidth);
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
@@ -641,13 +284,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     document.addEventListener('mouseup', onUp);
   };
 
+  // ── Session loading & model sync ──────────────────────────────────────
+
   createEffect(() => {
     const sid = sessionId();
     if (!sid) return;
     sessionStore.setActiveSession(sid);
     untrack(async () => {
       await chatStore.loadMessages(sid);
-      // If the session no longer exists (e.g. was deleted), redirect
       const exists = sessionStore.sessions.some((s) => s.id === sid);
       if (!exists) {
         const remaining = sessionStore.sessions;
@@ -663,62 +307,89 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         }
       }
     });
-    // Reset scroll state when switching sessions
-    setIsNearBottom(true);
-    setUserScrolledUp(false);
-    setUnreadCount(0);
-    setLastMessageCount(0);
+    scroll.resetScrollState();
   });
 
-  onMount(() => {
-    const gateway = getGateway();
-    if (!gateway) return;
-
-    gateway.on('message.delta', onMessageDelta);
-    gateway.on('message.complete', onMessageComplete);
-    gateway.on('reasoning.delta', onReasoningDelta);
-    gateway.on('tool.start', onToolStart);
-    gateway.on('tool.progress', onToolProgress);
-    gateway.on('tool.complete', onToolComplete);
-    gateway.on('tool.generating', onToolGenerating);
-    gateway.on('tool.error', onToolError);
-    gateway.on('approval.request', onApprovalRequest);
-    gateway.on('sudo.request', onSudoRequest);
-    gateway.on('secret.request', onSecretRequest);
-    gateway.on('clarify.request', onClarifyRequest);
-    gateway.on('background.complete', onBackgroundComplete);
-    gateway.on('btw.complete', onBtwComplete);
-    gateway.on('subagent.start', onSubagentStart);
-    gateway.on('subagent.progress', onSubagentProgress);
-    gateway.on('subagent.complete', onSubagentComplete);
-    gateway.on('subagent.tool', onSubagentTool);
-    gateway.on('subagent.error', onSubagentError);
+  createEffect(() => {
+    const sid = sessionStore.activeSessionId;
+    if (!sid) return;
+    const cached = sessionStore.getSessionModel(sid);
+    if (cached) {
+      modelStore.hydrateActiveModel(cached.provider, cached.model);
+      return;
+    }
+    const session = sessionStore.activeSession;
+    if (session?.provider && session?.model) {
+      modelStore.hydrateActiveModel(session.provider, session.model);
+    }
   });
 
-  onCleanup(() => {
-    const gateway = getGateway();
-    if (!gateway) return;
-
-    gateway.off('message.delta', onMessageDelta);
-    gateway.off('message.complete', onMessageComplete);
-    gateway.off('reasoning.delta', onReasoningDelta);
-    gateway.off('tool.start', onToolStart);
-    gateway.off('tool.progress', onToolProgress);
-    gateway.off('tool.complete', onToolComplete);
-    gateway.off('tool.generating', onToolGenerating);
-    gateway.off('tool.error', onToolError);
-    gateway.off('approval.request', onApprovalRequest);
-    gateway.off('sudo.request', onSudoRequest);
-    gateway.off('secret.request', onSecretRequest);
-    gateway.off('clarify.request', onClarifyRequest);
-    gateway.off('background.complete', onBackgroundComplete);
-    gateway.off('btw.complete', onBtwComplete);
-    gateway.off('subagent.start', onSubagentStart);
-    gateway.off('subagent.progress', onSubagentProgress);
-    gateway.off('subagent.complete', onSubagentComplete);
-    gateway.off('subagent.tool', onSubagentTool);
-    gateway.off('subagent.error', onSubagentError);
+  createEffect(() => {
+    const path = workspacePath();
+    gitViewStore.setWorkspacePath(path);
+    void workspaceTreeStore.setWorkspacePath(path);
+    if (path && sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git') {
+      void gitViewStore.fetchDiff();
+    }
   });
+
+  createEffect(() => {
+    if (sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git' && workspacePath()) {
+      void gitViewStore.fetchDiff();
+    }
+  });
+
+  // ── Message action handler ────────────────────────────────────────────
+
+  const handleMessageAction = async (sid: string, action: MessageActionType, message: RenderedMessage) => {
+    switch (action) {
+      case 'copy': {
+        const content = message.blocks.filter((b) => b.type === 'text').map((b) => b.content).join('\n');
+        await navigator.clipboard.writeText(content);
+        break;
+      }
+      case 'edit': {
+        const textContent = message.blocks.filter((b) => b.type === 'text').map((b) => (b as any).content as string).join('\n').trim();
+        setEditDraft(textContent);
+        break;
+      }
+      case 'retry': {
+        if (isStreaming()) break;
+        const gateway = getGateway();
+        if (!gateway) break;
+        const lastUserText = chatStore.removeLastTurn(sid);
+        if (!lastUserText) break;
+        try { await gateway.session.undo(sid); } catch { /* proceed anyway */ }
+        await sendPrompt(lastUserText);
+        break;
+      }
+      case 'branch': {
+        const meta = await sessionStore.branchSession(sid);
+        if (meta) navigate(`/conversation/${meta.id}`);
+        break;
+      }
+      case 'undo': {
+        if (isStreaming()) break;
+        const gateway = getGateway();
+        if (!gateway) break;
+        chatStore.removeLastTurn(sid);
+        try { await gateway.session.undo(sid); } catch { /* UI already updated */ }
+        break;
+      }
+    }
+  };
+
+  // ── Handlers ──────────────────────────────────────────────────────────
+
+  const handleSend = async (text: string, _attachments?: any[]) => {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('/')) {
+      await handleSlashCommand(trimmed);
+      return;
+    }
+    cards.setCommandCard(null);
+    await sendPrompt(text);
+  };
 
   const handleMaskedPermissionSubmit = (requestId: string, value: string) => {
     const permission = liveState().pendingPermission;
@@ -741,6 +412,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       void chatStore.respondSecret(sessionId(), permission.requestId, '');
     }
   };
+
+  // ── Prompt dock items ─────────────────────────────────────────────────
 
   const promptDockItems = createMemo<PromptDockItem[]>(() => {
     const items: PromptDockItem[] = [];
@@ -800,10 +473,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       });
     }
 
-    if (!permission && !clarify && commandCard()) {
+    if (!permission && !clarify && cards.commandCard()) {
       items.push({
         id: 'command-card',
-        content: <CommandCardDock card={commandCard()!} embedded onDismiss={dismissCommandCard} />,
+        content: <CommandCardDock card={cards.commandCard()!} embedded onDismiss={cards.dismissCommandCard} />,
       });
     }
 
@@ -822,6 +495,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
     return items;
   });
+
+  // ── Render ────────────────────────────────────────────────────────────
 
   return (
     <div class={styles.chatView}>
@@ -848,21 +523,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           <span class={styles.noModelText}>
             No model provider configured — messages cannot be sent until you add one.
           </span>
-          <button
-            type="button"
-            class={styles.noModelBtn}
-            onClick={() => navigate(ROUTES.MODEL)}
-          >
+          <button type="button" class={styles.noModelBtn} onClick={() => navigate(ROUTES.MODEL)}>
             Configure
           </button>
         </div>
       </Show>
 
       <Show when={liveState().memoryContext}>
-        <MemoryContextCard
-          items={liveState().memoryContext!}
-          onEdit={() => {}}
-        />
+        <MemoryContextCard items={liveState().memoryContext!} onEdit={() => {}} />
       </Show>
 
       <div class={styles.chatBody} ref={chatBodyRef}>
@@ -884,12 +552,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
             </Match>
             <Match when={true}>
               <div
-                ref={(el) => { messageListRef = el; }}
+                ref={(el) => { scroll.refs.messageList = el; }}
                 class={styles.messageList}
-                onScroll={handleScroll}
-                style={{
-                  "padding-bottom": blockingPromptActive() ? '60px' : undefined,
-                }}
+                onScroll={scroll.handleScroll}
+                style={{ "padding-bottom": blockingPromptActive() ? '60px' : undefined }}
               >
                 <For each={messages()}>
                   {(message, getIndex) => {
@@ -915,19 +581,19 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                     liveTools={liveTools()}
                   />
                 </Show>
-                <div ref={messagesEndRef} />
+                <div ref={scroll.refs.messagesEnd} />
               </div>
             </Match>
           </Switch>
 
           <div class={styles.inputArea}>
             <JumpToBottom
-              unreadCount={unreadCount()}
-              visible={!isNearBottom() && messages().length > 0}
+              unreadCount={scroll.unreadCount()}
+              visible={!scroll.isNearBottom() && messages().length > 0}
               onClick={() => {
-                setUserScrolledUp(false);
-                setUnreadCount(0);
-                scrollToBottom({ force: true, behavior: 'smooth' });
+                scroll.setUserScrolledUp(false);
+                scroll.setUnreadCount(() => 0);
+                scroll.scrollToBottom({ force: true, behavior: 'smooth' });
               }}
             />
             <PromptDock items={promptDockItems()} />
