@@ -12,6 +12,7 @@
 import type {
   GatewayAdapter,
   ConnectionState,
+  GatewayEventEnvelope,
   GatewayEventMap,
   SessionListItem,
   SessionMessage,
@@ -649,11 +650,27 @@ export class HttpGatewayAdapter implements GatewayAdapter {
   }
 
   /** Map an SSE ui_message type to a GatewayEventMap key and transform the payload. */
+  private normalizeSseEvent(event: SseEvent): GatewayEventEnvelope {
+    return {
+      sessionId: String(event.session_id ?? ''),
+      seq: Number(event.seq ?? 0),
+      type: String(event.type ?? ''),
+      payload: (event.payload as Record<string, unknown>) ?? {},
+      receivedAt: Date.now(),
+    };
+  }
+
   private dispatchSseEvent(event: SseEvent): void {
-    const { session_id: sid, seq, type, payload } = event;
+    const envelope = this.normalizeSseEvent(event);
+    const { sessionId: sid, seq, type, payload } = envelope;
+    if (!sid) return;
 
     // Track lastSeq for replay
     const current = this.lastSeq.get(sid) ?? 0;
+    if (seq > 0 && seq <= current) {
+      return;
+    }
+    this.knownSessionIds.add(sid);
     if (seq > current) {
       this.lastSeq.set(sid, seq);
     }

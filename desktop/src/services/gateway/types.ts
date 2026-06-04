@@ -95,6 +95,15 @@ export interface GatewayEventMap {
   'subagent.error': SubagentErrorPayload;
 }
 
+/** Normalized transport event emitted by the HTTP+SSE adapter before routing. */
+export interface GatewayEventEnvelope {
+  sessionId: string;
+  seq: number;
+  type: keyof GatewayEventMap | string;
+  payload: Record<string, unknown>;
+  receivedAt: number;
+}
+
 /** Typed event emitter interface for gateway events. */
 export interface GatewayEventEmitter {
   on<K extends keyof GatewayEventMap>(

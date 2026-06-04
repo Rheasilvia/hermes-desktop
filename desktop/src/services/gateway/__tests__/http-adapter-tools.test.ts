@@ -38,6 +38,54 @@ describe('dispatchSseEvent — tool.generating', () => {
   });
 });
 
+describe('dispatchSseEvent — envelope and idempotency', () => {
+  it('drops duplicate or older seq events for the same session', () => {
+    const adapter = makeAdapter();
+    const received: unknown[] = [];
+    adapter.on('message.delta', (payload) => received.push(payload));
+
+    (adapter as any).dispatchSseEvent({
+      session_id: 'sess_1',
+      seq: 10,
+      type: 'message.delta',
+      payload: { text: 'first' },
+    });
+    (adapter as any).dispatchSseEvent({
+      session_id: 'sess_1',
+      seq: 10,
+      type: 'message.delta',
+      payload: { text: 'duplicate' },
+    });
+    (adapter as any).dispatchSseEvent({
+      session_id: 'sess_1',
+      seq: 9,
+      type: 'message.delta',
+      payload: { text: 'older' },
+    });
+
+    expect(received).toEqual([{ session_id: 'sess_1', text: 'first' }]);
+  });
+
+  it('normalizes raw SSE rows to a GatewayEventEnvelope before dispatch', () => {
+    const adapter = makeAdapter();
+
+    const envelope = (adapter as any).normalizeSseEvent({
+      session_id: 'sess_1',
+      seq: 4,
+      type: 'tool.progress',
+      payload: { tool_id: 'tool_1', name: 'bash', preview: 'running' },
+    });
+
+    expect(envelope).toMatchObject({
+      sessionId: 'sess_1',
+      seq: 4,
+      type: 'tool.progress',
+      payload: { tool_id: 'tool_1', name: 'bash', preview: 'running' },
+    });
+    expect(typeof envelope.receivedAt).toBe('number');
+  });
+});
+
 describe('dispatchSseEvent — tool.progress', () => {
   it('emits tool.progress event with tool_id when present', () => {
     const adapter = makeAdapter();

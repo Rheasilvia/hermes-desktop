@@ -9,6 +9,7 @@ import { SlashCommandPanel, type SlashCommand } from './SlashCommandPanel';
 import { ContextUsageBar, type ContextUsageProps } from './ContextUsageBar';
 import { AttachmentChips, type AttachmentChip } from './composer/AttachmentChips.js';
 import { getGateway } from '@/stores/context.js';
+import { filterDesktopSlashCommands } from './slashCommandCuration.js';
 import styles from './MessageInput.module.css';
 
 interface MessageInputProps {
@@ -76,12 +77,12 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     if (!gateway) return;
     try {
       const results = await gateway.complete.slash({ partial: slashPartial() });
-      setSlashCommands(results.map((r) => ({
+      setSlashCommands(filterDesktopSlashCommands(results.map((r) => ({
         command: r.command,
         description: r.description,
         category: r.category,
         icon: r.icon,
-      })));
+      }))));
     } catch {
       // ignore
     }

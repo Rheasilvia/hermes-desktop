@@ -2,7 +2,19 @@
  * Ephemeral live-turn state — not persisted, exists only during active streaming.
  */
 
-export type TurnStatus = 'idle' | 'streaming' | 'tool_running' | 'error' | 'interrupted';
+export type TurnStatus =
+  | 'idle'
+  | 'submitting'
+  | 'accepted'
+  | 'streaming'
+  | 'tool_running'
+  | 'awaiting_user'
+  | 'finalized'
+  | 'interrupted'
+  | 'failed'
+  | 'stale'
+  | 'stalled'
+  | 'error';
 
 export interface PendingPermission {
   kind: 'approval' | 'secret' | 'sudo';

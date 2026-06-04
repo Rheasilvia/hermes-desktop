@@ -33,6 +33,7 @@ import { PromptDock, type PromptDockItem } from './turn/PromptDock.js';
 import { PermissionRequestCard } from './turn/PermissionRequestCard.js';
 import { BackgroundTaskDock } from './background/BackgroundTaskDock.js';
 import { backgroundTaskStore, recentBackgroundTasks } from '@/stores/background-tasks.js';
+import { composerQueueStore, shouldAutoDrainOnSettle, type QueuedAttachment } from '@/stores/composer-queue.js';
 import { createScrollController } from './scrollController.js';
 import { createCommandCardState } from './commandCardState.js';
 import { createSlashCommandRunner } from './slashCommandRunner.js';
@@ -50,6 +51,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let diffPanelEl: HTMLDivElement | undefined;
   let dragHandleEl: HTMLDivElement | undefined;
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
+  let wasBusy = false;
+  let suppressNextAutoDrain = false;
 
   const workspacePath = createMemo(() => sessionStore.activeSession?.workspace_path ?? null);
   const messages = (): RenderedMessage[] => chatStore.getMessages(sessionId());
@@ -105,6 +108,35 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   });
 
   useGatewayEvents({ getGateway });
+
+  createEffect(() => {
+    const sid = sessionId();
+    const busy = isStreaming();
+    const queueLength = composerQueueStore.getQueuedPrompts(sid).length;
+    const shouldDrain = shouldAutoDrainOnSettle({
+      wasBusy,
+      isBusy: busy,
+      queueLength,
+      userInterrupted: suppressNextAutoDrain,
+    });
+
+    if (shouldDrain) {
+      const next = composerQueueStore.dequeue(sid);
+      if (next) {
+        const queuedText = next.text.trim();
+        if (queuedText.startsWith('/')) {
+          void handleSlashCommand(queuedText);
+        } else {
+          void sendPrompt(next.text);
+        }
+      }
+    }
+
+    if (wasBusy && !busy) {
+      suppressNextAutoDrain = false;
+    }
+    wasBusy = busy;
+  });
 
   // ── Floating TodoPanel state ──────────────────────────────────────────
 
@@ -381,8 +413,13 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   // ── Handlers ──────────────────────────────────────────────────────────
 
-  const handleSend = async (text: string, _attachments?: any[]) => {
+  const handleSend = async (text: string, attachments?: QueuedAttachment[]) => {
     const trimmed = text.trim();
+    if (isStreaming()) {
+      const entry = composerQueueStore.enqueue(sessionId(), { text: trimmed || text, attachments });
+      if (entry) cards.noticeCard('Queued for the next turn.');
+      return;
+    }
     if (trimmed.startsWith('/')) {
       await handleSlashCommand(trimmed);
       return;
@@ -600,8 +637,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
             <MessageInput
               onSend={handleSend}
-              onStop={() => chatStore.cancelMessage(sessionId())}
-              disabled={isStreaming() || blockingPromptActive() || !modelStore.activeModel}
+              onStop={() => {
+                suppressNextAutoDrain = true;
+                void chatStore.cancelMessage(sessionId());
+              }}
+              disabled={blockingPromptActive() || !modelStore.activeModel}
               isStreaming={isStreaming()}
               modelSlot={(dimmed, disabled) => <ModelSelector sessionId={sessionId()} dimmed={dimmed} disabled={disabled} />}
               workspacePath={workspacePath()}
