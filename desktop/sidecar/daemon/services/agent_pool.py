@@ -293,8 +293,15 @@ class AgentPool:
             agent.workspace_cwd = workspace_path
 
             # Register path approval callback for workspace boundary enforcement
-            from tools.path_approval import register_path_approval_notify
+            from tools.path_approval import (
+                register_path_approval_notify,
+                register_hermes_home,
+                preload_session_approvals,
+            )
             from ..db.ui_messages import append as ui_append
+
+            # Ensure hermes_home is wired for DB persistence
+            register_hermes_home(lambda: self._hermes_home)
 
             def _path_approval_cb(payload: dict) -> None:
                 seq = ui_append(self._hermes_home, session_id, "approval.request", payload)
@@ -304,6 +311,10 @@ class AgentPool:
                 ui_append(self._hermes_home, session_id, "pending_approval", persist_payload)
 
             register_path_approval_notify(session_id, _path_approval_cb)
+
+            # Pre-populate in-memory cache with any historical session approvals
+            # from DB so resuming a session doesn't re-prompt already-approved keys.
+            preload_session_approvals(session_id)
 
         # Update session model column to the actually-resolved model
         # (session is created with a default model before agent resolution).

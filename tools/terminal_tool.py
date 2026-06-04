@@ -1969,6 +1969,23 @@ def _resolve_command_cwd(
 _ABS_PATH_RE = re.compile(r'(?:^|(?<=\s))(?:/[^\s;|&<>(){}]+|~/[^\s;|&<>(){}]+)')
 
 
+# Commands that affect a specific path destructively — require exact approval per path.
+# All other commands get a prefix-level key ("terminal:verb") so the user can
+# approve "all ls outside workspace" in one click.
+_TERMINAL_DESTRUCTIVE = frozenset({
+    "rm", "rmdir", "mv", "dd", "shred", "truncate", "chmod", "chown",
+})
+
+
+def _terminal_verb(command: str) -> str:
+    """Extract the bare command verb from a shell command string."""
+    tokens = command.strip().split()
+    if not tokens:
+        return ""
+    # Strip leading path components (e.g. /usr/bin/rm → rm)
+    return tokens[0].lstrip("./").split("/")[-1]
+
+
 def _check_terminal_workspace_boundary(command: str, workdir: str | None = None) -> str | None:
     """Check workspace boundary for terminal commands. Desktop-only (no-op outside desktop)."""
     try:
@@ -1979,6 +1996,8 @@ def _check_terminal_workspace_boundary(command: str, workdir: str | None = None)
     from tools.path_approval import get_workspace_root
     if not get_workspace_root():
         return None
+
+    verb = _terminal_verb(command)
 
     paths_to_check: list[Path] = []
 
@@ -1999,7 +2018,13 @@ def _check_terminal_workspace_boundary(command: str, workdir: str | None = None)
                 pass
 
     for resolved in paths_to_check:
-        ws_error = _check_workspace_boundary(resolved, "terminal")
+        if verb in _TERMINAL_DESTRUCTIVE:
+            # Exact key: each path needs its own approval
+            session_key = f"terminal:{verb}:{resolved}"
+        else:
+            # Prefix key: approving "ls" once covers all future ls calls
+            session_key = f"terminal:{verb}" if verb else f"terminal:{resolved}"
+        ws_error = _check_workspace_boundary(resolved, "terminal", session_key=session_key)
         if ws_error:
             return ws_error
 

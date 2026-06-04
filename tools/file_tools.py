@@ -351,12 +351,26 @@ def _is_blocked_device_path(path: str) -> bool:
     return False
 
 
-def _check_workspace_boundary(resolved: Path, operation: str) -> str | None:
+def _check_workspace_boundary(
+    resolved: Path,
+    operation: str,
+    session_key: str | None = None,
+) -> str | None:
     """Check if a resolved path is within the workspace boundary.
 
     Returns an error JSON string if access is denied, or None if allowed.
     Only active in desktop mode when workspace_cwd is set via ContextVar.
     Symlinks within the workspace are trusted (not resolved for boundary check).
+
+    session_key controls approval granularity:
+      None    → auto-derived from operation + path (see below)
+      string  → caller-provided (e.g. terminal tool passes verb-based key)
+
+    Auto-derived keys:
+      "read"     → "read:{parent_dir}"   (prefix match: approve whole dir)
+      "write"    → "write:{exact_path}"  (exact: only this file)
+      "search"   → "search:{dir}"        (prefix match: approve dir subtree)
+      "terminal" → "terminal:{path}"     (fallback; terminal tool should pass key)
     """
     from tools.path_approval import get_workspace_root, get_approval_session_id, request_path_approval
 
@@ -373,7 +387,17 @@ def _check_workspace_boundary(resolved: Path, operation: str) -> str | None:
     if error is None:
         return None  # Path is within workspace
 
-    decision = request_path_approval(str(resolved), operation, session_id)
+    if session_key is None:
+        if operation == "read":
+            session_key = f"read:{resolved.parent}"
+        elif operation == "write":
+            session_key = f"write:{resolved}"
+        elif operation == "search":
+            session_key = f"search:{resolved}"
+        else:
+            session_key = f"{operation}:{resolved}"
+
+    decision = request_path_approval(str(resolved), operation, session_id, session_key)
     if decision == "deny":
         return json.dumps({
             "error": f"Access denied: {resolved} is outside workspace ({workspace_root})",

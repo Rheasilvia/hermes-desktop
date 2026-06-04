@@ -37,6 +37,13 @@ CREATE TABLE IF NOT EXISTS ui_messages (
 
 CREATE INDEX IF NOT EXISTS idx_ui_msgs_sid_seq
     ON ui_messages(session_id, seq);
+
+CREATE TABLE IF NOT EXISTS session_path_approvals (
+    session_id   TEXT NOT NULL,
+    approval_key TEXT NOT NULL,
+    created_at   REAL NOT NULL,
+    PRIMARY KEY (session_id, approval_key)
+);
 """
 
 
@@ -151,6 +158,53 @@ def clear_session(hermes_home: Path, session_id: str) -> None:
         _ensure_schema(conn)
         conn.execute(
             "DELETE FROM ui_messages WHERE session_id = ?",
+            (session_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# session_path_approvals helpers
+# ---------------------------------------------------------------------------
+
+def save_session_approval(hermes_home: Path, session_id: str, approval_key: str) -> None:
+    """Persist a session-level path approval key to the DB (idempotent)."""
+    conn = _connect(hermes_home)
+    try:
+        _ensure_schema(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO session_path_approvals (session_id, approval_key, created_at) "
+            "VALUES (?, ?, ?)",
+            (session_id, approval_key, time.time()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_session_approvals(hermes_home: Path, session_id: str) -> set:
+    """Return all persisted approval keys for a session."""
+    conn = _connect(hermes_home)
+    try:
+        _ensure_schema(conn)
+        rows = conn.execute(
+            "SELECT approval_key FROM session_path_approvals WHERE session_id = ?",
+            (session_id,),
+        ).fetchall()
+        return {row["approval_key"] for row in rows}
+    finally:
+        conn.close()
+
+
+def clear_session_approvals_db(hermes_home: Path, session_id: str) -> None:
+    """Delete all persisted approval keys for a session."""
+    conn = _connect(hermes_home)
+    try:
+        _ensure_schema(conn)
+        conn.execute(
+            "DELETE FROM session_path_approvals WHERE session_id = ?",
             (session_id,),
         )
         conn.commit()
