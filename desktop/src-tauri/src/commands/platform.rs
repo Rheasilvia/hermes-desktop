@@ -1,5 +1,4 @@
 use serde::Serialize;
-use std::path::PathBuf;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -68,7 +67,7 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let parent = PathBuf::from(&path)
+        let parent = std::path::PathBuf::from(&path)
             .parent()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or(path);
