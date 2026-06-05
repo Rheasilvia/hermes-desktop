@@ -1,7 +1,7 @@
 """Schema constants for desktop.db."""
 from __future__ import annotations
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SESSION_DESKTOP_META_DDL = """
 CREATE TABLE IF NOT EXISTS session_desktop_meta (

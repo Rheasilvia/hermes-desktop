@@ -52,6 +52,7 @@ import type {
   GatewayStderrPayload,
   ProtocolErrorPayload,
   SessionTitleUpdatePayload,
+  ModelChangedPayload,
   SubagentStartPayload,
   SubagentProgressPayload,
   SubagentCompletePayload,
@@ -88,6 +89,7 @@ export interface GatewayEventMap {
   'gateway.stderr': GatewayStderrPayload;
   'gateway.protocol_error': ProtocolErrorPayload;
   'session.title_update': SessionTitleUpdatePayload;
+  'model.changed': ModelChangedPayload;
   'subagent.start': SubagentStartPayload;
   'subagent.progress': SubagentProgressPayload;
   'subagent.complete': SubagentCompletePayload;

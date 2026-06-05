@@ -1,9 +1,9 @@
 import type { Component } from 'solid-js';
-import { createSignal, createMemo, Show, For, onMount, onCleanup } from 'solid-js';
-import { modelStore } from '@/stores/models.js';
+import { createSignal, createMemo, createEffect, Show, For, onMount, onCleanup } from 'solid-js';
+import { modelsStore } from '@/stores/models.js';
 import { sessionStore } from '@/stores/session.js';
 import { chatStore } from '@/stores/chat.js';
-import { api } from '@/services/api/router';
+import { getGateway } from '@/stores/context.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import styles from './ModelSelector.module.css';
 
@@ -17,18 +17,32 @@ interface ModelSelectorProps {
 export const ModelSelector: Component<ModelSelectorProps> = (props) => {
   const [isOpen, setIsOpen] = createSignal(false);
   let wrapperRef: HTMLDivElement | undefined;
+  let activeItemRef: HTMLButtonElement | undefined;
 
-  const hasModel = createMemo(() => {
-    return !!modelStore.activeProvider && !!modelStore.activeModel;
+  // When the dropdown opens, jump straight to the currently-selected model.
+  createEffect(() => {
+    if (isOpen() && activeItemRef) {
+      const el = activeItemRef;
+      requestAnimationFrame(() => el.scrollIntoView({ block: 'nearest' }));
+    }
   });
 
+  // Per-session model — isolated from the global default
+  const sessionModel = createMemo(() => sessionStore.getSessionModel(props.sessionId));
+
+  const hasModel = createMemo(() => !!sessionModel());
+
   const activeLabel = createMemo(() => {
-    if (!hasModel()) return '⚠ Select model';
-    const displayName = modelStore.activeModelOption?.display_name ?? modelStore.activeModel!;
+    const sm = sessionModel();
+    if (!sm) return '⚠ Select model';
+    // Find display name from catalog
+    const providerEntry = modelsStore.providers().find(p => p.name === sm.provider);
+    const modelOption = providerEntry?.models?.find(m => m.name === sm.model);
+    const displayName = modelOption?.display_name ?? sm.model;
     return displayName.length > 24 ? `${displayName.slice(0, 24)}…` : displayName;
   });
 
-  const providers = () => modelStore.providers;
+  const providers = () => modelsStore.providers();
 
   const toggleDropdown = () => { if (!props.disabled) setIsOpen(!isOpen()); };
 
@@ -38,18 +52,24 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
     if (chatStore.isStreaming(props.sessionId)) {
       return;
     }
-    const success = await modelStore.switchModel(providerName, modelName, false);
-    if (success) {
-      // Update session-level provider in backend
-      try {
-        await api.session().setProvider(props.sessionId, providerName, modelName);
-        sessionStore.setSessionModel(props.sessionId, providerName, modelName);
-      } catch (e) {
-        console.error('[ModelSelector] failed to update session model:', e);
+    // Optimistic update for the session
+    const prevModel = sessionStore.getSessionModel(props.sessionId);
+    sessionStore.setSessionModel(props.sessionId, providerName, modelName);
+
+    try {
+      const gateway = getGateway();
+      if (gateway) {
+        await gateway.setSessionProvider(props.sessionId, providerName, modelName);
       }
       if (props.onModelChange) {
         props.onModelChange(providerName, modelName);
       }
+    } catch (e) {
+      // Rollback on failure
+      if (prevModel) {
+        sessionStore.setSessionModel(props.sessionId, prevModel.provider, prevModel.model);
+      }
+      console.error('[ModelSelector] failed to update session model:', e);
     }
   };
 
@@ -61,9 +81,8 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
   };
 
   onMount(() => {
-    if (modelStore.providers.length === 0) {
-      modelStore.loadModels();
-    }
+    // Ensure catalog is loaded (no-op if already fresh)
+    void modelsStore.load();
     document.addEventListener('click', handleClickOutside, true);
   });
 
@@ -93,12 +112,13 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
                 <div class={styles.providerLabel}>{provider.display_name ?? provider.name}</div>
                 <For each={provider.models ?? []}>
                   {(model) => {
+                    const sm = sessionModel();
                     const isActive = () =>
-                      modelStore.activeProvider === provider.name &&
-                      modelStore.activeModel === model.name;
+                      sm?.provider === provider.name && sm?.model === model.name;
 
                     return (
                       <button
+                        ref={(el) => { if (isActive()) activeItemRef = el; }}
                         class={`${styles.modelItem} ${isActive() ? styles.modelItemActive : ''}`}
                         onClick={() => handleModelSelect(provider.name, model.name)}
                         type="button"

@@ -63,6 +63,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const liveState = () => chatStore.getLiveState(sessionId());
   const isStreaming = (): boolean => chatStore.isStreaming(sessionId());
   const error = (): string | null => chatStore.getError(sessionId());
+  const errorAction = () => chatStore.getErrorAction(sessionId());
   const isEmpty = createMemo(() => messages().length === 0);
   const canEditWorkspace = createMemo(() => !messages().some((m) => m.role === 'assistant'));
   const isLoading = () => chatStore.isLoadingMessages(sessionId());
@@ -362,17 +363,15 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     scroll.resetScrollState();
   });
 
+  // Seed sessionModels from session metadata if not already set by a user switch.
+  // Does NOT touch modelStore.defaultModel — per-session and global are separate.
   createEffect(() => {
     const sid = sessionStore.activeSessionId;
     if (!sid) return;
-    const cached = sessionStore.getSessionModel(sid);
-    if (cached) {
-      modelStore.hydrateActiveModel(cached.provider, cached.model);
-      return;
-    }
+    if (sessionStore.getSessionModel(sid)) return; // already set
     const session = sessionStore.activeSession;
     if (session?.provider && session?.model) {
-      modelStore.hydrateActiveModel(session.provider, session.model);
+      sessionStore.setSessionModel(sid, session.provider, session.model);
     }
   });
 
@@ -575,6 +574,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       <Show when={error()}>
         <ErrorBanner
           message={error()!}
+          action={errorAction()}
           onRetry={() => handleSend('')}
           onDismiss={() => { chatStore.clearError(sessionId()); }}
         />
@@ -582,7 +582,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
       <WorkspaceBanner workspacePath={workspacePath()} />
 
-      <Show when={!modelStore.activeModel}>
+      <Show when={!sessionStore.getSessionModel(sessionId()) && !modelStore.defaultModel}>
         <div class={styles.noModelBanner}>
           <Icon name="alert-triangle" size={16} class={styles.noModelIcon} />
           <span class={styles.noModelText}>

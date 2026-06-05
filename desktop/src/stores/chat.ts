@@ -29,6 +29,7 @@ import type { TextBlock } from '@/types/ui/blocks.js';
 import { parseMessage, parseBlocks } from '@/utils/messageParser.js';
 import { getGateway } from './context.js';
 import { modelStore } from './models.js';
+import { sessionStore } from './session.js';
 import { sessionUsage } from './usage.js';
 
 // ── Chat State ────────────────────────────────────────────────────────────
@@ -58,6 +59,7 @@ function makeLiveTurnState(sessionId: string): LiveTurnState {
     todosToolId: null,
     todos: [],
     errorMessage: null,
+    errorAction: null,
     pendingPermission: null,
     pendingClarify: null,
     memoryContext: null,
@@ -111,7 +113,14 @@ function armStalledTimer(sessionId: string): void {
   clearStalledTimer(sessionId);
   stalledTimers.set(sessionId, setTimeout(() => {
     const state = chatStates[sessionId]?.liveState.status;
-    if (state === 'submitting' || state === 'accepted') {
+    // Watchdog spans the whole live turn. If no stream event arrives for
+    // TURN_STALLED_TIMEOUT_MS the turn is wedged (e.g. a stalled provider
+    // stream that never sends a stop). Flip to 'stalled' so the recovery
+    // banner + Stop affordance appear instead of an infinite spinner.
+    if (
+      state === 'submitting' || state === 'accepted' ||
+      state === 'streaming' || state === 'tool_running'
+    ) {
       setChatStates(sessionId, 'liveState', 'status', 'stalled');
     }
   }, TURN_STALLED_TIMEOUT_MS));
@@ -119,7 +128,8 @@ function armStalledTimer(sessionId: string): void {
 
 function noteLiveEvent(sessionId: string): void {
   lastEventAtBySession.set(sessionId, Date.now());
-  clearStalledTimer(sessionId);
+  // Re-arm (rolling watchdog) so a stream that goes silent mid-turn is caught.
+  armStalledTimer(sessionId);
 }
 
 function beginLiveTurn(sessionId: string, status: LiveTurnState['status']): void {
@@ -209,6 +219,10 @@ export const chatStore = {
     return chatStates[sessionId]?.liveState.errorMessage ?? null;
   },
 
+  getErrorAction(sessionId: string): { label: string; route: string } | null {
+    return chatStates[sessionId]?.liveState.errorAction ?? null;
+  },
+
   getDiagnostics(sessionId: string): ConversationDiagnosticsSnapshot {
     return {
       sessionId,
@@ -255,11 +269,14 @@ export const chatStore = {
     if (!gateway) return false;
     beginLiveTurn(sessionId, 'submitting');
     try {
+      // Per-session model takes precedence; fall back to the global default.
+      // (modelStore.default* is the main model, NOT the session's selection.)
+      const sessionModel = sessionStore.getSessionModel(sessionId);
       await gateway.prompt.execute({
         message: text,
         session_id: sessionId,
-        provider: modelStore.activeProvider ?? undefined,
-        model: modelStore.activeModel ?? undefined,
+        provider: sessionModel?.provider ?? modelStore.defaultProvider ?? undefined,
+        model: sessionModel?.model ?? modelStore.defaultModel ?? undefined,
       });
       this.markPromptAccepted(sessionId);
       return true;
@@ -467,6 +484,7 @@ export const chatStore = {
   handleMessageComplete(sessionId: string, payload: MessageCompletePayload): void {
     if (dropIfInterrupted(sessionId)) return;
     noteLiveEvent(sessionId);
+    clearStalledTimer(sessionId); // turn finished — stop the watchdog
     const live = chatStates[sessionId]?.liveState;
     if (!live) return;
 
@@ -545,10 +563,15 @@ export const chatStore = {
     }
   },
 
-  handleError(sessionId: string, message: string): void {
+  handleError(
+    sessionId: string,
+    message: string,
+    action?: { label: string; route: string } | null,
+  ): void {
     clearStalledTimer(sessionId);
     setChatStates(sessionId, 'liveState', 'status', 'error');
     setChatStates(sessionId, 'liveState', 'errorMessage', message);
+    setChatStates(sessionId, 'liveState', 'errorAction', action ?? null);
   },
 
   clearMessages(sessionId: string): void {
@@ -568,6 +591,7 @@ export const chatStore = {
   clearError(sessionId: string): void {
     setChatStates(sessionId, 'liveState', produce((live) => {
       live.errorMessage = null;
+      live.errorAction = null;
       if (live.status === 'error' || live.status === 'failed') live.status = 'idle';
     }));
   },

@@ -26,6 +26,8 @@ beforeEach(async () => {
     setActiveModel: vi.fn(),
     revealProviderApiKey: vi.fn(),
     deleteProvider: vi.fn(),
+    getProviderModelsConfig: vi.fn().mockResolvedValue(null),
+    setModelParams: vi.fn(),
   } satisfies ModelTransport);
 });
 
@@ -57,6 +59,8 @@ describe('models store', () => {
       setActiveModel: vi.fn(),
       revealProviderApiKey: vi.fn(),
       deleteProvider: vi.fn(),
+      getProviderModelsConfig: vi.fn().mockResolvedValue(null),
+      setModelParams: vi.fn(),
     } satisfies ModelTransport);
 
     const { createModelsStore } = await import('../models');
@@ -113,6 +117,8 @@ describe('loadActive', () => {
       setActiveModel: vi.fn(),
       revealProviderApiKey: vi.fn(),
       deleteProvider: vi.fn(),
+      getProviderModelsConfig: vi.fn().mockResolvedValue(null),
+      setModelParams: vi.fn(),
     } satisfies ModelTransport);
 
     const { createModelsStore, modelStore } = await import('../models');
@@ -133,6 +139,8 @@ describe('loadActive', () => {
       setActiveModel: vi.fn(),
       revealProviderApiKey: vi.fn(),
       deleteProvider: vi.fn(),
+      getProviderModelsConfig: vi.fn().mockResolvedValue(null),
+      setModelParams: vi.fn(),
     } satisfies ModelTransport);
 
     const { createModelsStore, modelStore } = await import('../models');

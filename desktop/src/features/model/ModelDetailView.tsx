@@ -1,10 +1,11 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, Show } from 'solid-js';
-import { modelStore } from '@/stores/models.js';
+import { modelStore, modelsStore } from '@/stores/models.js';
 import type { ProviderEntry, ModelOption } from '@/types/index.js';
 import { Button } from '@/ui/atoms/Button.js';
 import { Toggle } from '@/ui/atoms/Toggle.js';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { api } from '@/services/api/router';
 import styles from './ModelDetailView.module.css';
 
 export const ModelDetailView: Component = () => {
@@ -31,13 +32,34 @@ export const ModelDetailView: Component = () => {
   const isActive = () => {
     const p = provider();
     const m = model();
-    return (
-      p && m && modelStore.activeProvider === p.name && modelStore.activeModel === m.name
-    );
+    return p && m && modelStore.defaultProvider === p.name && modelStore.defaultModel === m.name;
   };
 
-  const handleSave = () => {
-    modelStore.goBack();
+  const [saving, setSaving] = createSignal(false);
+  const [saveError, setSaveError] = createSignal<string | null>(null);
+
+  const handleSave = async () => {
+    const p = provider();
+    const m = model();
+    if (!p || !m) { modelStore.goBack(); return; }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const providerId = modelsStore.resolveId(p.name);
+      await api.model().setModelParams(providerId, m.name, {
+        default_temperature: temperature(),
+        default_max_tokens: maxTokens(),
+        supports_vision: visionEnabled(),
+        supports_function_calling: toolsEnabled(),
+        supports_streaming: streamEnabled(),
+      });
+      modelsStore.invalidate();
+      await modelsStore.load();
+      modelStore.goBack();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save');
+      setSaving(false);
+    }
   };
 
   const formatPrice = (price: number | undefined): string => {
@@ -170,12 +192,15 @@ export const ModelDetailView: Component = () => {
           </div>
         </div>
 
+        <Show when={saveError()}>
+          <div class={styles.saveError}>{saveError()}</div>
+        </Show>
         <div class={styles.actions}>
-          <Button variant="secondary" size="sm" onClick={() => modelStore.goBack()}>
+          <Button variant="secondary" size="sm" onClick={() => modelStore.goBack()} disabled={saving()}>
             Cancel
           </Button>
-          <Button variant="primary" size="sm" onClick={handleSave}>
-            Save Changes
+          <Button variant="primary" size="sm" onClick={handleSave} disabled={saving()}>
+            {saving() ? 'Saving…' : 'Save Changes'}
           </Button>
         </div>
       </div>

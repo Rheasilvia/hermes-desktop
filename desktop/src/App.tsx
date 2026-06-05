@@ -56,14 +56,10 @@ const App: Component = () => {
       await initBootstrap();
       await waitForBackend(gateway, 30_000);
       await gateway.connect();
-      // Load the full provider/model list (not just the active model) at
-      // startup, mirroring ModelSwitcherView.onMount. Without this, the
-      // conversation model picker is seeded only from the has_overlay-filtered
-      // cache and shows a partial list until the Model page is opened.
-      await Promise.all([
-        modelsStore.load(),
-        modelsStore.loadActive(),
-      ]);
+      // Fire-and-forget: catalog + active model load in the background so the
+      // shell renders immediately. localStorage cache hydrates the picker
+      // instantly; stale flag ensures a background refetch on first access.
+      void Promise.all([modelsStore.load(), modelsStore.loadActive()]);
       setBootState('ready');
     } catch (e) {
       setBootError(e instanceof Error ? e.message : 'Could not connect to the Hermes backend.');

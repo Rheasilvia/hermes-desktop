@@ -7,7 +7,7 @@ export type {
   ToolGeneratingPayload, ToolErrorPayload, ApprovalRequestPayload, ClarifyRequestPayload,
   SudoRequestPayload, SecretRequestPayload, BackgroundCompletePayload, BtwCompletePayload,
   ErrorPayload, GatewayStderrPayload, ProtocolErrorPayload,
-  SessionTitleUpdatePayload, TodoItem,
+  SessionTitleUpdatePayload, ModelChangedPayload, TodoItem,
   SubagentStartPayload, SubagentProgressPayload, SubagentCompletePayload,
   SubagentToolPayload, SubagentErrorPayload, SubagentRecord,
 } from '../gateway.js';

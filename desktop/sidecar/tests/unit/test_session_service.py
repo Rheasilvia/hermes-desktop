@@ -1,8 +1,8 @@
 """Unit tests for SessionService.resolve_default_model.
 
-Focus: a new conversation must default to the configured active model (the
-Model Page primary), taking precedence over the model of the most recent
-session. Regression guard for the desktop new-conversation model-default bug.
+Focus: a new conversation defaults to the configured active model (the Model
+Page primary) and pins it at creation. It does NOT inherit the most-recent
+session's model — changing the main model only affects future new sessions.
 """
 from __future__ import annotations
 
@@ -70,10 +70,12 @@ def test_configured_active_model_preferred_over_recent_session(tmp_path):
     assert svc.resolve_default_model() == ("claude-opus-4-8", "anthropic")
 
 
-def test_falls_back_to_recent_session_when_no_active_model(tmp_path):
-    # No config.yaml active model → inherit the most recent session's model.
+def test_no_recent_session_fallback_when_no_active_model(tmp_path):
+    # New sessions inherit ONLY the global main model (config.yaml). When none is
+    # configured, resolve_default_model returns (None, None) — it must NOT silently
+    # adopt the most-recent session's model (pin-at-creation semantics).
     svc = _make_service(tmp_path, active_model=None, recent_model="gpt-4o-mini")
-    assert svc.resolve_default_model() == ("gpt-4o-mini", None)
+    assert svc.resolve_default_model() == (None, None)
 
 
 def test_returns_none_when_nothing_configured(tmp_path):

@@ -97,7 +97,11 @@ export const ConversationRecoveryBanner: Component<ConversationRecoveryBannerPro
           }}
           role="status"
         >
-          <Icon name={item().icon} size={14} class={styles.icon} />
+          <Icon
+            name={item().icon}
+            size={14}
+            class={item().icon === 'loader' ? styles.iconSpin : styles.icon}
+          />
           <span class={styles.message}>{item().message}</span>
           <Show when={item().detail}>
             <span class={styles.detail}>{item().detail}</span>

@@ -399,8 +399,11 @@ export interface BtwCompletePayload {
 
 /** Error event payload. */
 export interface ErrorPayload {
+  session_id: string;
   message: string;
-  code?: number;
+  /** Structured error code from B1 classifier (e.g. 'provider_auth', 'model_not_found'). */
+  code?: string;
+  hint?: string;
 }
 
 /** Gateway stderr event payload. */
@@ -417,4 +420,10 @@ export interface ProtocolErrorPayload {
 export interface SessionTitleUpdatePayload {
   session_id: string;
   title: string;
+}
+
+/** Broadcast event emitted when the global default model changes (e.g. via Settings or CLI). */
+export interface ModelChangedPayload {
+  provider: string;
+  model: string;
 }
