@@ -4,17 +4,16 @@
 
 import { createSignal } from 'solid-js';
 import type { ProviderEntry, ModelOption } from '@/types/index.js';
-import { getGateway, getModelAdapter } from './context.js';
 import { api } from '../services/api/router';
 import type { Provider } from '../services/api/types';
 
 const MODEL_PROVIDER_CACHE_KEY = 'hermes.desktop.model.providers.v1';
 
-const [providers, setProviders] = createSignal<ProviderEntry[]>([]);
-const [activeProvider, setActiveProvider] = createSignal<string | null>(null);
-const [activeModel, setActiveModel] = createSignal<string | null>(null);
-const [isLoading, setIsLoading] = createSignal(false);
-const [error, setError] = createSignal<string | null>(null);
+// ── Global default model (the "main" model, settings-only) ────────────────
+// Never mutated by session switches. Source of truth = config.yaml via
+// api.model().getActiveModel(). Per-session overrides live in sessionStore.
+const [defaultProvider, setDefaultProvider] = createSignal<string | null>(null);
+const [defaultModel, setDefaultModel] = createSignal<string | null>(null);
 
 // View navigation state machine
 export type ModelView = 'hub' | 'add-provider' | 'provider-detail' | 'model-detail';
@@ -23,8 +22,11 @@ const [previousView, setPreviousView] = createSignal<ModelView>('hub');
 const [detailProviderName, setDetailProviderName] = createSignal<string | null>(null);
 const [detailModelName, setDetailModelName] = createSignal<string | null>(null);
 // Draft provider set when navigating from Add Provider without saving.
-// ProviderModelsView uses it as fallback when the provider isn't in the configured list.
 const [draftProvider, setDraftProvider] = createSignal<CatalogProvider | null>(null);
+
+// Shared error/loading for global switch operations
+const [switchError, setSwitchError] = createSignal<string | null>(null);
+const [switchLoading, setSwitchLoading] = createSignal(false);
 
 // Catalog of built-in providers available for adding (offline fallback)
 export interface BuiltInProvider {
@@ -59,80 +61,99 @@ export interface CatalogProvider {
   display_name?: string;
 }
 
+export interface SwitchModelOpts {
+  scope: 'global' | 'session';
+  sessionId?: string;
+}
+
 export const modelStore = {
-  get providers() { return providers(); },
-  get activeProvider() { return activeProvider(); },
-  get activeModel() { return activeModel(); },
-  get isLoading() { return isLoading(); },
-  get error() { return error(); },
+  // Global default model — only written by global switches / loadActive
+  get defaultProvider() { return defaultProvider(); },
+  get defaultModel() { return defaultModel(); },
+
+  // Legacy accessors kept for callers that still use activeProvider/activeModel.
+  // These read the global default; per-session consumers should call
+  // sessionStore.getSessionModel(sid) directly instead.
+  get activeProvider() { return defaultProvider(); },
+  get activeModel() { return defaultModel(); },
+
+  get isLoading() { return switchLoading(); },
+  get error() { return switchError(); },
 
   get activeProviderEntry(): ProviderEntry | null {
-    const ap = activeProvider();
+    const ap = defaultProvider();
     if (!ap) return null;
-    return providers().find(p => p.name === ap) ?? null;
+    return modelsStore.providers().find(p => p.name === ap) ?? null;
   },
 
   get activeModelOption(): ModelOption | null {
     const provider = this.activeProviderEntry;
-    const model = activeModel();
+    const model = defaultModel();
     if (!provider || !model) return null;
     return provider.models?.find(m => m.name === model) ?? null;
   },
 
-  /** Populate providers from external data (e.g., sidecar in standalone mode). */
-  hydrateProviders(entries: ProviderEntry[]): void {
-    setProviders(entries);
+  hydrateDefaultModel(provider: string | null, model: string | null): void {
+    setDefaultProvider(provider);
+    setDefaultModel(model);
   },
 
+  /** @deprecated Use hydrateDefaultModel instead */
   hydrateActiveModel(provider: string | null, model: string | null): void {
-    setActiveProvider(provider);
-    setActiveModel(model);
+    this.hydrateDefaultModel(provider, model);
   },
 
+  /** @deprecated Catalog is now loaded via modelsStore directly */
   async loadModels(): Promise<void> {
-    const adapter = getModelAdapter();
-    if (!adapter) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const list = await adapter.loadProviders();
-      setProviders(list);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load models');
-    } finally {
-      setIsLoading(false);
-    }
+    await modelsStore.load();
   },
 
+  /** @deprecated Use modelsStore.loadActive() */
   async loadActiveModel(): Promise<void> {
-    const adapter = getModelAdapter();
-    if (!adapter) return;
-    try {
-      const active = await adapter.loadActiveModel();
-      setActiveProvider(active?.provider ?? null);
-      setActiveModel(active?.model ?? null);
-    } catch {
-      setActiveProvider(null);
-      setActiveModel(null);
-    }
+    await modelsStore.loadActive();
   },
 
-  async switchModel(providerName: string, modelName: string, persistGlobally: boolean = true): Promise<boolean> {
-    setActiveProvider(providerName);
-    setActiveModel(modelName);
-    setError(null);
-    setIsLoading(true);
-    try {
-      if (persistGlobally) {
+  /**
+   * Switch model. scope='global' changes the main default (persisted to config.yaml).
+   * scope='session' updates only the given session (no global mutation).
+   */
+  async switchModel(
+    providerName: string,
+    modelName: string,
+    persistGlobally: boolean | SwitchModelOpts = true,
+  ): Promise<boolean> {
+    const opts: SwitchModelOpts =
+      typeof persistGlobally === 'boolean'
+        ? { scope: persistGlobally ? 'global' : 'session' }
+        : persistGlobally;
+
+    setSwitchError(null);
+
+    if (opts.scope === 'global') {
+      // Optimistic update
+      const prevProvider = defaultProvider();
+      const prevModel = defaultModel();
+      setDefaultProvider(providerName);
+      setDefaultModel(modelName);
+      setSwitchLoading(true);
+      try {
         await api.model().setActiveModel(providerName, modelName);
+        modelsStore.invalidate();
+        return true;
+      } catch (e) {
+        // Rollback
+        setDefaultProvider(prevProvider);
+        setDefaultModel(prevModel);
+        setSwitchError(e instanceof Error ? e.message : 'Failed to switch model');
+        return false;
+      } finally {
+        setSwitchLoading(false);
       }
-      return true;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to switch model');
-      return false;
-    } finally {
-      setIsLoading(false);
     }
+
+    // scope='session': caller (ModelSelector) handles optimistic + backend update.
+    // modelStore is not mutated; sessionStore.setSessionModel is called by the caller.
+    return true;
   },
 
   async upsertProvider(input: {
@@ -143,72 +164,56 @@ export const modelStore = {
     api_key_env?: string;
     display_name?: string;
   }): Promise<void> {
-    const adapter = getModelAdapter();
-    // Always save to overlay API so standalone mode works.
+    const id = modelsStore.resolveId(input.name);
+    const patch: Record<string, string | boolean | null> = {
+      base_url: input.base_url ?? null,
+      api_key_env: input.api_key_env ?? null,
+      display_name: input.display_name ?? null,
+    };
+    if (input.api_key !== undefined) {
+      patch.api_key = input.api_key;
+    }
     try {
-      const id = modelsStore.resolveId(input.name);
-      const patch: Record<string, string | boolean | null> = {
-        base_url: input.base_url ?? null,
-        api_key_env: input.api_key_env ?? null,
-        display_name: input.display_name ?? null,
-      };
-      if (input.api_key !== undefined) {
-        patch.api_key = input.api_key;
-      }
       await api.overlays().patch('model', id, patch);
     } catch {
       void 0;
     }
-    // Also try the gateway adapter if available.
-    if (adapter) {
-      try {
-        await adapter.upsertProvider(input);
-      } catch {
-        void 0;
-      }
-    }
+    modelsStore.invalidate();
     await modelsStore.load();
   },
 
   async deleteProvider(name: string, isBuiltin: boolean): Promise<void> {
     const id = modelsStore.resolveId(name);
     await api.model().deleteProvider(id);
-    const adapter = getModelAdapter();
-    if (adapter) {
-      try { await adapter.deleteProvider(name, isBuiltin); } catch { void 0; }
-    }
+    modelsStore.invalidate();
     await modelsStore.load();
   },
 
   async setProviderEnabled(name: string, enabled: boolean): Promise<void> {
-    const adapter = getModelAdapter();
+    const id = modelsStore.resolveId(name);
     try {
-      const id = modelsStore.resolveId(name);
       await api.overlays().patch('model', id, { visible: enabled });
     } catch {
       void 0;
     }
-    if (adapter) {
-      try {
-        await adapter.setProviderEnabled(name, enabled);
-      } catch {
-        void 0;
-      }
-    }
+    modelsStore.invalidate();
     await modelsStore.load();
   },
 
   async setModelEnabled(provider: string, model: string, enabled: boolean): Promise<void> {
-    const adapter = getModelAdapter();
-    if (!adapter) return;
-    await adapter.setModelEnabled(provider, model, enabled);
-    await this.loadModels();
-  },
-
-  computeFallbackModel(disabledProvider: string, disabledModel: string) {
-    const adapter = getModelAdapter();
-    if (!adapter) return null;
-    return adapter.computeFallbackModel(providers(), disabledProvider, disabledModel);
+    const id = modelsStore.resolveId(provider);
+    // Retrieve current models_config blob, update the target model, re-patch.
+    // Backend B3 will extend this; for now we store enabled state in the
+    // provider overlay as a JSON blob keyed by model name.
+    try {
+      const current = await api.model().getProviderModelsConfig(id);
+      const updated = { ...(current ?? {}), [model]: { ...(current?.[model] ?? {}), enabled } };
+      await api.overlays().patch('model', id, { models_config: JSON.stringify(updated) });
+    } catch {
+      void 0;
+    }
+    modelsStore.invalidate();
+    await modelsStore.load();
   },
 
   get currentView() { return currentView(); },
@@ -220,7 +225,7 @@ export const modelStore = {
   get detailProviderEntry(): ProviderEntry | null {
     const name = detailProviderName();
     if (!name) return null;
-    return providers().find(p => p.name === name) ?? null;
+    return modelsStore.providers().find(p => p.name === name) ?? null;
   },
 
   get detailModelOption(): ModelOption | null {
@@ -268,7 +273,7 @@ export const modelStore = {
   },
 
   clearError() {
-    setError(null);
+    setSwitchError(null);
   },
 };
 
@@ -286,6 +291,8 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 function mapModelOption(raw: Record<string, unknown>): ModelOption {
   const id = (raw.id ?? raw.name ?? '') as string;
   const pricing = MODEL_PRICING[id];
+  // Read enabled from overlay field — NOT hardcoded true
+  const enabled = raw.enabled !== undefined ? Boolean(raw.enabled) : true;
   return {
     name: id,
     display_name: id,
@@ -295,7 +302,9 @@ function mapModelOption(raw: Record<string, unknown>): ModelOption {
     supports_streaming: (raw.supports_streaming ?? true) as boolean,
     pricing_input: (raw.pricing_input as number) ?? pricing?.input,
     pricing_output: (raw.pricing_output as number) ?? pricing?.output,
-    enabled: true,
+    default_temperature: (raw.default_temperature as number) ?? undefined,
+    default_max_tokens: (raw.default_max_tokens as number) ?? undefined,
+    enabled,
   };
 }
 
@@ -383,8 +392,8 @@ function writeCachedCatalog(next: CatalogProvider[]): void {
 
 /**
  * Factory for creating a models store sourced from the services/api layer.
- * Maps sidecar Provider -> ProviderEntry so the UI components work without
- * a connected gateway.
+ * Sole source of truth for the provider/model catalog. All pickers and
+ * settings views read from here — no second load path exists.
  */
 export function createModelsStore() {
   const initialProviders = readCachedProviders();
@@ -392,54 +401,66 @@ export function createModelsStore() {
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<Error | null>(null);
   const [hasLoaded, setHasLoaded] = createSignal(initialProviders.length > 0);
+  // Stale flag: set by invalidate() to trigger background refetch
+  const [isStale, setIsStale] = createSignal(false);
+  // In-flight dedup: concurrent load() calls share one promise
+  let loadPromise: Promise<void> | null = null;
 
-  // Catalog state for AddProviderView (all providers, not just configured)
+  // Catalog state for AddProviderView
   const initialCatalog = readCachedCatalog();
   const [catalogProviders, setCatalogProviders] = createSignal<CatalogProvider[]>(initialCatalog);
   const [catalogLoading, setCatalogLoading] = createSignal(false);
   const [catalogHasLoaded, setCatalogHasLoaded] = createSignal(initialCatalog.length > 0);
 
-  if (initialProviders.length > 0) {
-    const configured = initialProviders.filter(p => p.has_overlay === true);
-    modelStore.hydrateProviders(configured.map(mapProvider));
-  }
+  // Don't hydrate default model from cache — let loadActive() be authoritative
 
   const providers = () => rawProviders().map(mapProvider);
 
-  /** Resolve provider catalog ID from display name. */
   const resolveId = (name: string): string => {
     const raw = rawProviders();
     const found = raw.find((p) => p.name === name);
     return found?.id ?? name.toLowerCase();
   };
 
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const resp = await api.model().listProviders();
-      setRawProviders(resp.items);
-      modelStore.hydrateProviders(resp.items.map(mapProvider));
-      writeCachedProviders(resp.items);
-      setHasLoaded(true);
-    } catch (e) {
-      setError(e as Error);
-      setHasLoaded(true);
-    } finally {
-      setLoading(false);
-    }
+  const load = async (): Promise<void> => {
+    // In-flight dedup: return the existing promise if a load is already running
+    if (loadPromise) return loadPromise;
+    // Skip if fresh (loaded recently and not stale)
+    if (hasLoaded() && !isStale()) return;
+
+    loadPromise = (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const resp = await api.model().listProviders();
+        setRawProviders(resp.items);
+        writeCachedProviders(resp.items);
+        setHasLoaded(true);
+        setIsStale(false);
+      } catch (e) {
+        setError(e as Error);
+        setHasLoaded(true);
+      } finally {
+        setLoading(false);
+        loadPromise = null;
+      }
+    })();
+
+    return loadPromise;
   };
 
-  /** Load the full provider catalog (including unconfigured providers).
-   *  Used by AddProviderView to show all available providers. */
+  /** Mark catalog stale; next load() call will refetch. Does NOT clear current data. */
+  const invalidate = (): void => {
+    setIsStale(true);
+  };
+
+  /** Load the full provider catalog (including unconfigured providers). */
   const loadCatalog = async () => {
     setCatalogLoading(true);
     try {
       const resp = await api.model().listProviders({ configuredOnly: false });
       const mapped = resp.items.map(mapCatalogProvider);
 
-      // Enrich with OAuth login status so the Add-provider list can mark
-      // OAuth-connected providers as "Added" / configured.
       try {
         const oauthProviders = await api.oauth().listProviders();
         const oauthLoggedIn: Record<string, boolean> = {};
@@ -464,17 +485,13 @@ export function createModelsStore() {
     }
   };
 
-  // NOTE: modelStore.loadActiveModel() (gateway path) also writes to the same
-  // activeProvider/activeModel signals. loadActive() uses the sidecar HTTP
-  // transport instead. Both paths co-exist during the standalone refactor;
-  // the gateway path will be removed once standalone mode is fully wired.
   const loadActive = async () => {
     try {
       const active = await api.model().getActiveModel();
-      modelStore.hydrateActiveModel(active.provider, active.model);
+      modelStore.hydrateDefaultModel(active.provider, active.model);
     } catch (err) {
       console.error('[modelsStore] loadActive failed:', err);
-      modelStore.hydrateActiveModel(null, null);
+      modelStore.hydrateDefaultModel(null, null);
     }
   };
 
@@ -489,6 +506,7 @@ export function createModelsStore() {
     error,
     hasLoaded,
     load,
+    invalidate,
     loadActive,
     loadCatalog,
     catalogProviders,
@@ -501,3 +519,4 @@ export function createModelsStore() {
 
 /** Singleton instance used by the model module views. */
 export const modelsStore = createModelsStore();
+

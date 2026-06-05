@@ -8,6 +8,10 @@ export interface ModelTransport {
   setActiveModel(provider: string, model: string): Promise<void>;
   revealProviderApiKey(provider: string): Promise<{ provider: string; api_key: string; source: string }>;
   deleteProvider(providerId: string): Promise<void>;
+  /** Returns per-model config blob stored in the provider overlay (models_config). */
+  getProviderModelsConfig(providerId: string): Promise<Record<string, Record<string, unknown>> | null>;
+  /** Persist per-model params (temperature, max_tokens, capabilities) via overlay. */
+  setModelParams(providerId: string, modelId: string, params: Record<string, unknown>): Promise<void>;
 }
 
 export function makeModelTransport(c: HttpClient): ModelTransport {
@@ -38,5 +42,21 @@ export function makeModelTransport(c: HttpClient): ModelTransport {
       ),
     deleteProvider: (providerId) =>
       c.delete<void>(`/desktop/api/model/providers/${encodeURIComponent(providerId)}`),
+    getProviderModelsConfig: async (providerId) => {
+      try {
+        const r = await c.get<{ models_config?: string }>(
+          `/desktop/api/model/providers/${encodeURIComponent(providerId)}/models-config`,
+        );
+        if (!r.models_config) return null;
+        return JSON.parse(r.models_config) as Record<string, Record<string, unknown>>;
+      } catch {
+        return null;
+      }
+    },
+    setModelParams: (providerId, modelId, params) =>
+      c.post<void>(
+        `/desktop/api/model/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/params`,
+        params,
+      ),
   };
 }

@@ -107,7 +107,6 @@ class AgentExecutionService:
             agent = entry.agent
 
             self._touch_session(session_id)
-            self._apply_kimi_coding_mode(agent)
 
             _t0_call = time.time()
             result = agent.run_conversation(
@@ -125,15 +124,47 @@ class AgentExecutionService:
 
             final_text = ""
             if isinstance(result, dict):
-                final_text = result.get("final_response", "")
+                final_text = result.get("final_response", "") or ""
             elif isinstance(result, str):
                 final_text = result
 
-            if final_text or self._has_renderable_turn_events(session_id, user_seq):
-                payload = {
-                    "text": final_text,
-                    "rendered": False,
-                }
+            interrupted = isinstance(result, dict) and result.get("interrupted")
+
+            # Some provider paths stream the answer via message.delta callbacks
+            # but return an empty final_response (observed with MiniMax).
+            # Reconstruct the answer from the streamed deltas so the turn still
+            # finalizes with its text.
+            if not final_text and not interrupted:
+                final_text = self._collect_streamed_text(session_id, user_seq)
+
+            failed = isinstance(result, dict) and result.get("failed")
+            error_text = result.get("error") if isinstance(result, dict) else None
+
+            if failed and not final_text:
+                # run_conversation returned a non-raised failure (e.g. HTTP 401
+                # auth) — surface it immediately as a friendly, classified error
+                # so the user perceives it instead of the UI hanging with no
+                # stop signal.
+                from .model_errors import classify_error_message
+                structured = classify_error_message(str(error_text or "Agent error"))
+                seq = self._ui.append(
+                    session_id, "turn_error", {"error": structured["message"], **structured}
+                )
+                self._bus.publish(session_id, seq, "error", {
+                    "message": structured["message"],
+                    "code": structured["code"],
+                    "hint": structured.get("hint"),
+                })
+            elif interrupted and not final_text:
+                # An interrupted turn with no output is finalized by the frontend
+                # (cancelMessage). Emitting a terminal event here would let a
+                # force_reset'd zombie turn reset a fresh turn's state — skip it.
+                pass
+            else:
+                # Publish a terminal signal so the UI never hangs waiting for a
+                # stop, even when final_text is empty (rendered as a no-op — no
+                # empty bubble — by the frontend).
+                payload = {"text": final_text, "rendered": False}
                 usage = self._get_usage(session_id, agent)
                 if usage is not None:
                     payload["usage"] = usage
@@ -146,9 +177,14 @@ class AgentExecutionService:
 
         except Exception as exc:
             log.exception("agent turn failed for %s", session_id)
-            error_msg = str(exc)[:500]
-            seq = self._ui.append(session_id, "turn_error", {"error": error_msg})
-            self._bus.publish(session_id, seq, "error", {"message": error_msg})
+            from .model_errors import classify_agent_error
+            structured = classify_agent_error(exc)
+            seq = self._ui.append(session_id, "turn_error", {"error": structured["message"], **structured})
+            self._bus.publish(session_id, seq, "error", {
+                "message": structured["message"],
+                "code": structured["code"],
+                "hint": structured.get("hint"),
+            })
 
         finally:
             if prev_interactive is None:
@@ -157,7 +193,9 @@ class AgentExecutionService:
                 os.environ["HERMES_INTERACTIVE"] = prev_interactive
             reset_terminal_cwd(cwd_token)
             reset_workspace_context(ws_tokens)
-            self._pool.mark_idle(session_id)
+            # Pass our thread identity so a force_reset'd zombie turn that later
+            # unblocks cannot idle a fresh turn that has since taken over.
+            self._pool.mark_idle(session_id, threading.current_thread())
             log.info("[perf] _run_turn total wall-clock: %.2fs", time.time() - _t0_total)
 
     def _get_usage(self, session_id: str, agent: Any) -> dict[str, Any] | None:
@@ -243,23 +281,26 @@ class AgentExecutionService:
 
         return usage
 
-    def _has_renderable_turn_events(self, session_id: str, user_seq: int) -> bool:
-        """Return True when this turn emitted non-text blocks worth flushing."""
-        renderable_types = {
-            "reasoning.delta",
-            "tool.start",
-            "tool.generating",
-            "tool.complete",
-            "tool.error",
-            "tool.progress",
-            "todo.update",
-        }
+    def _collect_streamed_text(self, session_id: str, user_seq: int) -> str:
+        """Concatenate the text of message.delta events emitted this turn.
+
+        Used as a fallback when run_conversation streamed text via the delta
+        callback but returned an empty final_response, so the finalized message
+        still carries the visible answer.
+        """
         try:
             rows = self._ui.list_messages(session_id, since_seq=user_seq)
         except Exception:
-            log.exception("failed to inspect ui_messages before message.complete")
-            return True
-        return any(str(row.get("type") or "") in renderable_types for row in rows)
+            log.exception("failed to collect streamed text for %s", session_id)
+            return ""
+        parts: list[str] = []
+        for row in rows:
+            if str(row.get("type") or "") == "message.delta":
+                payload = row.get("payload") or {}
+                text = payload.get("text")
+                if text:
+                    parts.append(str(text))
+        return "".join(parts)
 
     def _block_for_prompt(self, event_type: str, session_id: str, payload: dict[str, Any], timeout: int = 120) -> str:
         request_id = str(uuid.uuid4())
@@ -357,15 +398,3 @@ class AgentExecutionService:
         except Exception:
             pass
 
-    def _apply_kimi_coding_mode(self, agent: Any) -> None:
-        provider = getattr(agent, "provider", "")
-        if provider not in ("kimi-coding", "kimi-coding-cn"):
-            return
-        try:
-            from hermes_cli.auth import resolve_api_key_provider_credentials
-            creds = resolve_api_key_provider_credentials(provider)
-            bu = creds.get("base_url", "")
-            if "api.kimi.com" in bu and "/coding" in bu:
-                agent.api_mode = "anthropic_messages"
-        except Exception:
-            pass

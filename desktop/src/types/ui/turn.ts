@@ -49,6 +49,8 @@ export interface LiveTurnState {
   todosToolId: string | null;
   todos: TodoItem[];
   errorMessage: string | null;
+  /** Optional CTA shown with the error (e.g. "Open model settings" for provider_auth). */
+  errorAction: { label: string; route: string } | null;
   pendingPermission: PendingPermission | null;
   pendingClarify: PendingClarify | null;
   memoryContext: MemoryContextItem[] | null;

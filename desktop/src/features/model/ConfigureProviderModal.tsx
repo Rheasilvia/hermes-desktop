@@ -38,7 +38,12 @@ export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
 
   createEffect(() => {
     if (props.open && props.provider) {
-      setBaseUrl(props.provider.base_url ?? '');
+      // Only pre-fill base_url when it's a genuine user override (source 'desktop').
+      // A provider-default must NOT be pre-filled/re-submitted — persisting it defeats
+      // dynamic endpoint resolution (e.g. sk-kimi- → api.kimi.com/coding). The default
+      // is shown as a placeholder instead.
+      const isUserOverride = props.provider.base_url_source === 'desktop';
+      setBaseUrl(isUserOverride ? (props.provider.base_url ?? '') : '');
       setApiKey('');
       setApiKeyDirty(false);
       setApiKeyEnv(props.provider.api_key_env ?? '');
@@ -187,11 +192,14 @@ export const ConfigureProviderModal: Component<ConfigureProviderModalProps> = (
 
         <Input
           label="Base URL"
-          placeholder="https://api.example.com/v1"
+          placeholder={props.provider?.base_url || 'https://api.example.com/v1'}
           value={baseUrl()}
           error={urlError()}
           onInput={(e) => setBaseUrl((e.target as HTMLInputElement).value)}
         />
+        <p class={styles.helpText}>
+          Leave empty to use the provider's default endpoint (auto-detected from your key/region).
+        </p>
 
         <div class={styles.field}>
           <label class={styles.label}>API Key</label>

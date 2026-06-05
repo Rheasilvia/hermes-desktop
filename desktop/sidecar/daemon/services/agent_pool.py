@@ -89,10 +89,15 @@ class AgentPool:
             if entry:
                 entry.running = True
 
-    def mark_idle(self, session_id: str) -> None:
+    def mark_idle(self, session_id: str, thread: threading.Thread | None = None) -> None:
         with self._lock:
             entry = self._agents.get(session_id)
             if entry:
+                # Only the thread that currently owns this turn may idle it.
+                # A zombie thread from a force_reset'd turn that later unblocks
+                # must NOT clobber a fresh turn's running state.
+                if thread is not None and entry.active_thread is not thread:
+                    return
                 entry.running = False
                 entry.active_thread = None
                 entry.last_used = time.time()
@@ -121,6 +126,30 @@ class AgentPool:
             entry = self._agents.get(session_id)
             if entry and not entry.running:
                 del self._agents[session_id]
+
+    def force_reset(self, session_id: str) -> bool:
+        """Forcibly free a session, even if it is still 'running'.
+
+        Signals interrupt on the agent and drops the cached entry. Used to
+        recover a wedged turn whose thread is blocked (e.g. a stalled provider
+        stream) and will therefore never reach mark_idle. The blocked thread
+        becomes a detached zombie; the thread-identity guard in mark_idle keeps
+        it from disturbing a future turn for this session. The next prompt for
+        this session builds a fresh agent.
+
+        Returns True if an entry was reset.
+        """
+        with self._lock:
+            entry = self._agents.get(session_id)
+            if entry is None:
+                return False
+            try:
+                entry.agent.interrupt()
+            except Exception:
+                log.exception("force_reset interrupt failed for %s", session_id)
+            del self._agents[session_id]
+            log.info("[agent_pool] force-reset session %s (was running=%s)", session_id, entry.running)
+            return True
 
     def evict_if_stale(self, session_id: str, provider: str | None, model: str | None) -> bool:
         """Evict the cached agent if provider or model differs from when it was built.
@@ -209,24 +238,56 @@ class AgentPool:
         session = self._session_db.get_session(session_id) if self._session_db else None
         model = session.get("model") if session else ""
 
-        # Step 3: Fallback to config.yaml if no provider/model found
+        # Step 3: Fallback to config.yaml if session is missing either field.
+        # Fall back the PAIR atomically — never mix session model with global provider
+        # (or vice versa), which would cause a mismatched provider+model pairing.
         if not provider or not model:
             active = read_active_model(self._hermes_home)
-            provider = provider or active.get("provider")
-            model = model or active.get("model") or ""
+            provider = active.get("provider") or provider
+            model = active.get("model") or model or ""
 
         base_url = ""
         api_key = ""
+        api_mode: str | None = None
         if provider:
-            overlay = overlays_loader.load(self._hermes_home, "model")
-            prov_cfg = overlay.get(provider, {})
-            if isinstance(prov_cfg, dict):
-                base_url = str(prov_cfg.get("base_url") or "").strip().rstrip("/")
-                api_key = str(prov_cfg.get("api_key") or "").strip()
+            # Canonicalize the provider id (alias → canonical, e.g. "kimi" → "kimi-coding")
+            # so the overlay lookup and the registry-default comparison work even when a
+            # session stored an alias. resolve_provider() is side-effect-free for a concrete
+            # provider (it only normalizes via the alias map); it raises for unknown ids.
+            canonical = provider
+            registry_default_base_url = ""
+            try:
+                from hermes_cli.auth import resolve_provider as _resolve_provider, PROVIDER_REGISTRY
+                try:
+                    canonical = _resolve_provider(provider)
+                except Exception:
+                    canonical = provider
+                _pcfg = PROVIDER_REGISTRY.get(canonical) or PROVIDER_REGISTRY.get(provider)
+                if _pcfg is not None:
+                    registry_default_base_url = str(
+                        getattr(_pcfg, "inference_base_url", "") or getattr(_pcfg, "base_url", "") or ""
+                    ).strip().rstrip("/")
+            except Exception:
+                pass
 
-            # If overlay doesn't have base_url/api_key, resolve from credential pool
-            # so init_agent can correctly auto-detect api_mode (e.g. anthropic_messages
-            # for MiniMax's /anthropic endpoint).
+            overlay = overlays_loader.load(self._hermes_home, "model")
+            prov_cfg = overlay.get(provider) or overlay.get(canonical) or {}
+            if isinstance(prov_cfg, dict):
+                api_key = str(prov_cfg.get("api_key") or "").strip()
+                overlay_base_url = str(prov_cfg.get("base_url") or "").strip().rstrip("/")
+                # Only honor a stored base_url when it is a GENUINE user override — not the
+                # provider registry's default. Persisting the default (a known bug) would
+                # defeat the CLI's dynamic base_url resolution: e.g. sk-kimi- keys must route
+                # to api.kimi.com/coding, but the moonshot.ai default would override that → 401.
+                # When it's just the default, leave base_url empty so the resolver below
+                # recomputes the correct endpoint.
+                if overlay_base_url and overlay_base_url != registry_default_base_url:
+                    base_url = overlay_base_url
+
+            # If we have no genuine base_url/api_key override, resolve from the credential
+            # pool so init_agent gets the correct endpoint + api_mode. The resolver applies
+            # provider-specific logic (_resolve_kimi_base_url / _resolve_zai_base_url /
+            # OAuth-region) and canonicalizes the provider alias internally.
             _t0_cred = time.time()
             if not base_url or not api_key:
                 try:
@@ -246,8 +307,10 @@ class AgentPool:
                             else:
                                 _os.environ["HERMES_HOME"] = prev
 
+                    # Resolve with the CANONICAL id — the raw alias (e.g. "kimi")
+                    # raises "not an API-key provider"; "kimi-coding" resolves correctly.
                     with _set_hermes_home(self._hermes_home):
-                        creds = resolve_api_key_provider_credentials(provider)
+                        creds = resolve_api_key_provider_credentials(canonical)
                     if not base_url:
                         base_url = str(creds.get("base_url") or "").strip().rstrip("/")
                     if not api_key:
@@ -256,9 +319,21 @@ class AgentPool:
                     pass
             log.info("[perf] _build_agent credential resolution: %.2fs (provider=%r)", time.time() - _t0_cred, provider)
 
+            # Determine the wire protocol (api_mode) for this provider+endpoint so
+            # init_agent builds the CORRECT client up front. Without this, kimi's
+            # /coding endpoint (Anthropic protocol) is mis-detected as chat_completions
+            # → an OpenAI client is built and the anthropic client stays None →
+            # "'NoneType' object has no attribute 'messages'". Reuse the CLI's generic
+            # mapper (single source of truth; covers kimi /coding, /anthropic, OpenAI, Bedrock).
+            try:
+                from hermes_cli.providers import determine_api_mode
+                api_mode = determine_api_mode(canonical, base_url) or None
+            except Exception:
+                api_mode = None
+
         log.info(
-            "[agent_pool] building agent: provider=%r model=%r base_url=%r",
-            provider, model, base_url,
+            "[agent_pool] building agent: provider=%r model=%r base_url=%r api_mode=%r",
+            provider, model, base_url, api_mode,
         )
 
         agent = AIAgent(
@@ -280,6 +355,7 @@ class AgentPool:
             model=model,
             base_url=base_url or None,
             api_key=api_key or None,
+            api_mode=api_mode,
             stream_delta_callback=self._make_stream_delta_cb(session_id),
             tool_start_callback=(_tool_start_cb := self._make_tool_start_cb(session_id)),
             tool_complete_callback=self._make_tool_complete_cb(session_id, _tool_start_cb),

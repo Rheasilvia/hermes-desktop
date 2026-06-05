@@ -4,6 +4,7 @@ import { Sidebar } from '@/shell/Sidebar';
 import { CommandPalette, buildDefaultActions } from '@/shell/CommandPalette';
 import type { PaletteAction } from '@/shell/CommandPalette';
 import { sessionStore } from '@/stores/session.js';
+import { modelStore, modelsStore } from '@/stores/models.js';
 import { uiStore } from '@/stores/ui.js';
 import { initKeyboardShortcuts, destroyKeyboardShortcuts } from '@/services/keyboard.js';
 import { loadState } from '@/services/api/state.js';
@@ -55,12 +56,20 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
         sessionStore.updateSessionTitle(payload.session_id, payload.title);
       };
       const onReconnect = () => { sessionStore.loadSessions(); };
+      const onModelChanged = (payload: { provider: string; model: string }) => {
+        // External change (CLI/TUI/other window): reconcile default selection + refresh catalog
+        modelStore.hydrateDefaultModel(payload.provider, payload.model);
+        modelsStore.invalidate();
+        void modelsStore.load();
+      };
       gateway.on('session.title_update', onTitleUpdate);
       // On reconnect after backend restart, refresh the session list
       gateway.on('gateway.ready', onReconnect);
+      gateway.on('model.changed', onModelChanged);
       onCleanup(() => {
         gateway.off('session.title_update', onTitleUpdate);
         gateway.off('gateway.ready', onReconnect);
+        gateway.off('model.changed', onModelChanged);
       });
     }
 

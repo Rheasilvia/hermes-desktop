@@ -98,7 +98,10 @@ def get_agent_execution_service(request: Request):
 def get_model_service(request: Request):
     if not hasattr(request.app.state, "model_svc"):
         from .model_service import ModelService
-        request.app.state.model_svc = ModelService(request.app.state.cfg.hermes_home)
+        request.app.state.model_svc = ModelService(
+            request.app.state.cfg.hermes_home,
+            event_bus=request.app.state.event_bus,
+        )
     return request.app.state.model_svc
 
 

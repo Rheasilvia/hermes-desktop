@@ -8,11 +8,31 @@ import type {
   BackgroundCompletePayload, BtwCompletePayload,
   SubagentStartPayload, SubagentProgressPayload,
   SubagentCompletePayload, SubagentToolPayload, SubagentErrorPayload,
+  ErrorPayload,
 } from '@/types/gateway.js';
 import type { GatewayAdapter } from '@/services/gateway/types.js';
 import { chatStore } from '@/stores/chat.js';
 import { backgroundTaskStore } from '@/stores/background-tasks.js';
 import { delegationStore } from '@/stores/delegation.js';
+import { sessionStore } from '@/stores/session.js';
+
+// Error codes emitted by B1 classifier that map to a provider-setup action
+const PROVIDER_SETUP_CODES = new Set(['provider_auth', 'model_not_found']);
+// Fallback string matching for backends that haven't been updated yet
+const PROVIDER_SETUP_PATTERNS = /no provider|api.?key|authentication|unauthorized|invalid.*key/i;
+
+function buildErrorMessage(p: ErrorPayload): string {
+  // B1 structured errors arrive with a code field; older backends send plain message
+  if (p.code && PROVIDER_SETUP_CODES.has(String(p.code))) {
+    return p.message;
+  }
+  return p.message;
+}
+
+function isProviderSetupError(p: ErrorPayload): boolean {
+  if (p.code && PROVIDER_SETUP_CODES.has(String(p.code))) return true;
+  return PROVIDER_SETUP_PATTERNS.test(p.message);
+}
 
 export function useGatewayEvents(opts: {
   getGateway: () => GatewayAdapter | null;
@@ -40,6 +60,18 @@ export function useGatewayEvents(opts: {
   const onSubagentTool = (p: SubagentToolPayload) => delegationStore.handleTool(p);
   const onSubagentError = (p: SubagentErrorPayload) => delegationStore.handleError(p);
 
+  const onError = (p: ErrorPayload) => {
+    const sid = p.session_id || sessionStore.activeSessionId;
+    if (!sid) return;
+    const action = isProviderSetupError(p)
+      ? { label: 'Open model settings', route: '/model' }
+      : null;
+    const displayMessage = p.hint
+      ? `${buildErrorMessage(p)}\n${p.hint}`
+      : buildErrorMessage(p);
+    chatStore.handleError(sid, displayMessage, action);
+  };
+
   onMount(() => {
     const gw = opts.getGateway();
     if (!gw) return;
@@ -62,6 +94,7 @@ export function useGatewayEvents(opts: {
     gw.on('subagent.complete', onSubagentComplete);
     gw.on('subagent.tool', onSubagentTool);
     gw.on('subagent.error', onSubagentError);
+    gw.on('error', onError);
   });
 
   onCleanup(() => {
@@ -86,5 +119,6 @@ export function useGatewayEvents(opts: {
     gw.off('subagent.complete', onSubagentComplete);
     gw.off('subagent.tool', onSubagentTool);
     gw.off('subagent.error', onSubagentError);
+    gw.off('error', onError);
   });
 }

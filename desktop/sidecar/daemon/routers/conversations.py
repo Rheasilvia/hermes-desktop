@@ -199,9 +199,11 @@ async def interrupt_session(
     session_id: str,
     pool=Depends(get_agent_pool),
 ):
-    ok = pool.interrupt(session_id)
-    if not ok:
-        raise HTTPException(status_code=409, detail="NOT_RUNNING")
+    # force_reset interrupts the agent AND frees the session even if its turn
+    # thread is wedged (e.g. a stalled provider stream that never returns), so
+    # the user can immediately continue the conversation. Idempotent: stopping
+    # an already-idle session is a no-op success.
+    pool.force_reset(session_id)
     return {"ok": True}
 
 

@@ -863,14 +863,26 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           message: String(payload.message ?? ''),
         } as GatewayEventMap['gateway.protocol_error']);
         break;
+      case 'model.changed':
+        this.emit('model.changed', {
+          provider: String(payload.provider ?? ''),
+          model: String(payload.model ?? ''),
+        } as GatewayEventMap['model.changed']);
+        break;
       case 'turn_error':
         this.emit('error', {
-          message: String(payload.error ?? 'Turn error'),
+          session_id: sid,
+          message: String(payload.message ?? payload.error ?? 'Turn error'),
+          code: payload.code != null ? String(payload.code) : undefined,
+          hint: payload.hint != null ? String(payload.hint) : undefined,
         } as GatewayEventMap['error']);
         break;
       case 'error':
         this.emit('error', {
+          session_id: sid,
           message: String(payload.message ?? payload.error ?? 'Unknown error'),
+          code: payload.code != null ? String(payload.code) : undefined,
+          hint: payload.hint != null ? String(payload.hint) : undefined,
         } as GatewayEventMap['error']);
         break;
       default:

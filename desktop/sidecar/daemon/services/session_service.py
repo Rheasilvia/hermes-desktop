@@ -65,22 +65,7 @@ class SessionService:
         except Exception:
             log.exception("failed to read active model from config")
 
-        # Fallback: inherit the model of the most recent desktop session when no
-        # active model is configured.
-        try:
-            rows = self._state.list_sessions_rich(
-                source="desktop",
-                include_children=False,
-                order_by_last_active=True,
-                limit=20,
-            )
-            for r in rows:
-                m = r.get("model")
-                if m:
-                    return m, None
-        except Exception:
-            log.exception("failed to query recent sessions for model fallback")
-
+        # No active model configured — return None; caller will prompt user to configure.
         return None, None
 
     # ── Session CRUD ──────────────────────────────────────────────────────

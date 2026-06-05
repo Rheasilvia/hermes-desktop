@@ -29,15 +29,13 @@ export const ModelSwitcherView: Component = () => {
   const [pickerOpen, setPickerOpen] = createSignal(false);
 
   onMount(() => {
-    void Promise.all([
-      modelsStore.load(),
-      modelsStore.loadActive(), // sidecar is source of truth for active model
-    ]);
+    // load() is idempotent (hasLoaded guard + dedup); no extra loadActive needed.
+    void modelsStore.load();
   });
 
   createEffect(() => {
-    if (modelStore.activeProvider && !selectedProvider()) {
-      setSelectedProvider(modelStore.activeProvider);
+    if (modelStore.defaultProvider && !selectedProvider()) {
+      setSelectedProvider(modelStore.defaultProvider);
     }
   });
 
@@ -84,8 +82,8 @@ export const ModelSwitcherView: Component = () => {
       <Match when={modelStore.currentView === 'hub'}>
         <div class={styles.container}>
           <MainModelCard
-            provider={modelStore.activeProvider}
-            model={modelStore.activeModel}
+            provider={modelStore.defaultProvider}
+            model={modelStore.defaultModel}
             onChangeClick={() => setPickerOpen(true)}
           />
 
@@ -176,13 +174,12 @@ export const ModelSwitcherView: Component = () => {
 
           <ModelPickerModal
             open={pickerOpen()}
-            currentProvider={modelStore.activeProvider}
-            currentModel={modelStore.activeModel}
+            currentProvider={modelStore.defaultProvider}
+            currentModel={modelStore.defaultModel}
             providers={modelsStore.providers()}
             onApply={async (provider, model) => {
-              const ok = await modelStore.switchModel(provider, model);
+              const ok = await modelStore.switchModel(provider, model, { scope: 'global' });
               if (ok) setPickerOpen(false);
-              // On failure: modal stays open; errors surface via modelStore.error banner
             }}
             onClose={() => setPickerOpen(false)}
           />

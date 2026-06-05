@@ -54,6 +54,16 @@ async def patch_overlay(domain: str, entity_id: str, request: Request):
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail="VALIDATION")
     cfg = request.app.state.cfg
+
+    # Drop a base_url that is merely the provider registry default — persisting it
+    # would defeat dynamic base_url resolution (e.g. sk-kimi- → api.kimi.com/coding)
+    # and is the root cause of the kimi 401. Only genuine user overrides are kept.
+    if domain == "model" and isinstance(body.get("base_url"), str):
+        from ..services.model_service import is_provider_default_base_url
+        if is_provider_default_base_url(entity_id, body["base_url"]):
+            body.pop("base_url", None)
+            body.pop("base_url_source", None)
+
     result = loader.update(cfg.hermes_home, domain, entity_id, body)
 
     # Sync model overlay changes to .env so all runtime paths see them

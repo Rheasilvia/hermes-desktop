@@ -75,4 +75,4 @@ class TitleService:
                 self._state.set_session_title(session_id, title)
                 self._bus.publish(session_id, 0, "session.title_update", {"title": title})
         except Exception:
-            log.debug("auto-title failed for %s", session_id, exc_info=True)
+            log.warning("auto-title failed for %s", session_id, exc_info=True)

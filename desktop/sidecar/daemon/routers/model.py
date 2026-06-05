@@ -27,6 +27,8 @@ def get_active_model(svc=Depends(get_model_service)):
 def set_active_model(body: SetActiveModelRequest, svc=Depends(get_model_service)):
     try:
         svc.set_active_model(body.provider, body.model)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"provider": body.provider, "model": body.model}
@@ -65,3 +67,24 @@ def reveal_provider_api_key(provider_id: str, svc=Depends(get_model_service)):
         return svc.reveal_api_key(provider_id)
     except ProviderNotFoundError:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
+
+
+@router.get("/model/providers/{provider_id}/models-config")
+def get_provider_models_config(provider_id: str, svc=Depends(get_model_service)):
+    """Return the models_config JSON blob for a provider (per-model params/enabled)."""
+    return svc.get_models_config(provider_id)
+
+
+@router.post("/model/providers/{provider_id}/models/{model_id}/params")
+def set_model_params(
+    provider_id: str,
+    model_id: str,
+    body: dict,
+    svc=Depends(get_model_service),
+):
+    """Persist per-model parameter overrides (temperature, max_tokens, capabilities)."""
+    try:
+        svc.set_model_params(provider_id, model_id, body)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"ok": True}

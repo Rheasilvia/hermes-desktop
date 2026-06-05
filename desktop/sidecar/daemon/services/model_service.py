@@ -67,17 +67,60 @@ def _provider_env_vars(provider_id: str) -> list[str]:
     return env_vars
 
 
+def provider_registry_base_url(provider_id: str) -> str:
+    """The provider registry's default base_url for a provider (alias-aware), or ''."""
+    try:
+        from hermes_cli.auth import resolve_provider, PROVIDER_REGISTRY
+        try:
+            canonical = resolve_provider(provider_id)
+        except Exception:
+            canonical = provider_id
+        pcfg = PROVIDER_REGISTRY.get(canonical) or PROVIDER_REGISTRY.get(provider_id)
+        if pcfg is not None:
+            return str(
+                getattr(pcfg, "inference_base_url", "") or getattr(pcfg, "base_url", "") or ""
+            ).strip().rstrip("/")
+    except Exception:
+        pass
+    return ""
+
+
+def is_provider_default_base_url(provider_id: str, base_url: str | None) -> bool:
+    """True if base_url is just the provider registry default (NOT a genuine user override).
+
+    Persisting/syncing the default defeats the CLI's dynamic base_url resolution
+    (e.g. sk-kimi- keys must route to api.kimi.com/coding), so callers should skip
+    writing base_url when this returns True.
+    """
+    if not base_url:
+        return False
+    default = provider_registry_base_url(provider_id)
+    return bool(default) and base_url.strip().rstrip("/") == default
+
+
 class ModelService:
     """Provider CRUD, env sync, API key resolution, and catalog merging."""
 
-    def __init__(self, hermes_home: Path) -> None:
+    def __init__(self, hermes_home: Path, event_bus: Any = None) -> None:
         self._hermes_home = hermes_home
+        self._bus = event_bus
 
     def get_active_model(self) -> dict:
         from ..readers.hermes_config import read_active_model
         return read_active_model(self._hermes_home)
 
     def set_active_model(self, provider: str, model: str) -> None:
+        """Write provider + default model to config.yaml.
+
+        base_url and context_length are PROVIDER-specific, so they are cleared
+        when the provider changes (otherwise the previous provider's base_url
+        leaks — e.g. minimax-cn left pointing at a codex endpoint). When the
+        provider is unchanged (only the model changed), they are preserved so a
+        user's custom base_url / context_length survives.
+        """
+        # Validate before writing
+        self._validate_provider_model(provider, model)
+
         config_path = self._hermes_home / "config.yaml"
         try:
             if config_path.exists():
@@ -90,15 +133,35 @@ class ModelService:
             model_section = data.get("model", {})
             if not isinstance(model_section, dict):
                 model_section = {}
+            provider_changed = model_section.get("provider") != provider
             model_section["provider"] = provider
             model_section["default"] = model
-            model_section["base_url"] = ""
-            model_section.pop("context_length", None)
+            if provider_changed:
+                # Drop provider-specific fields so they don't leak across providers.
+                model_section.pop("base_url", None)
+                model_section.pop("context_length", None)
             data["model"] = model_section
             with open(config_path, "w", encoding="utf-8") as fh:
                 yaml.dump(data, fh, default_flow_style=False, allow_unicode=True)
         except Exception as exc:
             raise RuntimeError(str(exc)) from exc
+
+        # Notify all connected frontends that the default model changed
+        if self._bus is not None:
+            try:
+                self._bus.publish("", 0, "model.changed", {
+                    "provider": provider,
+                    "model": model,
+                })
+            except Exception:
+                log.debug("Failed to publish model.changed event")
+
+    def _validate_provider_model(self, provider: str, model: str) -> None:
+        """Raise ValueError if provider or model are empty/blank strings."""
+        if not provider or not provider.strip():
+            raise ValueError("provider must not be empty")
+        if not model or not model.strip():
+            raise ValueError("model must not be empty")
 
     def get_catalog(self) -> dict:
         from ..readers import model_catalog
@@ -138,7 +201,10 @@ class ModelService:
                         save_env_value(env_var, body.api_key)
                 except Exception:
                     log.warning("Failed to write %s to .env", env_var)
-        if body.base_url is not None:
+        # Only persist/sync base_url when it's a GENUINE user override. Writing the
+        # provider registry default would defeat dynamic base_url resolution (e.g.
+        # sk-kimi- → api.kimi.com/coding) and is the root cause of the kimi 401.
+        if body.base_url is not None and not is_provider_default_base_url(body.name, body.base_url):
             patch["base_url"] = body.base_url
             patch["base_url_source"] = "desktop"
             try:
@@ -164,6 +230,37 @@ class ModelService:
             overlays_loader.delete(self._hermes_home, "model", provider_id)
         except Exception as exc:
             raise RuntimeError(str(exc)) from exc
+
+    def get_models_config(self, provider_id: str) -> dict:
+        """Return the per-model config blob stored in the provider overlay."""
+        from ..overlays import loader as overlays_loader
+        import json
+        overlay = overlays_loader.load(self._hermes_home, "model")
+        raw = overlay.get(provider_id, {}).get("models_config")
+        if not raw:
+            return {"models_config": None}
+        try:
+            return {"models_config": raw}
+        except Exception:
+            return {"models_config": None}
+
+    def set_model_params(self, provider_id: str, model_id: str, params: dict) -> None:
+        """Persist per-model params (temperature, max_tokens, capabilities) in overlay."""
+        from ..overlays import loader as overlays_loader
+        import json
+        overlay = overlays_loader.load(self._hermes_home, "model")
+        raw = overlay.get(provider_id, {}).get("models_config")
+        current: dict = {}
+        if raw:
+            try:
+                current = json.loads(raw)
+            except Exception:
+                pass
+        current[model_id] = {**current.get(model_id, {}), **params}
+        overlays_loader.update(
+            self._hermes_home, "model", provider_id,
+            {"models_config": json.dumps(current)},
+        )
 
     def reveal_api_key(self, provider_id: str) -> dict:
         from ..overlays import loader as overlays_loader
@@ -194,10 +291,19 @@ class ModelService:
 
     def _map_payload_to_merged(self, rows: list[dict], overlay: dict) -> list:
         from ..schemas.model import MergedProvider, ProviderOverlay
+        import json
         merged: list = []
         for row in rows:
             slug = row.get("slug", "")
             entry = overlay.get(slug, {})
+            # Parse per-model config blob to apply enabled/param overrides
+            models_config: dict = {}
+            raw_mc = entry.get("models_config")
+            if raw_mc:
+                try:
+                    models_config = json.loads(raw_mc)
+                except Exception:
+                    pass
             raw_auth = row.get("auth_type")
             # Normalize: oauth_device_code, oauth_minimax, oauth_external → oauth
             if raw_auth and str(raw_auth).startswith("oauth"):
@@ -212,11 +318,25 @@ class ModelService:
                         raw_auth = "oauth"
                 except Exception:
                     pass
+            # Build model list with enabled + param overrides from models_config
+            model_list = []
+            for m in row.get("models", []):
+                mc = models_config.get(m, {})
+                model_entry: dict = {"id": m, "name": m}
+                # enabled defaults to True unless overlay says otherwise
+                model_entry["enabled"] = mc.get("enabled", True)
+                # Persist any param overrides so the frontend can display them
+                for param in ("default_temperature", "default_max_tokens",
+                              "supports_vision", "supports_function_calling", "supports_streaming"):
+                    if param in mc:
+                        model_entry[param] = mc[param]
+                model_list.append(model_entry)
+
             p = MergedProvider(
                 id=slug,
                 name=entry.get("display_name") or row.get("name", slug),
                 auth=raw_auth,
-                models=[{"id": m, "name": m} for m in row.get("models", [])],
+                models=model_list,
                 is_current=bool(row.get("is_current")),
                 has_overlay=bool(entry),
                 desktop=ProviderOverlay(

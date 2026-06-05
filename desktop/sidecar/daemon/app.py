@@ -175,6 +175,19 @@ def build_app(cfg: Config) -> FastAPI:
     # SSE stream — auth handled via query param token (browsers can't set Authorization on EventSource)
     app.include_router(events_router.router, prefix=API_PREFIX)
 
+    # ── Startup: pre-import heavy modules so first model-write is fast ──
+    @app.on_event("startup")
+    def _prewarm_model_imports():
+        import threading
+        def _do():
+            try:
+                import yaml  # noqa: F401
+                from .services.model_service import ModelService  # noqa: F401
+                from hermes_cli.inventory import load_picker_context  # noqa: F401
+            except Exception:
+                pass
+        threading.Thread(target=_do, daemon=True, name="model-import-prewarm").start()
+
     # ── Startup: sync overlay API keys → .env so TUI/CLI can see them ──
     @app.on_event("startup")
     def _sync_overlay_keys_to_env():
