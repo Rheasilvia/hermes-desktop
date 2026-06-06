@@ -40,6 +40,119 @@ def test_turn_projection_materializes_completed_turn(tmp_path):
     assert turns[0]["tools"][0]["id"] == "tool_1"
     assert turns[0]["tools"][0]["status"] == "complete"
     assert turns[0]["tools"][0]["durationMs"] == 1200
+    assert [block["type"] for block in turns[0]["assistant_blocks"]] == [
+        "reasoning",
+        "tool_call",
+        "text",
+    ]
+    assert turns[0]["assistant_blocks"][1]["toolId"] == "tool_1"
+    assert turns[0]["assistant_blocks"][1]["status"] == "complete"
+    assert turns[0]["assistant_blocks"][2]["content"] == "core is in app.py"
+
+
+def test_turn_projection_preserves_ordered_assistant_blocks(tmp_path):
+    from daemon.db.conversation_turns import list_turns
+    from daemon.services.session_service import SessionService
+
+    home = tmp_path / ".hermes"
+    sid = "sess-ordered-blocks"
+    turn_id = "turn_ordered"
+
+    append(home, sid, "user", {"text": "debug this"}, turn_id=turn_id)
+    append(home, sid, "message.delta", {"text": "I will inspect first.\n"}, turn_id=turn_id)
+    for idx, name in enumerate(["terminal", "read_file", "read_file"], start=1):
+        tool_id = f"tool_{idx}"
+        append(home, sid, "tool.start", {"tool_id": tool_id, "name": name}, turn_id=turn_id)
+        append(
+            home,
+            sid,
+            "tool.complete",
+            {"tool_id": tool_id, "name": name, "summary": f"{name} done", "duration_s": 0.1},
+            turn_id=turn_id,
+        )
+    append(home, sid, "message.delta", {"text": "Final answer."}, turn_id=turn_id)
+    append(
+        home,
+        sid,
+        "message.complete",
+        {"text": "I will inspect first.\nFinal answer."},
+        turn_id=turn_id,
+    )
+
+    turn = list_turns(home, sid)[0]
+    blocks = turn["assistant_blocks"]
+
+    assert [
+        block["name"] if block["type"] == "tool_call" else block["type"]
+        for block in blocks
+    ] == ["text", "terminal", "read_file", "read_file", "text"]
+    assert blocks[0]["content"] == "I will inspect first.\n"
+    assert blocks[-1]["content"] == "Final answer."
+
+    transcript = SessionService(home, state=None, meta=None).get_transcript(sid)  # type: ignore[arg-type]
+    assistant = next(message for message in transcript["messages"] if message["role"] == "assistant")
+    assert assistant["blocks"] == blocks
+
+
+def test_turn_projection_deduplicates_complete_text_with_trimmed_leading_stream_whitespace(tmp_path):
+    from daemon.db.conversation_turns import list_turns
+
+    home = tmp_path / ".hermes"
+    sid = "sess-leading-whitespace"
+    turn_id = "turn_pwd"
+    final_text = "当前目录是：\n\n```\n/Users/chenmengjie/Documents/Repos/claude-code-source-code\n```"
+
+    append(home, sid, "user", {"text": "使用 pwd 看下当前是在哪个目录"}, turn_id=turn_id)
+    append(home, sid, "tool.start", {"tool_id": "tool_pwd", "name": "terminal"}, turn_id=turn_id)
+    append(
+        home,
+        sid,
+        "tool.complete",
+        {"tool_id": "tool_pwd", "name": "terminal", "summary": "done", "duration_s": 0.1},
+        turn_id=turn_id,
+    )
+    append(home, sid, "message.delta", {"text": f"\n\n{final_text}"}, turn_id=turn_id)
+    append(home, sid, "message.complete", {"text": final_text}, turn_id=turn_id)
+
+    blocks = list_turns(home, sid)[0]["assistant_blocks"]
+    text_blocks = [block for block in blocks if block["type"] == "text"]
+
+    assert [
+        block["name"] if block["type"] == "tool_call" else block["type"]
+        for block in blocks
+    ] == ["terminal", "text"]
+    assert len(text_blocks) == 1
+    assert text_blocks[0]["content"] == f"\n\n{final_text}"
+
+
+def test_turn_projection_treats_complete_text_as_snapshot_after_streamed_text(tmp_path):
+    from daemon.db.conversation_turns import list_turns
+
+    home = tmp_path / ".hermes"
+    sid = "sess-final-text"
+    turn_id = "turn_final_text"
+
+    append(home, sid, "user", {"text": "inspect then answer"}, turn_id=turn_id)
+    append(home, sid, "message.delta", {"text": "I will inspect first."}, turn_id=turn_id)
+    append(home, sid, "tool.start", {"tool_id": "tool_1", "name": "terminal"}, turn_id=turn_id)
+    append(
+        home,
+        sid,
+        "tool.complete",
+        {"tool_id": "tool_1", "name": "terminal", "summary": "done", "duration_s": 0.1},
+        turn_id=turn_id,
+    )
+    append(home, sid, "message.complete", {"text": "Final answer."}, turn_id=turn_id)
+
+    turn = list_turns(home, sid)[0]
+    blocks = turn["assistant_blocks"]
+
+    assert [
+        block["name"] if block["type"] == "tool_call" else block["type"]
+        for block in blocks
+    ] == ["text", "terminal"]
+    assert blocks[0]["content"] == "I will inspect first."
+    assert turn["assistant_content"] == "Final answer."
 
 
 def test_interrupted_turn_is_terminal_for_late_events(tmp_path):

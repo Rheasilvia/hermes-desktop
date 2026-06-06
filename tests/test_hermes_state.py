@@ -2746,6 +2746,35 @@ class TestSchemaInit:
         finally:
             migrated_db.close()
 
+    def test_migration_drops_unique_title_index(self, tmp_path):
+        """Legacy unique title indexes are removed so titles can repeat."""
+        import sqlite3
+
+        db_path = tmp_path / "state.db"
+        db = SessionDB(db_path=db_path)
+        db.create_session("s1", "cli")
+        db.create_session("s2", "cli")
+        db.close()
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_title_unique "
+            "ON sessions(title) WHERE title IS NOT NULL"
+        )
+        conn.execute("UPDATE schema_version SET version = 14")
+        conn.commit()
+        conn.close()
+
+        migrated_db = SessionDB(db_path=db_path)
+        indexes = {
+            row["name"]
+            for row in migrated_db._conn.execute("PRAGMA index_list(sessions)").fetchall()
+        }
+        assert "idx_sessions_title_unique" not in indexes
+        assert migrated_db.set_session_title("s1", "Shared Title") is True
+        assert migrated_db.set_session_title("s2", "Shared Title") is True
+        migrated_db.close()
+
     def test_reconciliation_adds_missing_columns(self, tmp_path):
         """Columns present in SCHEMA_SQL but missing from the live table
         are added by _reconcile_columns regardless of schema_version.
@@ -2885,16 +2914,17 @@ class TestSchemaInit:
                 )
 
 
-class TestTitleUniqueness:
-    """Tests for unique title enforcement and title-based lookups."""
+class TestTitleLabels:
+    """Tests for non-unique title labels and title-based lookups."""
 
-    def test_duplicate_title_raises(self, db):
-        """Setting a title already used by another session raises ValueError."""
+    def test_duplicate_titles_are_allowed(self, db):
+        """Different sessions may share the same display title."""
         db.create_session("s1", "cli")
         db.create_session("s2", "cli")
         db.set_session_title("s1", "my project")
-        with pytest.raises(ValueError, match="already in use"):
-            db.set_session_title("s2", "my project")
+        assert db.set_session_title("s2", "my project") is True
+        assert db.get_session("s1")["title"] == "my project"
+        assert db.get_session("s2")["title"] == "my project"
 
     def test_same_session_can_keep_title(self, db):
         """A session can re-set its own title without error."""
@@ -2917,6 +2947,19 @@ class TestTitleUniqueness:
         result = db.get_session_by_title("refactoring auth")
         assert result is not None
         assert result["id"] == "s1"
+
+    def test_get_session_by_title_returns_latest_duplicate(self, db):
+        import time
+
+        db.create_session("s1", "cli")
+        db.set_session_title("s1", "refactoring auth")
+        time.sleep(0.01)
+        db.create_session("s2", "cli")
+        db.set_session_title("s2", "refactoring auth")
+
+        result = db.get_session_by_title("refactoring auth")
+        assert result is not None
+        assert result["id"] == "s2"
 
     def test_get_session_by_title_not_found(self, db):
         assert db.get_session_by_title("nonexistent") is None

@@ -30,12 +30,7 @@ class SessionStateService:
         self._db.delete_session(session_id)
 
     def set_session_title(self, session_id: str, title: str) -> None:
-        def _do(conn):
-            conn.execute(
-                "UPDATE sessions SET title = ? WHERE id = ?",
-                (title, session_id),
-            )
-        self._db._execute_write(_do)
+        self._db.set_session_title(session_id, title)
 
     def list_sessions_rich(
         self,
