@@ -106,12 +106,14 @@ export class GatewayClient {
     list: (): Promise<SessionListItem[]> => this.call('session.list'),
     info: (sessionId: string): Promise<SessionInfoPayload> =>
       this.call('session.info', { session_id: sessionId }),
-    create: (params: { model?: string; system_prompt?: string }): Promise<SessionMeta> =>
+    create: (params: { model?: string; provider?: string; system_prompt?: string; cwd?: string }): Promise<SessionMeta> =>
       this.call('session.create', params),
     delete: (sessionId: string): Promise<void> =>
       this.call('session.delete', { session_id: sessionId }),
     rename: (sessionId: string, title: string): Promise<void> =>
       this.call('session.rename', { session_id: sessionId, title }),
+    updateCwd: (sessionId: string, cwd: string): Promise<{ cwd: string }> =>
+      this.call('session.cwd.set', { session_id: sessionId, cwd }),
     branch: (sessionId: string): Promise<SessionMeta> =>
       this.call('session.branch', { session_id: sessionId }),
     resume: (sessionId: string): Promise<void> =>
@@ -126,7 +128,10 @@ export class GatewayClient {
   };
 
   prompt = {
-    execute: (params: { message: string; session_id?: string; provider?: string; model?: string }): Promise<PromptExecuteResult> =>
+    execute: (params: {
+      message: string; session_id?: string; provider?: string; model?: string;
+      context?: string; slash_command?: { command: string; args: string };
+    }): Promise<PromptExecuteResult> =>
       this.call('prompt.execute', params),
   };
 

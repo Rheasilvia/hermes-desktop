@@ -203,11 +203,12 @@ class SessionService:
         self.get_session_or_404(session_id)
         self._state.set_session_title(session_id, title)
 
-    def update_cwd(self, session_id: str, cwd: str) -> None:
+    def update_cwd(self, session_id: str, cwd: str) -> str:
         self.get_session_or_404(session_id)
         resolved_cwd = str(resolve_existing_cwd(cwd))
         self._state.update_session_cwd(session_id, resolved_cwd)
         self._state.update_system_prompt(session_id, None)
+        return resolved_cwd
 
     def delete_session(self, session_id: str) -> None:
         self.get_session_or_404(session_id)
@@ -274,6 +275,7 @@ class SessionService:
             user_seq = int(turn.get("user_seq") or 0)
             started_at = float(turn.get("started_at") or 0)
             user_text = str(turn.get("user_text") or "")
+            slash_command = turn.get("slash_command") or None
             if user_text or user_seq > 0:
                 messages.append({
                     "id": user_seq,
@@ -286,6 +288,7 @@ class SessionService:
                     "token_count": None,
                     "finish_reason": None,
                     "status": "completed",
+                    "slash_command": slash_command,
                 })
 
             status = str(turn.get("status") or "running")
@@ -297,6 +300,7 @@ class SessionService:
                     "content": turn.get("assistant_content") or "",
                     "reasoning": turn.get("assistant_reasoning") or "",
                     "tools": tools,
+                    "blocks": turn.get("assistant_blocks") or [],
                     "todos": _todos_from_tools(tools),
                     "usage": turn.get("usage"),
                     "error": turn.get("error"),
@@ -318,6 +322,7 @@ class SessionService:
                 "content": content,
                 "reasoning": reasoning,
                 "tool_calls": tools or None,
+                "blocks": turn.get("assistant_blocks") or None,
                 "timestamp": turn.get("completed_at") or turn.get("updated_at") or started_at,
                 "token_count": (turn.get("usage") or {}).get("total") if isinstance(turn.get("usage"), dict) else None,
                 "finish_reason": None,

@@ -8,6 +8,14 @@
   font-family: var(--font-sans);
 }
 
+.embedded {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin-bottom: 0;
+}
+
 /* ── Active state ────────────────────────────────────────────────────────── */
 .activeContent {
   flex-direction: column;
@@ -64,47 +72,142 @@
   will-change: transform;
 }
 
-/* Live tool rows */
-.liveToolList {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.liveRow {
+/* Shared activity summary row */
+.summaryRow {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: 18px;
+  font-size: 12px;
 }
 
-.liveRowEntering {
-  animation: rowSlideIn 0.18s ease-out both;
+.liveToolSummary {
+  width: 100%;
 }
 
-@keyframes rowSlideIn {
-  from { opacity: 0; transform: translateY(-3px); }
-  to   { opacity: 1; transform: translateY(0); }
+.summaryIcon {
+  color: var(--color-tool-done);
+  display: block;
+}
+
+.summaryIconSlot {
+  display: inline-grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  line-height: 1;
+  contain: layout paint;
+}
+
+.summaryIconSlot svg {
+  display: block;
+}
+
+.toolStatusIconSlot {
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  line-height: 1;
+  contain: layout paint;
+}
+
+.toolStatusIconSlot svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+.summaryLabel {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-on-surface-muted);
+  font-size: 12px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+}
+
+.summaryActions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+.summaryActionsPlaceholder {
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.toolCompletedLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.toolCompletedText {
+  display: inline-block;
+  min-width: 16ch;
+}
+
+.summaryDot {
+  color: var(--color-on-surface-dim);
+  padding: 0 6px;
+}
+
+.toolCount {
+  position: relative;
+  display: inline-block;
+  min-width: 2ch;
+  height: 1em;
+  overflow: hidden;
+  color: var(--color-tool-done);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: right;
+  vertical-align: -0.08em;
+  contain: layout paint;
+}
+
+.toolCountSizer {
+  display: block;
+  visibility: hidden;
+  line-height: 1;
+  text-align: right;
+}
+
+.toolCountStack {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(-1em);
+}
+
+.toolCountRolling .toolCountStack {
+  animation: countRoll 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.toolCountDigit {
+  display: block;
+  height: 1em;
+  line-height: 1;
+  text-align: right;
+}
+
+@keyframes countRoll {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-1em); }
 }
 
 /* ── Collapsed pill ──────────────────────────────────────────────────────── */
 .pill {
-  align-items: center;
-  gap: var(--space-2);
-  animation: fadeUp 0.22s ease-out;
-}
-
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(2px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.pillLabel {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-on-surface-muted);
-  flex: 1;
+  width: 100%;
 }
 
 .pillSep {
@@ -137,16 +240,7 @@
 }
 
 .expandedHeader {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.expandedTitle {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-on-surface-muted);
-  flex: 1;
+  width: 100%;
 }
 
 .collapseBtn {
@@ -195,6 +289,8 @@
   gap: var(--space-2);
   font-family: var(--font-mono);
   font-size: 12px;
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 .toolRow {
@@ -215,6 +311,36 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  cursor: default;
+  text-align: left;
+}
+
+.toolRowClickable {
+  cursor: pointer;
+}
+
+.toolRowClickable:hover {
+  background: var(--color-surface);
+}
+
+.toolRowClickable:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.chevronIndicator {
+  color: var(--color-on-surface-dim);
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .argPreview {
@@ -240,19 +366,6 @@
   border: 1px solid var(--color-border-light);
 }
 
-.expandToolBtn {
-  display: flex;
-  align-items: center;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 1px 2px;
-  color: var(--color-on-surface-dim);
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-.expandToolBtn:hover { color: var(--color-on-surface-muted); }
 
 /* ── Shared ──────────────────────────────────────────────────────────────── */
 .connector {
@@ -267,35 +380,25 @@
 
 .brainIcon {
   color: var(--color-on-surface-dim);
+  display: block;
   flex-shrink: 0;
 }
 
-.activeDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-tool-active);
-  flex-shrink: 0;
-}
-
-.pulse {
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-
-.doneIcon    { color: var(--color-tool-done); }
-.errorIcon   { color: var(--color-error); }
-.neutralIcon { color: var(--color-on-surface-dim); }
+.doneIcon    { color: var(--color-tool-done); display: block; }
+.errorIcon   { color: var(--color-error); display: block; }
+.neutralIcon { color: var(--color-on-surface-dim); display: block; }
 
 .toolName { font-weight: 600; color: var(--color-on-surface); }
-.toolNameActive { color: var(--color-tool-active); }
 
 .duration {
   color: var(--color-on-surface-dim);
   font-size: 11px;
   flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toolCountRolling .toolCountStack,
+  .dot {
+    animation: none;
+  }
 }

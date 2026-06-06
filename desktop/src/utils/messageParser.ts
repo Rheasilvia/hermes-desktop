@@ -5,8 +5,8 @@
  * Block parsing rules:
  * - Fenced code blocks (```lang\n...\n```) → CodeBlock
  * - Remaining text segments → TextBlock
- * - reasoning field → ReasoningBlock (prepended before content blocks)
- * - toolCalls → ToolCallBlock (appended after content blocks)
+ * - ordered blocks from transcript → normalized in-place when available
+ * - legacy reasoning/toolCalls/content fields → compatibility reconstruction
  */
 
 import type { ConversationMessage, ParsedToolCall } from '../types/domain/message.js';
@@ -89,6 +89,66 @@ function toolCallToBlock(tc: ParsedToolCall): ToolCallBlock {
   };
 }
 
+function normalizeToolStatus(status: unknown): ToolCallBlock['status'] {
+  if (status === 'streaming' || status === 'running' || status === 'complete' || status === 'error') {
+    return status;
+  }
+  if (status === 'generating') return 'streaming';
+  return 'complete';
+}
+
+export function hydratePersistedBlocks(
+  blocks: MessageBlock[] | null | undefined,
+  opts: { parseTextBlocks?: boolean; isStreaming?: boolean } = {},
+): MessageBlock[] {
+  if (!blocks || blocks.length === 0) return [];
+  const parseTextBlocks = opts.parseTextBlocks ?? true;
+  return blocks.flatMap((block): MessageBlock[] => {
+    if (!block || typeof block !== 'object' || !('type' in block)) return [];
+    switch (block.type) {
+      case 'text':
+        return parseTextBlocks
+          ? parseBlocks((block as TextBlock).content ?? '')
+          : [{ ...block, id: block.id || nextId(), content: (block as TextBlock).content ?? '' } as TextBlock];
+      case 'code':
+        return [{ ...block, id: block.id || nextId() } as CodeBlock];
+      case 'rich_content':
+        return [{ ...block, id: block.id || nextId() } as RichContentBlock];
+      case 'reasoning': {
+        const reasoning = block as ReasoningBlock;
+        return [{
+          type: 'reasoning',
+          id: reasoning.id || nextId(),
+          content: reasoning.content ?? '',
+          isStreaming: opts.isStreaming ?? reasoning.isStreaming ?? false,
+          tokenCount: reasoning.tokenCount ?? null,
+        }];
+      }
+      case 'tool_call': {
+        const tool = block as ToolCallBlock;
+        const toolId = tool.toolId || tool.id || nextId();
+        return [{
+          type: 'tool_call',
+          id: tool.id || `tc-${toolId}`,
+          toolId,
+          name: tool.name || 'tool',
+          status: normalizeToolStatus(tool.status),
+          inputPreview: tool.inputPreview ?? null,
+          outputSummary: tool.outputSummary ?? null,
+          inlineDiff: tool.inlineDiff ?? null,
+          durationMs: tool.durationMs ?? null,
+        }];
+      }
+      case 'todo_list':
+        return [{ ...block, id: block.id || nextId(), todos: (block as TodoListBlock).todos ?? [] } as TodoListBlock];
+      case 'attachment':
+        return [{ ...block, id: block.id || nextId() }];
+      default:
+        return [];
+    }
+  });
+}
+
 function actionsFor(role: ConversationMessage['role']): RenderedMessage['actions'] {
   if (role === 'user') return ['copy', 'edit', 'delete'];
   if (role === 'assistant') return ['copy', 'retry', 'like', 'dislike', 'more'];
@@ -99,7 +159,10 @@ function actionsFor(role: ConversationMessage['role']): RenderedMessage['actions
 export function parseMessage(msg: ConversationMessage): RenderedMessage {
   const blocks: MessageBlock[] = [];
 
-  if (msg.reasoning) {
+  const persistedBlocks = hydratePersistedBlocks(msg.blocks, { parseTextBlocks: true, isStreaming: false });
+  if (persistedBlocks.length > 0) {
+    blocks.push(...persistedBlocks);
+  } else if (msg.reasoning) {
     const reasoningBlock: ReasoningBlock = {
       type: 'reasoning',
       id: nextId(),
@@ -110,7 +173,7 @@ export function parseMessage(msg: ConversationMessage): RenderedMessage {
     blocks.push(reasoningBlock);
   }
 
-  if (msg.toolCalls) {
+  if (persistedBlocks.length === 0 && msg.toolCalls) {
     // Collect todos from all tool calls to check if any todo tool produced them
     const hasAnyTodos = msg.toolCalls.some((tc) => tc.todos && tc.todos.length > 0);
     for (const tc of msg.toolCalls) {
@@ -131,7 +194,7 @@ export function parseMessage(msg: ConversationMessage): RenderedMessage {
     }
   }
 
-  if (msg.content) {
+  if (persistedBlocks.length === 0 && msg.content) {
     blocks.push(...parseBlocks(msg.content));
   }
 
@@ -147,6 +210,7 @@ export function parseMessage(msg: ConversationMessage): RenderedMessage {
     isStreaming: false,
     actions: actionsFor(msg.role),
     toolName: msg.toolName ?? null,
+    slashCommand: msg.slashCommand ?? undefined,
   };
 }
 

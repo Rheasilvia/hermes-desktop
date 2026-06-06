@@ -4,6 +4,7 @@
  */
 
 import type { Role } from '../message.js';
+import type { MessageBlock } from '../ui/blocks.js';
 
 export interface ConversationMessage {
   id: number | string;
@@ -13,6 +14,8 @@ export interface ConversationMessage {
   content: string | null;
   reasoning: string | null;
   toolCalls: ParsedToolCall[] | null;
+  /** Ordered assistant blocks from the desktop turn projection. */
+  blocks?: MessageBlock[] | null;
   toolCallId: string | null;
   toolName: string | null;
   timestamp: number;
@@ -20,6 +23,8 @@ export interface ConversationMessage {
   finishReason: string | null;
   /** Reserved — null until attachment feature is implemented. */
   attachments: MessageAttachment[] | null;
+  /** Slash command metadata persisted for UI display on reload. */
+  slashCommand?: { command: string; args: string } | null;
 }
 
 export interface ParsedToolCall {

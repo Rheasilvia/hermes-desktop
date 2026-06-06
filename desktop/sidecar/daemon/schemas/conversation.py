@@ -43,6 +43,8 @@ class PromptExecuteRequest(BaseModel):
     session_id: str
     provider: Optional[str] = None
     model: Optional[str] = None
+    context: Optional[str] = None
+    slash_command: Optional[dict] = None
 
 
 class ImageAttachRequest(BaseModel):

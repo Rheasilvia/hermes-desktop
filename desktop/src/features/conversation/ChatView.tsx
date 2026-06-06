@@ -48,6 +48,33 @@ interface ChatViewProps {
   sessionId?: string;
 }
 
+export interface PromptDisplayMetadata {
+  text: string;
+  slashCommand?: { command: string; args: string };
+}
+
+export interface PromptDispatchPayload {
+  message: string;
+  context?: string;
+  slashCommand?: { command: string; args: string };
+}
+
+export function resolvePromptDispatch(
+  submitText: string,
+  displayText: string,
+  display?: PromptDisplayMetadata,
+): PromptDispatchPayload {
+  const slashCommand = display?.slashCommand;
+  if (slashCommand) {
+    return {
+      message: displayText,
+      context: submitText,
+      slashCommand,
+    };
+  }
+  return { message: submitText };
+}
+
 export const ChatView: Component<ChatViewProps> = (props) => {
   const navigate = useNavigate();
   const sessionId = () => props.sessionId ?? '';
@@ -72,14 +99,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const liveBlocks = createMemo((): MessageBlock[] => {
     const live = liveState();
-    const blocks: MessageBlock[] = [];
-    if (live.reasoningText) {
-      blocks.push({ type: 'reasoning', id: 'live-reasoning', content: live.reasoningText, isStreaming: true, tokenCount: null });
-    }
-    if (live.streamingText) {
-      blocks.push({ type: 'text', id: 'live-text', content: live.streamingText });
-    }
-    return blocks;
+    return live.activityBlocks;
   });
 
   const liveTools = createMemo(() => liveState().activeTools);
@@ -93,6 +113,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const scroll = createScrollController({
     getMessages: messages,
     getLiveBlocks: liveBlocks,
+    getLiveTurnId: () => liveState().turnId,
     getBlockingPromptActive: blockingPromptActive,
   });
 
@@ -100,7 +121,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const sendPrompt = async (
     promptText: string,
-    display?: { text: string; slashCommand?: { command: string; args: string } },
+    display?: PromptDisplayMetadata,
     attachments: AttachmentChip[] = [],
   ) => {
     const sid = sessionId();
@@ -130,7 +151,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         return false;
       }
     }
-    const ok = await chatStore.sendMessage(sid, submitText);
+    const dispatch = resolvePromptDispatch(submitText, displayText, display);
+    const ok = await chatStore.sendMessage(sid, dispatch.message, {
+      context: dispatch.context,
+      slashCommand: dispatch.slashCommand,
+    });
     if (!ok) {
       chatStore.markUserMessageFailed(sid, messageId, chatStore.getError(sid) ?? 'Failed to send message');
     }
@@ -676,7 +701,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                   <AssistantMessage
                     blocks={liveBlocks()}
                     isStreaming={true}
-                    liveTools={liveTools()}
                   />
                 </Show>
                 <div ref={scroll.refs.messagesEnd} />
@@ -717,7 +741,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
               isNewConversation={canEditWorkspace()}
               onCwdChange={(path) => {
                 const sid = sessionId();
-                if (sid) sessionStore.updateCwd(sid, path);
+                if (sid) void sessionStore.updateCwd(sid, path);
               }}
               editDraft={editDraft}
               clearEditDraft={() => setEditDraft(null)}

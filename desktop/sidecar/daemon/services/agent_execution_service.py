@@ -52,11 +52,55 @@ class AgentExecutionService:
         self._pool = agent_pool
         self._session_svc = session_service
 
-    def execute_turn(self, session_id: str, user_message: str) -> dict[str, Any]:
+    def _install_turn_bound_callbacks(
+        self,
+        agent: Any,
+        session_id: str,
+        turn_id: str,
+    ) -> list[tuple[str, bool, Any]]:
+        make_callbacks = getattr(self._pool, "make_turn_callbacks", None)
+        if not callable(make_callbacks):
+            return []
+
+        previous: list[tuple[str, bool, Any]] = []
+        callbacks = make_callbacks(session_id, turn_id)
+        for attr, callback in callbacks.items():
+            previous.append((attr, hasattr(agent, attr), getattr(agent, attr, None)))
+            setattr(agent, attr, callback)
+        return previous
+
+    @staticmethod
+    def _restore_turn_bound_callbacks(
+        agent: Any,
+        previous: list[tuple[str, bool, Any]],
+    ) -> None:
+        for attr, existed, value in reversed(previous):
+            if existed:
+                setattr(agent, attr, value)
+                continue
+            try:
+                delattr(agent, attr)
+            except AttributeError:
+                pass
+
+    def execute_turn(
+        self,
+        session_id: str,
+        user_message: str,
+        *,
+        context: str | None = None,
+        slash_command: dict | None = None,
+    ) -> dict[str, Any]:
         """Spawn a daemon thread to run the agent turn. Returns the started thread.
 
         The caller (prompt_execute route) must have already called
         pool.get_or_create(sid) and verified the agent is not running.
+
+        Args:
+            context: Optional expanded skill/system context injected into the
+                     LLM conversation for this turn only (not stored in DB).
+            slash_command: Optional {command, args} metadata persisted alongside
+                           the user message for UI display on reload.
         """
         entry = self._pool.get_pooled_entry(session_id)
         if entry is None or entry.running:
@@ -64,6 +108,8 @@ class AgentExecutionService:
 
         turn_id = f"turn_{uuid.uuid4().hex}"
         user_payload = {"text": user_message, "turn_id": turn_id}
+        if slash_command:
+            user_payload["slash_command"] = slash_command
         user_seq = self._ui.append(session_id, "user", user_payload, turn_id=turn_id)
         self._bus.publish(session_id, user_seq, "user", user_payload)
         start_payload = {
@@ -77,7 +123,7 @@ class AgentExecutionService:
 
         thread = threading.Thread(
             target=self._run_turn,
-            args=(session_id, user_message, user_seq, turn_id),
+            args=(session_id, user_message, user_seq, turn_id, context),
             daemon=True,
             name=f"agent-turn-{session_id[:8]}",
         )
@@ -85,7 +131,7 @@ class AgentExecutionService:
         thread.start()
         return {"thread": thread, "turn_id": turn_id, "user_seq": user_seq}
 
-    def _run_turn(self, session_id: str, user_message: str, user_seq: int, turn_id: str) -> None:
+    def _run_turn(self, session_id: str, user_message: str, user_seq: int, turn_id: str, context: str | None = None) -> None:
         from contextlib import ExitStack
         from agent.runtime_cwd import reset_session_cwd, set_session_cwd
         from tools.terminal_cwd import set_terminal_cwd, reset_terminal_cwd
@@ -94,12 +140,13 @@ class AgentExecutionService:
         from tools.skills_tool import set_secret_capture_callback
 
         _t0_total = time.time()
-        self._pool.bind_current_thread_turn(session_id, turn_id)
         entry = self._pool.get_pooled_entry(session_id)
-        workspace_cwd = getattr(entry, "built_cwd", None) or getattr(entry.agent if entry else None, "workspace_cwd", None)
+        agent = entry.agent if entry else None
+        turn_callback_snapshot: list[tuple[str, bool, Any]] = []
+        workspace_cwd = getattr(entry, "built_cwd", None) or getattr(agent, "workspace_cwd", None)
         cleanup = ExitStack()
         cleanup.callback(reset_terminal_cwd, set_terminal_cwd(workspace_cwd))
-        cleanup.callback(reset_workspace_context, set_workspace_context(workspace_cwd, session_id))
+        cleanup.callback(reset_workspace_context, set_workspace_context(workspace_cwd, session_id, turn_id))
         cleanup.callback(reset_session_cwd, set_session_cwd(workspace_cwd))
         prev_interactive = os.environ.get("HERMES_INTERACTIVE")
 
@@ -115,16 +162,24 @@ class AgentExecutionService:
         set_secret_capture_callback(lambda env_var, prompt, metadata=None: self._capture_secret(session_id, env_var, prompt, metadata, turn_id=turn_id))
 
         try:
+            if agent is None:
+                raise RuntimeError(f"pooled agent missing for session {session_id}")
+            turn_callback_snapshot = self._install_turn_bound_callbacks(agent, session_id, turn_id)
+
             _t0 = time.time()
             llm_messages = self._state.get_messages_as_conversation(session_id)
             log.info("[perf] _run_turn get_messages_as_conversation: %.2fs", time.time() - _t0)
+
+            # Inject turn-scoped context (e.g. expanded skill content) as a
+            # system message — visible to the LLM for this turn only, never
+            # persisted to the message history.
+            if context:
+                llm_messages.insert(0, {"role": "system", "content": context})
 
             from .context_normalizer import normalize_messages
             _t0 = time.time()
             normalized = normalize_messages(llm_messages)
             log.info("[perf] _run_turn normalize_messages: %.2fs", time.time() - _t0)
-
-            agent = entry.agent
 
             self._touch_session(session_id)
             image_paths = self._session_svc.consume_attached_images(session_id)
@@ -241,11 +296,12 @@ class AgentExecutionService:
             })
 
         finally:
+            if agent is not None:
+                self._restore_turn_bound_callbacks(agent, turn_callback_snapshot)
             cleanup.close()
             # Pass our thread identity so a force_reset'd zombie turn that later
             # unblocks cannot idle a fresh turn that has since taken over.
             self._pool.mark_idle(session_id, threading.current_thread())
-            self._pool.clear_current_thread_turn()
             log.info("[perf] _run_turn total wall-clock: %.2fs", time.time() - _t0_total)
 
     def _get_usage(self, session_id: str, agent: Any) -> dict[str, Any] | None:

@@ -5,6 +5,7 @@
 
 import type { Usage } from './message.js';
 import type { ParsedToolCall } from './domain/message.js';
+import type { MessageBlock } from './ui/blocks.js';
 
 /** Session database row - mirrors sessions table. */
 export interface SessionMeta {
@@ -115,12 +116,14 @@ export interface TranscriptMessage {
   content: string | null;
   reasoning?: string | null;
   tool_calls?: ParsedToolCall[] | null;
+  blocks?: MessageBlock[] | null;
   timestamp: number;
   token_count?: number | null;
   finish_reason?: string | null;
   status?: TranscriptTurnStatus;
   usage?: Record<string, unknown> | null;
   error?: Record<string, unknown> | null;
+  slash_command?: { command: string; args: string } | null;
 }
 
 export interface TranscriptLiveTurn {
@@ -129,6 +132,7 @@ export interface TranscriptLiveTurn {
   content: string;
   reasoning: string;
   tools: ParsedToolCall[];
+  blocks?: MessageBlock[];
   todos?: import('./gateway.js').TodoItem[];
   usage?: Record<string, unknown> | null;
   error?: Record<string, unknown> | null;

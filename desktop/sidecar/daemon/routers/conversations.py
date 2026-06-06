@@ -92,17 +92,24 @@ async def update_session(
     pool=Depends(get_agent_pool),
 ):
     try:
+        resolved_cwd = None
+        if body.cwd is not None:
+            svc.get_session_or_404(session_id)
+            if pool.is_running(session_id):
+                raise HTTPException(status_code=409, detail="SESSION_BUSY")
         if body.title is not None:
             svc.rename_session(session_id, body.title)
         if body.cwd is not None:
-            svc.update_cwd(session_id, body.cwd)
-            if not pool.is_running(session_id):
-                pool.evict(session_id)
+            resolved_cwd = svc.update_cwd(session_id, body.cwd)
+            pool.evict(session_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return {"ok": True}
+    response = {"ok": True}
+    if resolved_cwd is not None:
+        response["cwd"] = resolved_cwd
+    return response
 
 
 @router.delete("/sessions/{session_id}")
@@ -204,7 +211,12 @@ async def prompt_execute(
     title_svc.maybe_generate_title(sid, body.message)
 
     # Execute agent turn in daemon thread — returns 202 immediately
-    turn = exec_svc.execute_turn(sid, body.message)
+    turn = exec_svc.execute_turn(
+        sid,
+        body.message,
+        context=body.context,
+        slash_command=body.slash_command,
+    )
 
     _log.info("[perf] prompt_execute total: %.2fs (sid=%s provider=%r model=%r)",
               time.time() - _t0, sid, body.provider, body.model)
