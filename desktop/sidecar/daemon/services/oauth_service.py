@@ -673,10 +673,79 @@ def _codex_full_login_worker(session_id: str) -> None:
     """Run the complete OpenAI Codex device-code flow.
 
     Uses Codex's proprietary /deviceauth endpoints (not standard OAuth device-code).
-    Mirrors the TUI's _codex_full_login_worker inline implementation.
+    Uses curl_cffi with browser TLS fingerprint impersonation to pass Cloudflare's
+    bot protection on auth.openai.com. Falls back to httpx when curl_cffi is
+    unavailable (with a warning — Cloudflare will likely block the request).
     """
+    # ── HTTP client selection ─────────────────────────────────────────────
+    # auth.openai.com is behind Cloudflare Bot Management. httpx gets 429'd;
+    # curl_cffi with browser impersonation passes through.
     try:
+        from curl_cffi.requests import Session as CurlSession  # noqa: F811
+        _USE_CURL_CFFI = True
+    except ImportError:
+        _USE_CURL_CFFI = False
+        log.warning(
+            "curl_cffi not available — Codex auth may fail due to "
+            "Cloudflare bot protection on auth.openai.com"
+        )
+
+    if _USE_CURL_CFFI:
+        _session = CurlSession()
+        def _post(url, timeout=30, **kw):
+            return _session.post(
+                url, headers={"Content-Type": "application/json"}, **kw,
+                impersonate="chrome124", timeout=timeout,
+            )
+        def _post_form(url, **kw):
+            return _session.post(
+                url,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                **kw, impersonate="chrome124", timeout=30,
+            )
+        def _safe_json(resp, label="response"):
+            """Parse JSON body, raising a clear error when the response is HTML
+            (Cloudflare challenge) or empty."""
+            ct = resp.headers.get("content-type", "")
+            if "text/html" in ct:
+                snippet = (resp.text or "")[:200]
+                raise RuntimeError(
+                    f"{label}: received HTML (status {resp.status_code}) — "
+                    f"likely Cloudflare challenge. Snippet: {snippet}"
+                )
+            if not (resp.text or "").strip():
+                raise RuntimeError(
+                    f"{label}: empty response body (status {resp.status_code})"
+                )
+            return resp.json()
+    else:
         import httpx
+        _client = httpx.Client(timeout=httpx.Timeout(30.0))
+        def _post(url, timeout=30, **kw):
+            return _client.post(
+                url, headers={"Content-Type": "application/json"}, **kw,
+            )
+        def _post_form(url, **kw):
+            return _client.post(
+                url,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                **kw,
+            )
+        def _safe_json(resp, label="response"):
+            ct = resp.headers.get("content-type", "")
+            if "text/html" in ct:
+                snippet = (resp.text or "")[:200]
+                raise RuntimeError(
+                    f"{label}: received HTML (status {resp.status_code}) — "
+                    f"likely Cloudflare challenge. Snippet: {snippet}"
+                )
+            if not (resp.text or "").strip():
+                raise RuntimeError(
+                    f"{label}: empty response body (status {resp.status_code})"
+                )
+            return resp.json()
+
+    try:
         from hermes_cli.auth import (
             CODEX_OAUTH_CLIENT_ID,
             CODEX_OAUTH_TOKEN_URL,
@@ -685,15 +754,13 @@ def _codex_full_login_worker(session_id: str) -> None:
         issuer = "https://auth.openai.com"
 
         # Step 1: request device code
-        with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
-            resp = client.post(
-                f"{issuer}/api/accounts/deviceauth/usercode",
-                json={"client_id": CODEX_OAUTH_CLIENT_ID},
-                headers={"Content-Type": "application/json"},
-            )
+        resp = _post(
+            f"{issuer}/api/accounts/deviceauth/usercode",
+            json={"client_id": CODEX_OAUTH_CLIENT_ID},
+        )
         if resp.status_code != 200:
             raise RuntimeError(f"deviceauth/usercode returned {resp.status_code}")
-        device_data = resp.json()
+        device_data = _safe_json(resp, "deviceauth/usercode")
         user_code = device_data.get("user_code", "")
         device_auth_id = device_data.get("device_auth_id", "")
         poll_interval = max(3, int(device_data.get("interval", "5")))
@@ -714,22 +781,37 @@ def _codex_full_login_worker(session_id: str) -> None:
         # Step 2: poll until authorized
         deadline_ts = time.monotonic() + sess["expires_in"]
         code_resp = None
-        with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
-            while time.monotonic() < deadline_ts:
-                time.sleep(poll_interval)
-                poll = client.post(
-                    f"{issuer}/api/accounts/deviceauth/token",
-                    json={"device_auth_id": device_auth_id, "user_code": user_code},
-                    headers={"Content-Type": "application/json"},
-                )
-                if poll.status_code == 200:
-                    code_resp = poll.json()
+        while time.monotonic() < deadline_ts:
+            time.sleep(poll_interval)
+            poll = _post(
+                f"{issuer}/api/accounts/deviceauth/token",
+                json={"device_auth_id": device_auth_id, "user_code": user_code},
+            )
+            if poll.status_code == 200:
+                ct = poll.headers.get("content-type", "")
+                if "text/html" in ct or not (poll.text or "").strip():
+                    # Cloudflare intermediate page or empty response —
+                    # user hasn't authorized yet, keep polling.
+                    log.debug(
+                        "codex poll: got HTML/empty (status 200), "
+                        "continuing (session=%s)", session_id[:8],
+                    )
+                    continue
+                try:
+                    code_resp = _safe_json(poll, "deviceauth/token poll")
                     break
-                if poll.status_code in {403, 404}:
-                    continue  # user hasn't authorized yet
-                raise RuntimeError(
-                    f"deviceauth/token poll returned {poll.status_code}"
-                )
+                except Exception:
+                    # Parse failure on what looked like JSON — keep polling
+                    log.debug(
+                        "codex poll: JSON parse failed on 200 response, "
+                        "continuing (session=%s)", session_id[:8],
+                    )
+                    continue
+            if poll.status_code in {403, 404}:
+                continue  # user hasn't authorized yet
+            raise RuntimeError(
+                f"deviceauth/token poll returned {poll.status_code}"
+            )
 
         if code_resp is None:
             with _oauth_sessions_lock:
@@ -737,7 +819,7 @@ def _codex_full_login_worker(session_id: str) -> None:
                 sess["error_message"] = "Device code expired before approval"
             return
 
-        # Step 3: exchange authorization_code for tokens
+        # Step 3: exchange authorization_code for tokens (form-encoded)
         authorization_code = code_resp.get("authorization_code", "")
         code_verifier = code_resp.get("code_verifier", "")
         if not authorization_code or not code_verifier:
@@ -745,25 +827,22 @@ def _codex_full_login_worker(session_id: str) -> None:
                 "device-auth response missing authorization_code/code_verifier"
             )
 
-        # Step 3: exchange authorization_code for tokens (form-encoded)
-        with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
-            token_resp = client.post(
-                CODEX_OAUTH_TOKEN_URL,
-                data={
-                    "grant_type": "authorization_code",
-                    "code": authorization_code,
-                    "redirect_uri": f"{issuer}/deviceauth/callback",
-                    "client_id": CODEX_OAUTH_CLIENT_ID,
-                    "code_verifier": code_verifier,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
+        token_resp = _post_form(
+            CODEX_OAUTH_TOKEN_URL,
+            data={
+                "grant_type": "authorization_code",
+                "code": authorization_code,
+                "redirect_uri": f"{issuer}/deviceauth/callback",
+                "client_id": CODEX_OAUTH_CLIENT_ID,
+                "code_verifier": code_verifier,
+            },
+        )
         if token_resp.status_code != 200:
             raise RuntimeError(
                 f"Codex token exchange returned {token_resp.status_code}: "
                 f"{token_resp.text[:200]}"
             )
-        tokens = token_resp.json()
+        tokens = _safe_json(token_resp, "token exchange")
         access_token = tokens.get("access_token", "")
         if not access_token:
             raise RuntimeError("Codex token exchange returned no access_token")

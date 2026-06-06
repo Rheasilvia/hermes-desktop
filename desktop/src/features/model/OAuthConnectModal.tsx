@@ -1,5 +1,6 @@
 import type { Component } from 'solid-js';
 import { createSignal, Show, Switch, Match } from 'solid-js';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import type {
   OAuthProvider,
   OAuthStartResponse,
@@ -10,7 +11,6 @@ import { Modal } from '@/ui/molecules/Modal';
 import { Button } from '@/ui/atoms/Button';
 import { Input } from '@/ui/atoms/Input';
 import { Icon } from '@/ui/atoms/Icon';
-import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner';
 import styles from './OAuthConnectModal.module.css';
 
 export interface OAuthConnectModalProps {
@@ -46,6 +46,9 @@ export const OAuthConnectModal: Component<OAuthConnectModalProps> = (props) => {
   const [deviceError, setDeviceError] = createSignal('');
   let deviceTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Loopback state (auto-callback via local HTTP listener — no code to paste)
+  const [loopbackAuthUrl, setLoopbackAuthUrl] = createSignal('');
+
   const providerName = () => props.provider?.name ?? '';
   const flow = () => props.provider?.flow;
 
@@ -62,6 +65,7 @@ export const OAuthConnectModal: Component<OAuthConnectModalProps> = (props) => {
     setVerificationUrl('');
     setPollInterval(2);
     setDeviceError('');
+    setLoopbackAuthUrl('');
     if (deviceTimer) { clearInterval(deviceTimer); deviceTimer = null; }
   };
 
@@ -75,7 +79,28 @@ export const OAuthConnectModal: Component<OAuthConnectModalProps> = (props) => {
     props.onClose();
   };
 
-  const openBrowser = (url: string) => {
+  // ── Open browser (3-tier: Tauri command → plugin → fallback) ──
+  // Mirrors the Electron app's openSignInUrl() pattern:
+  //   window.hermesDesktop.openExternal(url) → window.open(url)
+  const openBrowser = async (url: string) => {
+    // Tier 1: Tauri open_external command (Rust `open` crate — most reliable)
+    try {
+      const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> } } }).__TAURI__;
+      if (tauri?.core?.invoke) {
+        await tauri.core.invoke('open_external', { url });
+        return;
+      }
+    } catch (e) {
+      console.warn('[OAuth] open_external failed, trying plugin-opener:', e);
+    }
+    // Tier 2: @tauri-apps/plugin-opener
+    try {
+      await openUrl(url);
+      return;
+    } catch (e) {
+      console.warn('[OAuth] plugin-opener failed, falling back to window.open:', e);
+    }
+    // Tier 3: Last resort for non-Tauri environments (dev browser)
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
@@ -148,6 +173,34 @@ export const OAuthConnectModal: Component<OAuthConnectModalProps> = (props) => {
       }
     } catch (e: unknown) {
       setDeviceError(e instanceof Error ? e.message : 'Failed to start device auth');
+      setDeviceStep('error');
+    }
+  };
+
+  // ── Loopback flow (auto-callback) ──
+  // Opens browser; backend's local HTTP listener catches the redirect and
+  // completes the token exchange automatically. Just poll until approved.
+  const startLoopback = async () => {
+    if (!props.provider) return;
+    setDeviceStep('connecting');
+    setDeviceError('');
+    try {
+      const resp: OAuthStartResponse = await api.oauth().start(props.provider.id);
+      setDeviceSessionId(resp.session_id);
+      if (resp.auth_url) {
+        setLoopbackAuthUrl(resp.auth_url);
+        openBrowser(resp.auth_url);
+        setDeviceStep('awaiting_code');
+        // Wait a beat before starting to poll
+        setTimeout(() => {
+          startPolling(resp.session_id);
+        }, 3000);
+      } else {
+        setDeviceError('No authorization URL returned');
+        setDeviceStep('error');
+      }
+    } catch (e: unknown) {
+      setDeviceError(e instanceof Error ? e.message : 'Failed to start authorization');
       setDeviceStep('error');
     }
   };
@@ -361,6 +414,77 @@ export const OAuthConnectModal: Component<OAuthConnectModalProps> = (props) => {
               <p class={styles.errorText}>{deviceError()}</p>
               <div class={styles.errorActions}>
                 <Button variant="primary" size="sm" onClick={startDeviceCode}>
+                  Try Again
+                </Button>
+                <Button variant="secondary" size="sm" onClick={handleClose}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </Match>
+          <Match when={deviceStep() === 'done'}>
+            <div class={styles.doneSection}>
+              <span class={styles.connectedLabel}>Connected</span>
+              <p class={styles.doneText}>Successfully connected to {providerName()}!</p>
+            </div>
+          </Match>
+        </Switch>
+      );
+    }
+
+    // Loopback flow — browser opens, backend catches redirect via local HTTP
+    // listener. No code to paste, no user_code to show — fully automatic.
+    if (flow() === 'loopback') {
+      return (
+        <Switch>
+          <Match when={deviceStep() === 'idle' || deviceStep() === 'connecting'}>
+            <div class={styles.startSection}>
+              <p class={styles.instruction}>
+                Connect your {providerName()} account. A browser will open for
+                authorization — you'll be connected automatically.
+              </p>
+              <Button variant="primary" size="md" onClick={startLoopback} disabled={deviceStep() === 'connecting'}>
+                {deviceStep() === 'connecting' ? (
+                  <>
+                    <Icon name="loader" size={14} />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Icon name="external-link" size={14} />
+                    Connect with {providerName()}
+                  </>
+                )}
+              </Button>
+            </div>
+          </Match>
+          <Match when={deviceStep() === 'awaiting_code'}>
+            <div class={styles.deviceSection}>
+              <p class={styles.instruction}>
+                A browser window opened at the {providerName()} authorization page.
+                Authorize Hermes there and you'll be connected automatically.
+              </p>
+              <div class={styles.pollingStatus}>
+                <Icon name="loader" size={16} />
+                <span>Waiting for authorization...</span>
+              </div>
+              <Show when={loopbackAuthUrl()}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => openBrowser(loopbackAuthUrl())}
+                >
+                  <Icon name="external-link" size={14} />
+                  Reopen Page
+                </Button>
+              </Show>
+            </div>
+          </Match>
+          <Match when={deviceStep() === 'error'}>
+            <div class={styles.errorSection}>
+              <p class={styles.errorText}>{deviceError()}</p>
+              <div class={styles.errorActions}>
+                <Button variant="primary" size="sm" onClick={startLoopback}>
                   Try Again
                 </Button>
                 <Button variant="secondary" size="sm" onClick={handleClose}>

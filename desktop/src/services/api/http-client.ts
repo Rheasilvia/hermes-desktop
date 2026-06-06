@@ -108,7 +108,7 @@ export class HttpClient {
           }
           throw makeApiError(
             String(body.code ?? `HTTP_${resp.status}`),
-            String(body.detail ?? resp.statusText),
+            String(body.detail ?? body.code ?? resp.statusText),
             String(body.trace_id ?? 'unknown'),
             body.domain as string | undefined,
             body.path as string | undefined,
