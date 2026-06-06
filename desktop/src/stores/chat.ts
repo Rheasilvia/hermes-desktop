@@ -448,6 +448,7 @@ export const chatStore = {
     text: string,
     slashCommand?: { command: string; args: string },
     submitText = text,
+    attachments?: unknown[],
   ): RenderedMessage['id'] {
     ensureSession(sessionId);
     const id = nextEphemeralId();
@@ -463,6 +464,7 @@ export const chatStore = {
       actions: ['copy', 'edit', 'delete'],
       toolName: null,
       submitText,
+      attachments,
       slashCommand,
     };
     setChatStates(sessionId, 'messages', (msgs) => [...msgs, msg]);

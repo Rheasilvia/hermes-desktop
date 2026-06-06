@@ -11,7 +11,7 @@ _DEFAULTS: dict[str, Any] = {
     "schema_version": SCHEMA_VERSION,
     "last_open_route": "/",
     "last_session_id": None,
-    "last_workspace_path": None,
+    "last_cwd": None,
     "window": {"w": 1280, "h": 800},
 }
 
@@ -29,7 +29,7 @@ def load(hermes_home: Path) -> dict[str, Any]:
         payload.setdefault("schema_version", SCHEMA_VERSION)
         payload.setdefault("last_open_route", "/")
         payload.setdefault("last_session_id", None)
-        payload.setdefault("last_workspace_path", None)
+        payload.setdefault("last_cwd", None)
         payload.setdefault("window", {"w": 1280, "h": 800})
         return payload
     finally:

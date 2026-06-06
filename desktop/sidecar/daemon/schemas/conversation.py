@@ -6,14 +6,12 @@ from pydantic import BaseModel
 
 
 class SessionMetaUpsert(BaseModel):
-    workspace_path: Optional[str] = None
     pinned: bool = False
     archived: bool = False
 
 
 class SessionMetaResponse(BaseModel):
     session_id: str
-    workspace_path: Optional[str]
     pinned: bool
     archived: bool
     last_opened_at: Optional[float]
@@ -26,13 +24,13 @@ class SessionMetaResponse(BaseModel):
 class CreateSessionRequest(BaseModel):
     model: Optional[str] = None
     system_prompt: Optional[str] = None
-    workspace_path: Optional[str] = None
+    cwd: Optional[str] = None
     provider: Optional[str] = None
 
 
 class UpdateSessionRequest(BaseModel):
     title: Optional[str] = None
-    workspace_path: Optional[str] = None
+    cwd: Optional[str] = None
 
 
 class SetSessionProviderRequest(BaseModel):
@@ -45,6 +43,16 @@ class PromptExecuteRequest(BaseModel):
     session_id: str
     provider: Optional[str] = None
     model: Optional[str] = None
+
+
+class ImageAttachRequest(BaseModel):
+    session_id: str
+    path: str
+
+
+class ImageDetachRequest(BaseModel):
+    session_id: str
+    path: str
 
 
 class ApprovalRespondRequest(BaseModel):
@@ -80,7 +88,7 @@ class SessionResponse(BaseModel):
     started_at: Optional[float] = None
     ended_at: Optional[float] = None
     message_count: int = 0
-    workspace_path: Optional[str] = None
+    cwd: Optional[str] = None
 
 
 class CreateSessionResponse(BaseModel):
@@ -91,7 +99,7 @@ class CreateSessionResponse(BaseModel):
     provider: str = ""
     title: str = "New Session"
     started_at: Optional[float] = None
-    workspace_path: Optional[str] = None
+    cwd: Optional[str] = None
     model_configured: bool = False
 
 

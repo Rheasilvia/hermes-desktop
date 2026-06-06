@@ -35,6 +35,7 @@ class PooledAgent:
     # Provider/model this agent was built with — used to detect stale entries
     built_provider: str | None = None
     built_model: str | None = None
+    built_cwd: str | None = None
 
 
 class AgentPool:
@@ -71,12 +72,25 @@ class AgentPool:
                 return entry
 
             # Build a new agent
-            agent, built_model, built_provider = self._build_agent(session_id)
+            built = self._build_agent(session_id)
+            if not isinstance(built, tuple):
+                agent = built
+                built_model = getattr(agent, "model", None)
+                built_provider = getattr(agent, "provider", None)
+                session = self._session_db.get_session(session_id) if self._session_db else None
+                built_cwd = (session or {}).get("cwd")
+            elif len(built) == 3:
+                agent, built_model, built_provider = built
+                session = self._session_db.get_session(session_id) if self._session_db else None
+                built_cwd = (session or {}).get("cwd")
+            else:
+                agent, built_model, built_provider, built_cwd = built
             entry = PooledAgent(
                 agent=agent,
                 session_id=session_id,
                 built_model=built_model or None,
                 built_provider=built_provider or None,
+                built_cwd=built_cwd or None,
             )
             self._agents[session_id] = entry
 
@@ -173,8 +187,14 @@ class AgentPool:
             log.info("[agent_pool] force-reset session %s (was running=%s)", session_id, entry.running)
             return True
 
-    def evict_if_stale(self, session_id: str, provider: str | None, model: str | None) -> bool:
-        """Evict the cached agent if provider or model differs from when it was built.
+    def evict_if_stale(
+        self,
+        session_id: str,
+        provider: str | None,
+        model: str | None,
+        cwd: str | None,
+    ) -> bool:
+        """Evict the cached agent if provider, model, or cwd differs from build time.
 
         Returns True if evicted. Skips eviction if the agent is currently running.
         This is needed because setSessionProvider updates the DB before prompt.execute
@@ -186,12 +206,24 @@ class AgentPool:
                 return False
             provider_stale = bool(provider) and entry.built_provider != provider
             model_stale = bool(model) and entry.built_model != model
-            if provider_stale or model_stale:
+            cwd_stale = bool(cwd) and entry.built_cwd != cwd
+            if provider_stale or model_stale or cwd_stale:
                 log.info(
-                    "[agent_pool] evicting stale agent for %s: built=(%r,%r) requested=(%r,%r)",
-                    session_id, entry.built_provider, entry.built_model, provider, model,
+                    "[agent_pool] evicting stale agent for %s: built=(%r,%r,%r) requested=(%r,%r,%r)",
+                    session_id,
+                    entry.built_provider,
+                    entry.built_model,
+                    entry.built_cwd,
+                    provider,
+                    model,
+                    cwd,
                 )
                 del self._agents[session_id]
+                if self._session_db:
+                    try:
+                        self._session_db.update_system_prompt(session_id, None)
+                    except Exception:
+                        log.debug("failed to clear cached system prompt for %s", session_id, exc_info=True)
                 return True
             return False
 
@@ -237,20 +269,18 @@ class AgentPool:
         from ..overlays import loader as overlays_loader
         from ..db.connection import connect as desktop_connect, ensure_schema
 
-        # Step 1: Read provider and workspace_path from session_desktop_meta
+        # Step 1: Read provider from desktop meta; cwd is canonical in state.db.
         provider = None
-        workspace_path = None
         _t0 = time.time()
         try:
             conn = desktop_connect(self._hermes_home)
             ensure_schema(conn)
             row = conn.execute(
-                "SELECT provider, workspace_path FROM session_desktop_meta WHERE session_id = ?",
+                "SELECT provider FROM session_desktop_meta WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
             if row:
                 provider = row["provider"]
-                workspace_path = row["workspace_path"]
             conn.close()
         except Exception as e:
             log.debug(f"Failed to read session_desktop_meta: {e}")
@@ -259,6 +289,7 @@ class AgentPool:
         # Step 2: Read model from session record
         session = self._session_db.get_session(session_id) if self._session_db else None
         model = session.get("model") if session else ""
+        cwd = session.get("cwd") if session else ""
 
         # Step 3: Fallback to config.yaml if session is missing either field.
         # Fall back the PAIR atomically — never mix session model with global provider
@@ -386,9 +417,9 @@ class AgentPool:
             platform="desktop",
         )
 
-        # Store workspace_path on agent for system prompt and tool CWD
-        if workspace_path:
-            agent.workspace_cwd = workspace_path
+        # Store cwd on agent for system prompt and tool CWD.
+        if cwd:
+            agent.workspace_cwd = cwd
 
             # Register path approval callback for workspace boundary enforcement
             from tools.path_approval import (
@@ -430,7 +461,7 @@ class AgentPool:
 
         log.info("[perf] _build_agent init_agent: %.2fs | total: %.2fs (provider=%r model=%r)",
                  time.time() - _t0_init, time.time() - _t0_total, provider, model)
-        return agent, model, provider
+        return agent, model, provider, cwd
 
     def _evict_if_needed(self) -> None:
         """Evict least-recently-used idle agents until under capacity."""

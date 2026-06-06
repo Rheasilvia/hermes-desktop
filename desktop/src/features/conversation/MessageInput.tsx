@@ -13,15 +13,15 @@ import { filterDesktopSlashCommands } from './slashCommandCuration.js';
 import styles from './MessageInput.module.css';
 
 interface MessageInputProps {
-  onSend: (text: string, attachments?: AttachmentChip[]) => void;
+  onSend: (text: string, attachments?: AttachmentChip[]) => boolean | Promise<boolean | void> | void;
   onStop?: () => void;
   disabled?: boolean;
   isStreaming?: boolean;
   placeholder?: string;
   modelSlot?: (dimmed: boolean, disabled: boolean) => any;
-  workspacePath?: string | null;
+  cwd?: string | null;
   isNewConversation?: boolean;
-  onWorkspaceChange?: (path: string) => void;
+  onCwdChange?: (path: string) => void;
   editDraft?: Accessor<string | null>;
   clearEditDraft?: () => void;
   contextUsage?: ContextUsageProps;
@@ -31,6 +31,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const [text, setText] = createSignal('');
   const [focused, setFocused] = createSignal(false);
   const [attachments, setAttachments] = createSignal<AttachmentChip[]>([]);
+  const [attachMenuOpen, setAttachMenuOpen] = createSignal(false);
   const [slashCommands, setSlashCommands] = createSignal<SlashCommand[]>([]);
   const [slashPanelOpen, setSlashPanelOpen] = createSignal(false);
   const [manuallyClosed, setManuallyClosed] = createSignal(false);
@@ -42,12 +43,14 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const showPaperclip = () => true;
 
   const slashFilter = (): string => {
+    if (attachments().length > 0) return '';
     const t = text();
     if (!t.startsWith('/')) return '';
     return t.slice(1);
   };
 
   const slashPartial = (): string => {
+    if (attachments().length > 0) return '';
     const t = text();
     if (!t.startsWith('/')) return '';
     const firstLine = t.split('\n', 1)[0];
@@ -57,18 +60,20 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
 
   const isSlashMode = () => {
     const t = text();
-    return t.startsWith('/') && !t.includes(' ') && !t.includes('\n') && slashPanelOpen();
+    return attachments().length === 0 && t.startsWith('/') && !t.includes(' ') && !t.includes('\n') && slashPanelOpen();
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const value = text().trim();
     if ((!value && attachments().length === 0) || props.disabled) return;
     const atts = attachments().length > 0 ? attachments() : undefined;
-    props.onSend(value, atts);
-    setText('');
-    setAttachments([]);
-    if (textareaRef) {
-      textareaRef.style.height = 'auto';
+    const result = await props.onSend(value, atts);
+    if (result !== false) {
+      setText('');
+      setAttachments([]);
+      if (textareaRef) {
+        textareaRef.style.height = 'auto';
+      }
     }
   };
 
@@ -104,7 +109,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
 
   createEffect(() => {
     const t = text();
-    if (t.startsWith('/') && !t.includes(' ') && !t.includes('\n')) {
+    if (attachments().length === 0 && t.startsWith('/') && !t.includes(' ') && !t.includes('\n')) {
       void loadSlashCommands();
       if (!slashPanelOpen() && !manuallyClosed()) {
         setSlashPanelOpen(true);
@@ -135,7 +140,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
       e.preventDefault();
       e.stopImmediatePropagation();
       setSlashPanelOpen(false);
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -152,23 +157,69 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     el.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
   };
 
-  const handleAttach = async () => {
+  const basename = (path: string): string => path.split('/').filter(Boolean).pop() ?? path;
+
+  const stableId = (kind: AttachmentChip['kind'], value: string): string => `${kind}:${value}`;
+
+  const quoteRefValue = (value: string): string => {
+    const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return /[\s"'`]/.test(value) ? `"${escaped}"` : value;
+  };
+
+  const contextPath = (path: string): string => {
+    const cwd = props.cwd?.replace(/\/+$/, '');
+    if (cwd && path.startsWith(`${cwd}/`)) return path.slice(cwd.length + 1);
+    return path;
+  };
+
+  const makePathChip = (kind: 'file' | 'folder' | 'image', path: string): AttachmentChip => {
+    const name = basename(path);
+    if (kind === 'image') {
+      return { id: stableId(kind, path), kind, name, path, size: 0 };
+    }
+    const prefix = kind === 'folder' ? '@folder:' : '@file:';
+    return {
+      id: stableId(kind, path),
+      kind,
+      name,
+      path,
+      size: 0,
+      refText: `${prefix}${quoteRefValue(contextPath(path))}`,
+    };
+  };
+
+  const addPaths = (kind: 'file' | 'folder' | 'image', paths: string[]) => {
+    setAttachments((prev) => {
+      const seen = new Set(prev.map((chip) => chip.id));
+      const next = [...prev];
+      for (const path of paths) {
+        const chip = makePathChip(kind, path);
+        if (!seen.has(chip.id)) {
+          seen.add(chip.id);
+          next.push(chip);
+        }
+      }
+      return next;
+    });
+    queueMicrotask(() => textareaRef?.focus());
+  };
+
+  const selectPaths = async (kind: 'file' | 'folder' | 'image') => {
+    setAttachMenuOpen(false);
     const selected = await open({
       multiple: true,
-      filters: [],
+      directory: kind === 'folder',
+      filters: kind === 'image'
+        ? [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic'] }]
+        : [],
     });
     if (!selected) return;
     const files = Array.isArray(selected) ? selected : [selected];
-    const newChips: AttachmentChip[] = files.map((f: string) => ({
-      name: f.split('/').pop() ?? 'file',
-      size: 0,
-      path: f,
-    }));
-    setAttachments((prev) => [...prev, ...newChips]);
+    addPaths(kind, files);
   };
 
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((chip) => chip.id !== id));
   };
 
   createEffect(() => {
@@ -192,9 +243,18 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   createEffect(() => {
     const chips = fileChipQueue.pending();
     if (chips.length > 0) {
-      const asAttachments = fileChipQueue.flush().map(c => ({ name: c.name, size: 0, path: c.path }));
+      const asAttachments = fileChipQueue.flush().map(c => makePathChip('file', c.path));
       setAttachments(prev => [...prev, ...asAttachments]);
     }
+  });
+
+  let previousCwd: string | null | undefined = props.cwd;
+  createEffect(() => {
+    const nextCwd = props.cwd;
+    if (previousCwd !== undefined && previousCwd !== nextCwd) {
+      setAttachments((prev) => prev.filter((chip) => chip.kind === 'image'));
+    }
+    previousCwd = nextCwd;
   });
 
   return (
@@ -241,27 +301,45 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
         <div class={styles.toolbar}>
           <div class={styles.toolbarLeft}>
             <Show when={showPaperclip()}>
-              <button
-                class={styles.actionBtn}
-                type="button"
-                aria-label="Attach file"
-                onClick={handleAttach}
-                disabled={props.disabled}
-              >
-                <Icon name="paperclip" size={16} />
-              </button>
+              <div class={styles.attachMenuWrap}>
+                <button
+                  class={styles.actionBtn}
+                  type="button"
+                  aria-label="Add attachment"
+                  onClick={() => setAttachMenuOpen((open) => !open)}
+                  disabled={props.disabled}
+                >
+                  <Icon name="paperclip" size={16} />
+                </button>
+                <Show when={attachMenuOpen() && !props.disabled}>
+                  <div class={styles.attachMenu}>
+                    <button type="button" onClick={() => void selectPaths('file')}>
+                      <Icon name="file-code" size={14} />
+                      <span>Add files</span>
+                    </button>
+                    <button type="button" onClick={() => void selectPaths('folder')}>
+                      <Icon name="folder" size={14} />
+                      <span>Add folders</span>
+                    </button>
+                    <button type="button" onClick={() => void selectPaths('image')}>
+                      <Icon name="image" size={14} />
+                      <span>Add images</span>
+                    </button>
+                  </div>
+                </Show>
+              </div>
             </Show>
             <Show when={props.modelSlot}>
               <div class={styles.modelPill}>{props.modelSlot!(Boolean(props.disabled && !props.isStreaming), Boolean(props.isStreaming))}</div>
             </Show>
             <WorkspacePicker
-              workspacePath={props.workspacePath}
+              workspacePath={props.cwd}
               editable={props.isNewConversation}
               disabled={!props.isNewConversation}
-              onChange={props.onWorkspaceChange}
+              onChange={props.onCwdChange}
             />
             <GitBranchPicker
-              workspacePath={props.workspacePath}
+              workspacePath={props.cwd}
               disabled={props.disabled}
             />
           </div>
@@ -283,7 +361,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
             <button
               class={styles.sendButton}
               classList={{ [styles.sendButtonDisabled]: !canSend() }}
-              onClick={handleSend}
+              onClick={() => void handleSend()}
               type="button"
               aria-label="Send message"
               disabled={!canSend()}

@@ -32,25 +32,25 @@ export const sessionStore = {
     setActiveSessionId(id);
   },
 
-  getLastWorkspace(): string | undefined {
+  getLastCwd(): string | undefined {
     const all = sessions();
     for (const s of all) {
-      if (s.workspace_path) return s.workspace_path;
+      if (s.cwd) return s.cwd;
     }
     return undefined;
   },
 
-  async updateWorkspace(sessionId: string, workspacePath: string): Promise<void> {
+  async updateCwd(sessionId: string, cwd: string): Promise<void> {
     // Optimistic update first so UI reflects the change immediately
     setSessions(prev => prev.map(s =>
-      s.id === sessionId ? { ...s, workspace_path: workspacePath } : s
+      s.id === sessionId ? { ...s, cwd } : s
     ));
     const gateway = getGateway();
     if (gateway) {
       try {
-        await gateway.session.updateWorkspace(sessionId, workspacePath);
+        await gateway.session.updateCwd(sessionId, cwd);
       } catch (e) {
-        console.error('[sessionStore] failed to persist workspace:', e);
+        console.error('[sessionStore] failed to persist cwd:', e);
       }
     }
   },
@@ -73,7 +73,7 @@ export const sessionStore = {
     }
   },
 
-  async createSession(params: { model?: string; provider?: string; system_prompt?: string; workspace_path?: string }): Promise<SessionMeta | null> {
+  async createSession(params: { model?: string; provider?: string; system_prompt?: string; cwd?: string }): Promise<SessionMeta | null> {
     const gateway = getGateway();
     if (!gateway) return null;
     setIsLoading(true);

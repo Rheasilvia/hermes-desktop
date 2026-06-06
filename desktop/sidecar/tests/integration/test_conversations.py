@@ -56,33 +56,71 @@ class TestSessionCRUD:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["workspace_path"] == str(default_workspace)
+        assert data["cwd"] == str(default_workspace)
         assert default_workspace.is_dir()
 
-    def test_create_session_with_model(self, client):
+    def test_create_session_with_model(self, client, tmp_path):
+        cwd = tmp_path / "test"
+        cwd.mkdir()
         resp = client.post("/desktop/api/sessions", json={
             "model": "anthropic/claude-opus-4.5",
-            "workspace_path": "/tmp/test",
+            "cwd": str(cwd),
         })
         assert resp.status_code == 200
         data = resp.json()
         assert data["model"] == "anthropic/claude-opus-4.5"
-        assert data["workspace_path"] == "/tmp/test"
+        assert data["cwd"] == str(cwd)
 
     def test_create_session_preserves_explicit_workspace(
         self, client, monkeypatch, tmp_path
     ):
         default_workspace = tmp_path / "HermesAgentWorkspace"
         explicit_workspace = tmp_path / "project"
+        explicit_workspace.mkdir()
         monkeypatch.setattr(session_service, "DEFAULT_WORKSPACE", default_workspace)
 
         resp = client.post(
-            "/desktop/api/sessions", json={"workspace_path": str(explicit_workspace)}
+            "/desktop/api/sessions", json={"cwd": str(explicit_workspace)}
         )
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["workspace_path"] == str(explicit_workspace)
+        assert data["cwd"] == str(explicit_workspace)
+        assert "workspace_path" not in data
+
+    def test_update_session_cwd_uses_state_db_field(self, client, tmp_path):
+        first_cwd = tmp_path / "first"
+        next_cwd = tmp_path / "next"
+        first_cwd.mkdir()
+        next_cwd.mkdir()
+        r = client.post("/desktop/api/sessions", json={"cwd": str(first_cwd)})
+        sid = r.json()["session_id"]
+
+        resp = client.patch(f"/desktop/api/sessions/{sid}", json={"cwd": str(next_cwd)})
+
+        assert resp.status_code == 200
+        session = client.get(f"/desktop/api/sessions/{sid}").json()
+        assert session["cwd"] == str(next_cwd)
+        assert "workspace_path" not in session
+
+    def test_image_attach_requires_path_under_session_cwd(self, client, tmp_path):
+        cwd = tmp_path / "project"
+        outside = tmp_path / "outside"
+        cwd.mkdir()
+        outside.mkdir()
+        inside_image = cwd / "in.png"
+        outside_image = outside / "out.png"
+        inside_image.write_bytes(b"png")
+        outside_image.write_bytes(b"png")
+        r = client.post("/desktop/api/sessions", json={"cwd": str(cwd)})
+        sid = r.json()["session_id"]
+
+        ok = client.post("/desktop/api/image/attach", json={"session_id": sid, "path": str(inside_image)})
+        denied = client.post("/desktop/api/image/attach", json={"session_id": sid, "path": str(outside_image)})
+
+        assert ok.status_code == 200
+        assert ok.json()["count"] == 1
+        assert denied.status_code == 400
 
     def test_create_session_reuses_empty_untitled_session_from_db(self, client):
         first = client.post("/desktop/api/sessions", json={})
@@ -539,10 +577,7 @@ def test_startup_reset_clears_only_desktop_conversation_data(tmp_path):
         "INSERT INTO desktop_settings (key, value) VALUES (?, ?)",
         ("theme", '"dark"'),
     )
-    conn.execute(
-        "INSERT INTO session_desktop_meta (session_id, workspace_path) VALUES (?, ?)",
-        ("desktop_old", "/tmp/old"),
-    )
+    conn.execute("INSERT INTO session_desktop_meta (session_id) VALUES (?)", ("desktop_old",))
     conn.commit()
     conn.close()
 

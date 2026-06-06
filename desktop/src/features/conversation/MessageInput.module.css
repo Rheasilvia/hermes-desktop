@@ -125,6 +125,43 @@
   gap: 8px;
 }
 
+.attachMenuWrap {
+  position: relative;
+}
+
+.attachMenu {
+  position: absolute;
+  left: 0;
+  bottom: 38px;
+  z-index: 20;
+  min-width: 156px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+}
+
+.attachMenu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-on-surface);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  padding: 8px;
+  text-align: left;
+}
+
+.attachMenu button:hover {
+  background: var(--color-hover-overlay);
+}
+
 .sendButton {
   width: 32px;
   height: 32px;

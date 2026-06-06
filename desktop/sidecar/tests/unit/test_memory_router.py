@@ -11,7 +11,6 @@ Covers:
 """
 from __future__ import annotations
 
-import sqlite3
 import time
 from pathlib import Path
 
@@ -50,51 +49,24 @@ def workspace(tmp_path) -> Path:
 
 
 def _seed_sessions_db(hermes_home: Path, workspaces: list[str]) -> None:
-    """Create desktop.db session_desktop_meta with the given workspaces.
+    """Create state.db desktop sessions with the given cwd values."""
+    from hermes_state import SessionDB
 
-    Mirrors the production layout: the desktop sidecar reads workspace
-    paths from ``<hermes_home>/desktop/desktop.db`` (NOT state.db).
-    """
-    desktop_dir = hermes_home / "desktop"
-    desktop_dir.mkdir(parents=True, exist_ok=True)
-    db_path = desktop_dir / "desktop.db"
-    conn = sqlite3.connect(str(db_path))
-    try:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS session_desktop_meta (
-                session_id     TEXT PRIMARY KEY,
-                workspace_path TEXT,
-                pinned         INTEGER NOT NULL DEFAULT 0,
-                archived       INTEGER NOT NULL DEFAULT 0,
-                last_opened_at REAL,
-                created_at     REAL NOT NULL DEFAULT (strftime('%s','now')),
-                provider       TEXT
-            )
-            """
-        )
-        now = time.time()
-        for i, ws in enumerate(workspaces):
-            conn.execute(
-                "INSERT INTO session_desktop_meta "
-                "(session_id, workspace_path, last_opened_at, created_at) "
-                "VALUES (?, ?, ?, ?)",
-                (f"sess-{i}", ws, now - i, now - i),
-            )
-        conn.commit()
-    finally:
-        conn.close()
+    db = SessionDB(hermes_home / "state.db")
+    for i, ws in enumerate(workspaces):
+        db.create_session(f"sess-{i}", "desktop", model="test", cwd=ws)
 
 
 @pytest.fixture
 def client(hermes_home, workspace) -> TestClient:
-    _seed_sessions_db(hermes_home, [str(workspace)])
     cfg = Config(
         hermes_home=hermes_home,
         bind_host="127.0.0.1",
         token="test-token",
     )
-    return TestClient(build_app(cfg))
+    app = build_app(cfg)
+    _seed_sessions_db(hermes_home, [str(workspace)])
+    return TestClient(app)
 
 
 # ── Service: resolve_safe_path ───────────────────────────────────────────

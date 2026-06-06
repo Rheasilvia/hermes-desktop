@@ -25,7 +25,7 @@ class DesktopMetaService:
         conn = self._connect()
         try:
             row = conn.execute(
-                "SELECT session_id, workspace_path, pinned, archived, "
+                "SELECT session_id, pinned, archived, "
                 "last_opened_at, created_at, provider "
                 "FROM session_desktop_meta WHERE session_id = ?",
                 (session_id,),
@@ -34,32 +34,9 @@ class DesktopMetaService:
         finally:
             conn.close()
 
-    def get_workspace_paths(self, session_ids: list[str]) -> dict[str, str | None]:
-        """Batch lookup workspace_path for multiple sessions.
-
-        Returns a dict mapping session_id to workspace_path (None for missing sessions).
-        """
-        if not session_ids:
-            return {}
-        conn = self._connect()
-        try:
-            placeholders = ",".join("?" for _ in session_ids)
-            rows = conn.execute(
-                f"SELECT session_id, workspace_path FROM session_desktop_meta WHERE session_id IN ({placeholders})",
-                tuple(session_ids),
-            ).fetchall()
-            result = {sid: None for sid in session_ids}
-            for row in rows:
-                result[row["session_id"]] = row["workspace_path"]
-            return result
-        finally:
-            conn.close()
-
-
     def upsert_meta(
         self,
         session_id: str,
-        workspace_path: str | None = None,
         provider: str = "",
     ) -> None:
         now = time.time()
@@ -68,14 +45,13 @@ class DesktopMetaService:
             conn.execute(
                 """
                 INSERT INTO session_desktop_meta
-                    (session_id, workspace_path, pinned, archived, last_opened_at, created_at, provider)
-                VALUES (?, ?, 0, 0, ?, ?, ?)
+                    (session_id, pinned, archived, last_opened_at, created_at, provider)
+                VALUES (?, 0, 0, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
-                    workspace_path = excluded.workspace_path,
                     last_opened_at = excluded.last_opened_at,
                     provider = excluded.provider
                 """,
-                (session_id, workspace_path, now, now, provider),
+                (session_id, now, now, provider),
             )
             conn.commit()
         finally:

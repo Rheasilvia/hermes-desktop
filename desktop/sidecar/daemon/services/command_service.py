@@ -494,5 +494,5 @@ class CommandService:
             f"Title: {session.get('title') or 'Untitled'}",
             f"Model: {session.get('provider') or 'unknown'}/{session.get('model') or 'unknown'}",
             f"Messages: {session.get('message_count') or 0}",
-            f"Workspace: {session.get('workspace_path') or ''}",
+            f"CWD: {session.get('cwd') or ''}",
         ])

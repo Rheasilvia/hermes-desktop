@@ -31,6 +31,14 @@ class SessionStateStore(Protocol):
         """Update the session title column."""
         ...
 
+    def update_session_cwd(self, session_id: str, cwd: str) -> None:
+        """Update the session cwd column."""
+        ...
+
+    def update_system_prompt(self, session_id: str, system_prompt: str | None) -> None:
+        """Update the cached assembled system prompt snapshot."""
+        ...
+
     def list_sessions_rich(
         self,
         source: str,
@@ -59,7 +67,6 @@ class DesktopMetaStore(Protocol):
     def upsert_meta(
         self,
         session_id: str,
-        workspace_path: str | None = None,
         provider: str | None = None,
     ) -> None:
         """Insert or update a session_desktop_meta row."""

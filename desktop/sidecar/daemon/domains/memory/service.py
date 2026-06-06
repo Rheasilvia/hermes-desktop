@@ -23,7 +23,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Iterator, Literal, Optional, Sequence
 
-from daemon.db.connection import connect as desktop_connect
 from daemon.services.exceptions import (
     MemoryConcurrentWriteError,
     MemoryEncodingError,
@@ -508,21 +507,15 @@ def search(
 
 
 def list_known_workspaces(hermes_home: Path) -> list[str]:
-    """Return the set of distinct ``workspace_path`` values from desktop.db.
-
-    The workspace path is stored in the ``session_desktop_meta`` table inside
-    ``<hermes_home>/desktop/desktop.db`` (NOT in ``state.db``). The
-    ``hermes_home`` argument matches what callers already have via
-    ``request.app.state.cfg.hermes_home``.
-    """
+    """Return distinct desktop session cwd values from state.db."""
     try:
-        conn = desktop_connect(hermes_home)
+        conn = sqlite3.connect(str(Path(hermes_home) / "state.db"))
     except Exception:
         return []
     try:
         rows = conn.execute(
-            "SELECT DISTINCT workspace_path FROM session_desktop_meta "
-            "WHERE workspace_path IS NOT NULL AND workspace_path != ''"
+            "SELECT DISTINCT cwd FROM sessions "
+            "WHERE source = 'desktop' AND cwd IS NOT NULL AND cwd != ''"
         ).fetchall()
     except sqlite3.OperationalError:
         return []
@@ -534,23 +527,21 @@ def list_known_workspaces(hermes_home: Path) -> list[str]:
 def list_projects(hermes_home: Path) -> list[MemoryProject]:
     """Return ordered project list for the Manager picker.
 
-    Sorts by most-recent activity (``last_opened_at`` falling back to
-    ``created_at``). Both are stored as Unix epoch floats in
-    ``session_desktop_meta``.
+    Sorts by most-recent desktop session activity from state.db.
     """
     try:
-        conn = desktop_connect(hermes_home)
+        conn = sqlite3.connect(str(Path(hermes_home) / "state.db"))
     except Exception:
         return []
     try:
         rows = conn.execute(
             """
-            SELECT workspace_path,
-                   MAX(COALESCE(last_opened_at, created_at)) AS last_used_at,
+            SELECT cwd,
+                   MAX(started_at) AS last_used_at,
                    COUNT(*) AS session_count
-            FROM session_desktop_meta
-            WHERE workspace_path IS NOT NULL AND workspace_path != ''
-            GROUP BY workspace_path
+            FROM sessions
+            WHERE source = 'desktop' AND cwd IS NOT NULL AND cwd != ''
+            GROUP BY cwd
             ORDER BY last_used_at DESC
             """
         ).fetchall()

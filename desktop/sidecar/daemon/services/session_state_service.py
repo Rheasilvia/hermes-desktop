@@ -20,6 +20,12 @@ class SessionStateService:
     def create_session(self, session_id: str, source: str, **kwargs: Any) -> None:
         self._db.create_session(session_id, source, **kwargs)
 
+    def update_session_cwd(self, session_id: str, cwd: str) -> None:
+        self._db.update_session_cwd(session_id, cwd)
+
+    def update_system_prompt(self, session_id: str, system_prompt: str | None) -> None:
+        self._db.update_system_prompt(session_id, system_prompt)
+
     def delete_session(self, session_id: str) -> None:
         self._db.delete_session(session_id)
 

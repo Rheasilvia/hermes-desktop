@@ -7,12 +7,14 @@ It orchestrates both data stores (state.db and desktop.db) behind one API.
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
 
 from .exceptions import SessionNotFoundError
 from .interfaces import DesktopMetaStore, SessionStateStore
+from .path_validation import resolve_existing_cwd, resolve_under_cwd
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +56,8 @@ class SessionService:
         self._hermes_home = hermes_home
         self._state = state
         self._meta = meta
+        self._image_lock = threading.Lock()
+        self._attached_images: dict[str, list[str]] = {}
 
     # ── Model resolution ──────────────────────────────────────────────────
 
@@ -82,19 +86,23 @@ class SessionService:
     def create_session(
         self,
         *,
-        workspace_path: str | None = None,
+        cwd: str | None = None,
         system_prompt: str | None = None,
         model: str | None = None,
         provider: str | None = None,
     ) -> dict:
-        if not any((workspace_path, system_prompt, model, provider)):
+        if not any((cwd, system_prompt, model, provider)):
             reusable = self.find_reusable_empty_session()
             if reusable:
                 return reusable
 
         sid = f"desktop_{uuid.uuid4().hex[:16]}"
         resolved_model, resolved_provider = self.resolve_default_model(model)
-        resolved_workspace = workspace_path or str(ensure_default_workspace())
+        resolved_cwd = (
+            str(resolve_existing_cwd(cwd))
+            if cwd
+            else str(ensure_default_workspace())
+        )
 
         kwargs = {}
         if resolved_model:
@@ -102,8 +110,8 @@ class SessionService:
         if system_prompt:
             kwargs["system_prompt"] = system_prompt
 
-        self._state.create_session(sid, "desktop", **kwargs)
-        self._meta.upsert_meta(sid, workspace_path=resolved_workspace, provider=provider or resolved_provider or "")
+        self._state.create_session(sid, "desktop", cwd=resolved_cwd, **kwargs)
+        self._meta.upsert_meta(sid, provider=provider or resolved_provider or "")
 
         info = self._state.get_session(sid) or {}
         return {
@@ -111,10 +119,10 @@ class SessionService:
             "id": sid,
             "source": "desktop",
             "model": info.get("model") or resolved_model or "",
-            "provider": resolved_provider or "",
+            "provider": provider or resolved_provider or "",
             "title": info.get("title", "New Session"),
             "started_at": info.get("started_at"),
-            "workspace_path": resolved_workspace,
+            "cwd": resolved_cwd,
             "model_configured": bool(resolved_model),
         }
 
@@ -130,7 +138,7 @@ class SessionService:
                     "provider": row.get("provider", ""),
                     "title": row.get("title", "New Session"),
                     "started_at": row.get("started_at"),
-                    "workspace_path": row.get("workspace_path"),
+                    "cwd": row.get("cwd") or str(ensure_default_workspace()),
                     "model_configured": bool(row.get("model")),
                     "reused": True,
                 }
@@ -148,7 +156,6 @@ class SessionService:
         row = self._state.get_session(session_id)
         if row is None:
             return None
-        meta_paths = self._meta.get_workspace_paths([session_id])
         meta_providers = self._meta.get_providers([session_id])
         return {
             "id": row.get("id", session_id),
@@ -159,7 +166,7 @@ class SessionService:
             "started_at": row.get("started_at"),
             "ended_at": row.get("ended_at"),
             "message_count": row.get("message_count", 0),
-            "workspace_path": meta_paths.get(session_id) or str(ensure_default_workspace()),
+            "cwd": row.get("cwd") or str(ensure_default_workspace()),
         }
 
     def get_session_or_404(self, session_id: str) -> dict:
@@ -176,7 +183,6 @@ class SessionService:
             limit=50,
         )
         session_ids = [r["id"] for r in rows]
-        meta_paths = self._meta.get_workspace_paths(session_ids) if session_ids else {}
         meta_providers = self._meta.get_providers(session_ids) if session_ids else {}
         return [
             {
@@ -188,7 +194,7 @@ class SessionService:
                 "started_at": r.get("started_at"),
                 "message_count": r.get("message_count", 0),
                 "last_active": r.get("last_active"),
-                "workspace_path": meta_paths.get(r["id"]) or str(ensure_default_workspace()),
+                "cwd": r.get("cwd") or str(ensure_default_workspace()),
             }
             for r in rows
         ]
@@ -197,14 +203,49 @@ class SessionService:
         self.get_session_or_404(session_id)
         self._state.set_session_title(session_id, title)
 
-    def update_workspace(self, session_id: str, workspace_path: str) -> None:
+    def update_cwd(self, session_id: str, cwd: str) -> None:
         self.get_session_or_404(session_id)
-        self._meta.upsert_meta(session_id, workspace_path=workspace_path)
+        resolved_cwd = str(resolve_existing_cwd(cwd))
+        self._state.update_session_cwd(session_id, resolved_cwd)
+        self._state.update_system_prompt(session_id, None)
 
     def delete_session(self, session_id: str) -> None:
         self.get_session_or_404(session_id)
         self._state.delete_session(session_id)
         self._meta.delete_meta(session_id)
+        with self._image_lock:
+            self._attached_images.pop(session_id, None)
+
+    def attach_image(self, session_id: str, path: str) -> dict[str, Any]:
+        session = self.get_session_or_404(session_id)
+        from agent.image_attachments import validate_local_image_path
+
+        image_path = validate_local_image_path(resolve_under_cwd(path, session.get("cwd") or ""))
+        with self._image_lock:
+            images = self._attached_images.setdefault(session_id, [])
+            images.append(str(image_path))
+            return {"attached": True, "path": str(image_path), "count": len(images)}
+
+    def detach_image(self, session_id: str, path: str) -> dict[str, Any]:
+        session = self.get_session_or_404(session_id)
+        try:
+            raw = str(resolve_under_cwd(path, session.get("cwd") or ""))
+        except ValueError:
+            raw = str(Path(path).expanduser())
+        with self._image_lock:
+            images = self._attached_images.setdefault(session_id, [])
+            before = len(images)
+            self._attached_images[session_id] = [item for item in images if item != raw]
+            return {
+                "detached": len(self._attached_images[session_id]) != before,
+                "count": len(self._attached_images[session_id]),
+            }
+
+    def consume_attached_images(self, session_id: str) -> list[str]:
+        with self._image_lock:
+            images = list(self._attached_images.get(session_id, []))
+            self._attached_images[session_id] = []
+            return images
 
     def get_messages(self, session_id: str, since_seq: int | None = None) -> list[dict]:
         import json
@@ -299,6 +340,7 @@ class SessionService:
     ) -> dict:
         self.get_session_or_404(session_id)
         self._meta.set_provider(session_id, provider)
+        self._state.update_system_prompt(session_id, None)
 
         if model:
             def _do(c):
@@ -307,6 +349,7 @@ class SessionService:
                     (model, session_id),
                 )
             self._state._db._execute_write(_do)
+            self._state.update_system_prompt(session_id, None)
 
         return {"ok": True, "applied": True, "session_id": session_id, "provider": provider}
 
@@ -322,6 +365,7 @@ class SessionService:
 
         if desired_provider and stored != desired_provider:
             self._meta.set_provider(session_id, desired_provider)
+            self._state.update_system_prompt(session_id, None)
             return stored
 
         if not stored:
@@ -355,6 +399,7 @@ class SessionService:
                     (desired_model, session_id),
                 )
             self._state._db._execute_write(_do)
+            self._state.update_system_prompt(session_id, None)
         return stored
 
     def backfill_model_if_unset(self, session_id: str, model: str) -> None:

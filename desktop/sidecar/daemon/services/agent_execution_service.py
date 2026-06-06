@@ -86,6 +86,8 @@ class AgentExecutionService:
         return {"thread": thread, "turn_id": turn_id, "user_seq": user_seq}
 
     def _run_turn(self, session_id: str, user_message: str, user_seq: int, turn_id: str) -> None:
+        from contextlib import ExitStack
+        from agent.runtime_cwd import reset_session_cwd, set_session_cwd
         from tools.terminal_cwd import set_terminal_cwd, reset_terminal_cwd
         from tools.path_approval import set_workspace_context, reset_workspace_context
         from tools.terminal_tool import set_sudo_password_callback
@@ -94,11 +96,21 @@ class AgentExecutionService:
         _t0_total = time.time()
         self._pool.bind_current_thread_turn(session_id, turn_id)
         entry = self._pool.get_pooled_entry(session_id)
-        workspace_cwd = getattr(entry.agent if entry else None, "workspace_cwd", None)
-        cwd_token = set_terminal_cwd(workspace_cwd)
-        ws_tokens = set_workspace_context(workspace_cwd, session_id)
+        workspace_cwd = getattr(entry, "built_cwd", None) or getattr(entry.agent if entry else None, "workspace_cwd", None)
+        cleanup = ExitStack()
+        cleanup.callback(reset_terminal_cwd, set_terminal_cwd(workspace_cwd))
+        cleanup.callback(reset_workspace_context, set_workspace_context(workspace_cwd, session_id))
+        cleanup.callback(reset_session_cwd, set_session_cwd(workspace_cwd))
         prev_interactive = os.environ.get("HERMES_INTERACTIVE")
+
+        def _restore_interactive() -> None:
+            if prev_interactive is None:
+                os.environ.pop("HERMES_INTERACTIVE", None)
+            else:
+                os.environ["HERMES_INTERACTIVE"] = prev_interactive
+
         os.environ["HERMES_INTERACTIVE"] = "1"
+        cleanup.callback(_restore_interactive)
         set_sudo_password_callback(lambda: self._block_for_prompt("sudo.request", session_id, {}, timeout=120, turn_id=turn_id))
         set_secret_capture_callback(lambda env_var, prompt, metadata=None: self._capture_secret(session_id, env_var, prompt, metadata, turn_id=turn_id))
 
@@ -115,10 +127,40 @@ class AgentExecutionService:
             agent = entry.agent
 
             self._touch_session(session_id)
+            image_paths = self._session_svc.consume_attached_images(session_id)
+            from hermes_cli.config import load_config
+            from .prompt_context import ContextInjectionBlocked, prepare_run_message
+
+            try:
+                prepared_prompt = prepare_run_message(
+                    message=user_message,
+                    cwd=workspace_cwd or "",
+                    agent=agent,
+                    image_paths=image_paths,
+                    config=load_config(),
+                )
+            except ContextInjectionBlocked as exc:
+                payload = {
+                    "error": str(exc),
+                    "code": "CONTEXT_INJECTION_BLOCKED",
+                    "hint": "\n".join(exc.warnings) if exc.warnings else None,
+                    "turn_id": turn_id,
+                }
+                seq = self._ui.append(session_id, "turn_error", payload, turn_id=turn_id)
+                self._bus.publish(session_id, seq, "error", payload)
+                return
+            for warning in prepared_prompt.warnings or []:
+                payload = {
+                    "message": warning,
+                    "code": "CONTEXT_INJECTION_WARNING",
+                    "turn_id": turn_id,
+                }
+                seq = self._ui.append(session_id, "warning", payload, turn_id=turn_id)
+                self._bus.publish(session_id, seq, "warning", payload)
 
             _t0_call = time.time()
             result = agent.run_conversation(
-                user_message=user_message,
+                user_message=prepared_prompt.run_message,
                 conversation_history=normalized,
             )
             log.info("[perf] _run_turn run_conversation total: %.2fs", time.time() - _t0_call)
@@ -199,12 +241,7 @@ class AgentExecutionService:
             })
 
         finally:
-            if prev_interactive is None:
-                os.environ.pop("HERMES_INTERACTIVE", None)
-            else:
-                os.environ["HERMES_INTERACTIVE"] = prev_interactive
-            reset_terminal_cwd(cwd_token)
-            reset_workspace_context(ws_tokens)
+            cleanup.close()
             # Pass our thread identity so a force_reset'd zombie turn that later
             # unblocks cannot idle a fresh turn that has since taken over.
             self._pool.mark_idle(session_id, threading.current_thread())

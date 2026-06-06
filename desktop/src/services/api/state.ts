@@ -4,7 +4,7 @@ interface DesktopState {
   schema_version: number;
   last_open_route: string;
   last_session_id: string | null;
-  last_workspace_path: string | null;
+  last_cwd: string | null;
   window: { w: number; h: number };
 }
 

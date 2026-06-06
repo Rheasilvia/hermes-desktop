@@ -19,6 +19,7 @@ import { MessageBubble } from './MessageBubble.js';
 import { AssistantMessage } from './AssistantMessage.js';
 import type { MessageBlock, TextBlock } from '@/types/index.js';
 import { MessageInput } from './MessageInput.js';
+import type { AttachmentChip } from './composer/AttachmentChips.js';
 import { CommandCardDock } from './cards/CommandCardDock.js';
 import { ModelSelector } from './ModelSelector.js';
 import { ChatToolbar } from './ChatToolbar.js';
@@ -58,7 +59,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let wasBusy = false;
   let suppressNextAutoDrain = false;
 
-  const workspacePath = createMemo(() => sessionStore.activeSession?.workspace_path ?? null);
+  const cwd = createMemo(() => sessionStore.activeSession?.cwd ?? null);
   const messages = (): RenderedMessage[] => chatStore.getMessages(sessionId());
   const liveState = () => chatStore.getLiveState(sessionId());
   const isStreaming = (): boolean => chatStore.isStreaming(sessionId());
@@ -100,13 +101,40 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const sendPrompt = async (
     promptText: string,
     display?: { text: string; slashCommand?: { command: string; args: string } },
+    attachments: AttachmentChip[] = [],
   ) => {
     const sid = sessionId();
-    const messageId = chatStore.appendUserMessage(sid, display?.text ?? promptText, display?.slashCommand, promptText);
-    const ok = await chatStore.sendMessage(sid, promptText);
+    const refText = attachments
+      .map((attachment) => attachment.refText)
+      .filter((value): value is string => Boolean(value?.trim()))
+      .join('\n');
+    const imageAttachments = attachments.filter((attachment) => attachment.kind === 'image' && attachment.path);
+    const submitText = ([refText, promptText].filter(Boolean).join('\n\n'))
+      || (imageAttachments.length > 0 ? 'What do you see in this image?' : '');
+    const displayText = (display?.text ?? promptText) || attachments.map((attachment) => attachment.name).join(', ');
+    const messageId = chatStore.appendUserMessage(sid, displayText, display?.slashCommand, submitText, attachments);
+    const gateway = getGateway();
+    if (gateway && imageAttachments.length > 0) {
+      try {
+        for (const attachment of imageAttachments) {
+          if (attachment.path) {
+            await gateway.image.attach({ session_id: sid, path: attachment.path });
+          }
+        }
+      } catch (error) {
+        chatStore.markUserMessageFailed(
+          sid,
+          messageId,
+          error instanceof Error ? error.message : 'Failed to attach image',
+        );
+        return false;
+      }
+    }
+    const ok = await chatStore.sendMessage(sid, submitText);
     if (!ok) {
       chatStore.markUserMessageFailed(sid, messageId, chatStore.getError(sid) ?? 'Failed to send message');
     }
+    return ok;
   };
 
   const { handleSlashCommand } = createSlashCommandRunner({
@@ -145,10 +173,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       const next = composerQueueStore.dequeue(sid);
       if (next) {
         const queuedText = next.text.trim();
-        if (queuedText.startsWith('/')) {
+        if (!next.attachments.length && queuedText.startsWith('/')) {
           void handleSlashCommand(queuedText);
         } else {
-          void sendPrompt(next.text);
+          void sendPrompt(next.text, undefined, next.attachments as AttachmentChip[]);
         }
       }
     }
@@ -376,7 +404,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   });
 
   createEffect(() => {
-    const path = workspacePath();
+    const path = cwd();
     gitViewStore.setWorkspacePath(path);
     void workspaceTreeStore.setWorkspacePath(path);
     if (path && sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git') {
@@ -385,7 +413,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   });
 
   createEffect(() => {
-    if (sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git' && workspacePath()) {
+    if (sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git' && cwd()) {
       void gitViewStore.fetchDiff();
     }
   });
@@ -410,8 +438,13 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           const retryText = message.submitText
             ?? message.blocks.filter((b) => b.type === 'text').map((b) => (b as TextBlock).content).join('\n');
           const displayText = message.blocks.filter((b) => b.type === 'text').map((b) => (b as TextBlock).content).join('\n');
+          const retryAttachments = Array.isArray(message.attachments) ? message.attachments as AttachmentChip[] : [];
           chatStore.removeMessage(sid, message.id);
-          await sendPrompt(retryText, message.slashCommand ? { text: displayText, slashCommand: message.slashCommand } : undefined);
+          await sendPrompt(
+            retryAttachments.length > 0 ? displayText : retryText,
+            message.slashCommand ? { text: displayText, slashCommand: message.slashCommand } : { text: displayText },
+            retryAttachments,
+          );
           break;
         }
         const gateway = getGateway();
@@ -447,12 +480,12 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       if (entry) cards.noticeCard('Queued for the next turn.');
       return;
     }
-    if (trimmed.startsWith('/')) {
+    if (!attachments?.length && trimmed.startsWith('/')) {
       await handleSlashCommand(trimmed);
-      return;
+      return true;
     }
     cards.setCommandCard(null);
-    await sendPrompt(text);
+    return sendPrompt(text, undefined, attachments as AttachmentChip[] | undefined);
   };
 
   const handleMaskedPermissionSubmit = (requestId: string, value: string) => {
@@ -565,7 +598,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   return (
     <div class={styles.chatView}>
       <ChatToolbar
-        workspacePath={workspacePath()}
+        workspacePath={cwd()}
         sessionTitle={sessionStore.activeSession?.title}
         sidePanelActive={sidePanelStore.isOpen()}
         onToggleSidePanel={() => sidePanelStore.toggle('workspace')}
@@ -580,7 +613,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         />
       </Show>
 
-      <WorkspaceBanner workspacePath={workspacePath()} />
+      <WorkspaceBanner workspacePath={cwd()} />
 
       <Show when={!sessionStore.getSessionModel(sessionId()) && !modelStore.defaultModel}>
         <div class={styles.noModelBanner}>
@@ -680,11 +713,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
               disabled={blockingPromptActive() || !modelStore.activeModel}
               isStreaming={isStreaming()}
               modelSlot={(dimmed, disabled) => <ModelSelector sessionId={sessionId()} dimmed={dimmed} disabled={disabled} />}
-              workspacePath={workspacePath()}
+              cwd={cwd()}
               isNewConversation={canEditWorkspace()}
-              onWorkspaceChange={(path) => {
+              onCwdChange={(path) => {
                 const sid = sessionId();
-                if (sid) sessionStore.updateWorkspace(sid, path);
+                if (sid) sessionStore.updateCwd(sid, path);
               }}
               editDraft={editDraft}
               clearEditDraft={() => setEditDraft(null)}
@@ -704,7 +737,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         <Show when={sidePanelStore.isOpen()}>
           <WorkspaceSidePanel
             ref={(el: HTMLDivElement) => { diffPanelEl = el; }}
-            workspacePath={workspacePath()}
+            workspacePath={cwd()}
             panelWidth={sidePanelStore.panelWidth()}
           />
         </Show>

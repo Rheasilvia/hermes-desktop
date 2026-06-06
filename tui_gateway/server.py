@@ -4404,39 +4404,9 @@ def _resolve_checkpoint_hash(mgr, cwd: str, ref: str) -> str:
 
 def _enrich_with_attached_images(user_text: str, image_paths: list[str]) -> str:
     """Pre-analyze attached images via vision and prepend descriptions to user text."""
-    import asyncio, json as _json
-    from tools.vision_tools import vision_analyze_tool
+    from agent.image_attachments import enrich_with_attached_images
 
-    prompt = (
-        "Describe everything visible in this image in thorough detail. "
-        "Include any text, code, data, objects, people, layout, colors, "
-        "and any other notable visual information."
-    )
-
-    parts: list[str] = []
-    for path in image_paths:
-        p = Path(path)
-        if not p.exists():
-            continue
-        hint = f"[You can examine it with vision_analyze using image_url: {p}]"
-        try:
-            r = _json.loads(
-                asyncio.run(vision_analyze_tool(image_url=str(p), user_prompt=prompt))
-            )
-            desc = r.get("analysis", "") if r.get("success") else None
-            parts.append(
-                f"[The user attached an image:\n{desc}]\n{hint}"
-                if desc
-                else f"[The user attached an image but analysis failed.]\n{hint}"
-            )
-        except Exception:
-            parts.append(f"[The user attached an image but analysis failed.]\n{hint}")
-
-    text = user_text or ""
-    prefix = "\n\n".join(parts)
-    if prefix:
-        return f"{prefix}\n\n{text}" if text else prefix
-    return text or "What do you see in this image?"
+    return enrich_with_attached_images(user_text, image_paths)
 
 
 def _content_display_text(content: Any) -> str:
@@ -8360,55 +8330,19 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
             # See agent/image_routing.py for the full decision table.
             run_message: Any = prompt
             if images:
-                try:
-                    from agent.image_routing import (
-                        decide_image_input_mode,
-                        build_native_content_parts,
-                    )
-                    from agent.auxiliary_client import (
-                        _read_main_model,
-                        _read_main_provider,
-                    )
-                    from hermes_cli.config import load_config as _tui_load_config
+                from agent.auxiliary_client import _read_main_model, _read_main_provider
+                from agent.image_attachments import build_image_run_message
+                from hermes_cli.config import load_config as _tui_load_config
 
-                    _cfg = _tui_load_config()
-                    _mode = decide_image_input_mode(
-                        _read_main_provider(),
-                        _read_main_model(),
-                        _cfg,
-                    )
-                    if getattr(agent, "api_mode", "") == "codex_app_server":
-                        _mode = "text"
-                except Exception as _img_exc:
-                    print(
-                        f"[tui_gateway] image_routing decision failed, defaulting to text: {_img_exc}",
-                        file=sys.stderr,
-                    )
-                    _mode = "text"
-
-                if _mode == "native":
-                    try:
-                        _parts, _skipped = build_native_content_parts(
-                            prompt,
-                            images,
-                        )
-                        if _skipped:
-                            print(
-                                f"[tui_gateway] native image attachment skipped {len(_skipped)} unreadable path(s)",
-                                file=sys.stderr,
-                            )
-                        if any(p.get("type") == "image_url" for p in _parts):
-                            run_message = _parts
-                        else:
-                            run_message = _enrich_with_attached_images(prompt, images)
-                    except Exception as _img_exc:
-                        print(
-                            f"[tui_gateway] native attach failed, falling back to text: {_img_exc}",
-                            file=sys.stderr,
-                        )
-                        run_message = _enrich_with_attached_images(prompt, images)
-                else:
-                    run_message = _enrich_with_attached_images(prompt, images)
+                run_message = build_image_run_message(
+                    prompt=prompt,
+                    image_paths=images,
+                    agent=agent,
+                    provider=_read_main_provider(),
+                    model=_read_main_model(),
+                    config=_tui_load_config(),
+                    log_prefix="tui_gateway",
+                )
 
             def _stream(delta):
                 with session["history_lock"]:

@@ -23,7 +23,7 @@ def _drive_build_agent(tmp_path, monkeypatch, *, provider: str, resolved_base_ur
 
     # session_desktop_meta read → provider
     fake_conn = MagicMock()
-    fake_conn.execute.return_value.fetchone.return_value = {"provider": provider, "workspace_path": None}
+    fake_conn.execute.return_value.fetchone.return_value = {"provider": provider}
     monkeypatch.setattr("daemon.db.connection.connect", lambda home: fake_conn)
     monkeypatch.setattr("daemon.db.connection.ensure_schema", lambda c: None)
 
@@ -37,7 +37,7 @@ def _drive_build_agent(tmp_path, monkeypatch, *, provider: str, resolved_base_ur
     )
 
     session_db = MagicMock()
-    session_db.get_session.return_value = {"model": "test-model"}
+    session_db.get_session.return_value = {"model": "test-model", "cwd": None}
 
     pool = AgentPool(hermes_home=tmp_path, event_bus=MagicMock(), session_db=session_db)
     pool._build_agent("sess-1")

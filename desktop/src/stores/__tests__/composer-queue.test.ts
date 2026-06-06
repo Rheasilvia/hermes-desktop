@@ -26,7 +26,7 @@ describe('composerQueueStore', () => {
   });
 
   it('clones attachments so queued entries are not mutated by caller state', () => {
-    const attachments = [{ name: 'a.txt', path: '/tmp/a.txt', size: 1 }];
+    const attachments = [{ id: 'file:/tmp/a.txt', kind: 'file' as const, name: 'a.txt', path: '/tmp/a.txt', refText: '@file:/tmp/a.txt', size: 1 }];
     const entry = composerQueueStore.enqueue('sess_a', { text: 'inspect', attachments });
     attachments[0].name = 'changed.txt';
 
