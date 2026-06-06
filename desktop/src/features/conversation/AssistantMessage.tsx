@@ -1,5 +1,5 @@
-import type { Component } from 'solid-js';
-import { Show, For, createMemo, createSignal } from 'solid-js';
+import type { Accessor, Component } from 'solid-js';
+import { Show, For, createEffect, createMemo, createSignal } from 'solid-js';
 import { HermesAvatar } from '@/ui/atoms/HermesAvatar.js';
 import type {
   MessageBlock,
@@ -16,12 +16,12 @@ import type {
 } from '@/types/index.js';
 import { parseMarkdown } from '@/utils/markdown.js';
 import { CodeBlock } from './CodeBlock.js';
-import { ToolCallPanel } from './ToolCallPanel.js';
 import { TurnActivityPanel } from './TurnActivityPanel.js';
 import { RichContentRenderer } from './RichContentRenderer.js';
 import { AttachmentRenderer } from './AttachmentRenderer.js';
 import { blockToRow, liveToRow } from './toolCallMappers.js';
 import { MessageActionBar, type MessageActionType } from './MessageActionBar.js';
+import { Icon } from '@/ui/atoms/Icon.js';
 import styles from './AssistantMessage.module.css';
 
 interface AssistantMessageProps {
@@ -42,8 +42,22 @@ interface AssistantMessageProps {
 }
 
 type BlockGroup =
-  | { type: 'tool_group'; blocks: ToolCallBlock[] }
+  | { type: 'activity_group'; reasoning?: ReasoningBlock; blocks: ToolCallBlock[] }
   | { type: 'single'; block: MessageBlock };
+
+type ActivityGroup = Extract<BlockGroup, { type: 'activity_group' }>;
+type SingleGroup = Extract<BlockGroup, { type: 'single' }>;
+
+interface TraceSplit {
+  traceBlocks: MessageBlock[];
+  answerBlocks: MessageBlock[];
+}
+
+interface StableGroupSlot {
+  key: string;
+  group: Accessor<BlockGroup>;
+  setGroup: (group: BlockGroup) => void;
+}
 
 function formatTimestamp(ts: number): string {
   try {
@@ -82,52 +96,216 @@ function isRenderableBlock(block: MessageBlock): boolean {
   }
 }
 
+function isActivityBlock(block: MessageBlock): boolean {
+  return block.type === 'reasoning' || block.type === 'tool_call' || block.type === 'todo_list';
+}
+
+function buildBlockGroups(blocks: MessageBlock[]): BlockGroup[] {
+  const hasTodoList = blocks.some((b) => b.type === 'todo_list');
+  const groups: BlockGroup[] = [];
+  for (const block of blocks) {
+    if (!isRenderableBlock(block)) {
+      // Skip empty text/code blocks — don't break activity_group continuity
+      continue;
+    }
+    if (block.type === 'reasoning') {
+      const last = groups[groups.length - 1];
+      if (last?.type === 'activity_group' && !last.reasoning) {
+        last.reasoning = block as ReasoningBlock;
+      } else {
+        groups.push({ type: 'activity_group', reasoning: block as ReasoningBlock, blocks: [] });
+      }
+    } else if (block.type === 'tool_call') {
+      // Suppress todo tool cards when TodoPanel is present
+      if (hasTodoList && (block as ToolCallBlock).name === 'todo') continue;
+      const last = groups[groups.length - 1];
+      if (last?.type === 'activity_group') {
+        last.blocks.push(block as ToolCallBlock);
+      } else {
+        groups.push({ type: 'activity_group', blocks: [block as ToolCallBlock] });
+      }
+    } else if (block.type === 'todo_list') {
+      groups.push({ type: 'single', block });
+    } else {
+      groups.push({ type: 'single', block });
+    }
+  }
+  return groups;
+}
+
+function blockKey(block: MessageBlock | undefined): string {
+  if (!block) return 'empty';
+  if (block.type === 'tool_call') return block.toolId || block.id;
+  return String(block.id || block.type);
+}
+
+function baseGroupKey(group: BlockGroup, index: number): string {
+  if (group.type === 'activity_group') {
+    const anchor = group.reasoning?.id ?? blockKey(group.blocks[0]);
+    return `activity:${anchor || index}`;
+  }
+  return `single:${group.block.type}:${blockKey(group.block) || index}`;
+}
+
+function uniqueGroupKey(group: BlockGroup, index: number, seen: Map<string, number>): string {
+  const base = baseGroupKey(group, index);
+  const count = seen.get(base) ?? 0;
+  seen.set(base, count + 1);
+  return count === 0 ? base : `${base}:${count}`;
+}
+
+function createStableGroupSlots(groups: Accessor<BlockGroup[]>): Accessor<StableGroupSlot[]> {
+  const cache = new Map<string, StableGroupSlot>();
+  const [slots, setSlots] = createSignal<StableGroupSlot[]>([]);
+
+  createEffect(() => {
+    const seen = new Map<string, number>();
+    const activeKeys = new Set<string>();
+    const nextSlots = groups().map((group, index) => {
+      const key = uniqueGroupKey(group, index, seen);
+      activeKeys.add(key);
+      let slot = cache.get(key);
+      if (!slot) {
+        const [currentGroup, setCurrentGroup] = createSignal<BlockGroup>(group, { equals: false });
+        slot = {
+          key,
+          group: currentGroup,
+          setGroup: (nextGroup) => setCurrentGroup(() => nextGroup),
+        };
+        cache.set(key, slot);
+      } else {
+        slot.setGroup(group);
+      }
+      return slot;
+    });
+
+    for (const key of cache.keys()) {
+      if (!activeKeys.has(key)) cache.delete(key);
+    }
+    setSlots(() => nextSlots);
+  });
+
+  return slots;
+}
+
+function splitCompletedTrace(blocks: MessageBlock[]): TraceSplit | null {
+  let lastActivityIndex = -1;
+  for (let i = 0; i < blocks.length; i += 1) {
+    if (isRenderableBlock(blocks[i]) && isActivityBlock(blocks[i])) {
+      lastActivityIndex = i;
+    }
+  }
+  if (lastActivityIndex < 0) return null;
+
+  const answerBlocks = blocks.slice(lastActivityIndex + 1);
+  if (!answerBlocks.some(isRenderableBlock)) return null;
+
+  return {
+    traceBlocks: blocks.slice(0, lastActivityIndex + 1),
+    answerBlocks,
+  };
+}
+
+function traceSummary(blocks: MessageBlock[]): string {
+  const toolCount = blocks.filter((block) => block.type === 'tool_call').length;
+  const hasReasoning = blocks.some((block) => block.type === 'reasoning');
+  const textCount = blocks.filter((block) => block.type === 'text' && block.content.trim()).length;
+  const parts: string[] = [];
+  if (hasReasoning) parts.push('thought');
+  if (toolCount > 0) parts.push(`${toolCount} tool${toolCount !== 1 ? 's' : ''}`);
+  if (textCount > 0) parts.push(`${textCount} note${textCount !== 1 ? 's' : ''}`);
+  return parts.length > 0 ? `Work trace · ${parts.join(' · ')}` : 'Work trace';
+}
+
+const ActivityGroupView: Component<{
+  group: Accessor<ActivityGroup>;
+  embeddedActivity?: boolean;
+}> = (props) => {
+  const reasoning = () => props.group().reasoning;
+  const isLive = () => {
+    const group = props.group();
+    return group.blocks.some(
+      (b) => b.status === 'streaming' || b.status === 'running'
+    ) || Boolean(group.reasoning?.isStreaming);
+  };
+  const toolRows = () => props.group().blocks.map(blockToRow);
+
+  return (
+    <TurnActivityPanel
+      reasoning={reasoning() ? {
+        content: reasoning()!.content,
+        isStreaming: reasoning()!.isStreaming,
+        tokenCount: reasoning()!.tokenCount,
+      } : undefined}
+      toolRows={toolRows()}
+      isLive={isLive()}
+      embedded={props.embeddedActivity}
+    />
+  );
+};
+
+const SingleGroupView: Component<{ group: Accessor<SingleGroup> }> = (props) => {
+  const block = () => props.group().block;
+
+  return (
+    <>
+      <Show when={block().type === 'text'}>
+        <TextBlockView block={block() as TextBlock} />
+      </Show>
+      <Show when={block().type === 'code'}>
+        <CodeBlock
+          content={(block() as CodeBlockType).content}
+          language={(block() as CodeBlockType).language}
+          filename={(block() as CodeBlockType).filename}
+        />
+      </Show>
+      <Show when={block().type === 'rich_content'}>
+        <RichContentBlockView block={block() as RichContentBlock} />
+      </Show>
+      <Show when={block().type === 'attachment'}>
+        <AttachmentBlockView block={block() as AttachmentBlock} />
+      </Show>
+    </>
+  );
+};
+
+const BlockGroupView: Component<{
+  slot: StableGroupSlot;
+  embeddedActivity?: boolean;
+}> = (props) => (
+  <Show
+    when={props.slot.group().type === 'activity_group'}
+    fallback={<SingleGroupView group={() => props.slot.group() as SingleGroup} />}
+  >
+    <ActivityGroupView
+      group={() => props.slot.group() as ActivityGroup}
+      embeddedActivity={props.embeddedActivity}
+    />
+  </Show>
+);
+
 export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
   const [showActions, setShowActions] = createSignal(false);
-
-  // Reasoning blocks rendered outside <For> — prevents ThinkingIndicator remounts
-  // on every streaming delta (new block objects would otherwise cause <For> to remount).
-  const reasoningBlock = createMemo(() =>
-    props.blocks.find((b) => b.type === 'reasoning') as ReasoningBlock | undefined
-  );
-
-  const blockGroups = createMemo(() => {
-    const hasTodoList = props.blocks.some((b) => b.type === 'todo_list');
-    const groups: BlockGroup[] = [];
-    for (const block of props.blocks) {
-      if (block.type === 'reasoning') continue;
-      if (block.type === 'tool_call') {
-        // Suppress todo tool cards when TodoPanel is present
-        if (hasTodoList && (block as ToolCallBlock).name === 'todo') continue;
-        const last = groups[groups.length - 1];
-        if (last?.type === 'tool_group') {
-          last.blocks.push(block as ToolCallBlock);
-        } else {
-          groups.push({ type: 'tool_group', blocks: [block as ToolCallBlock] });
-        }
-      } else if (block.type === 'todo_list') {
-        groups.push({ type: 'single', block });
-      } else {
-        groups.push({ type: 'single', block });
-      }
-    }
-    return groups;
-  });
-
-  // First tool_group — merged into TurnActivityPanel alongside reasoning
-  const firstToolGroup = createMemo(() => {
-    const g = blockGroups();
-    return g[0]?.type === 'tool_group' ? g[0] : undefined;
-  });
-
-  // Remaining groups after TurnActivityPanel claims the first tool_group
-  const remainingGroups = createMemo(() => {
-    const g = blockGroups();
-    return firstToolGroup() ? g.slice(1) : g;
-  });
+  const [traceExpanded, setTraceExpanded] = createSignal(false);
 
   const activeLiveRows = (): ToolCallRow[] | undefined =>
     props.liveToolRows ?? props.liveTools?.map(liveToRow);
+
+  const traceSplit = createMemo(() => {
+    if (props.isStreaming || (activeLiveRows()?.length ?? 0) > 0) return null;
+    return splitCompletedTrace(props.blocks);
+  });
+
+  const blockGroups = createMemo(() =>
+    buildBlockGroups(traceSplit()?.answerBlocks ?? props.blocks)
+  );
+
+  const traceGroups = createMemo(() =>
+    buildBlockGroups(traceSplit()?.traceBlocks ?? [])
+  );
+
+  const blockGroupSlots = createStableGroupSlots(blockGroups);
+  const traceGroupSlots = createStableGroupSlots(traceGroups);
 
   const hasRenderableContent = createMemo(() =>
     (activeLiveRows()?.length ?? 0) > 0 || props.blocks.some(isRenderableBlock)
@@ -148,55 +326,40 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
               <span class={styles.timestamp}>{formatTimestamp(props.timestamp!)}</span>
             </Show>
           </div>
-          {/* TurnActivityPanel outside <For> — preserves ThinkingIndicator RAF stability */}
-          <Show when={reasoningBlock() || firstToolGroup() || (activeLiveRows()?.length ?? 0) > 0}>
+          {/* Legacy live rows path — ChatView now sends chronological blocks instead. */}
+          <Show when={(activeLiveRows()?.length ?? 0) > 0}>
             <TurnActivityPanel
-              reasoning={reasoningBlock() ? {
-                content: reasoningBlock()!.content,
-                isStreaming: reasoningBlock()!.isStreaming,
-                tokenCount: reasoningBlock()!.tokenCount,
-              } : undefined}
-              toolRows={activeLiveRows() ?? (firstToolGroup()?.blocks ?? []).map(blockToRow)}
+              toolRows={activeLiveRows()}
               isLive={
-                activeLiveRows()
-                  ? props.isStreaming || (activeLiveRows()?.some(r => r.status === 'generating' || r.status === 'running') ?? false)
-                  : (firstToolGroup()?.blocks ?? []).some(b => b.status === 'streaming' || b.status === 'running')
+                props.isStreaming || (activeLiveRows()?.some(r => r.status === 'generating' || r.status === 'running') ?? false)
               }
             />
           </Show>
-          <For each={remainingGroups()}>
-            {(group) => {
-              if (group.type === 'tool_group') {
-                const isLive = group.blocks.some(
-                  (b) => b.status === 'streaming' || b.status === 'running'
-                );
-                return (
-                  <ToolCallPanel
-                    rows={group.blocks.map(blockToRow)}
-                    isLive={isLive}
-                  />
-                );
-              }
-              const block = group.block;
-              switch (block.type) {
-                case 'text':
-                  return <TextBlockView block={block as TextBlock} />;
-                case 'code':
-                  return (
-                    <CodeBlock
-                      content={(block as CodeBlockType).content}
-                      language={(block as CodeBlockType).language}
-                      filename={(block as CodeBlockType).filename}
-                    />
-                  );
-                case 'rich_content':
-                  return <RichContentBlockView block={block as RichContentBlock} />;
-                case 'attachment':
-                  return <AttachmentBlockView block={block as AttachmentBlock} />;
-                default:
-                  return null;
-              }
-            }}
+          <Show when={traceSplit()}>
+            {(split) => (
+              <div class={styles.workTracePanel}>
+                <button
+                  class={styles.workTraceHeader}
+                  type="button"
+                  aria-expanded={traceExpanded()}
+                  onClick={() => setTraceExpanded((expanded) => !expanded)}
+                >
+                  <Icon name="layers" size={13} class={styles.workTraceIcon} />
+                  <span class={styles.workTraceLabel}>{traceSummary(split().traceBlocks)}</span>
+                  <Icon name={traceExpanded() ? 'chevron-down' : 'chevron-right'} size={13} />
+                </button>
+                <Show when={traceExpanded()}>
+                  <div class={styles.workTraceBody}>
+                    <For each={traceGroupSlots()}>
+                      {(slot) => <BlockGroupView slot={slot} embeddedActivity />}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+            )}
+          </Show>
+          <For each={blockGroupSlots()}>
+            {(slot) => <BlockGroupView slot={slot} />}
           </For>
           <Show when={props.isStreaming && props.blocks.some((b) => b.type !== 'reasoning')}>
             <span class={styles.streamingCursor} />

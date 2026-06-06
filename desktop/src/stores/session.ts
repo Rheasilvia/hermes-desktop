@@ -40,18 +40,22 @@ export const sessionStore = {
     return undefined;
   },
 
-  async updateCwd(sessionId: string, cwd: string): Promise<void> {
-    // Optimistic update first so UI reflects the change immediately
-    setSessions(prev => prev.map(s =>
-      s.id === sessionId ? { ...s, cwd } : s
-    ));
+  async updateCwd(sessionId: string, cwd: string): Promise<boolean> {
     const gateway = getGateway();
-    if (gateway) {
-      try {
-        await gateway.session.updateCwd(sessionId, cwd);
-      } catch (e) {
-        console.error('[sessionStore] failed to persist cwd:', e);
-      }
+    if (!gateway) return false;
+    setError(null);
+    try {
+      const result = await gateway.session.updateCwd(sessionId, cwd);
+      const resolvedCwd = result.cwd || cwd;
+      setSessions(prev => prev.map(s =>
+        s.id === sessionId ? { ...s, cwd: resolvedCwd } : s
+      ));
+      return true;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to update working directory';
+      setError(message);
+      console.error('[sessionStore] failed to persist cwd:', e);
+      return false;
     }
   },
 

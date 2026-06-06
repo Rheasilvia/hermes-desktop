@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseMessage } from '../messageParser';
 import type { ConversationMessage } from '@/types/domain/message';
+import type { MessageBlock } from '@/types/ui/blocks';
 
 function makeMsg(overrides: Partial<ConversationMessage> = {}): ConversationMessage {
   return {
@@ -55,5 +56,41 @@ describe('toolCallToBlock', () => {
 
     expect(toolBlock!.outputSummary).toBeNull();
     expect(toolBlock!.durationMs).toBeNull();
+  });
+
+  it('prefers persisted ordered blocks over legacy reconstructed fields', () => {
+    const blocks: MessageBlock[] = [
+      { type: 'text', id: 'text_1', content: 'Before tool.' },
+      {
+        type: 'tool_call',
+        id: 'tc_tool_1',
+        toolId: 'tool_1',
+        name: 'terminal',
+        status: 'complete',
+        inputPreview: null,
+        outputSummary: 'done',
+        inlineDiff: null,
+        durationMs: 100,
+      },
+      { type: 'text', id: 'text_2', content: 'Final answer.' },
+    ];
+    const msg = makeMsg({
+      content: 'Legacy content should not be appended',
+      reasoning: 'Legacy reasoning should not be prepended',
+      blocks,
+      toolCalls: [
+        { id: 'legacy_tool', name: 'legacy', arguments: {}, status: 'complete' },
+      ],
+    });
+
+    const rendered = parseMessage(msg);
+    const order = rendered.blocks.map((block) =>
+      block.type === 'tool_call' ? block.name : block.type
+    );
+
+    expect(order).toEqual(['text', 'terminal', 'text']);
+    expect(rendered.blocks.some((block) =>
+      block.type === 'text' && block.content.includes('Legacy content')
+    )).toBe(false);
   });
 });

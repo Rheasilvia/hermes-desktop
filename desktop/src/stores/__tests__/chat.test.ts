@@ -89,6 +89,104 @@ describe('handleMessageComplete — tool blocks', () => {
     expect((toolBlock as { outputSummary: string | null }).outputSummary).toBe('Done');
     expect((toolBlock as { durationMs: number | null }).durationMs).toBe(800);
   });
+
+  it('preserves live event order when tools and text alternate', () => {
+    chatStore.handleToolStart(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, tool_id: 'tool_first', name: 'terminal' });
+    chatStore.handleToolComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE,
+      tool_id: 'tool_first',
+      name: 'terminal',
+      duration_s: 0.1,
+    });
+    chatStore.handleDelta(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, text: 'Text between tools.' });
+    chatStore.handleToolStart(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, tool_id: 'tool_second', name: 'read_file' });
+    chatStore.handleToolComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE,
+      tool_id: 'tool_second',
+      name: 'read_file',
+      duration_s: 0.2,
+    });
+    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, text: 'Text between tools.', usage: undefined });
+
+    const messages = chatStore.getMessages(SESSION_MSG_COMPLETE);
+    const lastMsg = messages[messages.length - 1];
+    const blockOrder = lastMsg.blocks.map((block) =>
+      block.type === 'tool_call' ? (block as { name: string }).name : block.type
+    );
+
+    expect(blockOrder).toEqual(['terminal', 'text', 'read_file']);
+  });
+
+  it('keeps consecutive tools together between text deltas', () => {
+    chatStore.handleDelta(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, text: 'Before tools.' });
+    for (const [id, name] of [
+      ['tool_one', 'terminal'],
+      ['tool_two', 'read_file'],
+      ['tool_three', 'read_file'],
+    ] as const) {
+      chatStore.handleToolStart(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, tool_id: id, name });
+      chatStore.handleToolComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE,
+        tool_id: id,
+        name,
+        duration_s: 0.1,
+      });
+    }
+    chatStore.handleDelta(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, text: 'After tools.' });
+    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, text: 'Before tools.After tools.', usage: undefined });
+
+    const messages = chatStore.getMessages(SESSION_MSG_COMPLETE);
+    const lastMsg = messages[messages.length - 1];
+    const blockOrder = lastMsg.blocks.map((block) =>
+      block.type === 'tool_call' ? (block as { name: string }).name : block.type
+    );
+
+    expect(blockOrder).toEqual(['text', 'terminal', 'read_file', 'read_file', 'text']);
+  });
+
+  it('treats complete text as a snapshot after streamed text', () => {
+    chatStore.handleDelta(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, text: 'I will inspect first.' });
+    chatStore.handleToolStart(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, tool_id: 'tool_final', name: 'terminal' });
+    chatStore.handleToolComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE,
+      tool_id: 'tool_final',
+      name: 'terminal',
+      duration_s: 0.1,
+    });
+    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, text: 'Final answer.', usage: undefined });
+
+    const messages = chatStore.getMessages(SESSION_MSG_COMPLETE);
+    const lastMsg = messages[messages.length - 1];
+    const blockOrder = lastMsg.blocks.map((block) =>
+      block.type === 'tool_call' ? (block as { name: string }).name : block.type
+    );
+    const textBlocks = lastMsg.blocks
+      .filter((block) => block.type === 'text')
+      .map((block) => (block as { content: string }).content);
+
+    expect(blockOrder).toEqual(['text', 'terminal']);
+    expect(textBlocks).toEqual(['I will inspect first.']);
+  });
+
+  it('deduplicates complete text when streamed text only differs by leading whitespace', () => {
+    const finalText = '当前目录是：\n\n```\n/Users/chenmengjie/Documents/Repos/claude-code-source-code\n```';
+    chatStore.handleToolStart(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, tool_id: 'tool_pwd', name: 'terminal' });
+    chatStore.handleToolComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE,
+      tool_id: 'tool_pwd',
+      name: 'terminal',
+      duration_s: 0.1,
+    });
+    chatStore.handleDelta(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, text: `\n\n${finalText}` });
+    chatStore.handleMessageComplete(SESSION_MSG_COMPLETE, { session_id: SESSION_MSG_COMPLETE, text: finalText, usage: undefined });
+
+    const messages = chatStore.getMessages(SESSION_MSG_COMPLETE);
+    const lastMsg = messages[messages.length - 1];
+    const textBlocks = lastMsg.blocks
+      .filter((block) => block.type === 'text')
+      .map((block) => (block as { content: string }).content);
+    const codeBlocks = lastMsg.blocks
+      .filter((block) => block.type === 'code')
+      .map((block) => (block as { content: string }).content);
+
+    expect(textBlocks).toEqual(['\n\n当前目录是：\n\n']);
+    expect(codeBlocks).toEqual(['/Users/chenmengjie/Documents/Repos/claude-code-source-code\n']);
+  });
 });
 
 describe('live tool identity', () => {
@@ -352,6 +450,56 @@ describe('loadMessages — transcript hydrate', () => {
     expect(messages.map((message) => message.role)).toEqual(['user', 'assistant']);
     expect(chatStore.getLiveState(SESSION_TRANSCRIPT).status).toBe('idle');
     expect(chatStore.getLiveState(SESSION_TRANSCRIPT).streamingText).toBe('');
+  });
+
+  it('hydrates completed transcript messages from ordered assistant blocks', async () => {
+    initializeStores({
+      session: {
+        transcript: vi.fn().mockResolvedValue({
+          session_id: SESSION_TRANSCRIPT,
+          max_seq: 2,
+          messages: [
+            { id: 1, turn_id: 'turn_blocks', role: 'user', content: 'hi', timestamp: 1, status: 'completed' },
+            {
+              id: 2,
+              turn_id: 'turn_blocks',
+              role: 'assistant',
+              content: 'Legacy fallback',
+              reasoning: 'Legacy reasoning',
+              tool_calls: [
+                { id: 'legacy_tool', name: 'legacy', arguments: {}, status: 'complete' },
+              ],
+              blocks: [
+                { type: 'text', id: 'text_before', content: 'Before tool.' },
+                {
+                  type: 'tool_call',
+                  id: 'tc_tool_1',
+                  toolId: 'tool_1',
+                  name: 'terminal',
+                  status: 'complete',
+                  inputPreview: null,
+                  outputSummary: 'done',
+                  inlineDiff: null,
+                  durationMs: 100,
+                },
+                { type: 'text', id: 'text_after', content: 'Final answer.' },
+              ],
+              timestamp: 2,
+              status: 'completed',
+            },
+          ],
+          live_turn: null,
+        }),
+      },
+    } as any);
+
+    await chatStore.loadMessages(SESSION_TRANSCRIPT);
+
+    const assistant = chatStore.getMessages(SESSION_TRANSCRIPT).find((message) => message.role === 'assistant');
+    const order = assistant?.blocks.map((block) =>
+      block.type === 'tool_call' ? block.name : block.type
+    );
+    expect(order).toEqual(['text', 'terminal', 'text']);
   });
 
   it('hydrates a running transcript turn into liveState instead of messages', async () => {
