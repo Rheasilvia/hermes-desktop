@@ -9,7 +9,7 @@ export interface ConversationSession {
   model: string;
   provider: string | null;
   source: string;
-  workspacePath: string | null;    // from desktop.db session_desktop_meta
+  cwd: string | null;
   pinned: boolean;
   archived: boolean;
   lastOpenedAt: number | null;

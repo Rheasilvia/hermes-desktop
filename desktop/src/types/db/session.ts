@@ -24,12 +24,12 @@ export interface DbSession {
   actual_cost_usd: number | null;
   cost_status: string | null;
   parent_session_id: string | null;
+  cwd: string | null;
 }
 
 /** Mirrors desktop.db session_desktop_meta table (desktop-owned). */
 export interface DbDesktopSessionMeta {
   session_id: string;
-  workspace_path: string | null;
   pinned: number;          // SQLite 0/1
   archived: number;        // SQLite 0/1
   last_opened_at: number | null;

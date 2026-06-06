@@ -15,6 +15,8 @@ from ..schemas.conversation import (
     ApprovalRespondRequest,
     ClarifyRespondRequest,
     CreateSessionRequest,
+    ImageAttachRequest,
+    ImageDetachRequest,
     PromptExecuteRequest,
     SecretRespondRequest,
     UpdateSessionRequest,
@@ -44,7 +46,7 @@ async def create_session(
     pool=Depends(get_agent_pool),
 ):
     result = svc.create_session(
-        workspace_path=body.workspace_path,
+        cwd=body.cwd,
         system_prompt=body.system_prompt,
         model=body.model,
         provider=body.provider,
@@ -87,14 +89,19 @@ async def update_session(
     session_id: str,
     body: UpdateSessionRequest,
     svc=Depends(get_session_service),
+    pool=Depends(get_agent_pool),
 ):
     try:
         if body.title is not None:
             svc.rename_session(session_id, body.title)
-        if body.workspace_path is not None:
-            svc.update_workspace(session_id, body.workspace_path)
+        if body.cwd is not None:
+            svc.update_cwd(session_id, body.cwd)
+            if not pool.is_running(session_id):
+                pool.evict(session_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}
 
 
@@ -175,12 +182,14 @@ async def prompt_execute(
     _t0 = time.time()
     sid = body.session_id
 
-    if session_svc.get_session(sid) is None:
+    session = session_svc.get_session(sid)
+    if session is None:
         raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+    cwd = session.get("cwd") or ""
 
     # Evict stale agent first — compares against built_model/built_provider to handle
     # the case where setSessionProvider already updated the DB before this call.
-    pool.evict_if_stale(sid, body.provider, body.model)
+    pool.evict_if_stale(sid, body.provider, body.model, cwd)
 
     # Sync provider and model from frontend into DB (for agent rebuild on next get_or_create)
     session_svc.sync_provider_from_frontend(sid, body.provider)
@@ -205,6 +214,30 @@ async def prompt_execute(
         "turn_id": turn["turn_id"],
         "user_seq": turn["user_seq"],
     }
+
+
+@router.post("/image/attach")
+async def image_attach(
+    body: ImageAttachRequest,
+    svc=Depends(get_session_service),
+):
+    try:
+        return svc.attach_image(body.session_id, body.path)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/image/detach")
+async def image_detach(
+    body: ImageDetachRequest,
+    svc=Depends(get_session_service),
+):
+    try:
+        return svc.detach_image(body.session_id, body.path)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
 
 
 # ── Interrupt ─────────────────────────────────────────────────────────────────

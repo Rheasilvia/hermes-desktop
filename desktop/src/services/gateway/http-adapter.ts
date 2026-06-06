@@ -81,6 +81,7 @@ interface SseEvent {
 export class HttpGatewayAdapter implements GatewayAdapter {
   readonly session: GatewayAdapter['session'];
   readonly prompt: GatewayAdapter['prompt'];
+  readonly image: GatewayAdapter['image'];
   readonly config: GatewayAdapter['config'];
   readonly tools: GatewayAdapter['tools'];
   readonly model: GatewayAdapter['model'];
@@ -124,7 +125,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           started_at: String(r.started_at ?? new Date().toISOString()),
           message_count: Number(r.message_count ?? 0),
           tool_call_count: 0,
-          workspace_path: (r.workspace_path as string) ?? null,
+          cwd: (r.cwd as string) ?? null,
         }));
       },
 
@@ -141,8 +142,9 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       create: async (params): Promise<SessionMeta> => {
         const r = await this.http.post<Record<string, unknown>>(`${API_PREFIX}/sessions`, {
           model: params.model,
+          provider: params.provider,
           system_prompt: params.system_prompt,
-          workspace_path: params.workspace_path,
+          cwd: params.cwd,
         });
         const sid = String(r.session_id ?? r.id ?? '');
         this.knownSessionIds.add(sid);
@@ -174,7 +176,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           system_prompt: params.system_prompt ?? null,
           parent_session_id: null,
           end_reason: null,
-          workspace_path: (r.workspace_path as string) ?? params.workspace_path ?? null,
+          cwd: (r.cwd as string) ?? params.cwd ?? null,
         };
       },
 
@@ -188,13 +190,13 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         await this.http.patch(`${API_PREFIX}/sessions/${sessionId}`, { title });
       },
 
-      updateWorkspace: async (sessionId: string, workspacePath: string): Promise<void> => {
-        await this.http.patch(`${API_PREFIX}/sessions/${sessionId}`, { workspace_path: workspacePath });
+      updateCwd: async (sessionId: string, cwd: string): Promise<void> => {
+        await this.http.patch(`${API_PREFIX}/sessions/${sessionId}`, { cwd });
       },
 
       branch: async (sessionId: string): Promise<SessionMeta> => {
         // Branch = create a new session (no server-side branch yet)
-        return this.session.create({ model: undefined, workspace_path: undefined });
+        return this.session.create({ model: undefined, cwd: undefined });
       },
 
       resume: async (_sessionId: string): Promise<void> => {
@@ -235,6 +237,16 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           provider: params.provider,
           model: params.model,
         });
+      },
+    };
+
+    // ── image attachments (REAL) ───────────────────────────────────────
+    this.image = {
+      attach: async (params) => {
+        return this.http.post(`${API_PREFIX}/image/attach`, params);
+      },
+      detach: async (params) => {
+        return this.http.post(`${API_PREFIX}/image/detach`, params);
       },
     };
 

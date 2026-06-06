@@ -7,7 +7,7 @@ import { sessionStore } from '@/stores/session.js';
 export function createSlashCommandRunner(opts: {
   sessionId: () => string;
   getGateway: () => GatewayAdapter | null;
-  sendPrompt: (text: string, display?: { text: string; slashCommand?: { command: string; args: string } }) => Promise<void>;
+  sendPrompt: (text: string, display?: { text: string; slashCommand?: { command: string; args: string } }) => Promise<boolean | void>;
   noticeCard: (text: string) => void;
   navigate: Navigator;
 }) {

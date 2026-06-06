@@ -126,10 +126,10 @@ export interface GatewayEventEmitter {
 export interface SessionMethods {
   list(): Promise<SessionListItem[]>;
   info(sessionId: string): Promise<SessionInfoPayload>;
-  create(params: { model?: string; provider?: string; system_prompt?: string; workspace_path?: string }): Promise<SessionMeta>;
+  create(params: { model?: string; provider?: string; system_prompt?: string; cwd?: string }): Promise<SessionMeta>;
   delete(sessionId: string): Promise<void>;
   rename(sessionId: string, title: string): Promise<void>;
-  updateWorkspace(sessionId: string, workspacePath: string): Promise<void>;
+  updateCwd(sessionId: string, cwd: string): Promise<void>;
   branch(sessionId: string): Promise<SessionMeta>;
   resume(sessionId: string): Promise<void>;
   interrupt(sessionId: string): Promise<void>;
@@ -141,6 +141,12 @@ export interface SessionMethods {
 /** Prompt method group. */
 export interface PromptMethods {
   execute(params: { message: string; session_id?: string; provider?: string; model?: string }): Promise<PromptExecuteResult>;
+}
+
+/** Image attachment method group. */
+export interface ImageMethods {
+  attach(params: { session_id: string; path: string }): Promise<{ attached: boolean; path: string; count: number }>;
+  detach(params: { session_id: string; path: string }): Promise<{ detached: boolean; count: number }>;
 }
 
 /** Config method group. */
@@ -336,6 +342,7 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   // Method groups
   readonly session: SessionMethods;
   readonly prompt: PromptMethods;
+  readonly image: ImageMethods;
   readonly config: ConfigMethods;
   readonly tools: ToolsMethods;
   readonly model: ModelMethods;

@@ -34,7 +34,7 @@ export interface SessionMeta {
   system_prompt: string | null;
   parent_session_id: string | null;
   end_reason: string | null;
-  workspace_path: string | null;
+  cwd: string | null;
 }
 
 /** Message database row - mirrors messages table. */
@@ -97,7 +97,7 @@ export interface SessionListItem {
   message_count: number;
   tool_call_count: number;
   last_message?: string;
-  workspace_path?: string | null;
+  cwd?: string | null;
 }
 
 /** @source hermes_state.py */

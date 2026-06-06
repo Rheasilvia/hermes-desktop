@@ -29,6 +29,8 @@ export interface RenderedMessage {
   failedReason?: string;
   /** Original text submitted to the backend; may differ from compact slash display text. */
   submitText?: string;
+  /** Local-only attachment snapshot for retrying optimistic messages. */
+  attachments?: unknown[];
   /**
    * Set when this user message was a slash command. Drives the styled command
    * bubble (a `/command` label + the typed content). NOTE: the LLM received the

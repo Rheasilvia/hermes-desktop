@@ -1,8 +1,11 @@
 import { createStore, produce } from 'solid-js/store';
 
 export interface QueuedAttachment {
+  id: string;
+  kind: 'file' | 'folder' | 'image' | 'url' | 'terminal';
   name: string;
   path?: string;
+  refText?: string;
   size?: number;
 }
 

@@ -78,6 +78,34 @@ def _migrate(conn: sqlite3.Connection, current_version: int) -> None:
         except Exception:
             pass  # column already exists
         conn.execute("UPDATE schema_version SET version = ?", (5,))
+        current_version = 5
+
+    if current_version < 6:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS session_desktop_meta_v6 (
+                session_id     TEXT PRIMARY KEY,
+                pinned         INTEGER NOT NULL DEFAULT 0,
+                archived       INTEGER NOT NULL DEFAULT 0,
+                last_opened_at REAL,
+                created_at     REAL NOT NULL DEFAULT (strftime('%s','now')),
+                provider       TEXT
+            );
+
+            INSERT OR REPLACE INTO session_desktop_meta_v6
+                (session_id, pinned, archived, last_opened_at, created_at, provider)
+            SELECT session_id, pinned, archived, last_opened_at, created_at, provider
+            FROM session_desktop_meta;
+
+            DROP TABLE session_desktop_meta;
+            ALTER TABLE session_desktop_meta_v6 RENAME TO session_desktop_meta;
+
+            CREATE INDEX IF NOT EXISTS idx_sdm_pinned      ON session_desktop_meta(pinned) WHERE pinned = 1;
+            CREATE INDEX IF NOT EXISTS idx_sdm_last_opened ON session_desktop_meta(last_opened_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_sdm_archived    ON session_desktop_meta(archived);
+            """
+        )
+        conn.execute("UPDATE schema_version SET version = ?", (6,))
 
 
 def _overlay_json_path(hermes_home: str, domain: str) -> Path:

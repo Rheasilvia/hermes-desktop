@@ -14,7 +14,7 @@ function row(overrides: Partial<SessionListItem> = {}): SessionListItem {
     started_at: '2026-05-25T00:00:00Z',
     message_count: 0,
     tool_call_count: 0,
-    workspace_path: '/tmp/workspace',
+    cwd: '/tmp/workspace',
     ...overrides,
   };
 }
@@ -47,22 +47,22 @@ function meta(overrides: Partial<SessionMeta> = {}): SessionMeta {
     system_prompt: null,
     parent_session_id: null,
     end_reason: null,
-    workspace_path: '/tmp/workspace',
+    cwd: '/tmp/workspace',
     ...overrides,
   };
 }
 
 function gatewayWithSessions(initial: SessionListItem[]) {
   let current = [...initial];
-  const create = vi.fn(async (params: { model?: string; system_prompt?: string; workspace_path?: string }) => {
+  const create = vi.fn(async (params: { model?: string; system_prompt?: string; cwd?: string }) => {
     const existing = current.find((s) => s.message_count === 0 && ['Untitled', 'New Session', 'Untitled new conversation', ''].includes(s.title));
-    if (existing && !params.model && !params.system_prompt && !params.workspace_path) {
-      return meta({ id: existing.id, title: existing.title, workspace_path: existing.workspace_path ?? null });
+    if (existing && !params.model && !params.system_prompt && !params.cwd) {
+      return meta({ id: existing.id, title: existing.title, cwd: existing.cwd ?? null });
     }
 
     const created = row({ id: `created-${create.mock.calls.length}`, title: 'New Session', message_count: 0 });
     current = [created, ...current];
-    return meta({ id: created.id, title: created.title, workspace_path: created.workspace_path ?? null });
+    return meta({ id: created.id, title: created.title, cwd: created.cwd ?? null });
   });
   const list = vi.fn(async () => current);
 
@@ -73,12 +73,16 @@ function gatewayWithSessions(initial: SessionListItem[]) {
         create,
         delete: vi.fn(async () => undefined),
         rename: vi.fn(async () => undefined),
-        updateWorkspace: vi.fn(async () => undefined),
+        updateCwd: vi.fn(async () => undefined),
         branch: vi.fn(),
         resume: vi.fn(),
         interrupt: vi.fn(),
         info: vi.fn(),
         messages: vi.fn(),
+      },
+      image: {
+        attach: vi.fn(async () => ({ attached: true, path: '', count: 1 })),
+        detach: vi.fn(async () => ({ detached: true, count: 0 })),
       },
     } as unknown as GatewayAdapter,
     create,
@@ -131,7 +135,7 @@ describe('sessionStore new conversation creation', () => {
   });
 
   it('passes explicit creation params through instead of applying frontend fallbacks', async () => {
-    const { create, gateway } = gatewayWithSessions([row({ id: 'last-1', workspace_path: '/tmp/last' })]);
+    const { create, gateway } = gatewayWithSessions([row({ id: 'last-1', cwd: '/tmp/last' })]);
     initializeStores(gateway);
     await sessionStore.loadSessions();
 
