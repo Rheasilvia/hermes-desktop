@@ -7,7 +7,7 @@ import type { ProviderEntry, ModelOption } from '@/types/index.js';
 import { api } from '../services/api/router';
 import type { Provider } from '../services/api/types';
 
-const MODEL_PROVIDER_CACHE_KEY = 'hermes.desktop.model.providers.v1';
+const MODEL_PROVIDER_CACHE_KEY = 'hermes.desktop.model.providers.v2';
 
 // ── Global default model (the "main" model, settings-only) ────────────────
 // Never mutated by session switches. Source of truth = config.yaml via
@@ -366,7 +366,7 @@ function writeCachedProviders(nextProviders: Provider[]): void {
   }
 }
 
-const CATALOG_CACHE_KEY = 'hermes.desktop.model.catalog.v1';
+const CATALOG_CACHE_KEY = 'hermes.desktop.model.catalog.v2';
 
 function readCachedCatalog(): CatalogProvider[] {
   if (typeof localStorage === 'undefined') return [];

@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2.6,<3.0",
     "pyyaml>=6.0",
     "requests>=2.31",
+    "curl-cffi>=0.7,<1.0",
     "hermes-agent",
 ]
 

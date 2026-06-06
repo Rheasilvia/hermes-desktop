@@ -154,7 +154,7 @@ export interface PluginVisibilityRequest {
 export interface OAuthProvider {
   id: string;
   name: string;
-  flow: 'pkce' | 'device_code' | 'external';
+  flow: 'pkce' | 'device_code' | 'loopback' | 'external';
   logged_in: boolean;
   source: string | null;
   source_label?: string | null;
@@ -167,7 +167,7 @@ export interface OAuthProvider {
 
 export interface OAuthStartResponse {
   session_id: string;
-  flow: 'pkce' | 'device_code';
+  flow: 'pkce' | 'device_code' | 'loopback';
   auth_url?: string | null;
   expires_in?: number | null;
   user_code?: string | null;

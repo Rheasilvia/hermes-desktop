@@ -8,20 +8,16 @@ export const AddProviderView: Component = () => {
   const [search, setSearch] = createSignal('');
 
   onMount(() => {
+    void modelsStore.load();
     void modelsStore.loadCatalog();
   });
 
   /** Whether the API catalog is available (loaded or cached). */
   const hasCatalog = () => modelsStore.catalogHasLoaded() && modelsStore.catalogProviders().length > 0;
 
-  /** Providers with an explicit overlay entry (user clicked "Add") OR connected via OAuth. */
+  /** Providers that are already configured (same list as Model Home hub). */
   const configuredIds = () => {
-    const catalog = modelsStore.catalogProviders();
-    return new Set(
-      catalog
-        .filter(p => p.has_overlay || p.oauth_logged_in)
-        .map(p => p.id),
-    );
+    return new Set(modelsStore.providers().map(p => p.name));
   };
 
   /** Filtered + sorted: configured first, then alphabetical. */

@@ -161,13 +161,18 @@ export const ProviderModelsView: Component = () => {
       try {
         await api.overlays().patch('model', providerId, { visible: true });
       } catch { void 0; }
-      // Clear stale localStorage cache so the add-provider list picks
-      // up the updated auth_type + has_overlay immediately.
+      // Clear stale localStorage caches so both the add-provider list
+      // and the Model Page hub pick up the new OAuth provider immediately.
       try {
         localStorage.removeItem('hermes.desktop.model.catalog.v1');
+        localStorage.removeItem('hermes.desktop.model.catalog.v2');
+        localStorage.removeItem('hermes.desktop.model.providers.v1');
+        localStorage.removeItem('hermes.desktop.model.providers.v2');
       } catch { void 0; }
     }
-    // Refresh configured providers + full catalog
+    // Refresh configured providers + full catalog.
+    // Must invalidate first — load() skips when hasLoaded && !isStale.
+    modelsStore.invalidate();
     await modelsStore.load();
     await modelsStore.loadCatalog();
     // Refresh OAuth status for the modal badge
