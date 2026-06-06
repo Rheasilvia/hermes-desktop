@@ -4,6 +4,7 @@ import type { MessageBlock } from '@/types/index.js';
 
 const NEAR_BOTTOM_THRESHOLD = 100;
 const SCROLL_PAUSE_THRESHOLD = 80;
+const ANONYMOUS_LIVE_TURN_KEY = 'live:anonymous';
 
 export interface ScrollController {
   isNearBottom: () => boolean;
@@ -20,16 +21,49 @@ export interface ScrollController {
 export function createScrollController(opts: {
   getMessages: () => RenderedMessage[];
   getLiveBlocks: () => MessageBlock[];
+  getLiveTurnId?: () => string | null;
   getBlockingPromptActive: () => boolean;
 }): ScrollController {
   const refs = { messagesEnd: undefined as HTMLDivElement | undefined, messageList: undefined as HTMLDivElement | undefined };
   let scrollRafId: number | undefined;
   let pendingScrollOpts: { force?: boolean; behavior?: ScrollBehavior } | undefined;
+  let countedLiveTurnKey: string | null = null;
+  let pendingLiveMessageSkipKey: string | null = null;
 
   const [isNearBottom, setIsNearBottom] = createSignal(true);
   const [userScrolledUp, setUserScrolledUp] = createSignal(false);
   const [unreadCount, setUnreadCount] = createSignal(0);
   const [lastMessageCount, setLastMessageCount] = createSignal(0);
+
+  const liveTurnKey = (live: MessageBlock[]): string | null => {
+    if (live.length === 0) return null;
+    const turnId = opts.getLiveTurnId?.();
+    return turnId ? `turn:${turnId}` : ANONYMOUS_LIVE_TURN_KEY;
+  };
+
+  const messageMatchesLiveTurn = (message: RenderedMessage, liveKey: string): boolean => {
+    if (message.role !== 'assistant') return false;
+    if (liveKey === ANONYMOUS_LIVE_TURN_KEY) return true;
+    if (message.turnId) return liveKey === `turn:${message.turnId}`;
+    return false;
+  };
+
+  const countUnreadMessages = (messages: RenderedMessage[]): number => {
+    if (!pendingLiveMessageSkipKey) return messages.length;
+    let skippedLiveFinal = false;
+    const count = messages.filter((message) => {
+      if (!skippedLiveFinal && messageMatchesLiveTurn(message, pendingLiveMessageSkipKey!)) {
+        skippedLiveFinal = true;
+        return false;
+      }
+      return true;
+    }).length;
+    if (skippedLiveFinal) {
+      pendingLiveMessageSkipKey = null;
+      countedLiveTurnKey = null;
+    }
+    return count;
+  };
 
   const scrollToBottom = (scrollOpts?: { force?: boolean; behavior?: ScrollBehavior }) => {
     if (!scrollOpts?.force && userScrolledUp()) return;
@@ -61,6 +95,8 @@ export function createScrollController(opts: {
     if (near) {
       setUserScrolledUp(false);
       setUnreadCount(() => 0);
+      countedLiveTurnKey = null;
+      pendingLiveMessageSkipKey = null;
     } else if (distanceFromBottom > SCROLL_PAUSE_THRESHOLD) {
       setUserScrolledUp(true);
     }
@@ -71,7 +107,10 @@ export function createScrollController(opts: {
     const prevCount = lastMessageCount();
     if (msgs.length > prevCount) {
       if (userScrolledUp()) {
-        setUnreadCount((c) => c + (msgs.length - prevCount));
+        const unreadDelta = countUnreadMessages(msgs.slice(prevCount));
+        if (unreadDelta > 0) {
+          setUnreadCount((c) => c + unreadDelta);
+        }
       } else {
         scrollToBottom();
       }
@@ -84,11 +123,21 @@ export function createScrollController(opts: {
 
   createEffect(() => {
     const live = opts.getLiveBlocks();
-    if (live.length > 0) {
+    const key = liveTurnKey(live);
+    if (key) {
       if (userScrolledUp()) {
-        setUnreadCount((c) => c + 1);
+        if (countedLiveTurnKey === ANONYMOUS_LIVE_TURN_KEY && key !== countedLiveTurnKey) {
+          countedLiveTurnKey = key;
+          pendingLiveMessageSkipKey = key;
+        } else if (countedLiveTurnKey !== key) {
+          countedLiveTurnKey = key;
+          pendingLiveMessageSkipKey = key;
+          setUnreadCount((c) => c + 1);
+        }
       } else {
         scrollToBottom();
+        countedLiveTurnKey = null;
+        pendingLiveMessageSkipKey = null;
       }
     }
   });
@@ -104,6 +153,8 @@ export function createScrollController(opts: {
     setUserScrolledUp(false);
     setUnreadCount(() => 0);
     setLastMessageCount(0);
+    countedLiveTurnKey = null;
+    pendingLiveMessageSkipKey = null;
   };
 
   return { isNearBottom, userScrolledUp, setUserScrolledUp, unreadCount, setUnreadCount, resetScrollState, handleScroll, scrollToBottom, refs };

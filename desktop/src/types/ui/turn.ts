@@ -38,6 +38,7 @@ export interface MemoryContextItem {
 }
 
 import type { TodoItem } from '../gateway.js';
+import type { MessageBlock } from './blocks.js';
 
 export interface LiveTurnState {
   sessionId: string;
@@ -46,6 +47,8 @@ export interface LiveTurnState {
   status: TurnStatus;
   streamingText: string;
   reasoningText: string;
+  /** Chronological live blocks used to preserve tool/text interleaving. */
+  activityBlocks: MessageBlock[];
   activeTools: LiveToolCall[];
   /** tool_id of the tool that produced the current todos batch */
   todosToolId: string | null;
