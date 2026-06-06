@@ -93,15 +93,6 @@ class _FakePool:
     def mark_idle(self, sid, thread=None):
         ...
 
-    def bind_current_thread_turn(self, sid, turn_id):
-        self._turn_id = turn_id
-
-    def clear_current_thread_turn(self):
-        self._turn_id = None
-
-    def get_current_thread_turn_id(self, sid):
-        return self._turn_id
-
 
 class _FakeDB:
     def _execute_write(self, fn):
@@ -224,3 +215,99 @@ def test_empty_non_failed_turn_still_emits_terminal_signal(tmp_path):
     bus = _run(_FakeAgentEmpty, tmp_path)
     completes = [e for e in bus.published if e["type"] == "message.complete"]
     assert completes, "every non-failed turn must emit a terminal message.complete"
+
+
+class _FakeAgentUsingCallbacks(_FakeAgent):
+    def __init__(self, ui, session_id):
+        super().__init__(ui, session_id)
+
+        def stream_delta(text):
+            self._ui.append(self._sid, "session.delta", {"text": text})
+
+        def reasoning(text):
+            self._ui.append(self._sid, "session.reasoning", {"text": text})
+
+        def tool_gen(name, tool_id=None):
+            self._ui.append(self._sid, "session.tool_gen", {"text": name})
+
+        self.stream_delta_callback = stream_delta
+        self.reasoning_callback = reasoning
+        self.tool_start_callback = lambda tool_id, name, args=None: None
+        self.tool_complete_callback = lambda tool_id, name, args=None, result="": None
+        self.tool_gen_callback = tool_gen
+        self.original_stream_delta_callback = self.stream_delta_callback
+        self.original_tool_gen_callback = self.tool_gen_callback
+
+    def run_conversation(self, user_message, conversation_history):
+        self.stream_delta_callback("visible text")
+        self.tool_gen_callback("terminal", "tool_1")
+        return {"final_response": "visible text final"}
+
+
+class _FakePoolWithTurnCallbacks(_FakePool):
+    def __init__(self, agent, ui):
+        super().__init__(agent)
+        self._ui = ui
+
+    def make_turn_callbacks(self, sid, turn_id):
+        def stream_delta(text):
+            self._ui.append(sid, "message.delta", {"text": text}, turn_id=turn_id)
+
+        def reasoning(text):
+            self._ui.append(sid, "reasoning.delta", {"text": text}, turn_id=turn_id)
+
+        def tool_start(tool_id, name, args=None):
+            self._ui.append(
+                sid,
+                "tool.start",
+                {"tool_id": tool_id, "name": name, "args_preview": str(args) if args else ""},
+                turn_id=turn_id,
+            )
+
+        def tool_complete(tool_id, name, args=None, result=""):
+            self._ui.append(
+                sid,
+                "tool.complete",
+                {"tool_id": tool_id, "name": name, "summary": result, "duration_s": 0},
+                turn_id=turn_id,
+            )
+
+        def tool_gen(name, tool_id=None):
+            payload = {"name": name, "text": name}
+            if tool_id:
+                payload["tool_id"] = tool_id
+            self._ui.append(sid, "tool.generating", payload, turn_id=turn_id)
+
+        return {
+            "stream_delta_callback": stream_delta,
+            "reasoning_callback": reasoning,
+            "tool_start_callback": tool_start,
+            "tool_complete_callback": tool_complete,
+            "tool_gen_callback": tool_gen,
+        }
+
+
+def test_run_turn_installs_turn_bound_callbacks_and_restores_them(tmp_path):
+    sid = "sess_test"
+    ui = _FakeUIStore()
+    bus = _FakeBus()
+    agent = _FakeAgentUsingCallbacks(ui, sid)
+    svc = AgentExecutionService(
+        hermes_home=tmp_path,
+        state=_FakeState(),
+        ui_messages=ui,
+        event_bus=bus,
+        agent_pool=_FakePoolWithTurnCallbacks(agent, ui),
+        session_service=MagicMock(),
+    )
+    turn_id = "turn_test"
+    user_seq = ui.append(sid, "user", {"text": "hi"}, turn_id=turn_id)
+
+    svc._run_turn(sid, "hi", user_seq, turn_id)
+
+    assert agent.stream_delta_callback is agent.original_stream_delta_callback
+    assert agent.tool_gen_callback is agent.original_tool_gen_callback
+    delta = next(row for row in ui.rows if row["type"] == "message.delta")
+    tool_generating = next(row for row in ui.rows if row["type"] == "tool.generating")
+    assert delta["turn_id"] == turn_id
+    assert tool_generating["turn_id"] == turn_id

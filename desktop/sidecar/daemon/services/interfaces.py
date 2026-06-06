@@ -28,7 +28,7 @@ class SessionStateStore(Protocol):
         ...
 
     def set_session_title(self, session_id: str, title: str) -> None:
-        """Update the session title column."""
+        """Update the session title for this session id."""
         ...
 
     def update_session_cwd(self, session_id: str, cwd: str) -> None:

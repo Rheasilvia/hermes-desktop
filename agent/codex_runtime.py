@@ -17,7 +17,6 @@ compatibility.
 from __future__ import annotations
 
 import logging
-import os
 import time
 from types import SimpleNamespace
 from typing import Any, Dict, List
@@ -252,7 +251,11 @@ def run_codex_app_server_turn(
     if not hasattr(agent, "_codex_session") or agent._codex_session is None:
         from agent.runtime_cwd import resolve_agent_cwd
 
-        cwd = getattr(agent, "session_cwd", None) or str(resolve_agent_cwd())
+        cwd = (
+            getattr(agent, "workspace_cwd", None)
+            or getattr(agent, "session_cwd", None)
+            or str(resolve_agent_cwd())
+        )
         # Approval callback: defer to Hermes' standard prompt flow if a
         # CLI thread has installed one. Gateway / cron contexts get the
         # codex-side fail-closed default.

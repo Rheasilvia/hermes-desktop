@@ -96,12 +96,76 @@ class TestSessionCRUD:
         r = client.post("/desktop/api/sessions", json={"cwd": str(first_cwd)})
         sid = r.json()["session_id"]
 
+        from daemon.services.agent_pool import AgentPool
+
+        class _FakeAgent:
+            pass
+
+        with patch.object(AgentPool, "_build_agent", return_value=(_FakeAgent(), "gpt-4", "openai")):
+            client.app.state.agent_pool.get_or_create(sid)
+        assert client.app.state.agent_pool.get_pooled_entry(sid) is not None
+
         resp = client.patch(f"/desktop/api/sessions/{sid}", json={"cwd": str(next_cwd)})
 
         assert resp.status_code == 200
+        assert resp.json()["cwd"] == str(next_cwd)
+        assert client.app.state.agent_pool.get_pooled_entry(sid) is None
         session = client.get(f"/desktop/api/sessions/{sid}").json()
         assert session["cwd"] == str(next_cwd)
         assert "workspace_path" not in session
+
+    def test_update_session_cwd_rejects_missing_directory_without_mutating_db(self, client, tmp_path):
+        first_cwd = tmp_path / "first"
+        first_cwd.mkdir()
+        missing_cwd = tmp_path / "missing"
+        r = client.post("/desktop/api/sessions", json={"cwd": str(first_cwd)})
+        sid = r.json()["session_id"]
+
+        resp = client.patch(f"/desktop/api/sessions/{sid}", json={"cwd": str(missing_cwd)})
+
+        assert resp.status_code == 400
+        session = client.get(f"/desktop/api/sessions/{sid}").json()
+        assert session["cwd"] == str(first_cwd)
+
+    def test_update_session_cwd_rejects_running_session_without_mutating_db(self, client, tmp_path):
+        first_cwd = tmp_path / "first"
+        next_cwd = tmp_path / "next"
+        first_cwd.mkdir()
+        next_cwd.mkdir()
+        r = client.post("/desktop/api/sessions", json={"cwd": str(first_cwd)})
+        sid = r.json()["session_id"]
+
+        from daemon.services.agent_pool import AgentPool
+
+        class _BlockingAgent:
+            _interrupted = False
+
+            def interrupt(self):
+                self._interrupted = True
+
+            def run_conversation(self, user_message, conversation_history):
+                while not self._interrupted:
+                    time.sleep(0.05)
+                return "interrupted"
+
+        with patch.object(AgentPool, "_build_agent", return_value=(_BlockingAgent(), "gpt-4", "openai")):
+            try:
+                run_resp = client.post("/desktop/api/prompt/execute", json={
+                    "message": "first",
+                    "session_id": sid,
+                })
+                assert run_resp.status_code == 202
+                time.sleep(0.1)
+
+                resp = client.patch(f"/desktop/api/sessions/{sid}", json={"cwd": str(next_cwd)})
+
+                assert resp.status_code == 409
+                assert resp.json()["code"] == "SESSION_BUSY"
+                session = client.get(f"/desktop/api/sessions/{sid}").json()
+                assert session["cwd"] == str(first_cwd)
+            finally:
+                client.post(f"/desktop/api/sessions/{sid}/interrupt")
+                time.sleep(0.1)
 
     def test_image_attach_requires_path_under_session_cwd(self, client, tmp_path):
         cwd = tmp_path / "project"
@@ -320,6 +384,8 @@ class TestMessagesReplay:
         assert data["messages"][0]["content"] == "where is core logic"
         assert data["messages"][1]["turn_id"] == turn_id
         assert data["messages"][1]["content"] == "final answer"
+        assert [block["type"] for block in data["messages"][1]["blocks"]] == ["text"]
+        assert data["messages"][1]["blocks"][0]["content"] == "final answer"
 
     def test_transcript_keeps_running_turn_live(self, client):
         from daemon.db.ui_messages import append
@@ -342,6 +408,7 @@ class TestMessagesReplay:
         assert data["live_turn"]["status"] == "running"
         assert data["live_turn"]["content"] == "partial"
         assert data["live_turn"]["reasoning"] == "thinking"
+        assert [block["type"] for block in data["live_turn"]["blocks"]] == ["reasoning", "text"]
 
 
 class TestPromptExecute:

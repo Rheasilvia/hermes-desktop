@@ -1699,8 +1699,13 @@ def init_agent(
         except Exception as _ce_err:
             _ra().logger.debug("Context engine on_session_start: %s", _ce_err)
 
+    try:
+        from tools.terminal_cwd import get_terminal_cwd
+        hint_working_dir = get_terminal_cwd(fallback="") or None
+    except Exception:
+        hint_working_dir = os.getenv("TERMINAL_CWD") or None
     agent._subdirectory_hints = SubdirectoryHintTracker(
-        working_dir=os.getenv("TERMINAL_CWD") or None,
+        working_dir=hint_working_dir,
     )
     agent._user_turn_count = 0
 

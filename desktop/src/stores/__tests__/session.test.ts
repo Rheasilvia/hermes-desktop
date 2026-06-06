@@ -73,7 +73,7 @@ function gatewayWithSessions(initial: SessionListItem[]) {
         create,
         delete: vi.fn(async () => undefined),
         rename: vi.fn(async () => undefined),
-        updateCwd: vi.fn(async () => undefined),
+        updateCwd: vi.fn(async (_sessionId: string, cwd: string) => ({ cwd })),
         branch: vi.fn(),
         resume: vi.fn(),
         interrupt: vi.fn(),
@@ -142,6 +142,32 @@ describe('sessionStore new conversation creation', () => {
     await sessionStore.createSession({ model: 'claude', system_prompt: 'be terse' });
 
     expect(create).toHaveBeenCalledWith({ model: 'claude', system_prompt: 'be terse' });
+  });
+
+  it('updates cwd only after the backend returns the canonical path', async () => {
+    const { gateway } = gatewayWithSessions([row({ id: 'session-1', cwd: '/tmp/old' })]);
+    vi.mocked(gateway.session.updateCwd).mockResolvedValueOnce({ cwd: '/tmp/new-canonical' });
+    initializeStores(gateway);
+    await sessionStore.loadSessions();
+
+    const result = await sessionStore.updateCwd('session-1', '/tmp/new');
+
+    expect(result).toBe(true);
+    expect(gateway.session.updateCwd).toHaveBeenCalledWith('session-1', '/tmp/new');
+    expect(sessionStore.sessions.find((s) => s.id === 'session-1')?.cwd).toBe('/tmp/new-canonical');
+  });
+
+  it('keeps the previous cwd when backend persistence fails', async () => {
+    const { gateway } = gatewayWithSessions([row({ id: 'session-1', cwd: '/tmp/old' })]);
+    vi.mocked(gateway.session.updateCwd).mockRejectedValueOnce(new Error('SESSION_BUSY'));
+    initializeStores(gateway);
+    await sessionStore.loadSessions();
+
+    const result = await sessionStore.updateCwd('session-1', '/tmp/new');
+
+    expect(result).toBe(false);
+    expect(sessionStore.sessions.find((s) => s.id === 'session-1')?.cwd).toBe('/tmp/old');
+    expect(sessionStore.error).toBe('SESSION_BUSY');
   });
 });
 

@@ -52,20 +52,33 @@ _workspace_root: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
 _approval_session_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "approval_session_id", default=None,
 )
+_approval_turn_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "approval_turn_id", default=None,
+)
 
 
-def set_workspace_context(workspace_root: Optional[str], session_id: Optional[str]) -> tuple:
+def set_workspace_context(
+    workspace_root: Optional[str],
+    session_id: Optional[str],
+    turn_id: Optional[str] = None,
+) -> tuple:
     """Set workspace root and session ID for the current thread context.
 
     Returns tokens for reset_workspace_context().
     """
-    return (_workspace_root.set(workspace_root), _approval_session_id.set(session_id))
+    return (
+        _workspace_root.set(workspace_root),
+        _approval_session_id.set(session_id),
+        _approval_turn_id.set(turn_id),
+    )
 
 
 def reset_workspace_context(tokens: tuple) -> None:
     """Restore prior workspace context."""
     _workspace_root.reset(tokens[0])
     _approval_session_id.reset(tokens[1])
+    if len(tokens) > 2:
+        _approval_turn_id.reset(tokens[2])
 
 
 def get_workspace_root() -> Optional[str]:
@@ -76,6 +89,11 @@ def get_workspace_root() -> Optional[str]:
 def get_approval_session_id() -> Optional[str]:
     """Return the session ID for path approval in the current thread, or None."""
     return _approval_session_id.get()
+
+
+def get_approval_turn_id() -> Optional[str]:
+    """Return the current desktop turn ID for path approval, or None."""
+    return _approval_turn_id.get()
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +429,9 @@ def request_path_approval(
         "is_path_approval": True,
         "session_key": session_key,
     }
+    turn_id = get_approval_turn_id()
+    if turn_id:
+        payload["turn_id"] = turn_id
 
     event = threading.Event()
     event._decision = "deny"  # type: ignore[attr-defined]

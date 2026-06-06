@@ -140,7 +140,11 @@ class TestToolCallbacks:
                 session_db=MagicMock(),
             )
         emitted = []
-        p._emit_ui_message = lambda sid, typ, payload: emitted.append((sid, typ, payload))
+
+        def capture(sid, typ, payload, *, turn_id=None):
+            emitted.append((sid, typ, payload, turn_id))
+
+        p._emit_ui_message = capture
         return p, emitted
 
     def test_tool_start_cb_accepts_run_agent_signature(self, pool_with_captured_emissions):
@@ -160,7 +164,7 @@ class TestToolCallbacks:
 
         cb("call_abc123", "terminal", {"command": "ls /tmp"})
 
-        _, typ, payload = emitted[0]
+        _, typ, payload, _ = emitted[0]
         assert typ == "tool.start"
         assert payload["tool_id"] == "call_abc123"
         assert payload["name"] == "terminal"
@@ -182,8 +186,175 @@ class TestToolCallbacks:
 
         cb("call_abc123", "terminal", {"command": "ls /tmp"}, "file1\nfile2\n")
 
-        _, typ, payload = emitted[0]
+        _, typ, payload, _ = emitted[0]
         assert typ == "tool.complete"
         assert payload["tool_id"] == "call_abc123"
         assert payload["name"] == "terminal"
         assert "summary" in payload
+
+    def test_turn_bound_stream_delta_passes_explicit_turn_id(self, pool_with_captured_emissions):
+        pool, emitted = pool_with_captured_emissions
+        cb = pool._make_stream_delta_cb("sess_1", turn_id="turn_a")
+
+        cb("hello")
+
+        assert emitted == [("sess_1", "message.delta", {"text": "hello"}, "turn_a")]
+
+    def test_turn_bound_tool_generating_passes_explicit_turn_id(self, pool_with_captured_emissions):
+        pool, emitted = pool_with_captured_emissions
+        cb = pool._make_tool_gen_cb("sess_1", turn_id="turn_a")
+
+        cb("terminal", "tool_1")
+
+        assert emitted == [
+            (
+                "sess_1",
+                "tool.generating",
+                {"name": "terminal", "text": "terminal", "tool_id": "tool_1"},
+                "turn_a",
+            )
+        ]
+
+
+class TestTurnBoundCallbackPersistence:
+    """Turn-bound callbacks must attribute events without ambient turn context."""
+
+    def test_stream_delta_persists_turn_id_without_ambient_context(self, tmp_path):
+        from daemon.db.ui_messages import list_messages
+
+        home = tmp_path / ".hermes"
+        pool = AgentPool(home, EventBus(), session_db=MagicMock())
+        cb = pool._make_stream_delta_cb("sess_1", turn_id="turn_a")
+
+        cb("hello")
+
+        rows = list_messages(home, "sess_1")
+        assert rows[0]["type"] == "message.delta"
+        assert rows[0]["turn_id"] == "turn_a"
+
+    def test_tool_generating_persists_turn_id_without_ambient_context(self, tmp_path):
+        from daemon.db.conversation_turns import list_turns
+        from daemon.db.ui_messages import list_messages
+
+        home = tmp_path / ".hermes"
+        pool = AgentPool(home, EventBus(), session_db=MagicMock())
+        cb = pool._make_tool_gen_cb("sess_1", turn_id="turn_a")
+
+        cb("terminal", "tool_1")
+
+        rows = list_messages(home, "sess_1")
+        assert rows[0]["type"] == "tool.generating"
+        assert rows[0]["turn_id"] == "turn_a"
+
+        blocks = list_turns(home, "sess_1")[0]["assistant_blocks"]
+        assert blocks[0]["type"] == "tool_call"
+        assert blocks[0]["toolId"] == "tool_1"
+
+    def test_callbacks_preserve_text_tool_text_order(self, tmp_path):
+        from daemon.db.conversation_turns import list_turns
+        from daemon.db.ui_messages import append
+
+        home = tmp_path / ".hermes"
+        sid = "sess_ordered"
+        turn_id = "turn_ordered"
+        pool = AgentPool(home, EventBus(), session_db=MagicMock())
+        callbacks = pool.make_turn_callbacks(sid, turn_id)
+
+        append(home, sid, "user", {"text": "inspect"}, turn_id=turn_id)
+        callbacks["stream_delta_callback"]("first ")
+        callbacks["tool_start_callback"]("tool_1", "terminal", {"command": "pwd"})
+        callbacks["tool_complete_callback"]("tool_1", "terminal", {"command": "pwd"}, "done")
+        callbacks["stream_delta_callback"]("middle ")
+        callbacks["tool_start_callback"]("tool_2", "read_file", {"path": "README.md"})
+        callbacks["tool_complete_callback"]("tool_2", "read_file", {"path": "README.md"}, "done")
+        pool._emit_ui_message(sid, "message.complete", {"text": "first middle final"}, turn_id=turn_id)
+
+        blocks = list_turns(home, sid)[0]["assistant_blocks"]
+        assert [
+            block["name"] if block["type"] == "tool_call" else block["type"]
+            for block in blocks
+        ] == ["text", "terminal", "text", "read_file", "text"]
+        assert blocks[0]["content"] == "first "
+        assert blocks[2]["content"] == "middle "
+        assert blocks[4]["content"] == "final"
+
+    def test_old_turn_bound_callback_does_not_use_new_active_turn(self, tmp_path):
+        from daemon.db.ui_messages import list_messages
+
+        home = tmp_path / ".hermes"
+        sid = "sess_zombie"
+        pool = AgentPool(home, EventBus(), session_db=MagicMock())
+        pool._agents[sid] = PooledAgent(MagicMock(), sid)
+        old_cb = pool._make_stream_delta_cb(sid, turn_id="turn_old")
+        pool.mark_running(sid, "turn_new")
+
+        old_cb("late")
+
+        rows = list_messages(home, sid)
+        assert rows[0]["turn_id"] == "turn_old"
+
+    def test_unbound_callback_does_not_fall_back_to_active_turn(self, tmp_path):
+        from daemon.db.conversation_turns import list_turns
+        from daemon.db.ui_messages import list_messages
+
+        home = tmp_path / ".hermes"
+        sid = "sess_strict"
+        pool = AgentPool(home, EventBus(), session_db=MagicMock())
+        pool._agents[sid] = PooledAgent(MagicMock(), sid)
+        pool.mark_running(sid, "turn_active")
+        cb = pool._make_stream_delta_cb(sid)
+
+        cb("missing attribution")
+
+        rows = list_messages(home, sid)
+        assert rows[0]["turn_id"] is None
+        assert list_turns(home, sid) == []
+
+    def test_payload_turn_id_is_still_respected(self, tmp_path):
+        from daemon.db.ui_messages import list_messages
+
+        home = tmp_path / ".hermes"
+        sid = "sess_payload"
+        pool = AgentPool(home, EventBus(), session_db=MagicMock())
+
+        pool._emit_ui_message(
+            sid,
+            "message.delta",
+            {"text": "payload-owned", "turn_id": "turn_payload"},
+        )
+
+        rows = list_messages(home, sid)
+        assert rows[0]["turn_id"] == "turn_payload"
+
+    def test_path_approval_payload_carries_explicit_turn_id(self):
+        from tools.path_approval import (
+            register_path_approval_notify,
+            request_path_approval,
+            reset_workspace_context,
+            resolve_path_approval,
+            set_workspace_context,
+            unregister_path_approval_notify,
+        )
+
+        sid = "sess_path_turn"
+        seen_payload = {}
+
+        def notify(payload):
+            seen_payload.update(payload)
+            resolve_path_approval(sid, "deny")
+
+        register_path_approval_notify(sid, notify)
+        tokens = set_workspace_context("/workspace", sid, "turn_path")
+        try:
+            decision = request_path_approval(
+                "/outside/file.txt",
+                "read",
+                sid,
+                "read:/outside",
+            )
+        finally:
+            reset_workspace_context(tokens)
+            unregister_path_approval_notify(sid)
+
+        assert decision == "deny"
+        assert seen_payload["turn_id"] == "turn_path"

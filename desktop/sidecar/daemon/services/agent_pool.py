@@ -20,6 +20,15 @@ from typing import Any, Callable, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
+TURN_SCOPED_UI_MESSAGE_TYPES = {
+    "message.delta",
+    "reasoning.delta",
+    "tool.start",
+    "tool.generating",
+    "tool.complete",
+    "tool.error",
+}
+
 
 @dataclass
 class PooledAgent:
@@ -61,7 +70,7 @@ class AgentPool:
         self._session_db = session_db
         self._lock = threading.RLock()
         self._agents: Dict[str, PooledAgent] = {}
-        self._thread_turn = threading.local()
+        self._missing_turn_warnings: set[tuple[str, str]] = set()
 
     def get_or_create(self, session_id: str) -> PooledAgent:
         """Return an existing PooledAgent or lazily build a new AIAgent."""
@@ -126,23 +135,10 @@ class AgentPool:
             if entry:
                 entry.active_thread = thread
 
-    def bind_current_thread_turn(self, session_id: str, turn_id: str) -> None:
-        self._thread_turn.session_id = session_id
-        self._thread_turn.turn_id = turn_id
-
-    def clear_current_thread_turn(self) -> None:
-        self._thread_turn.session_id = None
-        self._thread_turn.turn_id = None
-
     def get_active_turn_id(self, session_id: str) -> str | None:
         with self._lock:
             entry = self._agents.get(session_id)
             return entry.active_turn_id if entry else None
-
-    def get_current_thread_turn_id(self, session_id: str) -> str | None:
-        if getattr(self._thread_turn, "session_id", None) == session_id:
-            return getattr(self._thread_turn, "turn_id", None)
-        return None
 
     def interrupt(self, session_id: str) -> bool:
         """Request interrupt on a running agent. Returns True if an agent was interrupted."""
@@ -396,31 +392,40 @@ class AgentPool:
             skip_memory=True,  # memory not in scope yet
             platform="desktop",
         )
+        if cwd:
+            agent.workspace_cwd = cwd
+            agent.session_cwd = cwd
 
         # Wire callbacks
         _t0_init = time.time()
-        init_agent(
-            agent,
-            session_id=session_id,
-            session_db=self._session_db,
-            quiet_mode=True,
-            provider=provider or None,
-            model=model,
-            base_url=base_url or None,
-            api_key=api_key or None,
-            api_mode=api_mode,
-            stream_delta_callback=self._make_stream_delta_cb(session_id),
-            tool_start_callback=(_tool_start_cb := self._make_tool_start_cb(session_id)),
-            tool_complete_callback=self._make_tool_complete_cb(session_id, _tool_start_cb),
-            reasoning_callback=self._make_reasoning_cb(session_id),
-            tool_gen_callback=self._make_tool_gen_cb(session_id),
-            platform="desktop",
-        )
+        from contextlib import ExitStack
+        init_cwd_context = ExitStack()
+        if cwd:
+            from agent.runtime_cwd import reset_session_cwd, set_session_cwd
+            from tools.terminal_cwd import reset_terminal_cwd, set_terminal_cwd
+            init_cwd_context.callback(reset_terminal_cwd, set_terminal_cwd(cwd))
+            init_cwd_context.callback(reset_session_cwd, set_session_cwd(cwd))
+        with init_cwd_context:
+            init_agent(
+                agent,
+                session_id=session_id,
+                session_db=self._session_db,
+                quiet_mode=True,
+                provider=provider or None,
+                model=model,
+                base_url=base_url or None,
+                api_key=api_key or None,
+                api_mode=api_mode,
+                stream_delta_callback=self._make_stream_delta_cb(session_id),
+                tool_start_callback=(_tool_start_cb := self._make_tool_start_cb(session_id)),
+                tool_complete_callback=self._make_tool_complete_cb(session_id, _tool_start_cb),
+                reasoning_callback=self._make_reasoning_cb(session_id),
+                tool_gen_callback=self._make_tool_gen_cb(session_id),
+                platform="desktop",
+            )
 
         # Store cwd on agent for system prompt and tool CWD.
         if cwd:
-            agent.workspace_cwd = cwd
-
             # Register path approval callback for workspace boundary enforcement
             from tools.path_approval import (
                 register_path_approval_notify,
@@ -433,7 +438,8 @@ class AgentPool:
             register_hermes_home(lambda: self._hermes_home)
 
             def _path_approval_cb(payload: dict) -> None:
-                turn_id = self.get_current_thread_turn_id(session_id)
+                raw_turn_id = payload.get("turn_id")
+                turn_id = str(raw_turn_id) if raw_turn_id else None
                 seq = ui_append(self._hermes_home, session_id, "approval.request", payload, turn_id=turn_id)
                 publish_payload = {**payload, **({"turn_id": turn_id} if turn_id else {})}
                 self._bus.publish(session_id, seq, "approval.request", publish_payload)
@@ -496,24 +502,78 @@ class AgentPool:
 
     # ── callback factories ────────────────────────────────────────────────
 
-    def _emit_ui_message(self, session_id: str, msg_type: str, payload: Dict[str, Any]) -> None:
+    def make_turn_callbacks(self, session_id: str, turn_id: str) -> Dict[str, Callable]:
+        """Create callbacks that are explicitly bound to a concrete turn.
+
+        Desktop streaming/tool callbacks can be invoked from helper threads or
+        provider code paths that do not share the turn runner's execution
+        context. Capturing the turn here makes ui_messages attribution stable
+        without falling back to active_turn_id, which is unsafe after force_reset.
+        """
+        tool_start_cb = self._make_tool_start_cb(session_id, turn_id=turn_id)
+        return {
+            "stream_delta_callback": self._make_stream_delta_cb(session_id, turn_id=turn_id),
+            "tool_start_callback": tool_start_cb,
+            "tool_complete_callback": self._make_tool_complete_cb(
+                session_id,
+                tool_start_cb,
+                turn_id=turn_id,
+            ),
+            "reasoning_callback": self._make_reasoning_cb(session_id, turn_id=turn_id),
+            "tool_gen_callback": self._make_tool_gen_cb(session_id, turn_id=turn_id),
+        }
+
+    def _resolve_turn_id(
+        self,
+        payload: Dict[str, Any],
+        explicit_turn_id: str | None,
+    ) -> str | None:
+        if explicit_turn_id:
+            return explicit_turn_id
+        payload_turn_id = payload.get("turn_id")
+        if payload_turn_id:
+            return str(payload_turn_id)
+        return None
+
+    def _warn_missing_turn_id_once(self, session_id: str, msg_type: str) -> None:
+        key = (session_id, msg_type)
+        with self._lock:
+            if key in self._missing_turn_warnings:
+                return
+            self._missing_turn_warnings.add(key)
+        log.warning(
+            "[agent_pool] emitted %s without turn_id for %s; event will not update conversation_turns",
+            msg_type,
+            session_id,
+        )
+
+    def _emit_ui_message(
+        self,
+        session_id: str,
+        msg_type: str,
+        payload: Dict[str, Any],
+        *,
+        turn_id: str | None = None,
+    ) -> None:
         """Write a ui_messages row, then publish the event on the bus."""
         from ..db.ui_messages import append
 
         try:
-            turn_id = self.get_current_thread_turn_id(session_id)
-            seq = append(self._hermes_home, session_id, msg_type, payload, turn_id=turn_id)
-            publish_payload = {**payload, **({"turn_id": turn_id} if turn_id else {})}
+            resolved_turn_id = self._resolve_turn_id(payload, turn_id)
+            if not resolved_turn_id and msg_type in TURN_SCOPED_UI_MESSAGE_TYPES:
+                self._warn_missing_turn_id_once(session_id, msg_type)
+            seq = append(self._hermes_home, session_id, msg_type, payload, turn_id=resolved_turn_id)
+            publish_payload = {**payload, **({"turn_id": resolved_turn_id} if resolved_turn_id else {})}
             self._bus.publish(session_id, seq, msg_type, publish_payload)
         except Exception:
             log.exception("_emit_ui_message failed for %s/%s", session_id, msg_type)
 
-    def _make_stream_delta_cb(self, session_id: str) -> Callable[[str], None]:
+    def _make_stream_delta_cb(self, session_id: str, *, turn_id: str | None = None) -> Callable[[str], None]:
         def cb(delta: str) -> None:
-            self._emit_ui_message(session_id, "message.delta", {"text": delta})
+            self._emit_ui_message(session_id, "message.delta", {"text": delta}, turn_id=turn_id)
         return cb
 
-    def _make_tool_start_cb(self, session_id: str) -> Callable:
+    def _make_tool_start_cb(self, session_id: str, *, turn_id: str | None = None) -> Callable:
         start_times: Dict[str, float] = {}
 
         def cb(tool_call_id: str, name: str, args: dict = None) -> None:
@@ -522,12 +582,18 @@ class AgentPool:
                 "tool_id": tool_call_id,
                 "name": name,
                 "args_preview": str(args)[:200] if args else "",
-            })
+            }, turn_id=turn_id)
 
         cb._start_times = start_times  # type: ignore[attr-defined]
         return cb
 
-    def _make_tool_complete_cb(self, session_id: str, start_cb: Callable = None) -> Callable:
+    def _make_tool_complete_cb(
+        self,
+        session_id: str,
+        start_cb: Callable = None,
+        *,
+        turn_id: str | None = None,
+    ) -> Callable:
         def cb(tool_call_id: str, name: str, args: dict = None, result: str = "") -> None:
             duration_s = 0.0
             if start_cb is not None and hasattr(start_cb, "_start_times"):
@@ -548,19 +614,24 @@ class AgentPool:
                         payload["todos"] = data.get("todos")
                 except (json.JSONDecodeError, TypeError):
                     pass
-            self._emit_ui_message(session_id, "tool.complete", payload)
+            self._emit_ui_message(session_id, "tool.complete", payload, turn_id=turn_id)
 
         return cb
 
-    def _make_reasoning_cb(self, session_id: str) -> Callable[[str], None]:
+    def _make_reasoning_cb(self, session_id: str, *, turn_id: str | None = None) -> Callable[[str], None]:
         def cb(text: str) -> None:
-            self._emit_ui_message(session_id, "reasoning.delta", {"text": text})
+            self._emit_ui_message(session_id, "reasoning.delta", {"text": text}, turn_id=turn_id)
         return cb
 
-    def _make_tool_gen_cb(self, session_id: str) -> Callable[[str, str | None], None]:
+    def _make_tool_gen_cb(
+        self,
+        session_id: str,
+        *,
+        turn_id: str | None = None,
+    ) -> Callable[[str, str | None], None]:
         def cb(name: str, tool_id: str | None = None) -> None:
             payload = {"name": name, "text": name}
             if tool_id:
                 payload["tool_id"] = tool_id
-            self._emit_ui_message(session_id, "tool.generating", payload)
+            self._emit_ui_message(session_id, "tool.generating", payload, turn_id=turn_id)
         return cb
