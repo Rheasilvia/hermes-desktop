@@ -190,8 +190,9 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         await this.http.patch(`${API_PREFIX}/sessions/${sessionId}`, { title });
       },
 
-      updateCwd: async (sessionId: string, cwd: string): Promise<void> => {
-        await this.http.patch(`${API_PREFIX}/sessions/${sessionId}`, { cwd });
+      updateCwd: async (sessionId: string, cwd: string): Promise<{ cwd: string }> => {
+        const r = await this.http.patch<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}`, { cwd });
+        return { cwd: String(r.cwd ?? cwd) };
       },
 
       branch: async (sessionId: string): Promise<SessionMeta> => {
@@ -231,12 +232,15 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     // ── prompt.execute (REAL) ───────────────────────────────────────────
     this.prompt = {
       execute: async (params) => {
-        return this.http.post(`${API_PREFIX}/prompt/execute`, {
+        const body: Record<string, unknown> = {
           message: params.message,
           session_id: params.session_id,
           provider: params.provider,
           model: params.model,
-        });
+        };
+        if (params.context !== undefined) body.context = params.context;
+        if (params.slash_command !== undefined) body.slash_command = params.slash_command;
+        return this.http.post(`${API_PREFIX}/prompt/execute`, body);
       },
     };
 

@@ -22,15 +22,16 @@ import type {
   SecretRequestPayload,
   ErrorPayload,
   TurnInterruptedPayload,
+  TodoItem,
 } from '@/types/gateway.js';
 import type { SessionMessage } from '@/types/session.js';
 import type { TranscriptLiveTurn, TranscriptMessage } from '@/types/session.js';
 import type { RenderedMessage } from '@/types/ui/message.js';
 import type { LiveTurnState, LiveToolCall, MemoryContextItem } from '@/types/ui/turn.js';
 import type { ConversationMessage, ParsedToolCall } from '@/types/domain/message.js';
-import type { ToolCallBlock } from '@/types/ui/blocks.js';
+import type { MessageBlock, ReasoningBlock, ToolCallBlock } from '@/types/ui/blocks.js';
 import type { TextBlock } from '@/types/ui/blocks.js';
-import { parseMessage, parseBlocks } from '@/utils/messageParser.js';
+import { parseMessage, parseBlocks, hydratePersistedBlocks } from '@/utils/messageParser.js';
 import { getGateway } from './context.js';
 import { modelStore } from './models.js';
 import { sessionStore } from './session.js';
@@ -61,6 +62,7 @@ function makeLiveTurnState(sessionId: string): LiveTurnState {
     status: 'idle',
     streamingText: '',
     reasoningText: '',
+    activityBlocks: [],
     activeTools: [],
     todosToolId: null,
     todos: [],
@@ -215,12 +217,14 @@ function transcriptMsgToDomain(msg: TranscriptMessage, sessionId: string): Conve
     content: msg.content,
     reasoning: msg.reasoning ?? null,
     toolCalls: msg.tool_calls ?? null,
+    blocks: msg.blocks ?? null,
     toolCallId: null,
     toolName: null,
     timestamp: msg.timestamp,
     tokenCount: msg.token_count ?? null,
     finishReason: msg.finish_reason ?? null,
     attachments: null,
+    slashCommand: msg.slash_command ?? null,
   };
 }
 
@@ -236,8 +240,150 @@ function transcriptToolToLiveTool(tool: ParsedToolCall): LiveToolCall {
   };
 }
 
+function liveToolToBlock(tool: LiveToolCall): ToolCallBlock {
+  return {
+    type: 'tool_call',
+    id: `tc-${tool.id}`,
+    toolId: tool.id,
+    name: tool.name,
+    status: tool.status === 'generating' ? 'streaming' : tool.status,
+    inputPreview: tool.inputPreview,
+    outputSummary: tool.resultSummary ?? tool.progressPreview,
+    inlineDiff: null,
+    durationMs: tool.durationMs,
+  };
+}
+
+function appendActivityText(sessionId: string, text: string | null | undefined): void {
+  if (!text) return;
+  setChatStates(sessionId, 'liveState', 'activityBlocks', (blocks) => {
+    const last = blocks[blocks.length - 1];
+    if (last?.type === 'text') {
+      return [
+        ...blocks.slice(0, -1),
+        { ...last, content: last.content + text },
+      ];
+    }
+    return [...blocks, { type: 'text' as const, id: nextBlockId(), content: text }];
+  });
+}
+
+function appendActivityReasoning(sessionId: string, text: string): void {
+  if (!text) return;
+  setChatStates(sessionId, 'liveState', 'activityBlocks', (blocks) => {
+    const last = blocks[blocks.length - 1];
+    if (last?.type === 'reasoning') {
+      return [
+        ...blocks.slice(0, -1),
+        { ...last, content: last.content + text, isStreaming: true },
+      ];
+    }
+    return [
+      ...blocks,
+      {
+        type: 'reasoning' as const,
+        id: nextBlockId(),
+        content: text,
+        isStreaming: true,
+        tokenCount: null,
+      },
+    ];
+  });
+}
+
+function syncActivityToolBlock(sessionId: string, toolId: string): void {
+  const tool = chatStates[sessionId]?.liveState.activeTools.find((item) => item.id === toolId);
+  if (!tool) return;
+  const nextBlock = liveToolToBlock(tool);
+  setChatStates(sessionId, 'liveState', 'activityBlocks', (blocks) => {
+    const idx = blocks.findIndex((block) => block.type === 'tool_call' && block.toolId === toolId);
+    if (idx < 0) return [...blocks, nextBlock];
+    return blocks.map((block, blockIdx) =>
+      blockIdx === idx ? { ...nextBlock, id: block.id } : block
+    );
+  });
+}
+
+function syncActivityTodoBlock(sessionId: string, toolId: string, todos: TodoItem[]): void {
+  if (todos.length === 0) return;
+  setChatStates(sessionId, 'liveState', 'activityBlocks', (blocks) => {
+    const idx = blocks.findIndex((block) => block.type === 'todo_list' && block.toolId === toolId);
+    const nextBlock = {
+      type: 'todo_list' as const,
+      id: idx >= 0 ? blocks[idx].id : nextBlockId(),
+      toolId,
+      todos,
+    };
+    if (idx < 0) return [...blocks, nextBlock];
+    return blocks.map((block, blockIdx) => blockIdx === idx ? nextBlock : block);
+  });
+}
+
+function finalizeActivityBlocks(live: LiveTurnState, finalText: string | null | undefined): MessageBlock[] {
+  let blocks = live.activityBlocks;
+  const streamedText = blocks
+    .filter((block): block is TextBlock => block.type === 'text')
+    .map((block) => block.content)
+    .join('');
+
+  // message.complete.text is the final snapshot for durable assistant content,
+  // not another text event. Only synthesize text when no delta arrived.
+  if (finalText && !streamedText) {
+    blocks = [...blocks, ...parseBlocks(finalText)];
+  }
+
+  const hasTodos = live.todos.length > 0 || blocks.some((block) => block.type === 'todo_list');
+  const finalized = blocks.flatMap((block): MessageBlock[] => {
+    if (block.type === 'reasoning') {
+      return [{ ...block, isStreaming: false } satisfies ReasoningBlock];
+    }
+    if (block.type === 'tool_call') {
+      if (hasTodos && block.name === 'todo') return [];
+      return [{
+        ...block,
+        status: block.status === 'error' ? 'error' : 'complete',
+      }];
+    }
+    if (block.type === 'text') {
+      return parseBlocks(block.content);
+    }
+    return [block];
+  });
+
+  if (live.todos.length > 0 && !finalized.some((block) => block.type === 'todo_list')) {
+    finalized.push({
+      type: 'todo_list',
+      id: nextBlockId(),
+      toolId: live.todosToolId ?? live.activeTools[0]?.id ?? 'todo',
+      todos: live.todos,
+    });
+  }
+
+  return finalized;
+}
+
 function liveStateFromTranscript(sessionId: string, liveTurn: TranscriptLiveTurn | null): LiveTurnState {
   if (!liveTurn) return makeLiveTurnState(sessionId);
+  const activeTools = (liveTurn.tools ?? []).map(transcriptToolToLiveTool);
+  const persistedBlocks = hydratePersistedBlocks(liveTurn.blocks, {
+    parseTextBlocks: false,
+    isStreaming: true,
+  });
+  const activityBlocks: MessageBlock[] = persistedBlocks.length > 0 ? persistedBlocks : [
+    ...(liveTurn.reasoning ? [{
+      type: 'reasoning' as const,
+      id: nextBlockId(),
+      content: liveTurn.reasoning,
+      isStreaming: true,
+      tokenCount: null,
+    }] : []),
+    ...activeTools.map(liveToolToBlock),
+    ...(liveTurn.content ? [{
+      type: 'text' as const,
+      id: nextBlockId(),
+      content: liveTurn.content,
+    }] : []),
+  ];
   return {
     ...makeLiveTurnState(sessionId),
     turnId: liveTurn.turn_id,
@@ -245,9 +391,10 @@ function liveStateFromTranscript(sessionId: string, liveTurn: TranscriptLiveTurn
     status: 'streaming',
     streamingText: liveTurn.content,
     reasoningText: liveTurn.reasoning,
-    activeTools: (liveTurn.tools ?? []).map(transcriptToolToLiveTool),
+    activityBlocks,
+    activeTools,
     todos: liveTurn.todos ?? [],
-    todosToolId: liveTurn.todos?.length ? (liveTurn.tools?.find((tool) => tool.name === 'todo')?.id ?? null) : null,
+    todosToolId: liveTurn.todos?.length ? (activeTools.find((tool) => tool.name === 'todo')?.id ?? null) : null,
   };
 }
 
@@ -313,39 +460,7 @@ function noteTurnEvent(sessionId: string, payload: TurnPayload): boolean {
 }
 
 function interruptedBlocksFromLive(live: LiveTurnState): RenderedMessage['blocks'] {
-  const toolBlocks: ToolCallBlock[] = live.activeTools.map((t) => ({
-    type: 'tool_call' as const,
-    id: `tc-${t.id}`,
-    toolId: t.id,
-    name: t.name,
-    status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
-    inputPreview: t.inputPreview,
-    outputSummary: null,
-    inlineDiff: null,
-    durationMs: t.durationMs,
-  }));
-
-  return [
-    ...(live.reasoningText ? [{
-      type: 'reasoning' as const,
-      id: nextBlockId(),
-      content: live.reasoningText,
-      isStreaming: false,
-      tokenCount: null,
-    }] : []),
-    ...(live.streamingText ? [{
-      type: 'text' as const,
-      id: nextBlockId(),
-      content: live.streamingText,
-    }] : []),
-    ...toolBlocks,
-    ...(live.todos.length > 0 ? [{
-      type: 'todo_list' as const,
-      id: nextBlockId(),
-      toolId: live.todosToolId ?? live.activeTools[0]?.id ?? 'todo',
-      todos: live.todos,
-    }] : []),
-  ];
+  return finalizeActivityBlocks(live, live.streamingText);
 }
 
 // ── Chat Store ────────────────────────────────────────────────────────────
@@ -419,7 +534,11 @@ export const chatStore = {
     }
   },
 
-  async sendMessage(sessionId: string, text: string): Promise<boolean> {
+  async sendMessage(
+    sessionId: string,
+    text: string,
+    opts?: { context?: string; slashCommand?: { command: string; args: string } },
+  ): Promise<boolean> {
     const gateway = getGateway();
     if (!gateway) return false;
     beginLiveTurn(sessionId, 'submitting');
@@ -432,6 +551,8 @@ export const chatStore = {
         session_id: sessionId,
         provider: sessionModel?.provider ?? modelStore.defaultProvider ?? undefined,
         model: sessionModel?.model ?? modelStore.defaultModel ?? undefined,
+        context: opts?.context,
+        slash_command: opts?.slashCommand,
       });
       this.markPromptAccepted(sessionId, accepted.turn_id);
       return true;
@@ -522,6 +643,7 @@ export const chatStore = {
     noteLiveEvent(sessionId);
     setChatStates(sessionId, 'liveState', 'streamingText',
       (t) => t + (payload.text ?? ''));
+    appendActivityText(sessionId, payload.text);
     setChatStates(sessionId, 'liveState', 'status', 'streaming');
   },
 
@@ -533,6 +655,7 @@ export const chatStore = {
     if (!noteTurnEvent(sessionId, payload)) return;
     noteLiveEvent(sessionId);
     setChatStates(sessionId, 'liveState', 'reasoningText', (t) => t + payload.text);
+    appendActivityReasoning(sessionId, payload.text);
   },
 
   handleToolStart(sessionId: string, payload: ToolStartPayload): void {
@@ -559,6 +682,7 @@ export const chatStore = {
       };
       return [...tools, newTool];
     });
+    syncActivityToolBlock(sessionId, payload.tool_id);
   },
 
   handleToolProgress(sessionId: string, payload: ToolProgressPayload): void {
@@ -574,12 +698,15 @@ export const chatStore = {
         'progressPreview',
         preview,
       );
+      syncActivityToolBlock(sessionId, payload.tool_id);
     } else {
       // Legacy: no tool_id — update the latest running tool with matching name
       const tools = chatStates[sessionId]?.liveState.activeTools ?? [];
       const idx = latestMatchingToolIndex(tools, payload.name);
       if (idx >= 0) {
         setChatStates(sessionId, 'liveState', 'activeTools', idx, 'progressPreview', preview);
+        const toolId = chatStates[sessionId]?.liveState.activeTools[idx]?.id;
+        if (toolId) syncActivityToolBlock(sessionId, toolId);
       }
     }
   },
@@ -598,10 +725,12 @@ export const chatStore = {
         t.durationMs = durationMs;
       }),
     );
+    syncActivityToolBlock(sessionId, payload.tool_id);
     setChatStates(sessionId, 'liveState', 'status', 'streaming');
     if (payload.todos && payload.todos.length > 0) {
       setChatStates(sessionId, 'liveState', 'todos', payload.todos);
       setChatStates(sessionId, 'liveState', 'todosToolId', payload.tool_id);
+      syncActivityTodoBlock(sessionId, payload.tool_id, payload.todos);
     }
   },
 
@@ -631,6 +760,7 @@ export const chatStore = {
       };
       return [...tools, newTool];
     });
+    syncActivityToolBlock(sessionId, payload.tool_id);
   },
 
   handleToolError(sessionId: string, payload: ToolErrorPayload): void {
@@ -646,6 +776,7 @@ export const chatStore = {
         t.durationMs = durationMs;
       }),
     );
+    syncActivityToolBlock(sessionId, payload.tool_id);
     setChatStates(sessionId, 'liveState', 'status', 'streaming');
   },
 
@@ -665,41 +796,8 @@ export const chatStore = {
     const live = chatStates[sessionId]?.liveState;
     if (!live) return;
 
-    const hasTodos = live.todos.length > 0;
-    const toolBlocks: ToolCallBlock[] = live.activeTools
-      .filter((t) => !hasTodos || t.name !== 'todo')
-      .map((t) => ({
-        type: 'tool_call' as const,
-        id: `tc-${t.id}`,
-        toolId: t.id,
-        name: t.name,
-        status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
-        inputPreview: t.inputPreview,
-        outputSummary: t.resultSummary,
-        inlineDiff: null,
-        durationMs: t.durationMs,
-      }));
-
-    const todoBlocks = hasTodos
-      ? [{
-          type: 'todo_list' as const,
-          id: nextBlockId(),
-          toolId: live.todosToolId ?? live.activeTools[0]?.id ?? 'todo',
-          todos: live.todos,
-        }]
-      : [];
-
     const blocks = [
-      ...(live.reasoningText ? [{
-        type: 'reasoning' as const,
-        id: nextBlockId(),
-        content: live.reasoningText,
-        isStreaming: false,
-        tokenCount: null,
-      }] : []),
-      ...toolBlocks,
-      ...todoBlocks,
-      ...parseBlocks(payload.text),
+      ...finalizeActivityBlocks(live, payload.text),
     ];
 
     if (blocks.length === 0) {
@@ -872,39 +970,7 @@ export const chatStore = {
         return;
       }
 
-      const toolBlocks: ToolCallBlock[] = live.activeTools.map((t) => ({
-        type: 'tool_call' as const,
-        id: `tc-${t.id}`,
-        toolId: t.id,
-        name: t.name,
-        status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
-        inputPreview: t.inputPreview,
-        outputSummary: null,
-        inlineDiff: null,
-        durationMs: t.durationMs,
-      }));
-
-      const blocks = [
-        ...(live.reasoningText ? [{
-          type: 'reasoning' as const,
-          id: nextBlockId(),
-          content: live.reasoningText,
-          isStreaming: false,
-          tokenCount: null,
-        }] : []),
-        ...(live.streamingText ? [{
-          type: 'text' as const,
-          id: nextBlockId(),
-          content: live.streamingText,
-        }] : []),
-        ...toolBlocks,
-        ...(live.todos.length > 0 ? [{
-          type: 'todo_list' as const,
-          id: nextBlockId(),
-          toolId: live.todosToolId ?? live.activeTools[0]?.id ?? 'todo',
-          todos: live.todos,
-        }] : []),
-      ];
+      const blocks = finalizeActivityBlocks(live, live.streamingText);
 
       if (blocks.length === 0) {
         setChatStates(sessionId, 'liveState', makeLiveTurnState(sessionId));

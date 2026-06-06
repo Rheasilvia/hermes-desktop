@@ -129,7 +129,7 @@ export interface SessionMethods {
   create(params: { model?: string; provider?: string; system_prompt?: string; cwd?: string }): Promise<SessionMeta>;
   delete(sessionId: string): Promise<void>;
   rename(sessionId: string, title: string): Promise<void>;
-  updateCwd(sessionId: string, cwd: string): Promise<void>;
+  updateCwd(sessionId: string, cwd: string): Promise<{ cwd: string }>;
   branch(sessionId: string): Promise<SessionMeta>;
   resume(sessionId: string): Promise<void>;
   interrupt(sessionId: string): Promise<void>;
@@ -140,7 +140,16 @@ export interface SessionMethods {
 
 /** Prompt method group. */
 export interface PromptMethods {
-  execute(params: { message: string; session_id?: string; provider?: string; model?: string }): Promise<PromptExecuteResult>;
+  execute(params: {
+    message: string;
+    session_id?: string;
+    provider?: string;
+    model?: string;
+    /** Optional context injected into the LLM conversation for this turn only (not stored in DB). */
+    context?: string;
+    /** Slash command metadata persisted alongside the message for UI display. */
+    slash_command?: { command: string; args: string };
+  }): Promise<PromptExecuteResult>;
 }
 
 /** Image attachment method group. */
