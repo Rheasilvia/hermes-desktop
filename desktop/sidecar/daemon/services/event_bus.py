@@ -52,14 +52,40 @@ class EventBus:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:
             pass  # not in an asyncio context
-        if self._loop is None:
+        if self._loop is None or self._loop.is_closed():
+            self._loop = None
             raise RuntimeError("EventBus: no asyncio loop available")
         return self._loop
 
     def _start_flush_if_needed(self, loop: asyncio.AbstractEventLoop) -> None:
+        if loop.is_closed() or not loop.is_running():
+            raise RuntimeError("EventBus: no running asyncio loop available")
+
         with self._flush_lock:
-            if self._flush_task is None or self._flush_task.done():
-                self._flush_task = loop.create_task(self._flush_loop())
+            task = self._flush_task
+            needs_task = task is None or task.done() or task.get_loop() is not loop
+            if needs_task:
+                coro = self._flush_loop()
+                try:
+                    self._flush_task = loop.create_task(coro)
+                except Exception:
+                    coro.close()
+                    raise
+
+    def _schedule_flush_if_needed(self, loop: asyncio.AbstractEventLoop) -> None:
+        if loop.is_closed() or not loop.is_running():
+            raise RuntimeError("EventBus: no running asyncio loop available")
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is loop:
+            self._start_flush_if_needed(loop)
+            return
+
+        loop.call_soon_threadsafe(self._start_flush_if_needed, loop)
 
     async def _flush_loop(self) -> None:
         """Periodically drain the staging queue and dispatch to subscribers."""
@@ -81,6 +107,7 @@ class EventBus:
         # Ensure the flush loop is started on the current event loop
         try:
             loop = asyncio.get_running_loop()
+            self._loop = loop
             self._start_flush_if_needed(loop)
         except RuntimeError:
             pass
@@ -110,7 +137,7 @@ class EventBus:
         # Try to start the flush task if we're on the main thread
         try:
             loop = self._ensure_loop()
-            self._start_flush_if_needed(loop)
+            self._schedule_flush_if_needed(loop)
         except RuntimeError:
             pass  # worker thread — flush task already started or will start on next subscribe
 

@@ -17,10 +17,19 @@ class _FakeUIStore:
         self.rows = []
         self._seq = 0
 
-    def append(self, session_id, msg_type, payload):
+    def append(self, session_id, msg_type, payload, turn_id=None):
         self._seq += 1
+        payload_to_store = dict(payload)
+        if turn_id:
+            payload_to_store.setdefault("turn_id", turn_id)
         self.rows.append(
-            {"session_id": session_id, "seq": self._seq, "type": msg_type, "payload": payload}
+            {
+                "session_id": session_id,
+                "seq": self._seq,
+                "type": msg_type,
+                "payload": payload_to_store,
+                "turn_id": turn_id,
+            }
         )
         return self._seq
 
@@ -70,18 +79,28 @@ class _Entry:
 class _FakePool:
     def __init__(self, agent):
         self._entry = _Entry(agent)
+        self._turn_id = None
 
     def get_pooled_entry(self, sid):
         return self._entry
 
-    def mark_running(self, sid):
-        ...
+    def mark_running(self, sid, turn_id=None):
+        self._turn_id = turn_id
 
     def set_thread(self, sid, t):
         ...
 
     def mark_idle(self, sid, thread=None):
         ...
+
+    def bind_current_thread_turn(self, sid, turn_id):
+        self._turn_id = turn_id
+
+    def clear_current_thread_turn(self):
+        self._turn_id = None
+
+    def get_current_thread_turn_id(self, sid):
+        return self._turn_id
 
 
 class _FakeDB:
@@ -114,8 +133,9 @@ def test_streamed_text_with_empty_final_response_still_completes(tmp_path):
         session_service=MagicMock(),
     )
 
-    user_seq = ui.append(sid, "user", {"text": "你是什么模型？"})
-    svc._run_turn(sid, "你是什么模型？", user_seq)
+    turn_id = "turn_test"
+    user_seq = ui.append(sid, "user", {"text": "你是什么模型？"}, turn_id=turn_id)
+    svc._run_turn(sid, "你是什么模型？", user_seq, turn_id)
 
     completes = [e for e in bus.published if e["type"] == "message.complete"]
     assert completes, (
@@ -124,6 +144,7 @@ def test_streamed_text_with_empty_final_response_still_completes(tmp_path):
     )
     # The finalized text must preserve the streamed answer (not vanish).
     assert completes[0]["payload"]["text"] == "我是 MiniMax-M3"
+    assert completes[0]["payload"]["turn_id"] == turn_id
 
 
 class _FakeAgentWithFinal(_FakeAgent):
@@ -150,8 +171,9 @@ def _run(agent_cls, tmp_path):
         agent_pool=_FakePool(agent_cls(ui, sid)),
         session_service=MagicMock(),
     )
-    user_seq = ui.append(sid, "user", {"text": "hi"})
-    svc._run_turn(sid, "hi", user_seq)
+    turn_id = "turn_test"
+    user_seq = ui.append(sid, "user", {"text": "hi"}, turn_id=turn_id)
+    svc._run_turn(sid, "hi", user_seq, turn_id)
     return bus
 
 

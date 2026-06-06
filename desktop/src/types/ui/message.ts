@@ -13,6 +13,7 @@ export interface RenderedMessage {
   /** number = persisted DB row id; string = ephemeral streaming message */
   id: number | string;
   sessionId: string;
+  turnId?: string | null;
   role: Role;
   blocks: MessageBlock[];
   timestamp: number;

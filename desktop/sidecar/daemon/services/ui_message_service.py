@@ -14,9 +14,15 @@ class UIMessageService:
     def __init__(self, hermes_home: Path) -> None:
         self._hermes_home = hermes_home
 
-    def append(self, session_id: str, msg_type: str, payload: dict) -> int:
+    def append(
+        self,
+        session_id: str,
+        msg_type: str,
+        payload: dict,
+        turn_id: str | None = None,
+    ) -> int:
         from ..db.ui_messages import append as _append
-        return _append(self._hermes_home, session_id, msg_type, payload)
+        return _append(self._hermes_home, session_id, msg_type, payload, turn_id=turn_id)
 
     def list_messages(self, session_id: str, since_seq: int | None = None) -> list[dict]:
         from ..db.ui_messages import list_messages as _list

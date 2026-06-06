@@ -252,6 +252,16 @@ export interface SessionUsagePayload {
 /** Message start event payload. */
 export interface MessageStartPayload {
   message_id?: string;
+  turn_id?: string;
+  event_seq?: number;
+}
+
+/** Prompt execute response payload. */
+export interface PromptExecuteResult {
+  status: string;
+  session_id: string;
+  turn_id: string;
+  user_seq: number;
 }
 
 /** Message delta event payload. */
@@ -261,6 +271,8 @@ export interface MessageDeltaPayload {
   reasoning?: string;
   tool_calls?: unknown[];
   rendered?: boolean;
+  turn_id?: string;
+  event_seq?: number;
 }
 
 /** Message complete event payload. */
@@ -270,6 +282,8 @@ export interface MessageCompletePayload {
   rendered?: boolean;
   usage?: SessionUsagePayload;
   status?: MessageStatusPayload;
+  turn_id?: string;
+  event_seq?: number;
 }
 
 /** Message status payload. */
@@ -289,6 +303,8 @@ export interface ThinkingDeltaPayload {
 export interface ReasoningDeltaPayload {
   session_id: string;
   text: string;
+  turn_id?: string;
+  event_seq?: number;
 }
 
 /** Reasoning available event payload. */
@@ -308,6 +324,8 @@ export interface ToolStartPayload {
   tool_id: string;
   name: string;
   context?: string;
+  turn_id?: string;
+  event_seq?: number;
 }
 
 /** Tool progress event payload. */
@@ -317,6 +335,8 @@ export interface ToolProgressPayload {
   name: string;
   preview?: string;
   progress?: string;
+  turn_id?: string;
+  event_seq?: number;
 }
 
 /** Todo item from tool execution. */
@@ -335,6 +355,8 @@ export interface ToolCompletePayload {
   inline_diff?: string;
   duration_s?: number;
   todos?: TodoItem[];
+  turn_id?: string;
+  event_seq?: number;
 }
 
 /** Tool generating event payload. */
@@ -343,6 +365,8 @@ export interface ToolGeneratingPayload {
   tool_id: string;
   name: string;
   text: string;
+  turn_id?: string;
+  event_seq?: number;
 }
 
 /** Tool error event payload. */
@@ -352,6 +376,8 @@ export interface ToolErrorPayload {
   name: string;
   error: string;
   duration_s?: number;
+  turn_id?: string;
+  event_seq?: number;
 }
 
 /** Approval request event payload. */
@@ -404,6 +430,16 @@ export interface ErrorPayload {
   /** Structured error code from B1 classifier (e.g. 'provider_auth', 'model_not_found'). */
   code?: string;
   hint?: string;
+  turn_id?: string;
+  event_seq?: number;
+}
+
+/** Turn interrupted event payload. */
+export interface TurnInterruptedPayload {
+  session_id: string;
+  reason?: string;
+  turn_id?: string;
+  event_seq?: number;
 }
 
 /** Gateway stderr event payload. */

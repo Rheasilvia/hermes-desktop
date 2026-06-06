@@ -138,6 +138,7 @@ export function parseMessage(msg: ConversationMessage): RenderedMessage {
   return {
     id: msg.id,
     sessionId: msg.sessionId,
+    turnId: msg.turnId ?? null,
     role: msg.role,
     blocks,
     timestamp: msg.timestamp,

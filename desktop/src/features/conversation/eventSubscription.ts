@@ -8,7 +8,7 @@ import type {
   BackgroundCompletePayload, BtwCompletePayload,
   SubagentStartPayload, SubagentProgressPayload,
   SubagentCompletePayload, SubagentToolPayload, SubagentErrorPayload,
-  ErrorPayload,
+  ErrorPayload, TurnInterruptedPayload,
 } from '@/types/gateway.js';
 import type { GatewayAdapter } from '@/services/gateway/types.js';
 import { chatStore } from '@/stores/chat.js';
@@ -42,7 +42,7 @@ export function useGatewayEvents(opts: {
   // session even when the user has multiple sessions open or switches between them.
   const onMessageDelta = (p: MessageDeltaPayload) => chatStore.handleDelta(p.session_id, p);
   const onMessageComplete = (p: MessageCompletePayload) => chatStore.handleMessageComplete(p.session_id, p);
-  const onReasoningDelta = (p: ReasoningDeltaPayload) => chatStore.handleReasoningDelta(p.session_id, p.text);
+  const onReasoningDelta = (p: ReasoningDeltaPayload) => chatStore.handleReasoningDelta(p.session_id, p);
   const onToolStart = (p: ToolStartPayload) => chatStore.handleToolStart(p.session_id, p);
   const onToolProgress = (p: ToolProgressPayload) => chatStore.handleToolProgress(p.session_id, p);
   const onToolComplete = (p: ToolCompletePayload) => chatStore.handleToolComplete(p.session_id, p);
@@ -59,6 +59,7 @@ export function useGatewayEvents(opts: {
   const onSubagentComplete = (p: SubagentCompletePayload) => delegationStore.handleComplete(p);
   const onSubagentTool = (p: SubagentToolPayload) => delegationStore.handleTool(p);
   const onSubagentError = (p: SubagentErrorPayload) => delegationStore.handleError(p);
+  const onTurnInterrupted = (p: TurnInterruptedPayload) => chatStore.handleTurnInterrupted(p.session_id, p);
 
   const onError = (p: ErrorPayload) => {
     const sid = p.session_id || sessionStore.activeSessionId;
@@ -69,7 +70,7 @@ export function useGatewayEvents(opts: {
     const displayMessage = p.hint
       ? `${buildErrorMessage(p)}\n${p.hint}`
       : buildErrorMessage(p);
-    chatStore.handleError(sid, displayMessage, action);
+    chatStore.handleError(sid, { ...p, message: displayMessage }, action);
   };
 
   onMount(() => {
@@ -94,6 +95,7 @@ export function useGatewayEvents(opts: {
     gw.on('subagent.complete', onSubagentComplete);
     gw.on('subagent.tool', onSubagentTool);
     gw.on('subagent.error', onSubagentError);
+    gw.on('turn.interrupted', onTurnInterrupted);
     gw.on('error', onError);
   });
 
@@ -119,6 +121,7 @@ export function useGatewayEvents(opts: {
     gw.off('subagent.complete', onSubagentComplete);
     gw.off('subagent.tool', onSubagentTool);
     gw.off('subagent.error', onSubagentError);
+    gw.off('turn.interrupted', onTurnInterrupted);
     gw.off('error', onError);
   });
 }

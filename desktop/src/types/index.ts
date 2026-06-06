@@ -55,6 +55,21 @@ export type { WorkspaceTreeNodeKind, WorkspaceTreeNode, WorkspaceChildrenResult,
 export type { DbSession, DbDesktopSessionMeta } from './db/session.js';
 export type { DbMessage } from './db/message.js';
 
+// Session wire/read-model types
+export type {
+  SessionMeta,
+  SessionMessage,
+  SessionUsage,
+  SessionInfo,
+  McpServerStatus,
+  SessionListItem,
+  Session,
+  SessionTranscript,
+  TranscriptMessage,
+  TranscriptLiveTurn,
+  TranscriptTurnStatus,
+} from './session.js';
+
 // Domain model types (camelCase, business logic)
 export type { ConversationSession, SessionUsage as ConversationSessionUsage } from './domain/session.js';
 export type { ConversationMessage, ParsedToolCall, MessageAttachment } from './domain/message.js';

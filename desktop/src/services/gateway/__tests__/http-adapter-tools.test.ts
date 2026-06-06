@@ -63,7 +63,8 @@ describe('dispatchSseEvent — envelope and idempotency', () => {
       payload: { text: 'older' },
     });
 
-    expect(received).toEqual([{ session_id: 'sess_1', text: 'first' }]);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ session_id: 'sess_1', text: 'first', event_seq: 10 });
   });
 
   it('normalizes raw SSE rows to a GatewayEventEnvelope before dispatch', () => {
@@ -83,6 +84,29 @@ describe('dispatchSseEvent — envelope and idempotency', () => {
       payload: { tool_id: 'tool_1', name: 'bash', preview: 'running' },
     });
     expect(typeof envelope.receivedAt).toBe('number');
+  });
+});
+
+describe('dispatchSseEvent — turn.interrupted', () => {
+  it('emits turn.interrupted with turn_id and event_seq', () => {
+    const adapter = makeAdapter();
+    const received: unknown[] = [];
+    adapter.on('turn.interrupted' as any, (payload) => received.push(payload));
+
+    (adapter as any).dispatchSseEvent({
+      session_id: 'sess_1',
+      seq: 6,
+      type: 'turn.interrupted',
+      payload: { reason: 'user_interrupt', turn_id: 'turn_stop' },
+    });
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      session_id: 'sess_1',
+      reason: 'user_interrupt',
+      turn_id: 'turn_stop',
+      event_seq: 6,
+    });
   });
 });
 
@@ -145,6 +169,34 @@ describe('commands HTTP methods', () => {
       raw: '/help',
     });
     expect(result).toEqual({ kind: 'output', message: 'Available slash commands' });
+  });
+});
+
+describe('session.transcript', () => {
+  it('fetches the canonical transcript endpoint and advances replay cursor', async () => {
+    const mockHttp = {
+      get: vi.fn().mockResolvedValue({
+        session_id: 'sess_1',
+        max_seq: 7,
+        messages: [
+          { id: 1, turn_id: 'turn_1', role: 'user', content: 'hi', timestamp: 1 },
+          { id: 7, turn_id: 'turn_1', role: 'assistant', content: 'hello', timestamp: 2, status: 'completed' },
+        ],
+        live_turn: null,
+      }),
+      post: vi.fn(),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    };
+    const adapter = new HttpGatewayAdapter(mockHttp as any);
+
+    const transcript = await adapter.session.transcript('sess_1');
+
+    expect(mockHttp.get).toHaveBeenCalledWith('/desktop/api/sessions/sess_1/transcript');
+    expect(transcript.max_seq).toBe(7);
+    expect(transcript.messages).toHaveLength(2);
+    expect((adapter as any).lastSeq.get('sess_1')).toBe(7);
   });
 });
 

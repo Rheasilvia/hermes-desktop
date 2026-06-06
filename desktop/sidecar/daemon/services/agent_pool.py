@@ -31,6 +31,7 @@ class PooledAgent:
     running: bool = False
     # Track active thread so we can join it on shutdown
     active_thread: threading.Thread | None = None
+    active_turn_id: str | None = None
     # Provider/model this agent was built with — used to detect stale entries
     built_provider: str | None = None
     built_model: str | None = None
@@ -59,6 +60,7 @@ class AgentPool:
         self._session_db = session_db
         self._lock = threading.RLock()
         self._agents: Dict[str, PooledAgent] = {}
+        self._thread_turn = threading.local()
 
     def get_or_create(self, session_id: str) -> PooledAgent:
         """Return an existing PooledAgent or lazily build a new AIAgent."""
@@ -83,11 +85,12 @@ class AgentPool:
 
             return entry
 
-    def mark_running(self, session_id: str) -> None:
+    def mark_running(self, session_id: str, turn_id: str | None = None) -> None:
         with self._lock:
             entry = self._agents.get(session_id)
             if entry:
                 entry.running = True
+                entry.active_turn_id = turn_id
 
     def mark_idle(self, session_id: str, thread: threading.Thread | None = None) -> None:
         with self._lock:
@@ -100,6 +103,7 @@ class AgentPool:
                     return
                 entry.running = False
                 entry.active_thread = None
+                entry.active_turn_id = None
                 entry.last_used = time.time()
 
     def set_thread(self, session_id: str, thread: threading.Thread) -> None:
@@ -107,6 +111,24 @@ class AgentPool:
             entry = self._agents.get(session_id)
             if entry:
                 entry.active_thread = thread
+
+    def bind_current_thread_turn(self, session_id: str, turn_id: str) -> None:
+        self._thread_turn.session_id = session_id
+        self._thread_turn.turn_id = turn_id
+
+    def clear_current_thread_turn(self) -> None:
+        self._thread_turn.session_id = None
+        self._thread_turn.turn_id = None
+
+    def get_active_turn_id(self, session_id: str) -> str | None:
+        with self._lock:
+            entry = self._agents.get(session_id)
+            return entry.active_turn_id if entry else None
+
+    def get_current_thread_turn_id(self, session_id: str) -> str | None:
+        if getattr(self._thread_turn, "session_id", None) == session_id:
+            return getattr(self._thread_turn, "turn_id", None)
+        return None
 
     def interrupt(self, session_id: str) -> bool:
         """Request interrupt on a running agent. Returns True if an agent was interrupted."""
@@ -380,11 +402,13 @@ class AgentPool:
             register_hermes_home(lambda: self._hermes_home)
 
             def _path_approval_cb(payload: dict) -> None:
-                seq = ui_append(self._hermes_home, session_id, "approval.request", payload)
-                self._bus.publish(session_id, seq, "approval.request", payload)
+                turn_id = self.get_current_thread_turn_id(session_id)
+                seq = ui_append(self._hermes_home, session_id, "approval.request", payload, turn_id=turn_id)
+                publish_payload = {**payload, **({"turn_id": turn_id} if turn_id else {})}
+                self._bus.publish(session_id, seq, "approval.request", publish_payload)
                 # Persist pending state for SSE reconnect recovery
                 persist_payload = {**payload, "status": "pending"}
-                ui_append(self._hermes_home, session_id, "pending_approval", persist_payload)
+                ui_append(self._hermes_home, session_id, "pending_approval", persist_payload, turn_id=turn_id)
 
             register_path_approval_notify(session_id, _path_approval_cb)
 
@@ -446,8 +470,10 @@ class AgentPool:
         from ..db.ui_messages import append
 
         try:
-            seq = append(self._hermes_home, session_id, msg_type, payload)
-            self._bus.publish(session_id, seq, msg_type, payload)
+            turn_id = self.get_current_thread_turn_id(session_id)
+            seq = append(self._hermes_home, session_id, msg_type, payload, turn_id=turn_id)
+            publish_payload = {**payload, **({"turn_id": turn_id} if turn_id else {})}
+            self._bus.publish(session_id, seq, msg_type, publish_payload)
         except Exception:
             log.exception("_emit_ui_message failed for %s/%s", session_id, msg_type)
 

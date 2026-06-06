@@ -6,8 +6,9 @@
 import type { Role } from '../message.js';
 
 export interface ConversationMessage {
-  id: number;
+  id: number | string;
   sessionId: string;
+  turnId?: string | null;
   role: Role;
   content: string | null;
   reasoning: string | null;

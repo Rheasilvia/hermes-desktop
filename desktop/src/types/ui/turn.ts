@@ -41,6 +41,8 @@ import type { TodoItem } from '../gateway.js';
 
 export interface LiveTurnState {
   sessionId: string;
+  turnId: string | null;
+  lastEventSeq: number | null;
   status: TurnStatus;
   streamingText: string;
   reasoningText: string;
