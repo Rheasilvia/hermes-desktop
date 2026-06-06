@@ -1,6 +1,7 @@
 """FastAPI app factory. All routes mounted under /desktop/api."""
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import hmac
 import logging
 import uuid
@@ -40,13 +41,86 @@ def build_app(cfg: Config) -> FastAPI:
 
     ensure_default_workspace()
 
-    app = FastAPI(title="Hermes Desktop Sidecar", openapi_url=None)
+    def _prewarm_model_imports() -> None:
+        import threading
+
+        def _do() -> None:
+            try:
+                import yaml  # noqa: F401
+                from .services.model_service import ModelService  # noqa: F401
+                from hermes_cli.inventory import load_picker_context  # noqa: F401
+            except Exception:
+                pass
+
+        threading.Thread(target=_do, daemon=True, name="model-import-prewarm").start()
+
+    def _sync_overlay_keys_to_env() -> None:
+        _sync_provider_keys(cfg.hermes_home)
+
+    def _prewarm_agents(startup_app: FastAPI) -> None:
+        import threading
+        import time
+
+        try:
+            from hermes_state import SessionDB
+            from .services.agent_pool import AgentPool
+
+            session_db = getattr(startup_app.state, "session_db", None) or SessionDB(cfg.hermes_home / "state.db")
+            agent_pool = AgentPool(
+                hermes_home=cfg.hermes_home,
+                event_bus=startup_app.state.event_bus,
+                session_db=session_db,
+            )
+            startup_app.state.session_db = session_db
+            startup_app.state.agent_pool = agent_pool
+        except Exception:
+            log.exception("[prewarm] failed to initialize services")
+            return
+
+        def _do_prewarm() -> None:
+            _t0 = time.time()
+            try:
+                sessions = session_db.list_sessions_rich(
+                    source="desktop",
+                    include_children=False,
+                    order_by_last_active=True,
+                    limit=5,
+                )
+                for sess in sessions[:5]:
+                    sid = str(sess.get("id") or sess.get("session_id") or "")
+                    if sid:
+                        _t_s = time.time()
+                        agent_pool.get_or_create(sid)
+                        log.info("[prewarm] agent ready for session %s (%.2fs)", sid, time.time() - _t_s)
+            except Exception:
+                log.exception("[prewarm] background thread failed")
+            log.info("[prewarm] all agents pre-warmed in %.2fs", time.time() - _t0)
+
+        threading.Thread(target=_do_prewarm, daemon=True, name="agent-prewarm").start()
+
+    @asynccontextmanager
+    async def lifespan(startup_app: FastAPI):
+        _prewarm_model_imports()
+        _sync_overlay_keys_to_env()
+        _prewarm_agents(startup_app)
+        yield
+
+    app = FastAPI(title="Hermes Desktop Sidecar", openapi_url=None, lifespan=lifespan)
 
     # Initialize event bus on app state — used by SSE stream and
     # the agent pool to fan out ui_messages events to all connected windows.
     app.state.event_bus = EventBus()
 
     app.state.cfg = cfg
+    try:
+        from hermes_state import SessionDB
+        from .db.desktop_reset import ensure_desktop_conversation_reset
+
+        app.state.session_db = SessionDB(cfg.hermes_home / "state.db")
+        ensure_desktop_conversation_reset(cfg.hermes_home, app.state.session_db)
+    except Exception:
+        log.exception("[desktop-reset] failed during app initialization")
+        raise
 
     app.add_middleware(
         CORSMiddleware,
@@ -174,67 +248,6 @@ def build_app(cfg: Config) -> FastAPI:
     app.include_router(memory_router.router, prefix=API_PREFIX, dependencies=deps)
     # SSE stream — auth handled via query param token (browsers can't set Authorization on EventSource)
     app.include_router(events_router.router, prefix=API_PREFIX)
-
-    # ── Startup: pre-import heavy modules so first model-write is fast ──
-    @app.on_event("startup")
-    def _prewarm_model_imports():
-        import threading
-        def _do():
-            try:
-                import yaml  # noqa: F401
-                from .services.model_service import ModelService  # noqa: F401
-                from hermes_cli.inventory import load_picker_context  # noqa: F401
-            except Exception:
-                pass
-        threading.Thread(target=_do, daemon=True, name="model-import-prewarm").start()
-
-    # ── Startup: sync overlay API keys → .env so TUI/CLI can see them ──
-    @app.on_event("startup")
-    def _sync_overlay_keys_to_env():
-        _sync_provider_keys(cfg.hermes_home)
-
-    # ── Startup: eagerly init services + pre-warm agent for recent sessions ──
-    @app.on_event("startup")
-    def _prewarm_agents():
-        import threading
-        import time
-
-        try:
-            from hermes_state import SessionDB
-            from .services.agent_pool import AgentPool
-
-            session_db = SessionDB(cfg.hermes_home / "state.db")
-            agent_pool = AgentPool(
-                hermes_home=cfg.hermes_home,
-                event_bus=app.state.event_bus,
-                session_db=session_db,
-            )
-            app.state.session_db = session_db
-            app.state.agent_pool = agent_pool
-        except Exception:
-            log.exception("[prewarm] failed to initialize services")
-            return
-
-        def _do_prewarm():
-            _t0 = time.time()
-            try:
-                sessions = session_db.list_sessions_rich(
-                    source="desktop",
-                    include_children=False,
-                    order_by_last_active=True,
-                    limit=5,
-                )
-                for sess in sessions[:5]:
-                    sid = str(sess.get("id") or sess.get("session_id") or "")
-                    if sid:
-                        _t_s = time.time()
-                        agent_pool.get_or_create(sid)
-                        log.info("[prewarm] agent ready for session %s (%.2fs)", sid, time.time() - _t_s)
-            except Exception:
-                log.exception("[prewarm] background thread failed")
-            log.info("[prewarm] all agents pre-warmed in %.2fs", time.time() - _t0)
-
-        threading.Thread(target=_do_prewarm, daemon=True, name="agent-prewarm").start()
 
     return app
 

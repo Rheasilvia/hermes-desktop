@@ -7,6 +7,7 @@ import type { CardType } from '@/types/command-card.js';
 import type {
   SessionMeta,
   SessionMessage,
+  SessionTranscript,
   SessionUsage,
   SessionListItem,
   Session,
@@ -30,6 +31,7 @@ import type {
   SessionInfoPayload,
   SessionUsagePayload,
   MessageStartPayload,
+  PromptExecuteResult,
   MessageDeltaPayload,
   MessageCompletePayload,
   MessageStatusPayload,
@@ -49,6 +51,7 @@ import type {
   BackgroundCompletePayload,
   BtwCompletePayload,
   ErrorPayload,
+  TurnInterruptedPayload,
   GatewayStderrPayload,
   ProtocolErrorPayload,
   SessionTitleUpdatePayload,
@@ -86,6 +89,7 @@ export interface GatewayEventMap {
   'background.complete': BackgroundCompletePayload;
   'btw.complete': BtwCompletePayload;
   'error': ErrorPayload;
+  'turn.interrupted': TurnInterruptedPayload;
   'gateway.stderr': GatewayStderrPayload;
   'gateway.protocol_error': ProtocolErrorPayload;
   'session.title_update': SessionTitleUpdatePayload;
@@ -131,11 +135,12 @@ export interface SessionMethods {
   interrupt(sessionId: string): Promise<void>;
   undo(sessionId: string): Promise<{ removed: number }>;
   messages(sessionId: string): Promise<SessionMessage[]>;
+  transcript(sessionId: string): Promise<SessionTranscript>;
 }
 
 /** Prompt method group. */
 export interface PromptMethods {
-  execute(params: { message: string; session_id?: string; provider?: string; model?: string }): Promise<void>;
+  execute(params: { message: string; session_id?: string; provider?: string; model?: string }): Promise<PromptExecuteResult>;
 }
 
 /** Config method group. */
@@ -358,7 +363,7 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   getConnectionState(): ConnectionState;
 }
 
-export type { SessionListItem, SessionMessage, SessionMeta, SessionInfoPayload, HermesConfig, ToolEntry, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload } from '@/types/index.js';
+export type { SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult } from '@/types/index.js';
 
 /** Factory options for creating a gateway adapter. */
 export interface GatewayAdapterOptions {

@@ -10,6 +10,7 @@ import { createStore, produce } from 'solid-js/store';
 import type {
   MessageDeltaPayload,
   MessageCompletePayload,
+  ReasoningDeltaPayload,
   ToolStartPayload,
   ToolProgressPayload,
   ToolCompletePayload,
@@ -19,8 +20,11 @@ import type {
   ClarifyRequestPayload,
   SudoRequestPayload,
   SecretRequestPayload,
+  ErrorPayload,
+  TurnInterruptedPayload,
 } from '@/types/gateway.js';
 import type { SessionMessage } from '@/types/session.js';
+import type { TranscriptLiveTurn, TranscriptMessage } from '@/types/session.js';
 import type { RenderedMessage } from '@/types/ui/message.js';
 import type { LiveTurnState, LiveToolCall, MemoryContextItem } from '@/types/ui/turn.js';
 import type { ConversationMessage, ParsedToolCall } from '@/types/domain/message.js';
@@ -52,6 +56,8 @@ export interface ConversationDiagnosticsSnapshot {
 function makeLiveTurnState(sessionId: string): LiveTurnState {
   return {
     sessionId,
+    turnId: null,
+    lastEventSeq: null,
     status: 'idle',
     streamingText: '',
     reasoningText: '',
@@ -186,6 +192,7 @@ function sessionMsgToDomain(msg: SessionMessage, sessionId: string): Conversatio
   return {
     id: 0,
     sessionId,
+    turnId: (msg as unknown as { turn_id?: string }).turn_id ?? null,
     role: msg.role,
     content: msg.content,
     reasoning: msg.reasoning,
@@ -197,6 +204,148 @@ function sessionMsgToDomain(msg: SessionMessage, sessionId: string): Conversatio
     finishReason: msg.finish_reason,
     attachments: null,
   };
+}
+
+function transcriptMsgToDomain(msg: TranscriptMessage, sessionId: string): ConversationMessage {
+  return {
+    id: msg.id,
+    sessionId,
+    turnId: msg.turn_id,
+    role: msg.role,
+    content: msg.content,
+    reasoning: msg.reasoning ?? null,
+    toolCalls: msg.tool_calls ?? null,
+    toolCallId: null,
+    toolName: null,
+    timestamp: msg.timestamp,
+    tokenCount: msg.token_count ?? null,
+    finishReason: msg.finish_reason ?? null,
+    attachments: null,
+  };
+}
+
+function transcriptToolToLiveTool(tool: ParsedToolCall): LiveToolCall {
+  return {
+    id: tool.id,
+    name: tool.name,
+    status: tool.status === 'error' ? 'error' : tool.status === 'complete' ? 'complete' : 'running',
+    inputPreview: JSON.stringify(tool.arguments ?? {}, null, 2),
+    progressPreview: null,
+    resultSummary: tool.outputSummary ?? null,
+    durationMs: tool.durationMs ?? null,
+  };
+}
+
+function liveStateFromTranscript(sessionId: string, liveTurn: TranscriptLiveTurn | null): LiveTurnState {
+  if (!liveTurn) return makeLiveTurnState(sessionId);
+  return {
+    ...makeLiveTurnState(sessionId),
+    turnId: liveTurn.turn_id,
+    lastEventSeq: liveTurn.last_event_seq,
+    status: 'streaming',
+    streamingText: liveTurn.content,
+    reasoningText: liveTurn.reasoning,
+    activeTools: (liveTurn.tools ?? []).map(transcriptToolToLiveTool),
+    todos: liveTurn.todos ?? [],
+    todosToolId: liveTurn.todos?.length ? (liveTurn.tools?.find((tool) => tool.name === 'todo')?.id ?? null) : null,
+  };
+}
+
+function resolveHydratedLiveState(
+  sessionId: string,
+  nextLiveState: LiveTurnState,
+  transcriptMaxSeq: number,
+): LiveTurnState {
+  const current = chatStates[sessionId]?.liveState;
+  if (
+    current?.turnId &&
+    current.lastEventSeq != null &&
+    current.lastEventSeq > transcriptMaxSeq
+  ) {
+    return current;
+  }
+  if (
+    current?.turnId &&
+    nextLiveState.turnId === current.turnId &&
+    current.lastEventSeq != null &&
+    nextLiveState.lastEventSeq != null &&
+    current.lastEventSeq > nextLiveState.lastEventSeq
+  ) {
+    return current;
+  }
+  return nextLiveState;
+}
+
+type TurnPayload = { turn_id?: string; event_seq?: number };
+
+function hasAssistantForTurn(sessionId: string, turnId: string | null | undefined): boolean {
+  if (!turnId) return false;
+  return (chatStates[sessionId]?.messages ?? []).some(
+    (message) => message.role === 'assistant' && message.turnId === turnId,
+  );
+}
+
+function noteTurnEvent(sessionId: string, payload: TurnPayload): boolean {
+  ensureSession(sessionId);
+  const turnId = payload.turn_id ?? null;
+  const eventSeq = payload.event_seq ?? null;
+  if (turnId && hasAssistantForTurn(sessionId, turnId)) return false;
+
+  const live = chatStates[sessionId]?.liveState ?? makeLiveTurnState(sessionId);
+  if (turnId && live.turnId && live.turnId !== turnId && live.status !== 'idle') {
+    return false;
+  }
+
+  const current = chatStates[sessionId]?.liveState ?? makeLiveTurnState(sessionId);
+  if (
+    turnId &&
+    eventSeq != null &&
+    current.turnId === turnId &&
+    current.lastEventSeq != null &&
+    eventSeq <= current.lastEventSeq
+  ) {
+    return false;
+  }
+
+  if (turnId) setChatStates(sessionId, 'liveState', 'turnId', turnId);
+  if (eventSeq != null) setChatStates(sessionId, 'liveState', 'lastEventSeq', eventSeq);
+  return true;
+}
+
+function interruptedBlocksFromLive(live: LiveTurnState): RenderedMessage['blocks'] {
+  const toolBlocks: ToolCallBlock[] = live.activeTools.map((t) => ({
+    type: 'tool_call' as const,
+    id: `tc-${t.id}`,
+    toolId: t.id,
+    name: t.name,
+    status: (t.status === 'complete' || t.status === 'error' ? t.status : 'complete') as ToolCallBlock['status'],
+    inputPreview: t.inputPreview,
+    outputSummary: null,
+    inlineDiff: null,
+    durationMs: t.durationMs,
+  }));
+
+  return [
+    ...(live.reasoningText ? [{
+      type: 'reasoning' as const,
+      id: nextBlockId(),
+      content: live.reasoningText,
+      isStreaming: false,
+      tokenCount: null,
+    }] : []),
+    ...(live.streamingText ? [{
+      type: 'text' as const,
+      id: nextBlockId(),
+      content: live.streamingText,
+    }] : []),
+    ...toolBlocks,
+    ...(live.todos.length > 0 ? [{
+      type: 'todo_list' as const,
+      id: nextBlockId(),
+      toolId: live.todosToolId ?? live.activeTools[0]?.id ?? 'todo',
+      todos: live.todos,
+    }] : []),
+  ];
 }
 
 // ── Chat Store ────────────────────────────────────────────────────────────
@@ -242,8 +391,13 @@ export const chatStore = {
     ensureSession(sessionId);
     setChatStates(sessionId, 'isLoadingMessages', true);
     try {
-      const rawMessages = await gateway.session.messages(sessionId);
-      const rendered = rawMessages.map((m) => parseMessage(sessionMsgToDomain(m, sessionId)));
+      const transcript = await gateway.session.transcript(sessionId);
+      const rendered = transcript.messages.map((m) => parseMessage(transcriptMsgToDomain(m, sessionId)));
+      const nextLiveState = resolveHydratedLiveState(
+        sessionId,
+        liveStateFromTranscript(sessionId, transcript.live_turn),
+        transcript.max_seq,
+      );
       const memoryContext: MemoryContextItem[] | null = sessionId === 'sess_verify_07'
         ? [
             { category: 'User Preference', content: 'Prefers concise responses under 200 words.' },
@@ -254,6 +408,7 @@ export const chatStore = {
       setChatStates(sessionId, produce((s) => {
         s.messages = rendered;
         s.isLoadingMessages = false;
+        s.liveState = nextLiveState;
         s.liveState.memoryContext = memoryContext;
       }));
     } catch {
@@ -272,13 +427,13 @@ export const chatStore = {
       // Per-session model takes precedence; fall back to the global default.
       // (modelStore.default* is the main model, NOT the session's selection.)
       const sessionModel = sessionStore.getSessionModel(sessionId);
-      await gateway.prompt.execute({
+      const accepted = await gateway.prompt.execute({
         message: text,
         session_id: sessionId,
         provider: sessionModel?.provider ?? modelStore.defaultProvider ?? undefined,
         model: sessionModel?.model ?? modelStore.defaultModel ?? undefined,
       });
-      this.markPromptAccepted(sessionId);
+      this.markPromptAccepted(sessionId, accepted.turn_id);
       return true;
     } catch {
       clearStalledTimer(sessionId);
@@ -354,26 +509,33 @@ export const chatStore = {
     beginLiveTurn(sessionId, 'streaming');
   },
 
-  markPromptAccepted(sessionId: string): void {
+  markPromptAccepted(sessionId: string, turnId: string | null = null): void {
     beginLiveTurn(sessionId, 'accepted');
+    if (turnId) setChatStates(sessionId, 'liveState', 'turnId', turnId);
   },
 
   handleDelta(sessionId: string, payload: MessageDeltaPayload): void {
     if (dropIfInterrupted(sessionId)) return;
+    if (!noteTurnEvent(sessionId, payload)) return;
     noteLiveEvent(sessionId);
     setChatStates(sessionId, 'liveState', 'streamingText',
       (t) => t + (payload.text ?? ''));
     setChatStates(sessionId, 'liveState', 'status', 'streaming');
   },
 
-  handleReasoningDelta(sessionId: string, text: string): void {
+  handleReasoningDelta(sessionId: string, payloadOrText: ReasoningDeltaPayload | string): void {
     if (dropIfInterrupted(sessionId)) return;
+    const payload = typeof payloadOrText === 'string'
+      ? { session_id: sessionId, text: payloadOrText }
+      : payloadOrText;
+    if (!noteTurnEvent(sessionId, payload)) return;
     noteLiveEvent(sessionId);
-    setChatStates(sessionId, 'liveState', 'reasoningText', (t) => t + text);
+    setChatStates(sessionId, 'liveState', 'reasoningText', (t) => t + payload.text);
   },
 
   handleToolStart(sessionId: string, payload: ToolStartPayload): void {
     if (dropIfInterrupted(sessionId)) return;
+    if (!noteTurnEvent(sessionId, payload)) return;
     noteLiveEvent(sessionId);
     setChatStates(sessionId, 'liveState', 'status', 'tool_running');
     setChatStates(sessionId, 'liveState', 'activeTools', (tools) => {
@@ -399,6 +561,7 @@ export const chatStore = {
 
   handleToolProgress(sessionId: string, payload: ToolProgressPayload): void {
     if (dropIfInterrupted(sessionId)) return;
+    if (!noteTurnEvent(sessionId, payload)) return;
     noteLiveEvent(sessionId);
     const preview = payload.preview ?? payload.progress ?? null;
     if (payload.tool_id) {
@@ -421,6 +584,7 @@ export const chatStore = {
 
   handleToolComplete(sessionId: string, payload: ToolCompletePayload): void {
     if (dropIfInterrupted(sessionId)) return;
+    if (!noteTurnEvent(sessionId, payload)) return;
     noteLiveEvent(sessionId);
     const durationMs = payload.duration_s != null ? Math.round(payload.duration_s * 1000) : null;
     setChatStates(
@@ -441,6 +605,7 @@ export const chatStore = {
 
   handleToolGenerating(sessionId: string, payload: ToolGeneratingPayload): void {
     if (dropIfInterrupted(sessionId)) return;
+    if (!noteTurnEvent(sessionId, payload)) return;
     noteLiveEvent(sessionId);
     setChatStates(sessionId, 'liveState', 'activeTools', (tools) => {
       const idx = tools.findIndex((t) => t.id === payload.tool_id);
@@ -468,6 +633,7 @@ export const chatStore = {
 
   handleToolError(sessionId: string, payload: ToolErrorPayload): void {
     if (dropIfInterrupted(sessionId)) return;
+    if (!noteTurnEvent(sessionId, payload)) return;
     noteLiveEvent(sessionId);
     const durationMs = payload.duration_s != null ? Math.round(payload.duration_s * 1000) : null;
     setChatStates(
@@ -483,6 +649,15 @@ export const chatStore = {
 
   handleMessageComplete(sessionId: string, payload: MessageCompletePayload): void {
     if (dropIfInterrupted(sessionId)) return;
+    const turnId = payload.turn_id ?? chatStates[sessionId]?.liveState.turnId ?? null;
+    if (hasAssistantForTurn(sessionId, turnId)) {
+      setChatStates(sessionId, produce((s) => {
+        s.liveState = makeLiveTurnState(sessionId);
+        s.isLoadingMessages = false;
+      }));
+      return;
+    }
+    if (!noteTurnEvent(sessionId, payload)) return;
     noteLiveEvent(sessionId);
     clearStalledTimer(sessionId); // turn finished — stop the watchdog
     const live = chatStates[sessionId]?.liveState;
@@ -536,6 +711,7 @@ export const chatStore = {
     const finalMsg: RenderedMessage = {
       id: nextEphemeralId(),
       sessionId,
+      turnId,
       role: 'assistant',
       blocks,
       timestamp: Date.now() / 1000,
@@ -565,13 +741,52 @@ export const chatStore = {
 
   handleError(
     sessionId: string,
-    message: string,
+    payloadOrMessage: ErrorPayload | string,
     action?: { label: string; route: string } | null,
   ): void {
+    const payload = typeof payloadOrMessage === 'string'
+      ? { session_id: sessionId, message: payloadOrMessage }
+      : payloadOrMessage;
+    if (!noteTurnEvent(sessionId, payload)) return;
     clearStalledTimer(sessionId);
     setChatStates(sessionId, 'liveState', 'status', 'error');
-    setChatStates(sessionId, 'liveState', 'errorMessage', message);
+    setChatStates(sessionId, 'liveState', 'errorMessage', payload.message);
     setChatStates(sessionId, 'liveState', 'errorAction', action ?? null);
+  },
+
+  handleTurnInterrupted(sessionId: string, payload: TurnInterruptedPayload): void {
+    if (dropIfInterrupted(sessionId)) return;
+    if (!noteTurnEvent(sessionId, payload)) return;
+    interruptedBarrierBySession.add(sessionId);
+    clearStalledTimer(sessionId);
+
+    const live = chatStates[sessionId]?.liveState;
+    if (!live) return;
+    const blocks = interruptedBlocksFromLive(live);
+    if (blocks.length === 0) {
+      setChatStates(sessionId, 'liveState', makeLiveTurnState(sessionId));
+      return;
+    }
+
+    const partialMsg: RenderedMessage = {
+      id: nextEphemeralId(),
+      sessionId,
+      turnId: live.turnId,
+      role: 'assistant',
+      blocks,
+      timestamp: Date.now() / 1000,
+      tokenCount: null,
+      finishReason: null,
+      isStreaming: false,
+      actions: ['copy', 'retry', 'like', 'dislike', 'more'],
+      toolName: null,
+    };
+
+    setChatStates(sessionId, produce((s) => {
+      s.messages = [...s.messages, partialMsg];
+      s.liveState = makeLiveTurnState(sessionId);
+      s.isLoadingMessages = false;
+    }));
   },
 
   clearMessages(sessionId: string): void {
@@ -697,6 +912,7 @@ export const chatStore = {
       const partialMsg: RenderedMessage = {
         id: nextEphemeralId(),
         sessionId,
+        turnId: live.turnId,
         role: 'assistant',
         blocks,
         timestamp: Date.now() / 1000,

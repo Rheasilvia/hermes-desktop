@@ -16,6 +16,7 @@ import type {
   GatewayEventMap,
   SessionListItem,
   SessionMessage,
+  SessionTranscript,
   SessionMeta,
   SessionInfoPayload,
   HermesConfig,
@@ -213,18 +214,27 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         const rows = await this.http.get<Array<Record<string, unknown>>>(`${API_PREFIX}/sessions/${sessionId}/messages`);
         return this.aggregateEventRows(sessionId, rows);
       },
+
+      transcript: async (sessionId: string): Promise<SessionTranscript> => {
+        const transcript = await this.http.get<SessionTranscript>(`${API_PREFIX}/sessions/${sessionId}/transcript`);
+        this.knownSessionIds.add(sessionId);
+        const current = this.lastSeq.get(sessionId) ?? 0;
+        if (transcript.max_seq > current) {
+          this.lastSeq.set(sessionId, transcript.max_seq);
+        }
+        return transcript;
+      },
     };
 
     // ── prompt.execute (REAL) ───────────────────────────────────────────
     this.prompt = {
-      execute: async (params): Promise<void> => {
-        await this.http.post(`${API_PREFIX}/prompt/execute`, {
+      execute: async (params) => {
+        return this.http.post(`${API_PREFIX}/prompt/execute`, {
           message: params.message,
           session_id: params.session_id,
           provider: params.provider,
           model: params.model,
         });
-        // Events streamed via SSE — no return value
       },
     };
 
@@ -664,6 +674,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     const envelope = this.normalizeSseEvent(event);
     const { sessionId: sid, seq, type, payload } = envelope;
     if (!sid) return;
+    const turnId = payload.turn_id != null ? String(payload.turn_id) : undefined;
+    const eventSeq = seq > 0 ? seq : undefined;
 
     // Track lastSeq for replay
     const current = this.lastSeq.get(sid) ?? 0;
@@ -681,7 +693,12 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         // User message already rendered by the UI; just track
         break;
       case 'message.delta':
-        this.emit('message.delta', { session_id: sid, text: String(payload.text ?? '') } as GatewayEventMap['message.delta']);
+        this.emit('message.delta', {
+          session_id: sid,
+          text: String(payload.text ?? ''),
+          turn_id: turnId,
+          event_seq: eventSeq,
+        } as GatewayEventMap['message.delta']);
         break;
       case 'message.complete':
         this.emit('message.complete', {
@@ -690,10 +707,17 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           rendered: false,
           usage: payload.usage as GatewayEventMap['message.complete']['usage'],
           status: payload.status as GatewayEventMap['message.complete']['status'],
+          turn_id: turnId,
+          event_seq: eventSeq,
         } as GatewayEventMap['message.complete']);
         break;
       case 'reasoning.delta':
-        this.emit('reasoning.delta', { session_id: sid, text: String(payload.text ?? '') } as GatewayEventMap['reasoning.delta']);
+        this.emit('reasoning.delta', {
+          session_id: sid,
+          text: String(payload.text ?? ''),
+          turn_id: turnId,
+          event_seq: eventSeq,
+        } as GatewayEventMap['reasoning.delta']);
         break;
       case 'session.title_update':
         this.emit('session.title_update', {
@@ -706,6 +730,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           session_id: sid,
           tool_id: String(payload.tool_id ?? ''),
           name: String(payload.name ?? ''),
+          turn_id: turnId,
+          event_seq: eventSeq,
         } as GatewayEventMap['tool.start']);
         break;
       case 'tool.complete': {
@@ -715,6 +741,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           name: String(payload.name ?? ''),
           summary: String(payload.summary ?? ''),
           duration_s: Number(payload.duration_s ?? 0),
+          turn_id: turnId,
+          event_seq: eventSeq,
         };
         if (payload.todos && Array.isArray(payload.todos)) {
           completePayload.todos = payload.todos as GatewayEventMap['tool.complete']['todos'];
@@ -729,6 +757,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           name: String(payload.name ?? ''),
           error: String(payload.error ?? 'Unknown error'),
           duration_s: Number(payload.duration_s ?? 0),
+          turn_id: turnId,
+          event_seq: eventSeq,
         } as GatewayEventMap['tool.error']);
         break;
       case 'tool.generating':
@@ -737,6 +767,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           tool_id: String(payload.tool_id ?? ''),
           name: String(payload.name ?? ''),
           text: String(payload.text ?? ''),
+          turn_id: turnId,
+          event_seq: eventSeq,
         } as GatewayEventMap['tool.generating']);
         break;
       case 'subagent.start':
@@ -799,6 +831,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           name: String(payload.name ?? ''),
           preview: payload.preview != null ? String(payload.preview) : undefined,
           progress: payload.progress != null ? String(payload.progress) : undefined,
+          turn_id: turnId,
+          event_seq: eventSeq,
         } as GatewayEventMap['tool.progress']);
         break;
       case 'approval.request':
@@ -834,6 +868,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       case 'message.start':
         this.emit('message.start', {
           message_id: String(payload.message_id ?? ''),
+          turn_id: turnId,
+          event_seq: eventSeq,
         } as GatewayEventMap['message.start']);
         break;
       case 'status.update':
@@ -875,6 +911,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           message: String(payload.message ?? payload.error ?? 'Turn error'),
           code: payload.code != null ? String(payload.code) : undefined,
           hint: payload.hint != null ? String(payload.hint) : undefined,
+          turn_id: turnId,
+          event_seq: eventSeq,
         } as GatewayEventMap['error']);
         break;
       case 'error':
@@ -883,7 +921,17 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           message: String(payload.message ?? payload.error ?? 'Unknown error'),
           code: payload.code != null ? String(payload.code) : undefined,
           hint: payload.hint != null ? String(payload.hint) : undefined,
+          turn_id: turnId,
+          event_seq: eventSeq,
         } as GatewayEventMap['error']);
+        break;
+      case 'turn.interrupted':
+        this.emit('turn.interrupted', {
+          session_id: sid,
+          reason: payload.reason != null ? String(payload.reason) : undefined,
+          turn_id: turnId,
+          event_seq: eventSeq,
+        } as GatewayEventMap['turn.interrupted']);
         break;
       default:
         console.warn('[HttpGatewayAdapter] unknown SSE event type:', type, payload);

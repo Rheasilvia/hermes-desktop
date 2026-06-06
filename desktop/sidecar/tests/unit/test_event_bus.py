@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import gc
+import warnings
 
 import pytest
 
@@ -90,3 +92,23 @@ async def test_publish_from_worker_thread():
     assert event["seq"] == 42
     assert event["type"] == "turn_error"
     assert event["payload"]["error"] == "boom"
+
+
+def test_start_flush_with_closed_loop_does_not_leak_coroutine():
+    """A stale loop must fail before creating the flush coroutine."""
+    bus = EventBus()
+    loop = asyncio.new_event_loop()
+    loop.close()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", RuntimeWarning)
+        with pytest.raises(RuntimeError):
+            bus._start_flush_if_needed(loop)
+        gc.collect()
+
+    leaked_coroutines = [
+        warning
+        for warning in caught
+        if "was never awaited" in str(warning.message)
+    ]
+    assert leaked_coroutines == []

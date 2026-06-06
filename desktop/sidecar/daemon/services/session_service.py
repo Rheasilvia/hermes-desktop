@@ -33,6 +33,15 @@ def _is_reusable_empty_session(row: dict[str, Any]) -> bool:
     return int(row.get("message_count") or 0) == 0 and title in REUSABLE_EMPTY_TITLES
 
 
+def _todos_from_tools(tools: list[dict]) -> list[dict]:
+    todos: list[dict] = []
+    for tool in tools:
+        value = tool.get("todos") if isinstance(tool, dict) else None
+        if isinstance(value, list):
+            todos.extend([item for item in value if isinstance(item, dict)])
+    return todos
+
+
 class SessionService:
     """Facade for session lifecycle operations across state.db and desktop.db."""
 
@@ -210,6 +219,78 @@ class SessionService:
             }
             for r in rows
         ]
+
+    def get_transcript(self, session_id: str) -> dict:
+        from ..db.conversation_turns import list_turns
+        from ..db.ui_messages import latest_seq
+
+        turns = list_turns(self._hermes_home, session_id)
+        messages: list[dict] = []
+        live_turn: dict | None = None
+
+        for turn in turns:
+            turn_id = turn["turn_id"]
+            user_seq = int(turn.get("user_seq") or 0)
+            started_at = float(turn.get("started_at") or 0)
+            user_text = str(turn.get("user_text") or "")
+            if user_text or user_seq > 0:
+                messages.append({
+                    "id": user_seq,
+                    "turn_id": turn_id,
+                    "role": "user",
+                    "content": user_text,
+                    "reasoning": None,
+                    "tool_calls": None,
+                    "timestamp": started_at,
+                    "token_count": None,
+                    "finish_reason": None,
+                    "status": "completed",
+                })
+
+            status = str(turn.get("status") or "running")
+            tools = turn.get("tools") or []
+            if status == "running":
+                live_turn = {
+                    "turn_id": turn_id,
+                    "status": status,
+                    "content": turn.get("assistant_content") or "",
+                    "reasoning": turn.get("assistant_reasoning") or "",
+                    "tools": tools,
+                    "todos": _todos_from_tools(tools),
+                    "usage": turn.get("usage"),
+                    "error": turn.get("error"),
+                    "last_event_seq": turn.get("last_seq") or user_seq,
+                    "started_at": started_at,
+                    "updated_at": turn.get("updated_at") or started_at,
+                }
+                continue
+
+            content = str(turn.get("assistant_content") or "")
+            reasoning = turn.get("assistant_reasoning") or None
+            should_emit_assistant = bool(content or reasoning or tools or status in {"interrupted", "failed"})
+            if not should_emit_assistant:
+                continue
+            messages.append({
+                "id": turn.get("terminal_seq") or turn.get("last_seq") or user_seq,
+                "turn_id": turn_id,
+                "role": "assistant",
+                "content": content,
+                "reasoning": reasoning,
+                "tool_calls": tools or None,
+                "timestamp": turn.get("completed_at") or turn.get("updated_at") or started_at,
+                "token_count": (turn.get("usage") or {}).get("total") if isinstance(turn.get("usage"), dict) else None,
+                "finish_reason": None,
+                "status": status,
+                "usage": turn.get("usage"),
+                "error": turn.get("error"),
+            })
+
+        return {
+            "session_id": session_id,
+            "max_seq": latest_seq(self._hermes_home, session_id),
+            "messages": messages,
+            "live_turn": live_turn,
+        }
 
     # ── Provider management ───────────────────────────────────────────────
 

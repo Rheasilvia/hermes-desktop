@@ -88,7 +88,13 @@ class UIMessageStore(Protocol):
     Implemented by UIMessageService (wraps db/ui_messages.py DAO).
     """
 
-    def append(self, session_id: str, msg_type: str, payload: dict) -> int:
+    def append(
+        self,
+        session_id: str,
+        msg_type: str,
+        payload: dict,
+        turn_id: str | None = None,
+    ) -> int:
         """Append a ui_messages row. Returns the assigned seq."""
         ...
 

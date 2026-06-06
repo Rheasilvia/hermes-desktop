@@ -9,6 +9,8 @@ import type {
   GatewayEventMap,
   SessionListItem,
   SessionMessage,
+  SessionTranscript,
+  PromptExecuteResult,
   SessionMeta,
   SessionInfoPayload,
   HermesConfig,
@@ -119,10 +121,12 @@ export class GatewayClient {
       this.call('session.undo', { session_id: sessionId }),
     messages: (sessionId: string): Promise<SessionMessage[]> =>
       this.call('session.messages', { session_id: sessionId }),
+    transcript: (sessionId: string): Promise<SessionTranscript> =>
+      this.call('session.transcript', { session_id: sessionId }),
   };
 
   prompt = {
-    execute: (params: { message: string; session_id?: string }): Promise<void> =>
+    execute: (params: { message: string; session_id?: string; provider?: string; model?: string }): Promise<PromptExecuteResult> =>
       this.call('prompt.execute', params),
   };
 

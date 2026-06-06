@@ -52,7 +52,7 @@ class AgentExecutionService:
         self._pool = agent_pool
         self._session_svc = session_service
 
-    def execute_turn(self, session_id: str, user_message: str) -> threading.Thread:
+    def execute_turn(self, session_id: str, user_message: str) -> dict[str, Any]:
         """Spawn a daemon thread to run the agent turn. Returns the started thread.
 
         The caller (prompt_execute route) must have already called
@@ -62,37 +62,45 @@ class AgentExecutionService:
         if entry is None or entry.running:
             raise SessionBusyError()
 
-        user_seq = self._ui.append(session_id, "user", {"text": user_message})
-        self._bus.publish(session_id, user_seq, "user", {"text": user_message})
-        self._bus.publish(session_id, user_seq, "message.start", {"message_id": str(uuid.uuid4())})
+        turn_id = f"turn_{uuid.uuid4().hex}"
+        user_payload = {"text": user_message, "turn_id": turn_id}
+        user_seq = self._ui.append(session_id, "user", user_payload, turn_id=turn_id)
+        self._bus.publish(session_id, user_seq, "user", user_payload)
+        start_payload = {
+            "message_id": str(uuid.uuid4()),
+            "turn_id": turn_id,
+        }
+        start_seq = self._ui.append(session_id, "message.start", start_payload, turn_id=turn_id)
+        self._bus.publish(session_id, start_seq, "message.start", start_payload)
 
-        self._pool.mark_running(session_id)
+        self._pool.mark_running(session_id, turn_id)
 
         thread = threading.Thread(
             target=self._run_turn,
-            args=(session_id, user_message, user_seq),
+            args=(session_id, user_message, user_seq, turn_id),
             daemon=True,
             name=f"agent-turn-{session_id[:8]}",
         )
         self._pool.set_thread(session_id, thread)
         thread.start()
-        return thread
+        return {"thread": thread, "turn_id": turn_id, "user_seq": user_seq}
 
-    def _run_turn(self, session_id: str, user_message: str, user_seq: int) -> None:
+    def _run_turn(self, session_id: str, user_message: str, user_seq: int, turn_id: str) -> None:
         from tools.terminal_cwd import set_terminal_cwd, reset_terminal_cwd
         from tools.path_approval import set_workspace_context, reset_workspace_context
         from tools.terminal_tool import set_sudo_password_callback
         from tools.skills_tool import set_secret_capture_callback
 
         _t0_total = time.time()
+        self._pool.bind_current_thread_turn(session_id, turn_id)
         entry = self._pool.get_pooled_entry(session_id)
         workspace_cwd = getattr(entry.agent if entry else None, "workspace_cwd", None)
         cwd_token = set_terminal_cwd(workspace_cwd)
         ws_tokens = set_workspace_context(workspace_cwd, session_id)
         prev_interactive = os.environ.get("HERMES_INTERACTIVE")
         os.environ["HERMES_INTERACTIVE"] = "1"
-        set_sudo_password_callback(lambda: self._block_for_prompt("sudo.request", session_id, {}, timeout=120))
-        set_secret_capture_callback(lambda env_var, prompt, metadata=None: self._capture_secret(session_id, env_var, prompt, metadata))
+        set_sudo_password_callback(lambda: self._block_for_prompt("sudo.request", session_id, {}, timeout=120, turn_id=turn_id))
+        set_secret_capture_callback(lambda env_var, prompt, metadata=None: self._capture_secret(session_id, env_var, prompt, metadata, turn_id=turn_id))
 
         try:
             _t0 = time.time()
@@ -135,7 +143,7 @@ class AgentExecutionService:
             # Reconstruct the answer from the streamed deltas so the turn still
             # finalizes with its text.
             if not final_text and not interrupted:
-                final_text = self._collect_streamed_text(session_id, user_seq)
+                final_text = self._collect_streamed_text(session_id, user_seq, turn_id)
 
             failed = isinstance(result, dict) and result.get("failed")
             error_text = result.get("error") if isinstance(result, dict) else None
@@ -147,13 +155,15 @@ class AgentExecutionService:
                 # stop signal.
                 from .model_errors import classify_error_message
                 structured = classify_error_message(str(error_text or "Agent error"))
+                payload = {"error": structured["message"], **structured, "turn_id": turn_id}
                 seq = self._ui.append(
-                    session_id, "turn_error", {"error": structured["message"], **structured}
+                    session_id, "turn_error", payload, turn_id=turn_id
                 )
                 self._bus.publish(session_id, seq, "error", {
                     "message": structured["message"],
                     "code": structured["code"],
                     "hint": structured.get("hint"),
+                    "turn_id": turn_id,
                 })
             elif interrupted and not final_text:
                 # An interrupted turn with no output is finalized by the frontend
@@ -164,11 +174,11 @@ class AgentExecutionService:
                 # Publish a terminal signal so the UI never hangs waiting for a
                 # stop, even when final_text is empty (rendered as a no-op — no
                 # empty bubble — by the frontend).
-                payload = {"text": final_text, "rendered": False}
+                payload = {"text": final_text, "rendered": False, "turn_id": turn_id}
                 usage = self._get_usage(session_id, agent)
                 if usage is not None:
                     payload["usage"] = usage
-                seq = self._ui.append(session_id, "message.complete", payload)
+                seq = self._ui.append(session_id, "message.complete", payload, turn_id=turn_id)
                 self._bus.publish(session_id, seq, "message.complete", payload)
 
             self._session_svc.backfill_model_if_unset(
@@ -179,11 +189,13 @@ class AgentExecutionService:
             log.exception("agent turn failed for %s", session_id)
             from .model_errors import classify_agent_error
             structured = classify_agent_error(exc)
-            seq = self._ui.append(session_id, "turn_error", {"error": structured["message"], **structured})
+            payload = {"error": structured["message"], **structured, "turn_id": turn_id}
+            seq = self._ui.append(session_id, "turn_error", payload, turn_id=turn_id)
             self._bus.publish(session_id, seq, "error", {
                 "message": structured["message"],
                 "code": structured["code"],
                 "hint": structured.get("hint"),
+                "turn_id": turn_id,
             })
 
         finally:
@@ -196,6 +208,7 @@ class AgentExecutionService:
             # Pass our thread identity so a force_reset'd zombie turn that later
             # unblocks cannot idle a fresh turn that has since taken over.
             self._pool.mark_idle(session_id, threading.current_thread())
+            self._pool.clear_current_thread_turn()
             log.info("[perf] _run_turn total wall-clock: %.2fs", time.time() - _t0_total)
 
     def _get_usage(self, session_id: str, agent: Any) -> dict[str, Any] | None:
@@ -281,7 +294,7 @@ class AgentExecutionService:
 
         return usage
 
-    def _collect_streamed_text(self, session_id: str, user_seq: int) -> str:
+    def _collect_streamed_text(self, session_id: str, user_seq: int, turn_id: str | None = None) -> str:
         """Concatenate the text of message.delta events emitted this turn.
 
         Used as a fallback when run_conversation streamed text via the delta
@@ -295,6 +308,9 @@ class AgentExecutionService:
             return ""
         parts: list[str] = []
         for row in rows:
+            row_turn_id = row.get("turn_id") or (row.get("payload") or {}).get("turn_id")
+            if turn_id and row_turn_id and row_turn_id != turn_id:
+                continue
             if str(row.get("type") or "") == "message.delta":
                 payload = row.get("payload") or {}
                 text = payload.get("text")
@@ -302,14 +318,23 @@ class AgentExecutionService:
                     parts.append(str(text))
         return "".join(parts)
 
-    def _block_for_prompt(self, event_type: str, session_id: str, payload: dict[str, Any], timeout: int = 120) -> str:
+    def _block_for_prompt(
+        self,
+        event_type: str,
+        session_id: str,
+        payload: dict[str, Any],
+        timeout: int = 120,
+        turn_id: str | None = None,
+    ) -> str:
         request_id = str(uuid.uuid4())
         event = threading.Event()
         with _pending_prompt_lock:
             _pending_prompt_events[request_id] = event
 
         full_payload = {**payload, "request_id": request_id}
-        seq = self._ui.append(session_id, event_type, full_payload)
+        if turn_id:
+            full_payload["turn_id"] = turn_id
+        seq = self._ui.append(session_id, event_type, full_payload, turn_id=turn_id)
         self._bus.publish(session_id, seq, event_type, full_payload)
 
         try:
@@ -322,11 +347,18 @@ class AgentExecutionService:
                 _pending_prompt_events.pop(request_id, None)
                 _pending_prompt_answers.pop(request_id, None)
 
-    def _capture_secret(self, session_id: str, env_var: str, prompt: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _capture_secret(
+        self,
+        session_id: str,
+        env_var: str,
+        prompt: str,
+        metadata: dict[str, Any] | None = None,
+        turn_id: str | None = None,
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {"prompt": prompt, "env_var": env_var}
         if metadata:
             payload["metadata"] = metadata
-        value = self._block_for_prompt("secret.request", session_id, payload)
+        value = self._block_for_prompt("secret.request", session_id, payload, turn_id=turn_id)
         if not value:
             return {
                 "success": True,
@@ -397,4 +429,3 @@ class AgentExecutionService:
             self._state._db._execute_write(_do)
         except Exception:
             pass
-

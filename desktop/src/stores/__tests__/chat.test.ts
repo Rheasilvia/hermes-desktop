@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { chatStore } from '../chat';
+import { initializeStores } from '../context';
 
 // Use unique session IDs per test suite to avoid cross-test signal bleed.
 const SESSION_TOOL_COMPLETE = 'test-session-tool-complete';
@@ -244,5 +245,250 @@ describe('conversation turn stability', () => {
 
     expect(chatStore.getLiveState(SESSION_TURN).status).toBe('streaming');
     expect(chatStore.getLiveState(SESSION_TURN).streamingText).toBe('hello');
+  });
+
+  it('binds the accepted live turn to the turn_id returned by prompt.execute', async () => {
+    initializeStores({
+      prompt: {
+        execute: vi.fn().mockResolvedValue({ turn_id: 'turn_accept', user_seq: 1 }),
+      },
+    } as any);
+
+    await chatStore.sendMessage(SESSION_TURN, 'hello');
+
+    expect(chatStore.getLiveState(SESSION_TURN)).toMatchObject({
+      status: 'accepted',
+      turnId: 'turn_accept',
+    });
+  });
+
+  it('ignores stale events from a different turn while a live turn is active', () => {
+    chatStore.markPromptAccepted(SESSION_TURN, 'turn_current');
+
+    chatStore.handleDelta(SESSION_TURN, {
+      session_id: SESSION_TURN,
+      text: 'old text',
+      turn_id: 'turn_old',
+      event_seq: 2,
+    } as any);
+
+    expect(chatStore.getLiveState(SESSION_TURN)).toMatchObject({
+      status: 'accepted',
+      turnId: 'turn_current',
+      streamingText: '',
+    });
+  });
+
+  it('ignores stale errors from a different turn while a live turn is active', () => {
+    chatStore.handleDelta(SESSION_TURN, {
+      session_id: SESSION_TURN,
+      text: 'new text',
+      turn_id: 'turn_current',
+      event_seq: 4,
+    } as any);
+
+    chatStore.handleError(SESSION_TURN, {
+      session_id: SESSION_TURN,
+      message: 'old failure',
+      turn_id: 'turn_old',
+      event_seq: 5,
+    } as any);
+
+    expect(chatStore.getLiveState(SESSION_TURN)).toMatchObject({
+      status: 'streaming',
+      turnId: 'turn_current',
+      streamingText: 'new text',
+      errorMessage: null,
+    });
+  });
+
+  it('finalizes a matching turn.interrupted event from another client', () => {
+    chatStore.handleDelta(SESSION_TURN, {
+      session_id: SESSION_TURN,
+      text: 'partial',
+      turn_id: 'turn_interrupt',
+      event_seq: 2,
+    } as any);
+
+    chatStore.handleTurnInterrupted(SESSION_TURN, {
+      session_id: SESSION_TURN,
+      reason: 'user_interrupt',
+      turn_id: 'turn_interrupt',
+      event_seq: 3,
+    } as any);
+
+    const messages = chatStore.getMessages(SESSION_TURN);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ role: 'assistant', turnId: 'turn_interrupt' });
+    expect(chatStore.getLiveState(SESSION_TURN).status).toBe('idle');
+  });
+});
+
+describe('loadMessages — transcript hydrate', () => {
+  const SESSION_TRANSCRIPT = 'test-session-transcript-hydrate';
+
+  beforeEach(() => {
+    chatStore.clearMessages(SESSION_TRANSCRIPT);
+  });
+
+  it('hydrates completed transcript messages without creating a live assistant', async () => {
+    initializeStores({
+      session: {
+        transcript: vi.fn().mockResolvedValue({
+          session_id: SESSION_TRANSCRIPT,
+          max_seq: 2,
+          messages: [
+            { id: 1, turn_id: 'turn_hydrate', role: 'user', content: 'hi', timestamp: 1, status: 'completed' },
+            { id: 2, turn_id: 'turn_hydrate', role: 'assistant', content: 'hello', timestamp: 2, status: 'completed' },
+          ],
+          live_turn: null,
+        }),
+      },
+    } as any);
+
+    await chatStore.loadMessages(SESSION_TRANSCRIPT);
+
+    const messages = chatStore.getMessages(SESSION_TRANSCRIPT);
+    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant']);
+    expect(chatStore.getLiveState(SESSION_TRANSCRIPT).status).toBe('idle');
+    expect(chatStore.getLiveState(SESSION_TRANSCRIPT).streamingText).toBe('');
+  });
+
+  it('hydrates a running transcript turn into liveState instead of messages', async () => {
+    initializeStores({
+      session: {
+        transcript: vi.fn().mockResolvedValue({
+          session_id: SESSION_TRANSCRIPT,
+          max_seq: 3,
+          messages: [
+            { id: 1, turn_id: 'turn_live', role: 'user', content: 'hi', timestamp: 1, status: 'completed' },
+          ],
+          live_turn: {
+            turn_id: 'turn_live',
+            status: 'running',
+            content: 'partial',
+            reasoning: 'thinking',
+            tools: [],
+            todos: [],
+            last_event_seq: 3,
+            started_at: 1,
+            updated_at: 3,
+          },
+        }),
+      },
+    } as any);
+
+    await chatStore.loadMessages(SESSION_TRANSCRIPT);
+
+    expect(chatStore.getMessages(SESSION_TRANSCRIPT).map((message) => message.role)).toEqual(['user']);
+    expect(chatStore.getLiveState(SESSION_TRANSCRIPT)).toMatchObject({
+      turnId: 'turn_live',
+      status: 'streaming',
+      streamingText: 'partial',
+      reasoningText: 'thinking',
+      lastEventSeq: 3,
+    });
+  });
+
+  it('keeps newer live SSE state when transcript hydrate returns an older live turn', async () => {
+    initializeStores({
+      session: {
+        transcript: vi.fn().mockResolvedValue({
+          session_id: SESSION_TRANSCRIPT,
+          max_seq: 3,
+          messages: [
+            { id: 1, turn_id: 'turn_live', role: 'user', content: 'hi', timestamp: 1, status: 'completed' },
+          ],
+          live_turn: {
+            turn_id: 'turn_live',
+            status: 'running',
+            content: 'partial',
+            reasoning: '',
+            tools: [],
+            todos: [],
+            last_event_seq: 3,
+            started_at: 1,
+            updated_at: 3,
+          },
+        }),
+      },
+    } as any);
+
+    chatStore.handleDelta(SESSION_TRANSCRIPT, {
+      session_id: SESSION_TRANSCRIPT,
+      text: 'partial newer',
+      turn_id: 'turn_live',
+      event_seq: 4,
+    } as any);
+
+    await chatStore.loadMessages(SESSION_TRANSCRIPT);
+
+    expect(chatStore.getLiveState(SESSION_TRANSCRIPT)).toMatchObject({
+      turnId: 'turn_live',
+      streamingText: 'partial newer',
+      lastEventSeq: 4,
+    });
+  });
+
+  it('keeps newer live SSE state when transcript hydrate has no live turn yet', async () => {
+    initializeStores({
+      session: {
+        transcript: vi.fn().mockResolvedValue({
+          session_id: SESSION_TRANSCRIPT,
+          max_seq: 1,
+          messages: [
+            { id: 1, turn_id: 'turn_prev', role: 'user', content: 'previous', timestamp: 1, status: 'completed' },
+          ],
+          live_turn: null,
+        }),
+      },
+    } as any);
+
+    chatStore.handleDelta(SESSION_TRANSCRIPT, {
+      session_id: SESSION_TRANSCRIPT,
+      text: 'new live',
+      turn_id: 'turn_newer',
+      event_seq: 4,
+    } as any);
+
+    await chatStore.loadMessages(SESSION_TRANSCRIPT);
+
+    expect(chatStore.getLiveState(SESSION_TRANSCRIPT)).toMatchObject({
+      turnId: 'turn_newer',
+      streamingText: 'new live',
+      lastEventSeq: 4,
+    });
+  });
+});
+
+describe('handleMessageComplete — turn_id dedupe', () => {
+  const SESSION_DEDUPE = 'test-session-turn-dedupe';
+
+  beforeEach(() => {
+    chatStore.clearMessages(SESSION_DEDUPE);
+  });
+
+  it('does not append a second assistant for a duplicate complete with the same turn_id', () => {
+    chatStore.handleDelta(SESSION_DEDUPE, {
+      session_id: SESSION_DEDUPE,
+      text: 'hello',
+      turn_id: 'turn_duplicate',
+      event_seq: 2,
+    } as any);
+    chatStore.handleMessageComplete(SESSION_DEDUPE, {
+      session_id: SESSION_DEDUPE,
+      text: 'hello',
+      turn_id: 'turn_duplicate',
+      event_seq: 3,
+    } as any);
+    chatStore.handleMessageComplete(SESSION_DEDUPE, {
+      session_id: SESSION_DEDUPE,
+      text: 'hello',
+      turn_id: 'turn_duplicate',
+      event_seq: 3,
+    } as any);
+
+    const assistants = chatStore.getMessages(SESSION_DEDUPE).filter((message) => message.role === 'assistant');
+    expect(assistants).toHaveLength(1);
   });
 });

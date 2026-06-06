@@ -4,6 +4,7 @@
  */
 
 import type { Usage } from './message.js';
+import type { ParsedToolCall } from './domain/message.js';
 
 /** Session database row - mirrors sessions table. */
 export interface SessionMeta {
@@ -103,4 +104,42 @@ export interface SessionListItem {
 export interface Session {
   meta: SessionMeta;
   messages: SessionMessage[];
+}
+
+export type TranscriptTurnStatus = 'running' | 'completed' | 'interrupted' | 'failed';
+
+export interface TranscriptMessage {
+  id: number | string;
+  turn_id: string;
+  role: 'user' | 'assistant';
+  content: string | null;
+  reasoning?: string | null;
+  tool_calls?: ParsedToolCall[] | null;
+  timestamp: number;
+  token_count?: number | null;
+  finish_reason?: string | null;
+  status?: TranscriptTurnStatus;
+  usage?: Record<string, unknown> | null;
+  error?: Record<string, unknown> | null;
+}
+
+export interface TranscriptLiveTurn {
+  turn_id: string;
+  status: 'running';
+  content: string;
+  reasoning: string;
+  tools: ParsedToolCall[];
+  todos?: import('./gateway.js').TodoItem[];
+  usage?: Record<string, unknown> | null;
+  error?: Record<string, unknown> | null;
+  last_event_seq: number;
+  started_at: number;
+  updated_at: number;
+}
+
+export interface SessionTranscript {
+  session_id: string;
+  max_seq: number;
+  messages: TranscriptMessage[];
+  live_turn: TranscriptLiveTurn | null;
 }

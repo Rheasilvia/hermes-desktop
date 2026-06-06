@@ -4,7 +4,109 @@ from __future__ import annotations
 import json
 import time
 
-from daemon.db.ui_messages import append, latest_seq, list_messages
+from daemon.db.ui_messages import append, clear_all, latest_seq, list_messages
+
+
+def test_turn_projection_materializes_completed_turn(tmp_path):
+    """Raw turn events update the canonical conversation_turns read model."""
+    from daemon.db.conversation_turns import list_turns
+
+    home = tmp_path / ".hermes"
+    sid = "sess-turn"
+    turn_id = "turn_abc123"
+
+    user_seq = append(home, sid, "user", {"text": "find core logic"}, turn_id=turn_id)
+    append(home, sid, "reasoning.delta", {"text": "thinking\n"}, turn_id=turn_id)
+    append(home, sid, "tool.start", {"tool_id": "tool_1", "name": "search_files"}, turn_id=turn_id)
+    append(
+        home,
+        sid,
+        "tool.complete",
+        {"tool_id": "tool_1", "name": "search_files", "summary": "2 files", "duration_s": 1.2},
+        turn_id=turn_id,
+    )
+    terminal_seq = append(home, sid, "message.complete", {"text": "core is in app.py"}, turn_id=turn_id)
+
+    turns = list_turns(home, sid)
+
+    assert len(turns) == 1
+    assert turns[0]["turn_id"] == turn_id
+    assert turns[0]["user_seq"] == user_seq
+    assert turns[0]["user_text"] == "find core logic"
+    assert turns[0]["status"] == "completed"
+    assert turns[0]["assistant_content"] == "core is in app.py"
+    assert turns[0]["assistant_reasoning"] == "thinking\n"
+    assert turns[0]["terminal_seq"] == terminal_seq
+    assert turns[0]["tools"][0]["id"] == "tool_1"
+    assert turns[0]["tools"][0]["status"] == "complete"
+    assert turns[0]["tools"][0]["durationMs"] == 1200
+
+
+def test_interrupted_turn_is_terminal_for_late_events(tmp_path):
+    from daemon.db.conversation_turns import list_turns
+
+    home = tmp_path / ".hermes"
+    sid = "sess-interrupt"
+    turn_id = "turn_interrupted"
+
+    append(home, sid, "user", {"text": "start"}, turn_id=turn_id)
+    interrupted_seq = append(home, sid, "turn.interrupted", {"reason": "user_interrupt"}, turn_id=turn_id)
+    append(home, sid, "message.delta", {"text": "late"}, turn_id=turn_id)
+    append(home, sid, "message.complete", {"text": "late complete"}, turn_id=turn_id)
+
+    turn = list_turns(home, sid)[0]
+
+    assert turn["status"] == "interrupted"
+    assert turn["terminal_seq"] == interrupted_seq
+    assert turn["assistant_content"] == ""
+
+
+def test_turn_id_is_stored_in_column_and_payload_without_mutating_input(tmp_path):
+    home = tmp_path / ".hermes"
+    sid = "sess-turn-id"
+    turn_id = "turn_payload"
+    payload = {"text": "hello"}
+
+    append(home, sid, "user", payload, turn_id=turn_id)
+
+    rows = list_messages(home, sid)
+    stored_payload = json.loads(rows[0]["payload_json"])
+    assert rows[0]["turn_id"] == turn_id
+    assert stored_payload["turn_id"] == turn_id
+    assert payload == {"text": "hello"}
+
+
+def test_clear_all_migrates_legacy_ui_messages_without_turn_id(tmp_path):
+    """Reset must handle existing desktop_ui.db files from before turn_id."""
+    import sqlite3
+
+    home = tmp_path / ".hermes"
+    db_path = home / "desktop" / "desktop_ui.db"
+    db_path.parent.mkdir(parents=True)
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(
+        """
+        CREATE TABLE ui_messages (
+            session_id   TEXT    NOT NULL,
+            seq          INTEGER NOT NULL,
+            type         TEXT    NOT NULL,
+            payload_json TEXT    NOT NULL,
+            created_at   REAL    NOT NULL,
+            PRIMARY KEY (session_id, seq)
+        );
+        CREATE INDEX idx_ui_msgs_sid_seq ON ui_messages(session_id, seq);
+        INSERT INTO ui_messages (session_id, seq, type, payload_json, created_at)
+        VALUES ('legacy', 1, 'user', '{"text":"old"}', 1.0);
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    clear_all(home)
+    append(home, "fresh", "user", {"text": "new"}, turn_id="turn_new")
+
+    rows = list_messages(home, "fresh")
+    assert rows[0]["turn_id"] == "turn_new"
 
 
 def test_append_returns_monotonic_seq(tmp_path):

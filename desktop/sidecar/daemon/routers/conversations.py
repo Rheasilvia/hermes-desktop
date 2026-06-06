@@ -24,6 +24,7 @@ from ..schemas.conversation import (
 from ..services.dependencies import (
     get_agent_execution_service,
     get_agent_pool,
+    get_event_bus,
     get_session_service,
     get_title_service,
     get_ui_message_service,
@@ -148,6 +149,16 @@ async def get_session_messages(
     return svc.get_messages(session_id, since_seq=since)
 
 
+@router.get("/sessions/{session_id}/transcript")
+async def get_session_transcript(
+    session_id: str,
+    svc=Depends(get_session_service),
+):
+    if svc.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+    return svc.get_transcript(session_id)
+
+
 # ── Prompt execution ──────────────────────────────────────────────────────────
 
 
@@ -184,11 +195,16 @@ async def prompt_execute(
     title_svc.maybe_generate_title(sid, body.message)
 
     # Execute agent turn in daemon thread — returns 202 immediately
-    exec_svc.execute_turn(sid, body.message)
+    turn = exec_svc.execute_turn(sid, body.message)
 
     _log.info("[perf] prompt_execute total: %.2fs (sid=%s provider=%r model=%r)",
               time.time() - _t0, sid, body.provider, body.model)
-    return {"status": "accepted", "session_id": sid}
+    return {
+        "status": "accepted",
+        "session_id": sid,
+        "turn_id": turn["turn_id"],
+        "user_seq": turn["user_seq"],
+    }
 
 
 # ── Interrupt ─────────────────────────────────────────────────────────────────
@@ -198,11 +214,18 @@ async def prompt_execute(
 async def interrupt_session(
     session_id: str,
     pool=Depends(get_agent_pool),
+    ui=Depends(get_ui_message_service),
+    bus=Depends(get_event_bus),
 ):
     # force_reset interrupts the agent AND frees the session even if its turn
     # thread is wedged (e.g. a stalled provider stream that never returns), so
     # the user can immediately continue the conversation. Idempotent: stopping
     # an already-idle session is a no-op success.
+    turn_id = pool.get_active_turn_id(session_id)
+    if turn_id:
+        payload = {"reason": "user_interrupt", "turn_id": turn_id}
+        seq = ui.append(session_id, "turn.interrupted", payload, turn_id=turn_id)
+        bus.publish(session_id, seq, "turn.interrupted", payload)
     pool.force_reset(session_id)
     return {"ok": True}
 

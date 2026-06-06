@@ -25,18 +25,16 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-UI_MESSAGES_DDL = """
+UI_MESSAGES_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS ui_messages (
     session_id   TEXT    NOT NULL,
     seq          INTEGER NOT NULL,
     type         TEXT    NOT NULL,
+    turn_id      TEXT,
     payload_json TEXT    NOT NULL,
     created_at   REAL    NOT NULL,
     PRIMARY KEY (session_id, seq)
 );
-
-CREATE INDEX IF NOT EXISTS idx_ui_msgs_sid_seq
-    ON ui_messages(session_id, seq);
 
 CREATE TABLE IF NOT EXISTS session_path_approvals (
     session_id   TEXT NOT NULL,
@@ -44,6 +42,14 @@ CREATE TABLE IF NOT EXISTS session_path_approvals (
     created_at   REAL NOT NULL,
     PRIMARY KEY (session_id, approval_key)
 );
+"""
+
+UI_MESSAGES_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS idx_ui_msgs_sid_seq
+    ON ui_messages(session_id, seq);
+
+CREATE INDEX IF NOT EXISTS idx_ui_msgs_sid_turn_seq
+    ON ui_messages(session_id, turn_id, seq);
 """
 
 
@@ -62,7 +68,13 @@ def _connect(hermes_home: Path) -> sqlite3.Connection:
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(UI_MESSAGES_DDL)
+    conn.executescript(UI_MESSAGES_TABLE_DDL)
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(ui_messages)").fetchall()}
+    if "turn_id" not in cols:
+        conn.execute("ALTER TABLE ui_messages ADD COLUMN turn_id TEXT")
+    conn.executescript(UI_MESSAGES_INDEX_DDL)
+    from .conversation_turns import ensure_schema as ensure_turn_schema
+    ensure_turn_schema(conn)
     conn.commit()
 
 
@@ -71,6 +83,7 @@ def append(
     session_id: str,
     msg_type: str,
     payload: Dict[str, Any],
+    turn_id: str | None = None,
 ) -> int:
     """Append a new ui_messages row.  Returns the assigned seq for this row.
 
@@ -89,11 +102,25 @@ def append(
         ).fetchone()
         seq = row["next_seq"]
 
+        created_at = time.time()
+        payload_to_store = dict(payload)
+        if turn_id:
+            payload_to_store.setdefault("turn_id", turn_id)
+
         conn.execute(
-            "INSERT INTO ui_messages (session_id, seq, type, payload_json, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (session_id, seq, msg_type, json.dumps(payload, ensure_ascii=False), time.time()),
+            "INSERT INTO ui_messages (session_id, seq, type, turn_id, payload_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                session_id,
+                seq,
+                msg_type,
+                turn_id,
+                json.dumps(payload_to_store, ensure_ascii=False),
+                created_at,
+            ),
         )
+        from .conversation_turns import apply_event
+        apply_event(conn, session_id, turn_id, seq, msg_type, payload_to_store, created_at)
         conn.commit()
         return seq
     finally:
@@ -107,7 +134,8 @@ def list_messages(
 ) -> List[Dict[str, Any]]:
     """Return all ui_messages for a session, optionally since a given seq.
 
-    Returns rows as dicts with keys: session_id, seq, type, payload_json, created_at.
+    Returns rows as dicts with keys: session_id, seq, type, turn_id,
+    payload_json, created_at.
     Payload is NOT deserialized — callers do that at the boundary they need it.
     """
     conn = _connect(hermes_home)
@@ -116,7 +144,7 @@ def list_messages(
 
         if since_seq is not None:
             rows = conn.execute(
-                "SELECT session_id, seq, type, payload_json, created_at "
+                "SELECT session_id, seq, type, turn_id, payload_json, created_at "
                 "FROM ui_messages "
                 "WHERE session_id = ? AND seq > ? "
                 "ORDER BY seq ASC",
@@ -124,7 +152,7 @@ def list_messages(
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT session_id, seq, type, payload_json, created_at "
+                "SELECT session_id, seq, type, turn_id, payload_json, created_at "
                 "FROM ui_messages "
                 "WHERE session_id = ? "
                 "ORDER BY seq ASC",
@@ -160,6 +188,23 @@ def clear_session(hermes_home: Path, session_id: str) -> None:
             "DELETE FROM ui_messages WHERE session_id = ?",
             (session_id,),
         )
+        conn.execute(
+            "DELETE FROM conversation_turns WHERE session_id = ?",
+            (session_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def clear_all(hermes_home: Path) -> None:
+    """Delete all desktop UI event-log/read-model rows."""
+    conn = _connect(hermes_home)
+    try:
+        _ensure_schema(conn)
+        conn.execute("DELETE FROM ui_messages")
+        conn.execute("DELETE FROM conversation_turns")
+        conn.execute("DELETE FROM session_path_approvals")
         conn.commit()
     finally:
         conn.close()
