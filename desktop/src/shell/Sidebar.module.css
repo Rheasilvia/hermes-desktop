@@ -10,6 +10,8 @@
   position: relative;
 }
 
+/* ── Resize handle ──────────────────────────────────────────────────────────── */
+
 .resizeHandle {
   position: absolute;
   top: 0;
@@ -31,51 +33,11 @@
   opacity: 0.5;
 }
 
-.header {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+/* ── Top bar: New Chat ──────────────────────────────────────────────────────── */
+
+.topBar {
+  padding: 12px 12px 8px;
   flex-shrink: 0;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.brandIcon {
-  flex-shrink: 0;
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: -200% center;
-  }
-  100% {
-    background-position: 200% center;
-  }
-}
-
-.brandText {
-  font-family: var(--font-serif);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--color-on-surface);
-  background: linear-gradient(
-    90deg,
-    var(--color-on-surface) 0%,
-    var(--color-primary) 25%,
-    var(--color-on-surface) 50%,
-    var(--color-primary) 75%,
-    var(--color-on-surface) 100%
-  );
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: shimmer 4s linear infinite;
 }
 
 .newChatBtn {
@@ -83,6 +45,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  width: 100%;
   height: 32px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
@@ -93,53 +56,45 @@
   font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: background var(--transition-fast);
+  transition: transform var(--transition-fast), background var(--transition-fast);
 }
 
 .newChatBtn:hover {
   background: var(--color-active-overlay);
 }
 
-.nav {
-  flex: 1;
-  overflow: hidden;
-  padding: 0 12px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
+.newChatBtn:active {
+  transform: scale(0.97);
 }
 
-/* Scrollable conversations zone */
-.conversationsSection {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+.shortcutHint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-on-surface-dim);
+  letter-spacing: 0.02em;
 }
 
-.conversationsHeader {
-  flex-shrink: 0;
-}
+/* ── Search ─────────────────────────────────────────────────────────────────── */
 
 .searchWrapper {
   position: relative;
   display: flex;
   align-items: center;
-  margin: 0 0 4px;
+  padding: 0 12px 8px;
+  flex-shrink: 0;
 }
 
 .searchIcon {
   position: absolute;
-  left: 8px;
+  left: 20px;
   color: var(--color-on-surface-dim);
   pointer-events: none;
 }
 
 .searchInput {
   width: 100%;
-  height: 26px;
-  padding: 0 24px 0 26px;
+  height: 28px;
+  padding: 0 24px 0 28px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: var(--color-hover-overlay);
@@ -161,7 +116,7 @@
 
 .searchClear {
   position: absolute;
-  right: 6px;
+  right: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -180,84 +135,163 @@
   background: var(--color-active-overlay);
 }
 
-.sessionsList {
+/* ── Sections scroll area ───────────────────────────────────────────────────── */
+
+.sectionsScroll {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding-bottom: 4px;
+  padding: 0 8px;
 }
 
-.sessionsList::-webkit-scrollbar {
+.sectionsScroll::-webkit-scrollbar {
   width: 4px;
 }
 
-.sessionsList::-webkit-scrollbar-track {
+.sectionsScroll::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.sessionsList::-webkit-scrollbar-thumb {
+.sectionsScroll::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: 2px;
 }
 
-.sessionsList::-webkit-scrollbar-thumb:hover {
+.sectionsScroll::-webkit-scrollbar-thumb:hover {
   background: var(--color-on-surface-muted);
 }
 
-/* Fixed bottom nav */
-.bottomNav {
-  flex-shrink: 0;
-  border-top: 1px solid var(--color-border);
-  padding-top: 8px;
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* ── Section ────────────────────────────────────────────────────────────────── */
+
+.section {
+  margin-bottom: 4px;
 }
 
-.group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.groupLabel {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-on-surface-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 8px 8px 4px;
-}
-
-.navItem {
+.sectionHeader {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 8px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  color: var(--color-on-surface);
-  text-decoration: none;
+  gap: 4px;
+  width: 100%;
+  padding: 6px 8px 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-on-surface-muted);
   font-family: var(--font-sans);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast);
+}
+
+.sectionHeader:hover {
+  color: var(--color-on-surface);
+}
+
+.disclosureCaret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 150ms ease;
+}
+
+.disclosureCaretOpen {
+  transform: rotate(90deg);
+}
+
+.sectionLabel {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+}
+
+.sectionCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  font-weight: var(--weight-normal);
+  line-height: 1;
+  color: var(--color-on-surface-dim);
+  background: var(--color-hover-overlay);
+  border-radius: var(--radius-full);
+}
+
+/* ── Section content (animate in/out) ────────────────────────────────────────── */
+
+.sectionContentAnimate {
+  animation: sectionReveal 180ms ease-out;
+}
+
+@keyframes sectionReveal {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 2000px;
+  }
+}
+
+.sectionContent {
   overflow: hidden;
 }
 
-.navItem:hover {
-  background: var(--color-hover-overlay);
+/* ── Workspace grouping toggle button ────────────────────────────────────────── */
+
+.groupToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-on-surface-dim);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
 }
 
-.navItem.active {
+.groupToggle:hover {
+  background: var(--color-hover-overlay);
+  color: var(--color-on-surface);
+}
+
+.groupToggleActive {
   background: var(--color-active-overlay);
   color: var(--color-primary);
 }
 
-.navLabel {
+/* ── Workspace group ────────────────────────────────────────────────────────── */
+
+.workspaceGroup {
+  margin-bottom: var(--space-1);
+}
+
+.workspaceGroupLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface-muted);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+
+/* Folder name text inside group label — truncate before shrinking the count badge */
+.workspaceGroupName {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -265,74 +299,146 @@
   min-width: 0;
 }
 
-/* Status dots use semantic universal colors (green/red) — intentionally theme-independent */
+.workspaceGroupCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  font-weight: var(--weight-normal);
+  line-height: 1;
+  color: var(--color-on-surface-dim);
+  background: var(--color-hover-overlay);
+  border-radius: var(--radius-full);
+}
+
+/* Session rows inside a workspace group get a slight indent for hierarchy */
+.workspaceGroup .sessionRowLink {
+  padding-left: 14px;
+}
+
+/* ── Session rows ────────────────────────────────────────────────────────────── */
+
+.sessionRow {
+  position: relative;
+  border-radius: var(--radius-sm);
+}
+
+.sessionRowActive {
+  background: var(--color-active-overlay);
+}
+
+.sessionRowLink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  height: 28px;
+  color: var(--color-on-surface);
+  text-decoration: none;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.sessionRowLink:hover {
+  background: var(--color-hover-overlay);
+}
+
+.sessionTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Status dots */
 .statusDot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ef4444; /* literal-ok: universal status red */
+  background: #ef4444;
   flex-shrink: 0;
   transition: background var(--transition-fast);
 }
 
 .statusDotActive {
-  background: #22c55e; /* literal-ok: universal status green */
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); /* literal-ok: status green glow */
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
 }
 
-.footer {
-  padding: 8px 12px;
-  border-top: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-
-.settingsItem {
-  margin: 0;
-}
-
-.viewAll {
-  color: var(--color-primary);
-  font-size: var(--text-sm);
-}
-
-.viewAll:hover {
-  background: var(--color-hover-overlay);
-}
+/* ── Empty state ────────────────────────────────────────────────────────────── */
 
 .emptyHint {
   color: var(--color-on-surface-dim);
   font-size: var(--text-sm);
-  cursor: default;
-  pointer-events: none;
+  padding: 8px 12px;
 }
 
-.navItemWithDelete {
-  position: relative;
-  padding: 0;
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  color: var(--color-on-surface-dim);
+  font-size: var(--text-sm);
 }
 
-.navItemLink {
+/* ── Bottom bar: Tools + Settings ──────────────────────────────────────────── */
+
+.bottomBar {
+  flex-shrink: 0;
+  padding: 6px 4px 6px;
+  border-top: 1px solid var(--color-border);
+}
+
+.toolGroupLabel {
+  padding: 4px 8px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-on-surface-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bottomDivider {
+  height: 1px;
+  background: var(--color-border-light);
+  margin: 4px 6px;
+}
+
+/* Shared nav row style — used by both session rows and bottom tool links */
+.navRow {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 8px;
-  height: 28px;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: inherit;
-  text-decoration: none;
+  height: 30px;
   border-radius: var(--radius-sm);
-  position: relative;
-  z-index: 2;
+  color: var(--color-on-surface);
+  text-decoration: none;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  transition: background var(--transition-fast);
 }
 
-.navItemWithMenu {
-  position: relative;
-  padding: 0;
+.navRow:hover {
+  background: var(--color-hover-overlay);
 }
 
-/* Context dropdown menu */
+.navRowActive {
+  background: var(--color-active-overlay);
+  color: var(--color-primary);
+}
+
+/* ── Context dropdown menu ──────────────────────────────────────────────────── */
+
 .contextDropdown {
   position: fixed;
   min-width: 148px;
