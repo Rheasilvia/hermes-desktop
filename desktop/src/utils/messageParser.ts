@@ -214,13 +214,3 @@ export function parseMessage(msg: ConversationMessage): RenderedMessage {
     displayParts: msg.displayParts ?? null,
   };
 }
-
-/** Upgrade an ephemeral streaming RenderedMessage after message.complete. */
-export function finalizeStreamingMessage(
-  draft: RenderedMessage,
-  persistedId: number,
-  tokenCount: number | null,
-  finishReason: string | null,
-): RenderedMessage {
-  return { ...draft, id: persistedId, tokenCount, finishReason, isStreaming: false };
-}

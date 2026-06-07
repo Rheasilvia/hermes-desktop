@@ -79,15 +79,6 @@ export async function saveDesktopSettings(settings: DesktopSettings): Promise<vo
   });
 }
 
-export async function updateDesktopSetting<K extends keyof DesktopSettings>(
-  key: K,
-  value: DesktopSettings[K],
-): Promise<void> {
-  const settings = await loadDesktopSettings();
-  settings[key] = value;
-  await saveDesktopSettings(settings);
-}
-
 /**
  * Apply desktop settings to the DOM.
  * Call this after loading settings and after any setting change.

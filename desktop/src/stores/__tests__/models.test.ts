@@ -81,7 +81,7 @@ describe('models store', () => {
 
   it('hydrates cached real providers immediately while refresh is pending', async () => {
     localStorage.setItem(
-      'hermes.desktop.model.providers.v1',
+      'hermes.desktop.model.providers.v2',
       JSON.stringify([
         {
           id: 'provider_cached_openai',

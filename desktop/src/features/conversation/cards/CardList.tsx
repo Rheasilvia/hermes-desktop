@@ -48,28 +48,6 @@ export function CardList<T>(props: {
   );
 }
 
-/** Loading / error wrapper for non-list cards (key-value bodies). */
-export const AsyncBody: Component<{
-  loading?: boolean;
-  error?: string | null;
-  onRetry?: () => void;
-  children: JSX.Element;
-}> = (props) => (
-  <Switch fallback={props.children}>
-    <Match when={props.loading}>
-      <div aria-busy="true"><div class={styles.skeleton} /><div class={styles.skeleton} /></div>
-    </Match>
-    <Match when={props.error}>
-      <p class={`${styles.state} ${styles.error}`} role="alert">
-        {props.error}
-        <Show when={props.onRetry}>
-          <button type="button" class={styles.retry} onClick={() => props.onRetry!()}>Retry</button>
-        </Show>
-      </p>
-    </Match>
-  </Switch>
-);
-
 /**
  * A single list row: a keyboard-accessible primary control (the whole row) plus
  * an optional separate trailing action button (avoids button-in-button). Pure.

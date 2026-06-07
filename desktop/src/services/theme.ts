@@ -3,24 +3,11 @@ import { loadDesktopSettings, type DesktopSettings } from './desktop-settings.js
 
 export type ThemeName = 'light' | 'dark';
 
-const THEMES: ThemeName[] = ['light', 'dark'];
 const STORAGE_KEY_THEME = 'hermes-desktop-theme';
 
 export function setTheme(name: ThemeName): void {
   document.documentElement.dataset.theme = name;
   uiStore.setTheme(name);
-}
-
-export function getTheme(): ThemeName {
-  return uiStore.theme as ThemeName;
-}
-
-export function cycleTheme(): ThemeName {
-  const current = getTheme();
-  const idx = THEMES.indexOf(current);
-  const next = THEMES[(idx + 1) % THEMES.length];
-  setTheme(next);
-  return next;
 }
 
 function getSystemPreference(): ThemeName {
