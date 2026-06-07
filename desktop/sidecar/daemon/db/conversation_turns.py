@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS conversation_turns (
     turn_id             TEXT    NOT NULL,
     user_seq            INTEGER NOT NULL,
     user_text           TEXT    NOT NULL DEFAULT '',
+    user_display_parts_json TEXT NOT NULL DEFAULT '[]',
     slash_command_json  TEXT    NOT NULL DEFAULT '',
     status              TEXT    NOT NULL DEFAULT 'running',
     assistant_content   TEXT    NOT NULL DEFAULT '',
@@ -66,6 +67,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE conversation_turns ADD COLUMN last_seq INTEGER NOT NULL DEFAULT 0")
     if "slash_command_json" not in cols:
         conn.execute("ALTER TABLE conversation_turns ADD COLUMN slash_command_json TEXT NOT NULL DEFAULT ''")
+    if "user_display_parts_json" not in cols:
+        conn.execute("ALTER TABLE conversation_turns ADD COLUMN user_display_parts_json TEXT NOT NULL DEFAULT '[]'")
     if "assistant_blocks_json" not in cols:
         conn.execute("ALTER TABLE conversation_turns ADD COLUMN assistant_blocks_json TEXT NOT NULL DEFAULT '[]'")
 
@@ -97,29 +100,43 @@ def _ensure_turn(
     *,
     user_seq: int,
     user_text: str = "",
+    user_display_parts_json: str = "[]",
     slash_command_json: str = "",
     created_at: float,
 ) -> None:
     conn.execute(
         """
         INSERT OR IGNORE INTO conversation_turns (
-            session_id, turn_id, user_seq, user_text, slash_command_json, status, started_at, updated_at, last_seq
+            session_id, turn_id, user_seq, user_text, user_display_parts_json, slash_command_json, status, started_at, updated_at, last_seq
         )
-        VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)
         """,
-        (session_id, turn_id, user_seq, user_text, slash_command_json, created_at, created_at, user_seq),
+        (session_id, turn_id, user_seq, user_text, user_display_parts_json, slash_command_json, created_at, created_at, user_seq),
     )
-    if user_text or slash_command_json:
+    if user_text or slash_command_json or user_display_parts_json != "[]":
         conn.execute(
             """
             UPDATE conversation_turns
             SET user_text = CASE WHEN ? != '' THEN ? ELSE user_text END,
+                user_display_parts_json = CASE WHEN ? != '[]' THEN ? ELSE user_display_parts_json END,
                 slash_command_json = CASE WHEN ? != '' THEN ? ELSE slash_command_json END,
                 user_seq = CASE WHEN user_seq = 0 THEN ? ELSE user_seq END,
                 updated_at = ?, last_seq = max(last_seq, ?)
             WHERE session_id = ? AND turn_id = ?
             """,
-            (user_text, user_text, slash_command_json, slash_command_json, user_seq, created_at, user_seq, session_id, turn_id),
+            (
+                user_text,
+                user_text,
+                user_display_parts_json,
+                user_display_parts_json,
+                slash_command_json,
+                slash_command_json,
+                user_seq,
+                created_at,
+                user_seq,
+                session_id,
+                turn_id,
+            ),
         )
 
 
@@ -392,12 +409,14 @@ def apply_event(
 
     if msg_type == "user":
         slash_cmd = payload.get("slash_command")
+        display_parts = payload.get("display_parts")
         _ensure_turn(
             conn,
             session_id,
             turn_id,
             user_seq=seq,
             user_text=str(payload.get("text") or ""),
+            user_display_parts_json=_json_dumps(display_parts) if isinstance(display_parts, list) else "[]",
             slash_command_json=_json_dumps(slash_cmd) if slash_cmd else "",
             created_at=created_at,
         )
@@ -530,6 +549,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "turn_id": row["turn_id"],
         "user_seq": row["user_seq"],
         "user_text": row["user_text"],
+        "user_display_parts": _json_loads(row["user_display_parts_json"], []),
         "slash_command": _json_loads(row["slash_command_json"], None),
         "status": row["status"],
         "assistant_content": row["assistant_content"],

@@ -9,6 +9,12 @@ class SlashCompleteRequest(BaseModel):
     partial: str = ""
 
 
+class PathCompleteRequest(BaseModel):
+    word: str = ""
+    cwd: Optional[str] = None
+    session_id: Optional[str] = None
+
+
 class CommandRequest(BaseModel):
     session_id: Optional[str] = None
     command: str
@@ -54,4 +60,3 @@ class CommandResult(BaseModel):
     name: Optional[str] = None
     action: Optional[ActionName] = None
     card_type: Optional[CardType] = None
-

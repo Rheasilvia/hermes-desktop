@@ -50,6 +50,43 @@ def test_turn_projection_materializes_completed_turn(tmp_path):
     assert turns[0]["assistant_blocks"][2]["content"] == "core is in app.py"
 
 
+def test_turn_projection_persists_user_display_parts(tmp_path):
+    from daemon.db.conversation_turns import list_turns
+    from daemon.services.session_service import SessionService
+
+    home = tmp_path / ".hermes"
+    sid = "sess-display-parts"
+    turn_id = "turn_display_parts"
+    display_parts = [
+        {
+            "type": "file_ref",
+            "refText": "@file:docs/a.ts:1-2",
+            "name": "a.ts",
+            "detail": "docs/a.ts:1-2",
+            "anchor": "File 1",
+            "lineStart": 1,
+            "lineEnd": 2,
+        },
+        {"type": "text", "text": " explain this"},
+    ]
+
+    append(
+        home,
+        sid,
+        "user",
+        {"text": "[File 1: a.ts:L1-L2] explain this", "display_parts": display_parts},
+        turn_id=turn_id,
+    )
+    append(home, sid, "message.complete", {"text": "done"}, turn_id=turn_id)
+
+    turns = list_turns(home, sid)
+    assert turns[0]["user_display_parts"] == display_parts
+
+    transcript = SessionService(home, state=None, meta=None).get_transcript(sid)  # type: ignore[arg-type]
+    user = next(message for message in transcript["messages"] if message["role"] == "user")
+    assert user["display_parts"] == display_parts
+
+
 def test_turn_projection_preserves_ordered_assistant_blocks(tmp_path):
     from daemon.db.conversation_turns import list_turns
     from daemon.services.session_service import SessionService

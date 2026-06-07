@@ -216,6 +216,7 @@ async def prompt_execute(
         body.message,
         context=body.context,
         slash_command=body.slash_command,
+        display_parts=body.display_parts,
     )
 
     _log.info("[perf] prompt_execute total: %.2fs (sid=%s provider=%r model=%r)",

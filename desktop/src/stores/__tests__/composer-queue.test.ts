@@ -33,6 +33,25 @@ describe('composerQueueStore', () => {
     expect(entry?.attachments[0].name).toBe('a.txt');
     expect(composerQueueStore.getQueuedPrompts('sess_a')[0].attachments[0].name).toBe('a.txt');
   });
+
+  it('persists ordered display parts with queued prompts', () => {
+    const displayParts = [
+      { type: 'file_ref' as const, refText: '@file:docs/a.ts', name: 'a.ts', detail: 'docs/a.ts', anchor: 'File 1' },
+      { type: 'text' as const, text: ' explain this' },
+    ];
+    const entry = composerQueueStore.enqueue('sess_a', {
+      text: '[File 1: a.ts] explain this',
+      attachments: [],
+      displayParts,
+    });
+    displayParts[0].name = 'changed.ts';
+
+    expect(entry?.displayParts?.[0]).toMatchObject({ name: 'a.ts', refText: '@file:docs/a.ts' });
+    expect(composerQueueStore.getQueuedPrompts('sess_a')[0].displayParts?.[0]).toMatchObject({
+      name: 'a.ts',
+      refText: '@file:docs/a.ts',
+    });
+  });
 });
 
 describe('shouldAutoDrainOnSettle', () => {

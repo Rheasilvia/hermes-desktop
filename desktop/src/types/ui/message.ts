@@ -5,6 +5,7 @@
 
 import type { Role } from '../message.js';
 import type { MessageBlock } from './blocks.js';
+import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
 export type MessageActionType = 'copy' | 'retry' | 'undo' | 'edit' | 'delete' | 'branch' | 'like' | 'dislike' | 'more';
 export type MessageAction = MessageActionType;
@@ -31,6 +32,8 @@ export interface RenderedMessage {
   submitText?: string;
   /** Local-only attachment snapshot for retrying optimistic messages. */
   attachments?: unknown[];
+  /** Ordered user-facing parts for inline file chips. */
+  displayParts?: UserDisplayPart[] | null;
   /**
    * Set when this user message was a slash command. Drives the styled command
    * bubble (a `/command` label + the typed content). NOTE: the LLM received the

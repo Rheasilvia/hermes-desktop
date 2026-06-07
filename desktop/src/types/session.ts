@@ -6,6 +6,7 @@
 import type { Usage } from './message.js';
 import type { ParsedToolCall } from './domain/message.js';
 import type { MessageBlock } from './ui/blocks.js';
+import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
 /** Session database row - mirrors sessions table. */
 export interface SessionMeta {
@@ -124,6 +125,7 @@ export interface TranscriptMessage {
   usage?: Record<string, unknown> | null;
   error?: Record<string, unknown> | null;
   slash_command?: { command: string; args: string } | null;
+  display_parts?: UserDisplayPart[] | null;
 }
 
 export interface TranscriptLiveTurn {

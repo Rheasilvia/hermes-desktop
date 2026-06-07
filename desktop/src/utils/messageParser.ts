@@ -211,6 +211,7 @@ export function parseMessage(msg: ConversationMessage): RenderedMessage {
     actions: actionsFor(msg.role),
     toolName: msg.toolName ?? null,
     slashCommand: msg.slashCommand ?? undefined,
+    displayParts: msg.displayParts ?? null,
   };
 }
 

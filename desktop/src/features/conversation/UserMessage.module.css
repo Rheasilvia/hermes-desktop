@@ -53,6 +53,33 @@
   gap: var(--space-1);
 }
 
+.inlinePartsBubble {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.inlineText {
+  white-space: pre-wrap;
+}
+
+.inlineFileChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  min-height: 22px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-cream) 14%, transparent);
+  color: var(--color-cream);
+  padding: 1px 6px;
+  font-size: 12px;
+  font-weight: var(--weight-medium);
+  line-height: 18px;
+  vertical-align: middle;
+}
+
 .commandLabel {
   display: inline-flex;
   align-items: center;

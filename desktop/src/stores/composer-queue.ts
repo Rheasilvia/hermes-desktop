@@ -1,4 +1,5 @@
 import { createStore, produce } from 'solid-js/store';
+import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
 export interface QueuedAttachment {
   id: string;
@@ -13,6 +14,7 @@ export interface QueuedPromptEntry {
   id: string;
   text: string;
   attachments: QueuedAttachment[];
+  displayParts?: UserDisplayPart[];
   queuedAt: number;
 }
 
@@ -62,6 +64,10 @@ function cloneAttachments(attachments: QueuedAttachment[] = []): QueuedAttachmen
   return attachments.map((attachment) => ({ ...attachment }));
 }
 
+function cloneDisplayParts(displayParts: UserDisplayPart[] = []): UserDisplayPart[] {
+  return displayParts.map((part) => ({ ...part }));
+}
+
 function nextId(): string {
   return `queued-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -71,6 +77,7 @@ function snapshot(): QueueState {
     Object.entries(queuesBySession).map(([sid, entries]) => [sid, entries.map((entry) => ({
       ...entry,
       attachments: cloneAttachments(entry.attachments),
+      displayParts: cloneDisplayParts(entry.displayParts),
     }))]),
   );
 }
@@ -93,12 +100,18 @@ function writeSession(sessionId: string, entries: QueuedPromptEntry[]): void {
 export const composerQueueStore = {
   getQueuedPrompts(key: string | null | undefined): QueuedPromptEntry[] {
     const sid = sidOf(key);
-    return sid ? queuesBySession[sid] ?? [] : [];
+    return sid
+      ? (queuesBySession[sid] ?? []).map((entry) => ({
+        ...entry,
+        attachments: cloneAttachments(entry.attachments),
+        displayParts: cloneDisplayParts(entry.displayParts),
+      }))
+      : [];
   },
 
   enqueue(
     key: string | null | undefined,
-    payload: { text: string; attachments?: QueuedAttachment[] },
+    payload: { text: string; attachments?: QueuedAttachment[]; displayParts?: UserDisplayPart[] },
   ): QueuedPromptEntry | null {
     const sid = sidOf(key);
     if (!sid) return null;
@@ -106,6 +119,7 @@ export const composerQueueStore = {
       id: nextId(),
       text: payload.text,
       attachments: cloneAttachments(payload.attachments),
+      displayParts: cloneDisplayParts(payload.displayParts),
       queuedAt: Date.now(),
     };
     writeSession(sid, [...(queuesBySession[sid] ?? []), entry]);
@@ -118,7 +132,7 @@ export const composerQueueStore = {
     const [head, ...rest] = queuesBySession[sid] ?? [];
     if (!head) return null;
     writeSession(sid, rest);
-    return { ...head, attachments: cloneAttachments(head.attachments) };
+    return { ...head, attachments: cloneAttachments(head.attachments), displayParts: cloneDisplayParts(head.displayParts) };
   },
 
   clear(key: string | null | undefined): void {
