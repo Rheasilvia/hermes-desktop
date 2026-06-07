@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 
 import { insertInlineRefsIntoEditor } from './inline-refs'
@@ -22,17 +23,31 @@ const caretIn = (editor: HTMLElement) => {
 }
 
 describe('renderComposerContents', () => {
-  it('renders refs and raw text without interpreting user text as HTML', () => {
+  it('renders all text as plain text without interpreting user text as HTML', () => {
     const editor = document.createElement('div')
     editor.dataset.slot = RICH_INPUT_SLOT
 
     renderComposerContents(editor, '@file:`<img src=x onerror=alert(1)>` <b>raw</b>')
 
+    // No HTML interpretation — everything is escaped as text
     expect(editor.querySelector('img')).toBeNull()
     expect(editor.querySelector('b')).toBeNull()
-    expect(editor.textContent).toContain('<img src=x onerror=alert(1)>')
+    // No chip elements created for @refs — chips are popover-only
+    expect(editor.querySelector('[data-ref-kind]')).toBeNull()
+    expect(editor.textContent).toContain('@file:`<img src=x onerror=alert(1)>`')
     expect(editor.textContent).toContain('<b>raw</b>')
+    // Round-trip serialization preserves the original text
     expect(composerPlainText(editor)).toBe('@file:`<img src=x onerror=alert(1)>` <b>raw</b>')
+  })
+
+  it('renders newlines as <br> elements', () => {
+    const editor = document.createElement('div')
+    editor.dataset.slot = RICH_INPUT_SLOT
+
+    renderComposerContents(editor, 'line1\nline2\n\nline3')
+
+    expect(editor.querySelectorAll('br').length).toBe(3)
+    expect(composerPlainText(editor)).toBe('line1\nline2\n\nline3')
   })
 })
 
