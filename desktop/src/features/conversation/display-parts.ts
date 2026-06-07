@@ -64,7 +64,7 @@ export function fileRefLabel(part: Pick<UserFileRefDisplayPart, 'name' | 'lineSt
   return `${part.name}:L${part.lineStart}-L${part.lineEnd}`;
 }
 
-export function displayPartToAttachment(part: UserFileRefDisplayPart): AttachmentChip {
+function displayPartToAttachment(part: UserFileRefDisplayPart): AttachmentChip {
   return {
     id: `file:${part.refText}`,
     kind: 'file',
@@ -79,13 +79,6 @@ export function attachmentsFromDisplayParts(parts: UserDisplayPart[]): Attachmen
   return parts
     .filter((part): part is UserFileRefDisplayPart => part.type === 'file_ref')
     .map(displayPartToAttachment);
-}
-
-export function contextRefsFromDisplayParts(parts: UserDisplayPart[]): string {
-  return parts
-    .filter((part): part is UserFileRefDisplayPart => part.type === 'file_ref')
-    .map((part) => part.refText)
-    .join('\n');
 }
 
 export function llmMessageFromDisplayParts(parts: UserDisplayPart[]): string {
