@@ -113,18 +113,7 @@ function appendTextWithBreaks(target: DocumentFragment | HTMLElement, text: stri
 }
 
 export function appendComposerContents(target: DocumentFragment | HTMLElement, text: string) {
-  let cursor = 0
-
-  REF_RE.lastIndex = 0
-
-  for (const match of text.matchAll(REF_RE)) {
-    const index = match.index ?? 0
-    appendTextWithBreaks(target, text.slice(cursor, index))
-    target.append(refChipElement(match[1] || 'file', match[2] || ''))
-    cursor = index + match[0].length
-  }
-
-  appendTextWithBreaks(target, text.slice(cursor))
+  appendTextWithBreaks(target, text)
 }
 
 export function renderComposerContents(target: HTMLElement, text: string) {

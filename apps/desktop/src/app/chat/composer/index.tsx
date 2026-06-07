@@ -977,6 +977,26 @@ export function ChatBar({
       return finish()
     }
 
+    // Slash command selected from popover → chip with / icon + name.
+    if (trigger.kind === '/') {
+      const slashMatch = serialized.match(/^\/([\w-]+)/)
+      if (slashMatch) {
+        const chip = refChipElement('command', slashMatch[1])
+        const space = document.createTextNode(' ')
+        const fragment = document.createDocumentFragment()
+        fragment.append(chip, space)
+        replaceRange.insertNode(fragment)
+
+        const caret = document.createRange()
+        caret.setStart(space, 1)
+        caret.collapse(true)
+        sel.removeAllRanges()
+        sel.addRange(caret)
+
+        return finish()
+      }
+    }
+
     document.execCommand('insertText', false, text)
     finish()
   }
