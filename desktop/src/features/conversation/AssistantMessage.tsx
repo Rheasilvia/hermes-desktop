@@ -42,7 +42,7 @@ interface AssistantMessageProps {
 }
 
 type BlockGroup =
-  | { type: 'activity_group'; reasoning?: ReasoningBlock; blocks: ToolCallBlock[] }
+  | { type: 'activity_group'; blocks: ToolCallBlock[] }
   | { type: 'single'; block: MessageBlock };
 
 type ActivityGroup = Extract<BlockGroup, { type: 'activity_group' }>;
@@ -80,6 +80,10 @@ const AttachmentBlockView: Component<{ block: AttachmentBlock }> = (props) => (
   <AttachmentRenderer block={props.block} />
 );
 
+const ThinkingTextBlock: Component<{ block: ReasoningBlock }> = (props) => (
+  <pre class={styles.thinkingText}>{props.block.content}</pre>
+);
+
 function isRenderableBlock(block: MessageBlock): boolean {
   switch (block.type) {
     case 'text':
@@ -109,12 +113,7 @@ function buildBlockGroups(blocks: MessageBlock[]): BlockGroup[] {
       continue;
     }
     if (block.type === 'reasoning') {
-      const last = groups[groups.length - 1];
-      if (last?.type === 'activity_group' && !last.reasoning) {
-        last.reasoning = block as ReasoningBlock;
-      } else {
-        groups.push({ type: 'activity_group', reasoning: block as ReasoningBlock, blocks: [] });
-      }
+      groups.push({ type: 'single', block });
     } else if (block.type === 'tool_call') {
       // Suppress todo tool cards when TodoPanel is present
       if (hasTodoList && (block as ToolCallBlock).name === 'todo') continue;
@@ -141,8 +140,7 @@ function blockKey(block: MessageBlock | undefined): string {
 
 function baseGroupKey(group: BlockGroup, index: number): string {
   if (group.type === 'activity_group') {
-    const anchor = group.reasoning?.id ?? blockKey(group.blocks[0]);
-    return `activity:${anchor || index}`;
+    return `activity:${blockKey(group.blocks[0]) || index}`;
   }
   return `single:${group.block.type}:${blockKey(group.block) || index}`;
 }
@@ -221,22 +219,16 @@ const ActivityGroupView: Component<{
   group: Accessor<ActivityGroup>;
   embeddedActivity?: boolean;
 }> = (props) => {
-  const reasoning = () => props.group().reasoning;
   const isLive = () => {
     const group = props.group();
     return group.blocks.some(
       (b) => b.status === 'streaming' || b.status === 'running'
-    ) || Boolean(group.reasoning?.isStreaming);
+    );
   };
   const toolRows = () => props.group().blocks.map(blockToRow);
 
   return (
     <TurnActivityPanel
-      reasoning={reasoning() ? {
-        content: reasoning()!.content,
-        isStreaming: reasoning()!.isStreaming,
-        tokenCount: reasoning()!.tokenCount,
-      } : undefined}
       toolRows={toolRows()}
       isLive={isLive()}
       embedded={props.embeddedActivity}
@@ -258,6 +250,9 @@ const SingleGroupView: Component<{ group: Accessor<SingleGroup> }> = (props) => 
           language={(block() as CodeBlockType).language}
           filename={(block() as CodeBlockType).filename}
         />
+      </Show>
+      <Show when={block().type === 'reasoning'}>
+        <ThinkingTextBlock block={block() as ReasoningBlock} />
       </Show>
       <Show when={block().type === 'rich_content'}>
         <RichContentBlockView block={block() as RichContentBlock} />
