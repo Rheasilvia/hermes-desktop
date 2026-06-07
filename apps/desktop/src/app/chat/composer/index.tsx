@@ -461,6 +461,20 @@ export function ChatBar({
     return () => window.removeEventListener('hermes:composer-clear-draft', handler)
   }, [aui])
 
+  // Listen for external clear-draft requests (New Chat, session resume, etc.)
+  // so the aui composer state stays in sync with the nanostores $composerDraft.
+  useEffect(() => {
+    const handler = () => {
+      aui.composer().setText('')
+      draftRef.current = ''
+      if (editorRef.current) {
+        editorRef.current.replaceChildren()
+      }
+    }
+    window.addEventListener('hermes:composer-clear-draft', handler)
+    return () => window.removeEventListener('hermes:composer-clear-draft', handler)
+  }, [aui])
+
   // Keep draftRef in sync with the assistant-ui composer state for callers
   // that read the latest text outside the React render cycle. We don't push
   // to `$composerDraft` per keystroke any more — nobody outside the composer
