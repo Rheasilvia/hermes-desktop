@@ -265,127 +265,131 @@ export const PluginsView: Component = () => {
         >
           {/* Installed tab */}
           <Show when={activeTab() === 'installed'}>
-            <Show
-              when={(hub()?.plugins.length ?? 0) > 0}
-              fallback={
-                <EmptyState
-                  iconName="package"
-                  title="No plugins installed"
-                  description="Use the Install tab to add a plugin."
-                />
-              }
-            >
-              <div class={styles.installedPanel}>
-                <div class={styles.pluginList}>
-                  <For each={hub()!.plugins}>
-                    {(plugin) => {
-                      const busy = () => rowBusy().has(plugin.name);
-                      const descKey = () => `plugin:${plugin.name}`;
-                      return (
-                        <div class={styles.pluginCard}>
-                          <div class={styles.pluginCardHeader}>
-                            <div class={styles.pluginInfo}>
-                              <span class={styles.pluginName}>{plugin.name}</span>
-                              <span class={styles.pluginVersion}>v{plugin.version}</span>
-                              <span class={`${styles.statusBadge} ${styles[`status_${plugin.runtime_status}`]}`}>
-                                {plugin.runtime_status}
-                              </span>
-                              <Show when={plugin.auth_required}>
-                                <span class={styles.authBadge}>
-                                  <Icon name="lock" size={12} /> needs auth
+            <div class={styles.tabPanel}>
+              <Show
+                when={(hub()?.plugins.length ?? 0) > 0}
+                fallback={
+                  <EmptyState
+                    iconName="package"
+                    title="No plugins installed"
+                    description="Use the Install tab to add a plugin."
+                  />
+                }
+              >
+                <div class={styles.installedPanel}>
+                  <div class={styles.pluginList}>
+                    <For each={hub()!.plugins}>
+                      {(plugin) => {
+                        const busy = () => rowBusy().has(plugin.name);
+                        const descKey = () => `plugin:${plugin.name}`;
+                        return (
+                          <div class={styles.pluginCard}>
+                            <div class={styles.pluginCardHeader}>
+                              <div class={styles.pluginInfo}>
+                                <span class={styles.pluginName}>{plugin.name}</span>
+                                <span class={styles.pluginVersion}>v{plugin.version}</span>
+                                <span class={`${styles.statusBadge} ${styles[`status_${plugin.runtime_status}`]}`}>
+                                  {plugin.runtime_status}
                                 </span>
-                              </Show>
-                            </div>
-                            <div class={styles.pluginActions}>
-                              <Show when={plugin.runtime_status !== 'enabled'}>
-                                <button
-                                  class={styles.actionBtn}
-                                  disabled={busy()}
-                                  onClick={() => void withRowAction(plugin.name, () => api.plugins().enable(plugin.name))}
-                                  type="button"
-                                >
-                                  Enable
-                                </button>
-                              </Show>
-                              <Show when={plugin.runtime_status === 'enabled'}>
-                                <button
-                                  class={`${styles.actionBtn} ${styles.actionBtnSecondary}`}
-                                  disabled={busy()}
-                                  onClick={() => void withRowAction(plugin.name, () => api.plugins().disable(plugin.name))}
-                                  type="button"
-                                >
-                                  Disable
-                                </button>
-                              </Show>
-                              <Show when={plugin.can_update_git}>
-                                <button
-                                  class={`${styles.actionBtn} ${styles.actionBtnSecondary}`}
-                                  disabled={busy()}
-                                  onClick={() => void withRowAction(plugin.name, () => api.plugins().update(plugin.name))}
-                                  type="button"
-                                >
-                                  Update
-                                </button>
-                              </Show>
-                              <Show when={plugin.has_dashboard_manifest}>
-                                <button
-                                  class={`${styles.actionBtn} ${styles.actionBtnSecondary}`}
-                                  disabled={busy()}
-                                  onClick={() => void withRowAction(plugin.name, () => api.plugins().setVisibility(plugin.name, !plugin.user_hidden))}
-                                  type="button"
-                                >
-                                  {plugin.user_hidden ? 'Show sidebar' : 'Hide sidebar'}
-                                </button>
-                              </Show>
-                              <Show when={plugin.can_remove}>
-                                <button
-                                  class={`${styles.actionBtn} ${styles.actionBtnDanger}`}
-                                  disabled={busy()}
-                                  onClick={() => void handleRemove(plugin)}
-                                  type="button"
-                                >
-                                  Remove
-                                </button>
-                              </Show>
-                            </div>
-                          </div>
-                          <ExpandableText
-                            text={plugin.description}
-                            expanded={isTextExpanded(descKey())}
-                            onToggle={() => toggleText(descKey())}
-                            className={styles.pluginDesc}
-                            expandedClassName={styles.expandedText}
-                          />
-                          <Show when={plugin.auth_required}>
-                            <div class={styles.authSection}>
-                              <span class={styles.authPrompt}>Run this command to authenticate:</span>
-                              <div class={styles.authCommandRow}>
-                                <code class={styles.authCmd}>{plugin.auth_command}</code>
-                                <button
-                                  class={styles.copyCommandBtn}
-                                  type="button"
-                                  onClick={() => void handleCopyCommand(plugin.auth_command)}
-                                >
-                                  {copiedCommand() === plugin.auth_command ? 'Copied' : 'Copy'}
-                                </button>
+                                <Show when={plugin.auth_required}>
+                                  <span class={styles.authBadge}>
+                                    <Icon name="lock" size={12} /> needs auth
+                                  </span>
+                                </Show>
+                              </div>
+                              <div class={styles.pluginActions}>
+                                <Show when={plugin.runtime_status !== 'enabled'}>
+                                  <button
+                                    class={styles.actionBtn}
+                                    disabled={busy()}
+                                    onClick={() => void withRowAction(plugin.name, () => api.plugins().enable(plugin.name))}
+                                    type="button"
+                                  >
+                                    Enable
+                                  </button>
+                                </Show>
+                                <Show when={plugin.runtime_status === 'enabled'}>
+                                  <button
+                                    class={`${styles.actionBtn} ${styles.actionBtnSecondary}`}
+                                    disabled={busy()}
+                                    onClick={() => void withRowAction(plugin.name, () => api.plugins().disable(plugin.name))}
+                                    type="button"
+                                  >
+                                    Disable
+                                  </button>
+                                </Show>
+                                <Show when={plugin.can_update_git}>
+                                  <button
+                                    class={`${styles.actionBtn} ${styles.actionBtnSecondary}`}
+                                    disabled={busy()}
+                                    onClick={() => void withRowAction(plugin.name, () => api.plugins().update(plugin.name))}
+                                    type="button"
+                                  >
+                                    Update
+                                  </button>
+                                </Show>
+                                <Show when={plugin.has_dashboard_manifest}>
+                                  <button
+                                    class={`${styles.actionBtn} ${styles.actionBtnSecondary}`}
+                                    disabled={busy()}
+                                    onClick={() => void withRowAction(plugin.name, () => api.plugins().setVisibility(plugin.name, !plugin.user_hidden))}
+                                    type="button"
+                                  >
+                                    {plugin.user_hidden ? 'Show sidebar' : 'Hide sidebar'}
+                                  </button>
+                                </Show>
+                                <Show when={plugin.can_remove}>
+                                  <button
+                                    class={`${styles.actionBtn} ${styles.actionBtnDanger}`}
+                                    disabled={busy()}
+                                    onClick={() => void handleRemove(plugin)}
+                                    type="button"
+                                  >
+                                    Remove
+                                  </button>
+                                </Show>
                               </div>
                             </div>
-                          </Show>
-                          <Show when={plugin.has_dashboard_manifest && plugin.dashboard_manifest}>
-                            <div class={styles.manifestSection}>
-                              <span class={styles.manifestLabel}>Dashboard extension</span>
-                              <Show when={Array.isArray((plugin.dashboard_manifest as Record<string, unknown>)?.slots) && ((plugin.dashboard_manifest as Record<string, unknown>).slots as string[]).length > 0}>
-                                <span class={styles.slotsLabel}>Slots: {((plugin.dashboard_manifest as Record<string, unknown>).slots as string[]).join(', ')}</span>
-                              </Show>
-                            </div>
-                          </Show>
-                        </div>
-                      );
-                    }}
-                  </For>
+                            <ExpandableText
+                              text={plugin.description}
+                              expanded={isTextExpanded(descKey())}
+                              onToggle={() => toggleText(descKey())}
+                              className={styles.pluginDesc}
+                              expandedClassName={styles.expandedText}
+                            />
+                            <Show when={plugin.auth_required}>
+                              <div class={styles.authSection}>
+                                <div class={styles.authLabelRow}>
+                                  <span class={styles.authPrompt}>Run this command to authenticate:</span>
+                                  <button
+                                    class={styles.copyCommandBtn}
+                                    type="button"
+                                    onClick={() => void handleCopyCommand(plugin.auth_command)}
+                                  >
+                                    {copiedCommand() === plugin.auth_command ? 'Copied' : 'Copy'}
+                                  </button>
+                                </div>
+                                <div class={styles.authCodeBlock}>
+                                  <code class={styles.authCmd}>{plugin.auth_command}</code>
+                                </div>
+                              </div>
+                            </Show>
+                            <Show when={plugin.has_dashboard_manifest && plugin.dashboard_manifest}>
+                              <div class={styles.manifestSection}>
+                                <span class={styles.manifestLabel}>Dashboard extension</span>
+                                <Show when={Array.isArray((plugin.dashboard_manifest as Record<string, unknown>)?.slots) && ((plugin.dashboard_manifest as Record<string, unknown>).slots as string[]).length > 0}>
+                                  <span class={styles.slotsLabel}>Slots: {((plugin.dashboard_manifest as Record<string, unknown>).slots as string[]).join(', ')}</span>
+                                </Show>
+                              </div>
+                            </Show>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </div>
                 </div>
-              </div>
-            </Show>
+              </Show>
+            </div>
           </Show>
 
           {/* Install tab */}
