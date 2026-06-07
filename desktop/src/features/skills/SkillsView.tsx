@@ -87,6 +87,15 @@ export const SkillsView: Component = () => {
         api.skills().listSkills(),
         api.skills().listToolsets(),
       ]);
+      // Surface import/backend errors from the sidecar daemon response.
+      // The HTTP call may succeed (200) but carry an "error" envelope when
+      // Python imports fail inside the sidecar process.
+      if (skillsRes.error) {
+        console.error('[SkillsView] skills endpoint error:', skillsRes.error, skillsRes.detail);
+      }
+      if (toolsetsRes.error) {
+        console.error('[SkillsView] toolsets endpoint error:', toolsetsRes.error, toolsetsRes.detail);
+      }
       setSkills(skillsRes.items);
       setToolsets(toolsetsRes.items);
     } catch {
@@ -126,7 +135,14 @@ export const SkillsView: Component = () => {
       prev.map((s) => (s.name === name ? { ...s, enabled } : s))
     );
     try {
-      await api.skills().toggleSkill(name, enabled);
+      const result = await api.skills().toggleSkill(name, enabled);
+      if (!result.ok) {
+        // Sidecar returned an error (e.g. import failed); roll back.
+        console.error('[SkillsView] toggleSkill failed:', result.error);
+        setSkills((prev) =>
+          prev.map((s) => (s.name === name ? { ...s, enabled: !enabled } : s))
+        );
+      }
     } catch {
       setSkills((prev) =>
         prev.map((s) => (s.name === name ? { ...s, enabled: !enabled } : s))

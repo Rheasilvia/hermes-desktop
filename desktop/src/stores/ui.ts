@@ -11,6 +11,10 @@ type Theme = 'dark' | 'light';
 const STORAGE_KEY_THEME = 'hermes-desktop-theme';
 const STORAGE_KEY_SIDEBAR = 'hermes-desktop-sidebar-collapsed';
 const STORAGE_KEY_SIDEBAR_WIDTH = 'hermes-desktop-sidebar-width';
+const STORAGE_KEY_PINNED_OPEN = 'hermes-desktop-pinned-open';
+const STORAGE_KEY_CONVERSATIONS_OPEN = 'hermes-desktop-conversations-open';
+const STORAGE_KEY_WORKSPACE_GROUPING = 'hermes-desktop-workspace-grouping';
+const STORAGE_KEY_PINNED_SESSIONS = 'hermes-desktop-pinned-sessions';
 
 const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 360;
@@ -47,11 +51,36 @@ function loadPersistedSidebarWidth(): number {
   return SIDEBAR_DEFAULT_WIDTH;
 }
 
+function loadBool(key: string, fallback: boolean): boolean {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return fallback;
+}
+
+function loadJsonArray(key: string): string[] {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(loadPersistedSidebar());
 const [sidebarWidth, setSidebarWidthRaw] = createSignal(loadPersistedSidebarWidth());
 const [activeRoute, setActiveRoute] = createSignal<string>('/');
 const [connectionState, setConnectionState] = createSignal<ConnectionState>('disconnected');
 const [theme, setThemeSignal] = createSignal<Theme>(loadPersistedTheme());
+
+// Sidebar section state — persisted to localStorage
+const [pinnedSectionOpen, setPinnedSectionOpen] = createSignal(loadBool(STORAGE_KEY_PINNED_OPEN, true));
+const [conversationsSectionOpen, setConversationsSectionOpen] = createSignal(loadBool(STORAGE_KEY_CONVERSATIONS_OPEN, true));
+const [workspaceGrouping, setWorkspaceGrouping] = createSignal(loadBool(STORAGE_KEY_WORKSPACE_GROUPING, false));
+const [pinnedSessionIds, setPinnedSessionIds] = createSignal<string[]>(loadJsonArray(STORAGE_KEY_PINNED_SESSIONS));
 
 createEffect(() => {
   localStorage.setItem(STORAGE_KEY_THEME, theme());
@@ -65,12 +94,32 @@ createEffect(() => {
   localStorage.setItem(STORAGE_KEY_SIDEBAR_WIDTH, String(sidebarWidth()));
 });
 
+createEffect(() => {
+  localStorage.setItem(STORAGE_KEY_PINNED_OPEN, String(pinnedSectionOpen()));
+});
+
+createEffect(() => {
+  localStorage.setItem(STORAGE_KEY_CONVERSATIONS_OPEN, String(conversationsSectionOpen()));
+});
+
+createEffect(() => {
+  localStorage.setItem(STORAGE_KEY_WORKSPACE_GROUPING, String(workspaceGrouping()));
+});
+
+createEffect(() => {
+  localStorage.setItem(STORAGE_KEY_PINNED_SESSIONS, JSON.stringify(pinnedSessionIds()));
+});
+
 export const uiStore = {
   get sidebarCollapsed() { return sidebarCollapsed(); },
   get sidebarWidth() { return sidebarWidth(); },
   get activeRoute() { return activeRoute(); },
   get connectionState() { return connectionState(); },
   get theme() { return theme(); },
+  get pinnedSectionOpen() { return pinnedSectionOpen(); },
+  get conversationsSectionOpen() { return conversationsSectionOpen(); },
+  get workspaceGrouping() { return workspaceGrouping(); },
+  get pinnedSessionIds() { return pinnedSessionIds(); },
 
   toggleSidebar() {
     setSidebarCollapsed(!sidebarCollapsed());
@@ -96,5 +145,32 @@ export const uiStore = {
   setTheme(newTheme: Theme) {
     setThemeSignal(newTheme);
     document.documentElement.dataset.theme = newTheme;
+  },
+
+  togglePinnedSection() {
+    setPinnedSectionOpen(!pinnedSectionOpen());
+  },
+
+  toggleConversationsSection() {
+    setConversationsSectionOpen(!conversationsSectionOpen());
+  },
+
+  toggleWorkspaceGrouping() {
+    setWorkspaceGrouping(!workspaceGrouping());
+  },
+
+  pinSession(id: string) {
+    const current = pinnedSessionIds();
+    if (!current.includes(id)) {
+      setPinnedSessionIds([id, ...current]);
+    }
+  },
+
+  unpinSession(id: string) {
+    setPinnedSessionIds(pinnedSessionIds().filter(p => p !== id));
+  },
+
+  isPinned(id: string): boolean {
+    return pinnedSessionIds().includes(id);
   },
 };
