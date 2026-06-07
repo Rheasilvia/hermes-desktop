@@ -28,6 +28,9 @@
 
 .textareaRow {
   padding: 12px 16px 8px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .textareaRowCompact {
@@ -78,6 +81,29 @@
   font-family: var(--font-sans);
   font-size: 12px;
   color: var(--color-on-surface-muted);
+}
+
+.commandChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  max-width: 180px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  padding: 0 6px;
+  margin-top: 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  line-height: 20px;
+}
+
+.commandChip .chipIcon {
+  width: 11px;
+  height: 11px;
 }
 
 .chipIcon {

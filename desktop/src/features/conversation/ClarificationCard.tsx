@@ -9,13 +9,45 @@ interface ClarificationCardProps {
 }
 
 export const ClarificationCard: Component<ClarificationCardProps> = (props) => {
-  const [selected, setSelected] = createSignal<string | null>(null);
+  const [selectedIndex, setSelectedIndex] = createSignal<number | null>(null);
   const [freeText, setFreeText] = createSignal('');
 
-  const handleChoice = (choice: string) => {
-    setSelected(choice);
+  const choices = () => props.choices ?? [];
+
+  const handleChoice = (choice: string, index: number) => {
+    setSelectedIndex(index);
     setFreeText('');
     props.onRespond(choice);
+  };
+
+  const moveSelection = (delta: 1 | -1) => {
+    const items = choices();
+    if (items.length === 0) return;
+    setSelectedIndex((current) => {
+      if (current == null) return delta > 0 ? 0 : items.length - 1;
+      return (current + delta + items.length) % items.length;
+    });
+  };
+
+  const handleCardKeyDown = (e: KeyboardEvent) => {
+    if (e.target instanceof HTMLInputElement) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      moveSelection(1);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveSelection(-1);
+      return;
+    }
+    if (e.key === 'Enter') {
+      const index = selectedIndex();
+      const choice = index == null ? null : choices()[index];
+      if (!choice) return;
+      e.preventDefault();
+      props.onRespond(choice);
+    }
   };
 
   const handleFreeText = (e: KeyboardEvent) => {
@@ -25,7 +57,13 @@ export const ClarificationCard: Component<ClarificationCardProps> = (props) => {
   };
 
   return (
-    <div class={styles.card}>
+    <div
+      class={styles.card}
+      role="group"
+      aria-label={props.question}
+      tabIndex={0}
+      onKeyDown={handleCardKeyDown}
+    >
       <div class={styles.header}>
         <span class={styles.dots}>
           <span class={`${styles.dot} ${styles.dot1}`} />
@@ -37,11 +75,12 @@ export const ClarificationCard: Component<ClarificationCardProps> = (props) => {
       <Show when={props.choices && props.choices.length > 0}>
         <div class={styles.choices}>
           <For each={props.choices!}>
-            {(choice) => (
+            {(choice, index) => (
               <button
                 class={styles.choiceBtn}
-                classList={{ [styles.choiceBtnSelected!]: selected() === choice }}
-                onClick={() => handleChoice(choice)}
+                classList={{ [styles.choiceBtnSelected!]: selectedIndex() === index() }}
+                aria-selected={selectedIndex() === index()}
+                onClick={() => handleChoice(choice, index())}
               >
                 {choice}
               </button>

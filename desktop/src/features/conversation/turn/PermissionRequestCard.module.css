@@ -126,6 +126,11 @@
   transform: translateY(1px);
 }
 
+.buttonSelected {
+  outline: 2px solid var(--color-terracotta);
+  outline-offset: 2px;
+}
+
 .allowBtn:disabled {
   opacity: 0.45;
   cursor: not-allowed;

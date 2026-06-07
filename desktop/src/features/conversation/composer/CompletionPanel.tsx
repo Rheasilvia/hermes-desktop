@@ -25,6 +25,7 @@ interface CompletionPanelProps {
 
 export const CompletionPanel: Component<CompletionPanelProps> = (props) => {
   const [selectedIndex, setSelectedIndex] = createSignal(props.selectedIndex ?? 0);
+  const rowElements: HTMLElement[] = [];
 
   createEffect(() => {
     if (props.visible) {
@@ -82,6 +83,11 @@ export const CompletionPanel: Component<CompletionPanelProps> = (props) => {
     return () => document.removeEventListener('keydown', handleKeyDown);
   });
 
+  createEffect(() => {
+    if (!props.visible || props.items.length === 0) return;
+    rowElements[selectedIndex()]?.scrollIntoView?.({ block: 'nearest' });
+  });
+
   return (
     <Show when={props.visible}>
       <div class={styles.panel}>
@@ -97,6 +103,9 @@ export const CompletionPanel: Component<CompletionPanelProps> = (props) => {
                   </div>
                 </Show>
                 <div
+                  ref={(el) => {
+                    rowElements[idx()] = el;
+                  }}
                   class={styles.commandRow}
                   classList={{ [styles.commandRowSelected]: idx() === selectedIndex() }}
                   onClick={() => props.onSelect(item)}
