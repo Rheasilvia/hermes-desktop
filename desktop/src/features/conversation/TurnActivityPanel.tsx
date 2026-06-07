@@ -4,73 +4,15 @@ import { Icon } from '@/ui/atoms/Icon.js';
 import type { ToolCallRow } from '@/types/index.js';
 import styles from './TurnActivityPanel.module.css';
 
-interface ReasoningData {
-  content: string;
-  isStreaming: boolean;
-  tokenCount: number | null;
-}
-
 export interface TurnActivityPanelProps {
-  reasoning?: ReasoningData;
   toolRows?: ToolCallRow[];
   isLive?: boolean;
   embedded?: boolean;
 }
 
-// ── ThinkingIndicator ────────────────────────────────────────────────────────
-// JS-driven animation so RAF never restarts on streaming deltas.
-// Always mounted; shown/hidden via display:none on the parent div.
-const BAR_WIDTH = 120;
-const DURATION_MS = 2000;
-
-const ThinkingIndicator: Component = () => {
-  let trackRef: HTMLDivElement | undefined;
-
-  createEffect(() => {
-    if (!trackRef) return;
-    const track = trackRef;
-    let rafId: number;
-    const startTime = performance.now();
-
-    function animate(now: number) {
-      const elapsed = now - startTime;
-      const progress = (elapsed % DURATION_MS) / DURATION_MS;
-      const parentWidth = track.parentElement?.getBoundingClientRect().width ?? 0;
-      const x = -BAR_WIDTH + progress * (parentWidth + BAR_WIDTH * 2);
-      track.style.transform = `translateX(${x}px)`;
-      rafId = requestAnimationFrame(animate);
-    }
-
-    rafId = requestAnimationFrame(animate);
-    onCleanup(() => cancelAnimationFrame(rafId));
-  });
-
-  return (
-    <>
-      <div class={styles.thinkingHeader}>
-        <Icon name="brain" size={13} class={styles.brainIcon} />
-        <span class={styles.thinkingLabel}>Thinking...</span>
-        <div class={styles.dotRow}>
-          <span class={styles.dot} />
-          <span class={styles.dot} />
-          <span class={styles.dot} />
-        </div>
-      </div>
-      <div class={styles.progressBar}>
-        <div ref={(el) => { trackRef = el; }} class={styles.progressBarTrack} />
-      </div>
-    </>
-  );
-};
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function formatDuration(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
-}
-
-function formatThinkSeconds(tokenCount: number | null): string {
-  if (!tokenCount || tokenCount <= 0) return '';
-  return `${Math.max(1, Math.round(tokenCount / 50))}s`;
 }
 
 const AnimatedToolCount: Component<{ value: number }> = (props) => {
@@ -123,34 +65,16 @@ const ToolCompletedLabel: Component<{ count: number }> = (props) => {
 };
 
 const SummaryLabel: Component<{
-  hasReasoning: boolean;
-  thinkSeconds: string;
-  toolCount: number | null;
+  toolCount: number;
 }> = (props) => {
-  const hasTools = () => props.toolCount != null;
   return (
-    <>
-      <Show when={props.hasReasoning}>
-        <span>{props.thinkSeconds ? `Thought for ${props.thinkSeconds}` : 'Thought'}</span>
-      </Show>
-      <Show when={props.hasReasoning && hasTools()}>
-        <span class={styles.summaryDot} aria-hidden="true">·</span>
-      </Show>
-      <Show when={hasTools()}>
-        <ToolCompletedLabel count={props.toolCount!} />
-      </Show>
-    </>
+    <ToolCompletedLabel count={props.toolCount} />
   );
 };
 
-const SummaryLeadIcon: Component<{ hasTools: boolean }> = (props) => (
+const SummaryLeadIcon: Component = () => (
   <span class={styles.summaryIconSlot} data-testid="tool-summary-icon-slot">
-    <Show
-      when={props.hasTools}
-      fallback={<Icon name="brain" size={13} class={styles.brainIcon} />}
-    >
-      <Icon name="check-circle" size={13} class={styles.summaryIcon} />
-    </Show>
+    <Icon name="check-circle" size={13} class={styles.summaryIcon} />
   </span>
 );
 
@@ -188,7 +112,6 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
   // Set of tool row IDs whose result is expanded (second-level)
   const [expandedTools, setExpandedTools] = createSignal(new Set<string>());
 
-  const isThinking = () => props.reasoning?.isStreaming ?? false;
   const isLive = () => props.isLive ?? false;
 
   // Hold the active view for 600ms after isLive drops so checkmark state is readable
@@ -203,23 +126,11 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
     return live;
   }, isLive());
 
-  const isActive = () => isThinking() || isLive() || settling();
-  const hasReasoning = () => !!props.reasoning;
+  const isActive = () => isLive() || settling();
   const hasTools = () => (props.toolRows?.length ?? 0) > 0;
 
-  const thinkSeconds = () => formatThinkSeconds(props.reasoning?.tokenCount ?? null);
   const completedToolCount = () =>
     (props.toolRows ?? []).filter((row) => row.status === 'complete').length;
-
-  const toolCountForSummary = () => hasTools() ? completedToolCount() : null;
-
-  // DOM ref for reasoning text — updated imperatively so ThinkingIndicator
-  // RAF loop never restarts on streaming content changes.
-  let reasoningTextRef: HTMLPreElement | undefined;
-  createEffect(() => {
-    if (reasoningTextRef)
-      reasoningTextRef.textContent = props.reasoning?.content ?? '';
-  });
 
   const toggleTool = (id: string) => {
     setExpandedTools((prev) => {
@@ -234,19 +145,14 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
     <div class={`${styles.panel} ${props.embedded ? styles.embedded : ''}`}>
 
       {/* ── ACTIVE STATE (streaming / live tools / settling) ────────────── */}
-      {/* ThinkingIndicator parent always mounted; display:none when not thinking */}
       <div
         class={styles.activeContent}
         style={{ display: isActive() ? 'flex' : 'none' }}
         aria-hidden={isActive() ? undefined : 'true'}
       >
-        <div style={{ display: isThinking() ? 'contents' : 'none' }}>
-          <ThinkingIndicator />
-        </div>
-
         <Show when={hasTools()}>
           <div class={`${styles.summaryRow} ${styles.liveToolSummary}`} aria-label="Tool activity summary">
-            <SummaryLeadIcon hasTools={hasTools()} />
+            <SummaryLeadIcon />
             <span class={styles.summaryLabel}>
               <ToolCompletedLabel count={completedToolCount()} />
             </span>
@@ -262,13 +168,9 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
         style={{ display: !isActive() && !panelExpanded() ? 'flex' : 'none' }}
         aria-hidden={!isActive() && !panelExpanded() ? undefined : 'true'}
       >
-        <SummaryLeadIcon hasTools={hasTools()} />
+        <SummaryLeadIcon />
         <span class={styles.summaryLabel}>
-          <SummaryLabel
-            hasReasoning={hasReasoning()}
-            thinkSeconds={thinkSeconds()}
-            toolCount={toolCountForSummary()}
-          />
+          <SummaryLabel toolCount={completedToolCount()} />
         </span>
         <DetailsAffordance onClick={() => setPanelExpanded(true)} />
       </div>
@@ -280,13 +182,9 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
         aria-hidden={!isActive() && panelExpanded() ? undefined : 'true'}
       >
         <div class={`${styles.summaryRow} ${styles.expandedHeader}`}>
-          <SummaryLeadIcon hasTools={hasTools()} />
+          <SummaryLeadIcon />
           <span class={styles.summaryLabel}>
-            <SummaryLabel
-              hasReasoning={hasReasoning()}
-              thinkSeconds={thinkSeconds()}
-              toolCount={toolCountForSummary()}
-            />
+            <SummaryLabel toolCount={completedToolCount()} />
           </span>
           <button
             class={styles.collapseBtn}
@@ -297,16 +195,6 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
             <Icon name="chevron-left" size={11} />
           </button>
         </div>
-
-        {/* Reasoning section */}
-        <Show when={hasReasoning()}>
-          <div class={styles.section}>
-            <div class={styles.sectionLabel}>
-              Reasoning{thinkSeconds() ? ` · ${thinkSeconds()}` : ''}
-            </div>
-            <pre ref={(el) => { reasoningTextRef = el; }} class={styles.reasoningText} />
-          </div>
-        </Show>
 
         {/* Tools section — name/status/duration visible; result behind ▶ */}
         <Show when={hasTools()}>

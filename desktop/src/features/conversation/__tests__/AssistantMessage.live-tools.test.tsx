@@ -2,9 +2,29 @@ import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import { describe, expect, it } from 'vitest';
 import { AssistantMessage } from '../AssistantMessage';
-import type { MessageBlock, ToolCallBlock, ToolCallRow } from '@/types/index.js';
+import type { MessageBlock, ReasoningBlock, ToolCallBlock, ToolCallRow } from '@/types/index.js';
 
 describe('AssistantMessage live tool activity', () => {
+  const tool = (id: string, name: string, status: ToolCallBlock['status'] = 'complete'): ToolCallBlock => ({
+    type: 'tool_call',
+    id: `block_${id}`,
+    toolId: id,
+    name,
+    status,
+    inputPreview: null,
+    outputSummary: status === 'complete' ? `${name} done` : null,
+    inlineDiff: null,
+    durationMs: status === 'complete' ? 10 : null,
+  });
+
+  const reasoning = (id: string, content: string, isStreaming = true): ReasoningBlock => ({
+    type: 'reasoning',
+    id,
+    content,
+    isStreaming,
+    tokenCount: null,
+  });
+
   it('keeps live tool activity collapsed to a summary while the assistant turn is still streaming', () => {
     const rows: ToolCallRow[] = [
       {
@@ -31,18 +51,32 @@ describe('AssistantMessage live tool activity', () => {
     expect(screen.queryByLabelText('Live tool activity')).toBeNull();
   });
 
+  it('renders streaming thinking text and tool panels in chronological order', () => {
+    const blocks: MessageBlock[] = [
+      reasoning('reasoning_1', 'First thought.'),
+      tool('tool_1', 'terminal'),
+      reasoning('reasoning_2', 'Second thought.'),
+      tool('tool_2', 'read_file', 'running'),
+    ];
+
+    const { container } = render(() => (
+      <AssistantMessage blocks={blocks} isStreaming />
+    ));
+
+    const renderedText = container.textContent ?? '';
+    const firstThinking = renderedText.indexOf('First thought.');
+    const firstTools = renderedText.indexOf('1 tool completed');
+    const secondThinking = renderedText.indexOf('Second thought.');
+    const secondTools = renderedText.lastIndexOf('0 tools completed');
+
+    expect(firstThinking).toBeGreaterThanOrEqual(0);
+    expect(firstTools).toBeGreaterThan(firstThinking);
+    expect(secondThinking).toBeGreaterThan(firstTools);
+    expect(secondTools).toBeGreaterThan(secondThinking);
+    expect(screen.queryByText('Thinking...')).toBeNull();
+  });
+
   it('preserves tool and text interleaving across separate tool groups', () => {
-    const tool = (id: string, name: string): ToolCallBlock => ({
-      type: 'tool_call',
-      id: `block_${id}`,
-      toolId: id,
-      name,
-      status: 'complete',
-      inputPreview: null,
-      outputSummary: null,
-      inlineDiff: null,
-      durationMs: 10,
-    });
     const blocks: MessageBlock[] = [
       tool('tool_1', 'terminal'),
       { type: 'text', id: 'text_1', content: 'Text after the first tool.' },
@@ -64,17 +98,6 @@ describe('AssistantMessage live tool activity', () => {
   });
 
   it('collapses prior work into one trace panel once final answer text follows tools', async () => {
-    const tool = (id: string, name: string): ToolCallBlock => ({
-      type: 'tool_call',
-      id: `block_${id}`,
-      toolId: id,
-      name,
-      status: 'complete',
-      inputPreview: null,
-      outputSummary: null,
-      inlineDiff: null,
-      durationMs: 10,
-    });
     const blocks: MessageBlock[] = [
       { type: 'text', id: 'text_before', content: 'Before tools.' },
       tool('tool_1', 'terminal'),
@@ -102,18 +125,44 @@ describe('AssistantMessage live tool activity', () => {
     expect(expandedText).not.toContain('1 tool completed');
   });
 
+  it('collapses completed thinking and tools before final answer into an expandable trace', async () => {
+    const blocks: MessageBlock[] = [
+      reasoning('reasoning_1', 'First thought.', false),
+      tool('tool_1', 'terminal'),
+      reasoning('reasoning_2', 'Second thought.', false),
+      tool('tool_2', 'read_file'),
+      { type: 'text', id: 'final_text', content: 'Final answer.' },
+    ];
+
+    const { container } = render(() => (
+      <AssistantMessage blocks={blocks} />
+    ));
+
+    let renderedText = container.textContent ?? '';
+    expect(renderedText).toContain('Work trace');
+    expect(renderedText).toContain('Final answer.');
+    expect(renderedText).not.toContain('First thought.');
+    expect(renderedText).not.toContain('Second thought.');
+    expect(renderedText).not.toContain('Thinking...');
+
+    await fireEvent.click(screen.getByRole('button', { name: /Work trace/ }));
+
+    renderedText = container.textContent ?? '';
+    const firstThinking = renderedText.indexOf('First thought.');
+    const firstTools = renderedText.indexOf('1 tool completed');
+    const secondThinking = renderedText.indexOf('Second thought.');
+    const secondTools = renderedText.lastIndexOf('1 tool completed');
+    const finalAnswer = renderedText.indexOf('Final answer.');
+
+    expect(firstThinking).toBeGreaterThan(renderedText.indexOf('Work trace'));
+    expect(firstTools).toBeGreaterThan(firstThinking);
+    expect(secondThinking).toBeGreaterThan(firstTools);
+    expect(secondTools).toBeGreaterThan(secondThinking);
+    expect(finalAnswer).toBeGreaterThan(secondTools);
+    expect(screen.queryByText('Thinking...')).toBeNull();
+  });
+
   it('does not remount completed tool cards when a later tool status changes', () => {
-    const tool = (id: string, name: string, status: ToolCallBlock['status']): ToolCallBlock => ({
-      type: 'tool_call',
-      id: `block_${id}`,
-      toolId: id,
-      name,
-      status,
-      inputPreview: null,
-      outputSummary: null,
-      inlineDiff: null,
-      durationMs: status === 'complete' ? 10 : null,
-    });
     const [blocks, setBlocks] = createSignal<MessageBlock[]>([
       tool('tool_1', 'terminal', 'complete'),
       { type: 'text', id: 'text_1', content: 'First note.' },

@@ -22,56 +22,6 @@
   gap: var(--space-2);
 }
 
-/* ThinkingIndicator */
-.thinkingHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.thinkingLabel {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-on-surface-muted);
-}
-
-.dotRow {
-  display: flex;
-  gap: 4px;
-}
-
-.dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--color-terracotta);
-  animation: dotBounce 1s ease-in-out infinite;
-}
-
-.dot:nth-child(2) { animation-delay: 0.2s; }
-.dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes dotBounce {
-  0%, 100% { transform: translateY(0); opacity: 1; }
-  50% { transform: translateY(-4px); opacity: 0.5; }
-}
-
-.progressBar {
-  height: 3px;
-  background: var(--color-border-light);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.progressBarTrack {
-  width: 120px;
-  height: 100%;
-  background: var(--color-terracotta);
-  opacity: 0.7;
-  border-radius: 2px;
-  will-change: transform;
-}
-
 /* Shared activity summary row */
 .summaryRow {
   display: flex;
@@ -152,11 +102,6 @@
 .toolCompletedText {
   display: inline-block;
   min-width: 16ch;
-}
-
-.summaryDot {
-  color: var(--color-on-surface-dim);
-  padding: 0 6px;
 }
 
 .toolCount {
@@ -271,17 +216,6 @@
   color: var(--color-on-surface-dim);
 }
 
-.reasoningText {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-on-surface-muted);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 280px;
-  overflow-y: auto;
-  margin: 0;
-}
-
 /* Tools list in expanded view */
 .toolList {
   display: flex;
@@ -378,12 +312,6 @@
   padding-top: 1px;
 }
 
-.brainIcon {
-  color: var(--color-on-surface-dim);
-  display: block;
-  flex-shrink: 0;
-}
-
 .doneIcon    { color: var(--color-tool-done); display: block; }
 .errorIcon   { color: var(--color-error); display: block; }
 .neutralIcon { color: var(--color-on-surface-dim); display: block; }
@@ -397,8 +325,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .toolCountRolling .toolCountStack,
-  .dot {
+  .toolCountRolling .toolCountStack {
     animation: none;
   }
 }
