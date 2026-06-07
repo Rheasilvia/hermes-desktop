@@ -1,11 +1,13 @@
 import type { Component } from 'solid-js';
-import { Show, createSignal } from 'solid-js';
+import { For, Show, createSignal } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { MessageActionBar, type MessageActionType } from './MessageActionBar.js';
+import { fileRefLabel, type UserDisplayPart, type UserFileRefDisplayPart } from './display-parts.js';
 import styles from './UserMessage.module.css';
 
 interface UserMessageProps {
   content: string;
+  displayParts?: UserDisplayPart[] | null;
   /** When set, this message was a slash command — render the command label
    *  above the typed content instead of the raw (expanded) text. */
   slashCommand?: { command: string; args: string };
@@ -33,15 +35,34 @@ export const UserMessage: Component<UserMessageProps> = (props) => {
       onMouseLeave={() => setShowActions(false)}
     >
       <div class={styles.content}>
-        <div class={styles.bubble} classList={{ [styles.commandBubble]: !!props.slashCommand }}>
-          <Show when={props.slashCommand} fallback={props.content}>
-            <span class={styles.commandLabel}>
-              <Icon name="zap" size={12} />
-              <span class={styles.commandName}>/{props.slashCommand!.command}</span>
-            </span>
-            <Show when={props.slashCommand!.args}>
-              <span class={styles.commandArgs}>{props.slashCommand!.args}</span>
-            </Show>
+        <div class={styles.bubble} classList={{ [styles.commandBubble]: !!props.slashCommand, [styles.inlinePartsBubble]: Boolean(props.displayParts?.length) }}>
+          <Show
+            when={props.displayParts?.length}
+            fallback={
+              <Show when={props.slashCommand} fallback={props.content}>
+                <span class={styles.commandLabel}>
+                  <Icon name="zap" size={12} />
+                  <span class={styles.commandName}>/{props.slashCommand!.command}</span>
+                </span>
+                <Show when={props.slashCommand!.args}>
+                  <span class={styles.commandArgs}>{props.slashCommand!.args}</span>
+                </Show>
+              </Show>
+            }
+          >
+            <For each={props.displayParts ?? []}>
+              {(part) => (
+                <Show
+                  when={part.type === 'file_ref'}
+                  fallback={<span class={styles.inlineText}>{part.type === 'text' ? part.text : ''}</span>}
+                >
+                  <span class={styles.inlineFileChip} title={(part as UserFileRefDisplayPart).refText}>
+                    <Icon name="file-code" size={12} />
+                    <span>{fileRefLabel(part as UserFileRefDisplayPart)}</span>
+                  </span>
+                </Show>
+              )}
+            </For>
           </Show>
         </div>
         <Show when={props.timestamp}>

@@ -9,6 +9,7 @@ export interface AttachmentChip {
   id: string;
   kind: AttachmentKind;
   name: string;
+  detail?: string;
   size?: number;
   path?: string;
   refText?: string;
@@ -36,7 +37,10 @@ export const AttachmentChips: Component<AttachmentChipsProps> = (props) => (
       {(chip) => (
         <div class={styles.attachmentChip}>
           <Icon name={iconForKind(chip.kind)} size={12} class={styles.chipIcon} />
-          <span class={styles.chipName}>{chip.name}</span>
+          <span class={styles.chipText}>
+            {chip.detail ? <span class={styles.chipDetail}>{chip.detail}</span> : null}
+            <span class={styles.chipName}>{chip.name}</span>
+          </span>
           <button
             class={styles.chipRemove}
             type="button"

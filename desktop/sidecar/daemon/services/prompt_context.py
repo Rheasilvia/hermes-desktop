@@ -92,9 +92,22 @@ def prepare_run_message(
     )
 
 
+def prepare_turn_context(
+    context: str | None,
+    *,
+    cwd: str,
+    agent: Any,
+) -> str | None:
+    if not context:
+        return None
+    prepared = expand_context_references(context, cwd=cwd, agent=agent)
+    return str(prepared.run_message or "").strip() or None
+
+
 __all__ = [
     "ContextInjectionBlocked",
     "PreparedPrompt",
     "expand_context_references",
     "prepare_run_message",
+    "prepare_turn_context",
 ]

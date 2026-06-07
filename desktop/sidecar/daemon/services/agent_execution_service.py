@@ -90,6 +90,7 @@ class AgentExecutionService:
         *,
         context: str | None = None,
         slash_command: dict | None = None,
+        display_parts: list[dict] | None = None,
     ) -> dict[str, Any]:
         """Spawn a daemon thread to run the agent turn. Returns the started thread.
 
@@ -110,6 +111,8 @@ class AgentExecutionService:
         user_payload = {"text": user_message, "turn_id": turn_id}
         if slash_command:
             user_payload["slash_command"] = slash_command
+        if display_parts:
+            user_payload["display_parts"] = display_parts
         user_seq = self._ui.append(session_id, "user", user_payload, turn_id=turn_id)
         self._bus.publish(session_id, user_seq, "user", user_payload)
         start_payload = {
@@ -170,11 +173,34 @@ class AgentExecutionService:
             llm_messages = self._state.get_messages_as_conversation(session_id)
             log.info("[perf] _run_turn get_messages_as_conversation: %.2fs", time.time() - _t0)
 
-            # Inject turn-scoped context (e.g. expanded skill content) as a
-            # system message — visible to the LLM for this turn only, never
-            # persisted to the message history.
-            if context:
-                llm_messages.insert(0, {"role": "system", "content": context})
+            from hermes_cli.config import load_config
+            from .prompt_context import (
+                ContextInjectionBlocked,
+                prepare_run_message,
+                prepare_turn_context,
+            )
+
+            # Inject turn-scoped context (e.g. expanded skill content or
+            # selected @file refs) as a system message. It is visible to the
+            # LLM for this turn only and is never persisted to UI history.
+            try:
+                prepared_context = prepare_turn_context(
+                    context,
+                    cwd=workspace_cwd or "",
+                    agent=agent,
+                )
+            except ContextInjectionBlocked as exc:
+                payload = {
+                    "error": str(exc),
+                    "code": "CONTEXT_INJECTION_BLOCKED",
+                    "hint": "\n".join(exc.warnings) if exc.warnings else None,
+                    "turn_id": turn_id,
+                }
+                seq = self._ui.append(session_id, "turn_error", payload, turn_id=turn_id)
+                self._bus.publish(session_id, seq, "error", payload)
+                return
+            if prepared_context:
+                llm_messages.insert(0, {"role": "system", "content": prepared_context})
 
             from .context_normalizer import normalize_messages
             _t0 = time.time()
@@ -183,8 +209,6 @@ class AgentExecutionService:
 
             self._touch_session(session_id)
             image_paths = self._session_svc.consume_attached_images(session_id)
-            from hermes_cli.config import load_config
-            from .prompt_context import ContextInjectionBlocked, prepare_run_message
 
             try:
                 prepared_prompt = prepare_run_message(

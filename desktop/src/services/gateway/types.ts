@@ -4,6 +4,7 @@
  */
 
 import type { CardType } from '@/types/command-card.js';
+import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 import type {
   SessionMeta,
   SessionMessage,
@@ -149,6 +150,8 @@ export interface PromptMethods {
     context?: string;
     /** Slash command metadata persisted alongside the message for UI display. */
     slash_command?: { command: string; args: string };
+    /** Ordered display metadata for inline user file chips. */
+    display_parts?: UserDisplayPart[];
   }): Promise<PromptExecuteResult>;
 }
 
@@ -308,9 +311,15 @@ export interface SkillsMethods {
 }
 
 /** Slash command completion method group. */
+export interface CompletionEntry {
+  text: string;
+  display?: unknown;
+  meta?: unknown;
+}
+
 export interface CompleteMethods {
   slash(params: { partial: string }): Promise<{ command: string; description: string; category?: string; icon?: string }[]>;
-  path(params: { partial: string }): Promise<string[]>;
+  path(params: { partial: string; sessionId?: string | null; cwd: string }): Promise<CompletionEntry[]>;
 }
 
 /** Lifecycle session actions performed by the frontend (mirror of backend ActionName). */

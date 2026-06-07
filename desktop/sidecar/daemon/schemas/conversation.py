@@ -45,6 +45,7 @@ class PromptExecuteRequest(BaseModel):
     model: Optional[str] = None
     context: Optional[str] = None
     slash_command: Optional[dict] = None
+    display_parts: Optional[list[dict]] = None
 
 
 class ImageAttachRequest(BaseModel):

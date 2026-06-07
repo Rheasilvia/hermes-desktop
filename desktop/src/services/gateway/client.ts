@@ -30,7 +30,9 @@ import type {
   ConfigSetInput,
   UpsertProviderInput,
   DeleteProviderInput,
+  CompletionEntry,
 } from './types.js';
+import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
 type EventHandler<K extends keyof GatewayEventMap> = (payload: GatewayEventMap[K]) => void;
 
@@ -130,7 +132,7 @@ export class GatewayClient {
   prompt = {
     execute: (params: {
       message: string; session_id?: string; provider?: string; model?: string;
-      context?: string; slash_command?: { command: string; args: string };
+      context?: string; slash_command?: { command: string; args: string }; display_parts?: UserDisplayPart[];
     }): Promise<PromptExecuteResult> =>
       this.call('prompt.execute', params),
   };
@@ -246,10 +248,33 @@ export class GatewayClient {
     list: (): Promise<import('./types.js').SkillInfo[]> => this.call('skills.list'),
   };
 
+  private normalizeCompletionEntries(result: unknown): CompletionEntry[] {
+    const items = result && typeof result === 'object' && 'items' in result
+      ? (result as { items?: unknown }).items
+      : result;
+    if (!Array.isArray(items)) return [];
+    return items
+      .filter((item): item is CompletionEntry =>
+        Boolean(item && typeof item === 'object' && typeof (item as { text?: unknown }).text === 'string'))
+      .map((item) => ({
+        text: item.text,
+        display: item.display,
+        meta: item.meta,
+      }));
+  }
+
   complete = {
     slash: (params: { partial: string }): Promise<{ command: string; description: string }[]> =>
       this.call('complete.slash', params),
-    path: (params: { partial: string }): Promise<string[]> => this.call('complete.path', { word: params.partial }),
+    path: async (params: { partial: string; sessionId?: string | null; cwd: string }): Promise<CompletionEntry[]> => {
+      const payload: Record<string, unknown> = {
+        word: params.partial,
+        cwd: params.cwd,
+      };
+      if (params.sessionId) payload.session_id = params.sessionId;
+      const result = await this.call('complete.path', payload);
+      return this.normalizeCompletionEntries(result);
+    },
   };
 
   slash = {

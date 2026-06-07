@@ -1,5 +1,5 @@
 import type { Accessor, Component } from 'solid-js';
-import { createSignal, createEffect, Show, createMemo, untrack } from 'solid-js';
+import { createSignal, createEffect, Show, createMemo, untrack, For } from 'solid-js';
 import { fileChipQueue } from '@/stores/file-chip-queue.js';
 import {
   clearComposerDraft,
@@ -17,11 +17,23 @@ import { AttachmentChips, type AttachmentChip } from './composer/AttachmentChips
 import { CompletionPanel, type CompletionItem } from './composer/CompletionPanel.js';
 import { getGateway } from '@/stores/context.js';
 import { filterDesktopSlashCommands } from './slashCommandCuration.js';
+import type { CompletionEntry } from '@/services/gateway/types.js';
+import {
+  attachmentsFromDisplayParts,
+  compactDisplayParts,
+  fileRefLabel,
+  llmMessageFromDisplayParts,
+  normalizeDisplayPartAnchors,
+  parseFileRefDetail,
+  parseFileRefLineRange,
+  type UserDisplayPart,
+  type UserFileRefDisplayPart,
+} from './display-parts.js';
 import styles from './MessageInput.module.css';
 
 interface MessageInputProps {
   sessionId?: string | null;
-  onSend: (text: string, attachments?: AttachmentChip[]) => boolean | Promise<boolean | void> | void;
+  onSend: (text: string, attachments?: AttachmentChip[], displayParts?: UserDisplayPart[]) => boolean | Promise<boolean | void> | void;
   onStop?: () => void;
   disabled?: boolean;
   isStreaming?: boolean;
@@ -35,28 +47,33 @@ interface MessageInputProps {
   contextUsage?: ContextUsageProps;
 }
 
-type ReferenceKind = 'file' | 'folder' | 'image' | 'url' | 'tool';
+type ReferenceKind = 'file' | 'folder' | 'image' | 'url' | 'tool' | 'git' | 'diff' | 'staged';
+type ReferenceCompletionType = 'starter' | 'pathRef' | 'contextRef';
 
 interface ReferenceCompletion {
   kind: ReferenceKind;
   refText: string;
   description: string;
-  starter: boolean;
+  display: string;
+  type: ReferenceCompletionType;
   path?: string;
 }
 
 const REFERENCE_STARTERS: ReferenceCompletion[] = [
-  { kind: 'file', refText: '@file:', description: 'Attach a file reference', starter: true },
-  { kind: 'folder', refText: '@folder:', description: 'Attach a folder reference', starter: true },
-  { kind: 'url', refText: '@url:', description: 'Attach a URL reference', starter: true },
-  { kind: 'image', refText: '@image:', description: 'Attach an image reference', starter: true },
-  { kind: 'tool', refText: '@tool:', description: 'Attach tool context', starter: true },
+  { kind: 'file', refText: '@file:', display: '@file:', description: 'Attach a file reference', type: 'starter' },
+  { kind: 'folder', refText: '@folder:', display: '@folder:', description: 'Attach a folder reference', type: 'starter' },
+  { kind: 'url', refText: '@url:', display: '@url:', description: 'Attach a URL reference', type: 'starter' },
+  { kind: 'image', refText: '@image:', display: '@image:', description: 'Attach an image reference', type: 'starter' },
+  { kind: 'tool', refText: '@tool:', display: '@tool:', description: 'Attach tool context', type: 'starter' },
+  { kind: 'git', refText: '@git:', display: '@git:', description: 'Attach git context', type: 'starter' },
 ];
 
-const REF_PREFIX_RE = /^@(file|folder|image|url|tool):(.*)$/;
+const REF_PREFIX_RE = /^@(file|folder|image|url|tool|git):(.*)$/;
+const SIMPLE_REF_RE = /^@(diff|staged)$/;
 
 export const MessageInput: Component<MessageInputProps> = (props) => {
   const [text, setText] = createSignal('');
+  const [displayParts, setDisplayParts] = createSignal<UserDisplayPart[]>([]);
   const [focused, setFocused] = createSignal(false);
   const [attachments, setAttachments] = createSignal<AttachmentChip[]>([]);
   const [commandPrefix, setCommandPrefix] = createSignal<ComposerCommandPrefix | null>(null);
@@ -69,9 +86,16 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const [referenceManuallyClosed, setReferenceManuallyClosed] = createSignal(false);
   let textareaRef: HTMLTextAreaElement | undefined;
   let previousSessionId: string | null | undefined;
+  let referenceRequestId = 0;
 
   const sessionKey = () => props.sessionId?.trim() || null;
-  const canSend = () => (text().trim().length > 0 || attachments().length > 0 || Boolean(commandPrefix())) && !props.disabled;
+  const inlineParts = () => normalizeDisplayPartAnchors([
+    ...displayParts(),
+    ...(text() ? [{ type: 'text' as const, text: text() }] : []),
+  ]);
+  const inlineAttachments = () => attachmentsFromDisplayParts(inlineParts());
+  const hasInlineParts = () => inlineParts().some((part) => part.type === 'file_ref');
+  const canSend = () => (text().trim().length > 0 || attachments().length > 0 || displayParts().length > 0 || Boolean(commandPrefix())) && !props.disabled;
   const isActive = () => canSend() && focused();
   const hasAttachments = () => attachments().length > 0;
   const showPaperclip = () => true;
@@ -83,14 +107,14 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   };
 
   const slashFilter = (): string => {
-    if (attachments().length > 0 || commandPrefix()) return '';
+    if (attachments().length > 0 || displayParts().length > 0 || commandPrefix()) return '';
     const t = text();
     if (!t.startsWith('/')) return '';
     return t.slice(1);
   };
 
   const slashPartial = (): string => {
-    if (attachments().length > 0 || commandPrefix()) return '';
+    if (attachments().length > 0 || displayParts().length > 0 || commandPrefix()) return '';
     const t = text();
     if (!t.startsWith('/')) return '';
     const firstLine = t.split('\n', 1)[0];
@@ -100,14 +124,27 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
 
   const isSlashMode = () => {
     const t = text();
-    return !commandPrefix() && attachments().length === 0 && t.startsWith('/') && !t.includes(' ') && !t.includes('\n') && slashPanelOpen();
+    return !commandPrefix() && attachments().length === 0 && displayParts().length === 0 && t.startsWith('/') && !t.includes(' ') && !t.includes('\n') && slashPanelOpen();
   };
 
   const referenceToken = (): string | null => {
+    return referenceTokenRange()?.token ?? null;
+  };
+
+  const referenceTokenRange = (): { token: string; start: number; end: number } | null => {
     if (commandPrefix()) return null;
     const t = text();
-    if (!t.startsWith('@') || /\s/.test(t)) return null;
-    return t;
+    const re = /(?:^|\s)(@[^\s]*)/g;
+    let found: RegExpExecArray | null = null;
+    let next: RegExpExecArray | null;
+    while ((next = re.exec(t)) !== null) {
+      found = next;
+    }
+    if (!found) return null;
+    const raw = found[0];
+    const token = found[1];
+    const start = found.index + raw.indexOf(token);
+    return { token, start, end: start + token.length };
   };
 
   const isReferenceMode = () => {
@@ -116,12 +153,18 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
 
   const handleSend = async () => {
     const value = submitText();
-    if ((!value && attachments().length === 0) || props.disabled) return;
-    const atts = attachments().length > 0 ? attachments() : undefined;
-    const result = await props.onSend(value, atts);
+    const parts = inlineParts();
+    const inlineAt = inlineAttachments();
+    const sendValue = hasInlineParts() ? llmMessageFromDisplayParts(parts) : value;
+    if ((!sendValue && attachments().length === 0 && inlineAt.length === 0) || props.disabled) return;
+    const atts = inlineAt.length > 0 ? inlineAt : attachments().length > 0 ? attachments() : undefined;
+    const result = hasInlineParts()
+      ? await props.onSend(sendValue, atts, parts)
+      : await props.onSend(sendValue, atts);
     if (result !== false) {
       setText('');
       setAttachments([]);
+      setDisplayParts([]);
       setCommandPrefix(null);
       const sid = sessionKey();
       if (sid) clearComposerDraft(sid);
@@ -162,6 +205,9 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
       case 'folder': return 'folder';
       case 'image': return 'image';
       case 'url': return 'globe';
+      case 'git': return 'git-branch';
+      case 'diff':
+      case 'staged':
       case 'tool': return 'terminal';
       case 'file':
       default: return 'file-code';
@@ -170,75 +216,169 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
 
   const referenceCompletionItems = createMemo((): CompletionItem[] => referenceItems().map((item) => ({
     id: item.refText,
-    title: item.refText,
+    title: item.display,
     description: item.description,
     icon: <Icon name={referenceIcon(item.kind) as any} size={12} />,
     data: item,
   })));
 
-  const normalizeReferenceCompletion = (kind: ReferenceKind, value: unknown): ReferenceCompletion | null => {
-    const raw = typeof value === 'string'
-      ? value
-      : typeof value === 'object' && value !== null && 'text' in value
-        ? String((value as { text?: unknown }).text ?? '')
-        : '';
-    const cleaned = raw.trim();
-    if (!cleaned) return null;
-    const refText = cleaned.startsWith('@') ? cleaned : `@${kind}:${cleaned}`;
-    const path = refText.replace(new RegExp(`^@${kind}:`), '');
+  const textValue = (value: unknown, fallback = ''): string => typeof value === 'string' ? value : fallback;
+
+  const normalizeCompletionEntries = (value: unknown): CompletionEntry[] => {
+    const items = value && typeof value === 'object' && 'items' in value
+      ? (value as { items?: unknown }).items
+      : value;
+    if (!Array.isArray(items)) return [];
+    return items
+      .filter((item): item is CompletionEntry =>
+        Boolean(item && typeof item === 'object' && typeof (item as { text?: unknown }).text === 'string'))
+      .map((item) => ({ text: item.text, display: item.display, meta: item.meta }));
+  };
+
+  const fallbackStarters = (token: string): ReferenceCompletion[] => {
+    const query = token.slice(1).replace(/:.*$/, '').toLowerCase();
+    return REFERENCE_STARTERS.filter((item) => item.refText.slice(1, -1).startsWith(query));
+  };
+
+  const mergeWithLocalStarters = (items: ReferenceCompletion[], token: string): ReferenceCompletion[] => {
+    if (token.includes(':') && !token.endsWith(':')) return items;
+    const seen = new Set(items.map((item) => item.refText));
+    const merged = [...items];
+    for (const starter of fallbackStarters(token)) {
+      if (!seen.has(starter.refText)) {
+        seen.add(starter.refText);
+        merged.push(starter);
+      }
+    }
+    return merged;
+  };
+
+  const classifyReferenceCompletion = (entry: CompletionEntry): ReferenceCompletion | null => {
+    const refText = entry.text.trim();
+    if (!refText.startsWith('@')) return null;
+    const typed = refText.match(REF_PREFIX_RE);
+    const simple = refText.match(SIMPLE_REF_RE);
+    const display = textValue(entry.display, refText);
+    const description = textValue(entry.meta);
+
+    if (typed) {
+      const kind = typed[1] as ReferenceKind;
+      const value = typed[2] ?? '';
+      if (!value) {
+        return {
+          kind,
+          refText,
+          display,
+          description,
+          type: 'starter',
+        };
+      }
+      if (kind === 'file' || kind === 'folder') {
+        return {
+          kind,
+          refText,
+          display,
+          description: description || (kind === 'folder' ? 'Folder reference' : 'File reference'),
+          type: 'pathRef',
+          path: value,
+        };
+      }
+      if (kind === 'url' || kind === 'git') {
+        return {
+          kind,
+          refText,
+          display,
+          description,
+          type: 'contextRef',
+          path: value,
+        };
+      }
+      return {
+        kind,
+        refText,
+        display,
+        description,
+        type: 'starter',
+      };
+    }
+
+    if (simple) {
+      const kind = simple[1] as ReferenceKind;
+      return {
+        kind,
+        refText,
+        display,
+        description,
+        type: 'contextRef',
+      };
+    }
+
     return {
-      kind,
+      kind: 'tool',
       refText,
-      description: kind === 'folder' ? 'Folder reference' : kind === 'image' ? 'Image reference' : 'File reference',
-      starter: false,
-      path,
+      display,
+      description,
+      type: 'contextRef',
     };
   };
 
   const loadReferenceItems = async () => {
     const token = referenceToken();
+    const requestId = ++referenceRequestId;
     if (!token) {
       setReferenceItems([]);
       return;
     }
 
-    if (!token.includes(':')) {
-      const query = token.slice(1).toLowerCase();
-      setReferenceItems(REFERENCE_STARTERS.filter((item) => item.refText.slice(1).startsWith(query)));
-      return;
-    }
-
     const match = token.match(REF_PREFIX_RE);
-    if (!match) {
-      setReferenceItems([]);
+    if (match && (match[1] === 'image' || match[1] === 'tool')) {
+      setReferenceItems(mergeWithLocalStarters([], token));
       return;
     }
 
-    const kind = match[1] as ReferenceKind;
-    const tail = match[2] ?? '';
-    if (!['file', 'folder', 'image'].includes(kind) || tail.length === 0) {
-      setReferenceItems([]);
+    if (match && !match[2]) {
+      setReferenceItems(mergeWithLocalStarters([], token));
       return;
     }
+
+    const requestToken = token;
+    const requestSessionId = sessionKey();
+    const requestCwd = props.cwd ?? '';
 
     const gateway = getGateway();
-    if (!gateway) {
-      setReferenceItems([]);
+    if (!gateway || !requestCwd) {
+      setReferenceItems(mergeWithLocalStarters([], token));
       return;
     }
 
     try {
-      const results = await gateway.complete.path({ partial: token });
-      setReferenceItems(results
-        .map((result) => normalizeReferenceCompletion(kind, result))
-        .filter((item): item is ReferenceCompletion => Boolean(item)));
+      const result = await gateway.complete.path({ partial: token, sessionId: requestSessionId, cwd: requestCwd });
+      if (
+        requestId !== referenceRequestId ||
+        referenceToken() !== requestToken ||
+        sessionKey() !== requestSessionId ||
+        (props.cwd ?? '') !== requestCwd
+      ) {
+        return;
+      }
+      const completions = normalizeCompletionEntries(result)
+        .map((entry) => classifyReferenceCompletion(entry))
+        .filter((item): item is ReferenceCompletion => Boolean(item));
+      setReferenceItems(mergeWithLocalStarters(completions, token));
     } catch {
-      setReferenceItems([]);
+      if (
+        requestId === referenceRequestId &&
+        referenceToken() === requestToken &&
+        sessionKey() === requestSessionId &&
+        (props.cwd ?? '') === requestCwd
+      ) {
+        setReferenceItems(mergeWithLocalStarters([], token));
+      }
     }
   };
 
   const handleReferenceSelect = (item: ReferenceCompletion) => {
-    if (item.starter) {
+    if (item.type === 'starter') {
       setText(item.refText);
       setReferencePanelOpen(false);
       if (textareaRef) {
@@ -248,12 +388,31 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
       return;
     }
 
-    if (item.kind === 'file' || item.kind === 'folder' || item.kind === 'image') {
+    if (item.type === 'pathRef' && (item.kind === 'file' || item.kind === 'folder')) {
       const chip = makePathChip(item.kind, item.path ?? item.refText.replace(REF_PREFIX_RE, '$2'));
-      const nextChip = item.kind === 'image' ? chip : { ...chip, refText: item.refText };
-      setAttachments((prev) => prev.some((existing) => existing.id === nextChip.id || existing.refText === nextChip.refText)
+      const detail = item.kind === 'file' ? parseFileRefDetail(item.refText) : item.path;
+      const nextChip = { ...chip, name: item.display || chip.name, detail: detail ?? chip.detail, refText: item.refText };
+      const range = referenceTokenRange();
+      const current = text();
+      const before = range ? current.slice(0, range.start) : '';
+      const after = range ? current.slice(range.end) : '';
+      const part = makeFileDisplayPart(nextChip, item.refText);
+      setDisplayParts((prev) => normalizeDisplayPartAnchors([
+        ...prev,
+        ...(before ? [{ type: 'text' as const, text: before }] : []),
+        part,
+      ]));
+      setText(after);
+      setReferencePanelOpen(false);
+      queueMicrotask(() => textareaRef?.focus());
+      return;
+    }
+
+    if (item.type === 'contextRef') {
+      const chip = makeContextChip(item);
+      setAttachments((prev) => prev.some((existing) => existing.id === chip.id || existing.refText === chip.refText)
         ? prev
-        : [...prev, nextChip]);
+        : [...prev, chip]);
       setText('');
       setReferencePanelOpen(false);
       queueMicrotask(() => textareaRef?.focus());
@@ -272,7 +431,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
 
   createEffect(() => {
     const t = text();
-    if (!commandPrefix() && attachments().length === 0 && t.startsWith('/') && !t.includes(' ') && !t.includes('\n')) {
+    if (!commandPrefix() && attachments().length === 0 && displayParts().length === 0 && t.startsWith('/') && !t.includes(' ') && !t.includes('\n')) {
       void loadSlashCommands();
       if (!slashPanelOpen() && !manuallyClosed()) {
         setSlashPanelOpen(true);
@@ -347,7 +506,12 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
 
   const handleInput = (e: Event) => {
     const target = e.target as HTMLTextAreaElement;
-    setText(target.value);
+    const nextValue = target.value;
+    const current = text();
+    if (displayParts().length > 0 && current && nextValue.startsWith('@') && !current.startsWith('@')) {
+      setDisplayParts((prev) => compactDisplayParts([...prev, { type: 'text', text: /\s$/.test(current) ? current : `${current} ` }]));
+    }
+    setText(nextValue);
     autoResize(target);
   };
 
@@ -379,13 +543,39 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
       return { id: stableId(kind, path), kind, name, path, size: 0 };
     }
     const prefix = kind === 'folder' ? '@folder:' : '@file:';
+    const detail = contextPath(path);
     return {
       id: stableId(kind, path),
       kind,
       name,
+      detail: detail && detail !== name ? detail : undefined,
       path,
       size: 0,
-      refText: `${prefix}${quoteRefValue(contextPath(path))}`,
+      refText: `${prefix}${quoteRefValue(detail)}`,
+    };
+  };
+
+  const makeContextChip = (item: ReferenceCompletion): AttachmentChip => {
+    const kind: AttachmentChip['kind'] = item.kind === 'url' ? 'url' : 'terminal';
+    const name = item.display || item.refText;
+    return {
+      id: stableId(kind, item.refText),
+      kind,
+      name,
+      size: 0,
+      refText: item.refText,
+    };
+  };
+
+  const makeFileDisplayPart = (chip: AttachmentChip, refText: string): UserFileRefDisplayPart => {
+    const lines = parseFileRefLineRange(refText);
+    return {
+      type: 'file_ref',
+      refText,
+      name: chip.name,
+      detail: parseFileRefDetail(refText) ?? chip.detail,
+      anchor: 'File 1',
+      ...lines,
     };
   };
 
@@ -425,7 +615,13 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
 
   const isWorkspaceBound = (chip: AttachmentChip): boolean =>
     chip.kind === 'file' || chip.kind === 'folder' ||
-    Boolean(chip.refText?.startsWith('@file:') || chip.refText?.startsWith('@folder:'));
+    Boolean(
+      chip.refText?.startsWith('@file:') ||
+      chip.refText?.startsWith('@folder:') ||
+      chip.refText === '@diff' ||
+      chip.refText === '@staged' ||
+      chip.refText?.startsWith('@git:'),
+    );
 
   const restoreAttachments = (draftAttachments: AttachmentChip[], draftCwd: string | null, currentCwd: string | null): AttachmentChip[] =>
     draftAttachments
@@ -436,13 +632,14 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     text: text(),
     commandPrefix: commandPrefix(),
     attachments: attachments().map((attachment) => ({ ...attachment })),
+    displayParts: displayParts().map((part) => ({ ...part })),
     cwd: props.cwd ?? null,
   });
 
   const saveCurrentDraft = (sid: string | null) => {
     if (!sid) return;
     const draft = snapshotDraft();
-    if (!draft.text.trim() && !draft.commandPrefix && draft.attachments.length === 0) {
+    if (!draft.text.trim() && !draft.commandPrefix && draft.attachments.length === 0 && !draft.displayParts.length) {
       clearComposerDraft(sid);
       return;
     }
@@ -455,11 +652,13 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
       setText('');
       setCommandPrefix(null);
       setAttachments([]);
+      setDisplayParts([]);
       return;
     }
     setText(draft.text);
     setCommandPrefix(draft.commandPrefix);
     setAttachments(restoreAttachments(draft.attachments as AttachmentChip[], draft.cwd, props.cwd ?? null));
+    setDisplayParts(draft.cwd === (props.cwd ?? null) ? (draft.displayParts ?? []).map((part) => ({ ...part })) : []);
   };
 
   createEffect(() => {
@@ -512,18 +711,23 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     const nextCwd = props.cwd;
     if (previousCwd !== undefined && previousCwd !== nextCwd) {
       setAttachments((prev) => prev.filter((chip) => chip.kind === 'image'));
+      setDisplayParts([]);
     }
     previousCwd = nextCwd;
   });
 
   return (
     <div class={styles.wrapper}>
+      <Show when={hasAttachments()}>
+        <div class={styles.attachmentBar} data-testid="attachment-chip-bar">
+          <AttachmentChips attachments={attachments()} onRemove={removeAttachment} />
+        </div>
+      </Show>
       <div
         class={styles.inputContainer}
         classList={{
           [styles.inputContainerActive]: isActive(),
           [styles.inputContainerSending]: props.disabled && !props.isStreaming,
-          [styles.inputContainerWithAttachments]: hasAttachments(),
         }}
       >
         <SlashCommandPanel
@@ -545,15 +749,9 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
           onSelect={(item) => handleReferenceSelect(item.data as ReferenceCompletion)}
           onClose={handleReferenceClose}
         />
-        <Show when={hasAttachments()}>
-          <AttachmentChips attachments={attachments()} onRemove={removeAttachment} />
-        </Show>
 
         {/* Textarea */}
-        <div
-          class={styles.textareaRow}
-          classList={{ [styles.textareaRowCompact]: hasAttachments() }}
-        >
+        <div class={styles.textareaRow}>
           <Show when={commandPrefix()}>
             {(prefix) => (
               <div class={styles.commandChip}>
@@ -562,6 +760,19 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
               </div>
             )}
           </Show>
+          <For each={displayParts()}>
+            {(part) => (
+              <Show
+                when={part.type === 'file_ref'}
+                fallback={<span class={styles.inlineComposerText}>{part.type === 'text' ? part.text : ''}</span>}
+              >
+                <span class={styles.inlineFileChip} data-testid="inline-file-chip">
+                  <Icon name="file-code" size={12} class={styles.chipIcon} />
+                  <span>{fileRefLabel(part as UserFileRefDisplayPart)}</span>
+                </span>
+              </Show>
+            )}
+          </For>
           <textarea
             ref={textareaRef}
             class={styles.textarea}

@@ -5,6 +5,7 @@
 
 import type { Role } from '../message.js';
 import type { MessageBlock } from '../ui/blocks.js';
+import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
 export interface ConversationMessage {
   id: number | string;
@@ -25,6 +26,8 @@ export interface ConversationMessage {
   attachments: MessageAttachment[] | null;
   /** Slash command metadata persisted for UI display on reload. */
   slashCommand?: { command: string; args: string } | null;
+  /** Ordered display parts for inline user chips. */
+  displayParts?: UserDisplayPart[] | null;
 }
 
 export interface ParsedToolCall {

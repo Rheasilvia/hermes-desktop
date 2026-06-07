@@ -276,6 +276,7 @@ class SessionService:
             started_at = float(turn.get("started_at") or 0)
             user_text = str(turn.get("user_text") or "")
             slash_command = turn.get("slash_command") or None
+            display_parts = turn.get("user_display_parts") or None
             if user_text or user_seq > 0:
                 messages.append({
                     "id": user_seq,
@@ -289,6 +290,7 @@ class SessionService:
                     "finish_reason": None,
                     "status": "completed",
                     "slash_command": slash_command,
+                    "display_parts": display_parts,
                 })
 
             status = str(turn.get("status") or "running")

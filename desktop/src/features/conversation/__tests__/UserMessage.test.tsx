@@ -29,4 +29,24 @@ describe('UserMessage', () => {
     ));
     expect(screen.getByText('/status')).toBeDefined();
   });
+
+  test('renders ordered inline file display parts inside the user bubble', () => {
+    render(() => (
+      <UserMessage
+        content="[File 1: one.ts:L1-L3] first [File 2: two.ts] second"
+        displayParts={[
+          { type: 'file_ref', refText: '@file:docs/one.ts:1-3', name: 'one.ts', detail: 'docs/one.ts:1-3', anchor: 'File 1', lineStart: 1, lineEnd: 3 },
+          { type: 'text', text: ' first ' },
+          { type: 'file_ref', refText: '@file:src/two.ts', name: 'two.ts', detail: 'src/two.ts', anchor: 'File 2' },
+          { type: 'text', text: ' second' },
+        ]}
+      />
+    ));
+
+    expect(screen.getByText('one.ts:L1-L3')).toBeDefined();
+    expect(screen.getByText('two.ts')).toBeDefined();
+    expect(screen.getByText('first')).toBeDefined();
+    expect(screen.getByText('second')).toBeDefined();
+    expect(screen.queryByText('[File 1: one.ts:L1-L3] first [File 2: two.ts] second')).toBeNull();
+  });
 });

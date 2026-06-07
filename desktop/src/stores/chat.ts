@@ -32,6 +32,7 @@ import type { ConversationMessage, ParsedToolCall } from '@/types/domain/message
 import type { MessageBlock, ReasoningBlock, ToolCallBlock } from '@/types/ui/blocks.js';
 import type { TextBlock } from '@/types/ui/blocks.js';
 import { parseMessage, parseBlocks, hydratePersistedBlocks } from '@/utils/messageParser.js';
+import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 import { getGateway } from './context.js';
 import { modelStore } from './models.js';
 import { sessionStore } from './session.js';
@@ -205,6 +206,7 @@ function sessionMsgToDomain(msg: SessionMessage, sessionId: string): Conversatio
     tokenCount: msg.token_count ?? null,
     finishReason: msg.finish_reason,
     attachments: null,
+    displayParts: null,
   };
 }
 
@@ -225,6 +227,7 @@ function transcriptMsgToDomain(msg: TranscriptMessage, sessionId: string): Conve
     finishReason: msg.finish_reason ?? null,
     attachments: null,
     slashCommand: msg.slash_command ?? null,
+    displayParts: msg.display_parts ?? null,
   };
 }
 
@@ -537,7 +540,7 @@ export const chatStore = {
   async sendMessage(
     sessionId: string,
     text: string,
-    opts?: { context?: string; slashCommand?: { command: string; args: string } },
+    opts?: { context?: string; slashCommand?: { command: string; args: string }; displayParts?: UserDisplayPart[] },
   ): Promise<boolean> {
     const gateway = getGateway();
     if (!gateway) return false;
@@ -553,6 +556,7 @@ export const chatStore = {
         model: sessionModel?.model ?? modelStore.defaultModel ?? undefined,
         context: opts?.context,
         slash_command: opts?.slashCommand,
+        display_parts: opts?.displayParts,
       });
       this.markPromptAccepted(sessionId, accepted.turn_id);
       return true;
@@ -570,6 +574,7 @@ export const chatStore = {
     slashCommand?: { command: string; args: string },
     submitText = text,
     attachments?: unknown[],
+    displayParts?: UserDisplayPart[],
   ): RenderedMessage['id'] {
     ensureSession(sessionId);
     const id = nextEphemeralId();
@@ -586,6 +591,7 @@ export const chatStore = {
       toolName: null,
       submitText,
       attachments,
+      displayParts: displayParts?.map((part) => ({ ...part })) ?? null,
       slashCommand,
     };
     setChatStates(sessionId, 'messages', (msgs) => [...msgs, msg]);

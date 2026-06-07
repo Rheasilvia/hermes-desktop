@@ -20,6 +20,7 @@ import { AssistantMessage } from './AssistantMessage.js';
 import type { MessageBlock, TextBlock } from '@/types/index.js';
 import { MessageInput } from './MessageInput.js';
 import type { AttachmentChip } from './composer/AttachmentChips.js';
+import type { UserDisplayPart } from './display-parts.js';
 import { CommandCardDock } from './cards/CommandCardDock.js';
 import { ModelSelector } from './ModelSelector.js';
 import { ChatToolbar } from './ChatToolbar.js';
@@ -63,14 +64,18 @@ export function resolvePromptDispatch(
   submitText: string,
   displayText: string,
   display?: PromptDisplayMetadata,
+  attachmentContext?: string,
 ): PromptDispatchPayload {
   const slashCommand = display?.slashCommand;
   if (slashCommand) {
     return {
       message: displayText,
-      context: submitText,
+      context: [attachmentContext, submitText].filter(Boolean).join('\n\n'),
       slashCommand,
     };
+  }
+  if (attachmentContext) {
+    return { message: submitText, context: attachmentContext };
   }
   return { message: submitText };
 }
@@ -123,6 +128,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     promptText: string,
     display?: PromptDisplayMetadata,
     attachments: AttachmentChip[] = [],
+    displayParts?: UserDisplayPart[],
   ) => {
     const sid = sessionId();
     const refText = attachments
@@ -130,10 +136,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       .filter((value): value is string => Boolean(value?.trim()))
       .join('\n');
     const imageAttachments = attachments.filter((attachment) => attachment.kind === 'image' && attachment.path);
-    const submitText = ([refText, promptText].filter(Boolean).join('\n\n'))
-      || (imageAttachments.length > 0 ? 'What do you see in this image?' : '');
-    const displayText = (display?.text ?? promptText) || attachments.map((attachment) => attachment.name).join(', ');
-    const messageId = chatStore.appendUserMessage(sid, displayText, display?.slashCommand, submitText, attachments);
+    const attachmentLabelText = attachments.map((attachment) => attachment.name).join(', ');
+    const submitText = promptText || (imageAttachments.length > 0 ? 'What do you see in this image?' : attachmentLabelText);
+    const displayText = (display?.text ?? promptText) || attachmentLabelText;
+    const messageId = chatStore.appendUserMessage(sid, displayText, display?.slashCommand, submitText, attachments, displayParts);
     const gateway = getGateway();
     if (gateway && imageAttachments.length > 0) {
       try {
@@ -151,10 +157,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         return false;
       }
     }
-    const dispatch = resolvePromptDispatch(submitText, displayText, display);
+    const dispatch = resolvePromptDispatch(submitText, displayText, display, refText || undefined);
     const ok = await chatStore.sendMessage(sid, dispatch.message, {
       context: dispatch.context,
       slashCommand: dispatch.slashCommand,
+      displayParts,
     });
     if (!ok) {
       chatStore.markUserMessageFailed(sid, messageId, chatStore.getError(sid) ?? 'Failed to send message');
@@ -201,7 +208,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         if (!next.attachments.length && queuedText.startsWith('/')) {
           void handleSlashCommand(queuedText);
         } else {
-          void sendPrompt(next.text, undefined, next.attachments as AttachmentChip[]);
+          void sendPrompt(next.text, undefined, next.attachments as AttachmentChip[], next.displayParts as UserDisplayPart[] | undefined);
         }
       }
     }
@@ -498,10 +505,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   // ── Handlers ──────────────────────────────────────────────────────────
 
-  const handleSend = async (text: string, attachments?: QueuedAttachment[]) => {
+  const handleSend = async (text: string, attachments?: QueuedAttachment[], displayParts?: UserDisplayPart[]) => {
     const trimmed = text.trim();
     if (isStreaming()) {
-      const entry = composerQueueStore.enqueue(sessionId(), { text: trimmed || text, attachments });
+      const entry = composerQueueStore.enqueue(sessionId(), { text: trimmed || text, attachments, displayParts });
       if (entry) cards.noticeCard('Queued for the next turn.');
       return;
     }
@@ -510,7 +517,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       return true;
     }
     cards.setCommandCard(null);
-    return sendPrompt(text, undefined, attachments as AttachmentChip[] | undefined);
+    return sendPrompt(text, undefined, attachments as AttachmentChip[] | undefined, displayParts);
   };
 
   const handleMaskedPermissionSubmit = (requestId: string, value: string) => {

@@ -40,6 +40,7 @@ import type {
   ModelOption,
   CommandResult,
   CommandAction,
+  CompletionEntry,
 } from './types.js';
 import type { ParsedToolCall } from '@/types/index.js';
 import type { CardType } from '@/types/command-card.js';
@@ -240,6 +241,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         };
         if (params.context !== undefined) body.context = params.context;
         if (params.slash_command !== undefined) body.slash_command = params.slash_command;
+        if (params.display_parts !== undefined) body.display_parts = params.display_parts;
         return this.http.post(`${API_PREFIX}/prompt/execute`, body);
       },
     };
@@ -429,7 +431,18 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         );
         return r.items ?? [];
       },
-      path: notImplemented('complete.path'),
+      path: async (params): Promise<CompletionEntry[]> => {
+        const body: Record<string, unknown> = {
+          word: params.partial,
+          cwd: params.cwd,
+        };
+        if (params.sessionId) body.session_id = params.sessionId;
+        const r = await this.http.post<{ items?: CompletionEntry[] }>(
+          `${API_PREFIX}/commands/complete/path`,
+          body,
+        );
+        return Array.isArray(r.items) ? r.items : [];
+      },
     };
     this.slash = {
       exec: async (params): Promise<CommandResult> =>

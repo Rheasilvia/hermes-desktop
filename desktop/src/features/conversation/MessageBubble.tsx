@@ -54,6 +54,7 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
             .map((b) => b.content)
             .join('\n')}
           slashCommand={props.message.slashCommand}
+          displayParts={props.message.displayParts}
           timestamp={props.message.timestamp || undefined}
           deliveryStatus={props.message.deliveryStatus}
           failedReason={props.message.failedReason}

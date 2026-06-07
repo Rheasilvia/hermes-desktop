@@ -23,13 +23,15 @@ describe('resolvePromptDispatch', () => {
     });
   });
 
-  it('keeps attachment reference text in the user message instead of context', () => {
+  it('routes attachment reference text into turn-scoped context', () => {
     expect(resolvePromptDispatch(
-      '@image:screenshot.png\n\nWhat do you see?',
-      'screenshot.png',
-      { text: 'screenshot.png' },
+      'Summarize this file',
+      'Summarize this file',
+      undefined,
+      '@file:docs/mydoc.txt',
     )).toEqual({
-      message: '@image:screenshot.png\n\nWhat do you see?',
+      message: 'Summarize this file',
+      context: '@file:docs/mydoc.txt',
     });
   });
 });

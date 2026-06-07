@@ -151,6 +151,32 @@ describe('commands HTTP methods', () => {
     expect(result).toEqual([{ command: 'model', description: 'Switch model', category: 'Configuration' }]);
   });
 
+  it('maps complete.path to the desktop path completion endpoint', async () => {
+    const mockHttp = {
+      get: vi.fn(),
+      post: vi.fn().mockResolvedValue({
+        items: [{ text: '@file:docs/mydoc.txt', display: 'mydoc.txt', meta: 'docs' }],
+      }),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    };
+    const adapter = new HttpGatewayAdapter(mockHttp as any);
+
+    const result = await adapter.complete.path({
+      partial: '@my',
+      sessionId: 'sess_1',
+      cwd: '/repo',
+    });
+
+    expect(mockHttp.post).toHaveBeenCalledWith('/desktop/api/commands/complete/path', {
+      word: '@my',
+      session_id: 'sess_1',
+      cwd: '/repo',
+    });
+    expect(result).toEqual([{ text: '@file:docs/mydoc.txt', display: 'mydoc.txt', meta: 'docs' }]);
+  });
+
   it('posts slash.exec and returns the structured command result', async () => {
     const mockHttp = {
       get: vi.fn(),
