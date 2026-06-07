@@ -729,6 +729,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
             <PromptDock items={promptDockItems()} />
 
             <MessageInput
+              sessionId={sessionId()}
               onSend={handleSend}
               onStop={() => {
                 suppressNextAutoDrain = true;

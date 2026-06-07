@@ -120,6 +120,35 @@ describe('SlashCommandPanel', () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
+  test('keeps keyboard-selected command visible while browsing all commands', () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      render(() => (
+        <SlashCommandPanel
+          commands={MOCK_COMMANDS}
+          filter=""
+          visible={true}
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+        />
+      ));
+
+      scrollIntoView.mockClear();
+
+      fireEvent.keyDown(document, { key: 'ArrowDown' });
+      fireEvent.keyDown(document, { key: 'ArrowDown' });
+      fireEvent.keyDown(document, { key: 'ArrowDown' });
+      fireEvent.keyDown(document, { key: 'ArrowDown' });
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
   test('filters commands by description as well as command name', () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();

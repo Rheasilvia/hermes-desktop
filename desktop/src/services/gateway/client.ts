@@ -249,7 +249,7 @@ export class GatewayClient {
   complete = {
     slash: (params: { partial: string }): Promise<{ command: string; description: string }[]> =>
       this.call('complete.slash', params),
-    path: (params: { partial: string }): Promise<string[]> => this.call('complete.path', params),
+    path: (params: { partial: string }): Promise<string[]> => this.call('complete.path', { word: params.partial }),
   };
 
   slash = {
