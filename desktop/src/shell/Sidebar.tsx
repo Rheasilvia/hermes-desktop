@@ -9,6 +9,7 @@ import type { IconName } from '@/ui/atoms/Icon';
 import { Modal } from '@/ui/molecules/Modal.js';
 import { Input } from '@/ui/atoms/Input.js';
 import { Button } from '@/ui/atoms/Button.js';
+import { APP_VERSION, APP_COMMIT } from '@/version';
 import styles from './Sidebar.module.css';
 
 /**
@@ -188,12 +189,12 @@ export const Sidebar: Component = () => {
     return [
       {
         label: pinned ? 'Unpin' : 'Pin',
-        icon: 'pin' as IconName,
+        icon: 'pin',
         action: () => handlePinSession(s.id),
       },
       {
         label: 'Copy ID',
-        icon: 'copy' as IconName,
+        icon: 'copy',
         action: () => {
           void navigator.clipboard.writeText(s.id).catch(() => {});
           closeContextMenu();
@@ -201,12 +202,12 @@ export const Sidebar: Component = () => {
       },
       {
         label: 'Rename',
-        icon: 'edit' as IconName,
+        icon: 'pencil',
         action: () => handleOpenRename(s.id, s.title),
       },
       {
         label: 'Delete',
-        icon: 'trash' as IconName,
+        icon: 'trash-2',
         danger: true,
         action: () => {
           handleDeleteSession(s.id);
@@ -467,6 +468,12 @@ export const Sidebar: Component = () => {
           <Icon name="settings" size={16} />
           <span>Settings</span>
         </A>
+        <div
+          class={styles.versionLabel}
+          title={`Version ${APP_VERSION} (${APP_COMMIT})`}
+        >
+          v{APP_VERSION} · {APP_COMMIT}
+        </div>
       </div>
 
       {/* ── Context menu ────────────────────────────────────────────────── */}

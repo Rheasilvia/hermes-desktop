@@ -81,6 +81,7 @@ import {
   Folder,
   Users,
   Play,
+  Pin,
 } from 'lucide-solid';
 
 export type IconName =
@@ -163,7 +164,8 @@ export type IconName =
   | 'panel-right'
   | 'folder'
   | 'users'
-  | 'play';
+  | 'play'
+  | 'pin';
 
 interface IconProps {
   name: IconName;
@@ -253,6 +255,7 @@ const LUCIDE_ICONS: Record<IconName, Component<{ size?: number; strokeWidth?: nu
   'folder': Folder,
   'users': Users,
   'play': Play,
+  'pin': Pin,
 };
 
 export const Icon: Component<IconProps> = (props) => {
