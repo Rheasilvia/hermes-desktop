@@ -6,7 +6,7 @@
  * This prevents ToolCallTree from re-rendering all rows on every progress event.
  */
 
-import { createStore, produce } from 'solid-js/store';
+import { produce } from 'solid-js/store';
 import type {
   MessageDeltaPayload,
   MessageCompletePayload,
@@ -37,70 +37,28 @@ import { getGateway } from './context.js';
 import { modelStore } from './models.js';
 import { sessionStore } from './session.js';
 import { sessionUsage } from './usage.js';
+import {
+  chatStates,
+  setChatStates,
+  makeLiveTurnState,
+  ensureSession,
+  nextEphemeralId,
+  nextBlockId,
+  clearStalledTimer,
+  noteLiveEvent,
+  beginLiveTurn,
+  dropIfInterrupted,
+  hasAssistantForTurn,
+  noteTurnEvent,
+  lastEventAtBySession,
+  droppedLateEventsBySession,
+  interruptedBarrierBySession,
+} from './chat-state.js';
+import type { ConversationDiagnosticsSnapshot } from './chat-state.js';
 
-// ── Chat State ────────────────────────────────────────────────────────────
+export type { ConversationDiagnosticsSnapshot };
 
-const TURN_STALLED_TIMEOUT_MS = 80_000;
-
-interface ChatState {
-  messages: RenderedMessage[];
-  liveState: LiveTurnState;
-  isLoadingMessages: boolean;
-}
-
-export interface ConversationDiagnosticsSnapshot {
-  sessionId: string;
-  turnState: LiveTurnState['status'];
-  lastEventAt: number | null;
-  droppedLateEvents: number;
-}
-
-function makeLiveTurnState(sessionId: string): LiveTurnState {
-  return {
-    sessionId,
-    turnId: null,
-    lastEventSeq: null,
-    status: 'idle',
-    streamingText: '',
-    reasoningText: '',
-    activityBlocks: [],
-    activeTools: [],
-    todosToolId: null,
-    todos: [],
-    errorMessage: null,
-    errorAction: null,
-    pendingPermission: null,
-    pendingClarify: null,
-    memoryContext: null,
-  };
-}
-
-// Fine-grained store: each session's ChatState is tracked at field level.
-// Tool event handlers use path selectors so only the changed row re-renders.
-const [chatStates, setChatStates] = createStore<Record<string, ChatState>>({});
-const stalledTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const lastEventAtBySession = new Map<string, number>();
-const droppedLateEventsBySession = new Map<string, number>();
-const interruptedBarrierBySession = new Set<string>();
-
-function ensureSession(sessionId: string): void {
-  if (!chatStates[sessionId]) {
-    setChatStates(sessionId, {
-      messages: [],
-      liveState: makeLiveTurnState(sessionId),
-      isLoadingMessages: false,
-    });
-  }
-}
-
-let _ephemeralCounter = 0;
-function nextEphemeralId(): string {
-  return `ephemeral-${++_ephemeralCounter}`;
-}
-
-function nextBlockId(): string {
-  return `b-${++_ephemeralCounter}`;
-}
+// ── Activity-block + transcript helpers ─────────────────────────────────────
 
 function latestMatchingToolIndex(tools: LiveToolCall[], name: string): number {
   for (let idx = tools.length - 1; idx >= 0; idx -= 1) {
@@ -110,54 +68,6 @@ function latestMatchingToolIndex(tools: LiveToolCall[], name: string): number {
     }
   }
   return -1;
-}
-
-function clearStalledTimer(sessionId: string): void {
-  const timer = stalledTimers.get(sessionId);
-  if (timer) clearTimeout(timer);
-  stalledTimers.delete(sessionId);
-}
-
-function armStalledTimer(sessionId: string): void {
-  clearStalledTimer(sessionId);
-  stalledTimers.set(sessionId, setTimeout(() => {
-    const state = chatStates[sessionId]?.liveState.status;
-    // Watchdog spans the whole live turn. If no stream event arrives for
-    // TURN_STALLED_TIMEOUT_MS the turn is wedged (e.g. a stalled provider
-    // stream that never sends a stop). Flip to 'stalled' so the recovery
-    // banner + Stop affordance appear instead of an infinite spinner.
-    if (
-      state === 'submitting' || state === 'accepted' ||
-      state === 'streaming' || state === 'tool_running'
-    ) {
-      setChatStates(sessionId, 'liveState', 'status', 'stalled');
-    }
-  }, TURN_STALLED_TIMEOUT_MS));
-}
-
-function noteLiveEvent(sessionId: string): void {
-  lastEventAtBySession.set(sessionId, Date.now());
-  // Re-arm (rolling watchdog) so a stream that goes silent mid-turn is caught.
-  armStalledTimer(sessionId);
-}
-
-function beginLiveTurn(sessionId: string, status: LiveTurnState['status']): void {
-  ensureSession(sessionId);
-  interruptedBarrierBySession.delete(sessionId);
-  setChatStates(sessionId, 'liveState', makeLiveTurnState(sessionId));
-  setChatStates(sessionId, 'liveState', 'status', status);
-  lastEventAtBySession.set(sessionId, Date.now());
-  if (status === 'submitting' || status === 'accepted') {
-    armStalledTimer(sessionId);
-  } else {
-    clearStalledTimer(sessionId);
-  }
-}
-
-function dropIfInterrupted(sessionId: string): boolean {
-  if (!interruptedBarrierBySession.has(sessionId)) return false;
-  droppedLateEventsBySession.set(sessionId, (droppedLateEventsBySession.get(sessionId) ?? 0) + 1);
-  return true;
 }
 
 /** Convert a legacy SessionMessage (gateway wire format) to a domain ConversationMessage. */
@@ -424,42 +334,6 @@ function resolveHydratedLiveState(
     return current;
   }
   return nextLiveState;
-}
-
-type TurnPayload = { turn_id?: string; event_seq?: number };
-
-function hasAssistantForTurn(sessionId: string, turnId: string | null | undefined): boolean {
-  if (!turnId) return false;
-  return (chatStates[sessionId]?.messages ?? []).some(
-    (message) => message.role === 'assistant' && message.turnId === turnId,
-  );
-}
-
-function noteTurnEvent(sessionId: string, payload: TurnPayload): boolean {
-  ensureSession(sessionId);
-  const turnId = payload.turn_id ?? null;
-  const eventSeq = payload.event_seq ?? null;
-  if (turnId && hasAssistantForTurn(sessionId, turnId)) return false;
-
-  const live = chatStates[sessionId]?.liveState ?? makeLiveTurnState(sessionId);
-  if (turnId && live.turnId && live.turnId !== turnId && live.status !== 'idle') {
-    return false;
-  }
-
-  const current = chatStates[sessionId]?.liveState ?? makeLiveTurnState(sessionId);
-  if (
-    turnId &&
-    eventSeq != null &&
-    current.turnId === turnId &&
-    current.lastEventSeq != null &&
-    eventSeq <= current.lastEventSeq
-  ) {
-    return false;
-  }
-
-  if (turnId) setChatStates(sessionId, 'liveState', 'turnId', turnId);
-  if (eventSeq != null) setChatStates(sessionId, 'liveState', 'lastEventSeq', eventSeq);
-  return true;
 }
 
 function interruptedBlocksFromLive(live: LiveTurnState): RenderedMessage['blocks'] {
