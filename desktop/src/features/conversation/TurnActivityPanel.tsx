@@ -80,6 +80,7 @@ const SummaryLeadIcon: Component = () => (
 
 const DetailsAffordance: Component<{
   hidden?: boolean;
+  passive?: boolean;
   onClick?: () => void;
 }> = (props) => (
   <span
@@ -97,10 +98,20 @@ const DetailsAffordance: Component<{
         </span>
       }
     >
-      <button class={styles.pillBtn} type="button" onClick={props.onClick}>
-        <span>Details</span>
-        <Icon name="chevron-down" size={11} />
-      </button>
+      <Show
+        when={!props.passive}
+        fallback={
+          <span class={styles.pillBtn}>
+            <span>Details</span>
+            <Icon name="chevron-down" size={11} />
+          </span>
+        }
+      >
+        <button class={styles.pillBtn} type="button" onClick={props.onClick}>
+          <span>Details</span>
+          <Icon name="chevron-down" size={11} />
+        </button>
+      </Show>
     </Show>
   </span>
 );
@@ -162,18 +173,22 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
       </div>
 
       {/* ── COLLAPSED PILL ──────────────────────────────────────────────── */}
-      <div
+      <button
+        type="button"
         class={`${styles.summaryRow} ${styles.pill}`}
         data-testid="turn-activity-pill"
         style={{ display: !isActive() && !panelExpanded() ? 'flex' : 'none' }}
         aria-hidden={!isActive() && !panelExpanded() ? undefined : 'true'}
+        aria-expanded={panelExpanded()}
+        aria-label={`${completedToolCount()} ${completedToolCount() === 1 ? 'tool' : 'tools'} completed. Show details`}
+        onClick={() => setPanelExpanded(true)}
       >
         <SummaryLeadIcon />
         <span class={styles.summaryLabel}>
           <SummaryLabel toolCount={completedToolCount()} />
         </span>
-        <DetailsAffordance onClick={() => setPanelExpanded(true)} />
-      </div>
+        <DetailsAffordance passive />
+      </button>
 
       {/* ── EXPANDED VIEW ───────────────────────────────────────────────── */}
       <div

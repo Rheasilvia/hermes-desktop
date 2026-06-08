@@ -13,11 +13,13 @@ import { WorkspacePicker } from './WorkspacePicker';
 import { GitBranchPicker } from './GitBranchPicker';
 import { SlashCommandPanel, type SlashCommand } from './SlashCommandPanel';
 import { ContextUsageBar, type ContextUsageProps } from './ContextUsageBar';
+import { PermissionModePicker } from './PermissionModePicker';
 import { AttachmentChips, type AttachmentChip } from './composer/AttachmentChips.js';
 import { CompletionPanel, type CompletionItem } from './composer/CompletionPanel.js';
 import { getGateway } from '@/stores/context.js';
 import { filterDesktopSlashCommands } from './slashCommandCuration.js';
 import type { CompletionEntry } from '@/services/gateway/types.js';
+import type { DesktopPermissionMode } from '@/types/index.js';
 import {
   attachmentsFromDisplayParts,
   compactDisplayParts,
@@ -48,6 +50,10 @@ interface MessageInputProps {
   contextUsage?: ContextUsageProps;
   historyMessages?: readonly RenderedMessage[];
   onComposerActivity?: () => void;
+  permissionMode?: DesktopPermissionMode;
+  permissionModePending?: boolean;
+  permissionModeAppliesNextTurn?: boolean;
+  onPermissionModeChange?: (mode: DesktopPermissionMode) => void;
 }
 
 type ReferenceKind = 'file' | 'folder' | 'image' | 'url' | 'tool' | 'git' | 'diff' | 'staged';
@@ -1034,6 +1040,13 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
             <GitBranchPicker
               workspacePath={props.cwd}
               disabled={props.disabled}
+            />
+            <PermissionModePicker
+              disabled={props.disabled || !props.onPermissionModeChange}
+              mode={props.permissionMode ?? 'auto'}
+              pending={props.permissionModePending}
+              appliesNextTurn={props.permissionModeAppliesNextTurn}
+              onChange={(mode) => props.onPermissionModeChange?.(mode)}
             />
           </div>
 

@@ -8,6 +8,8 @@ import type { ParsedToolCall } from './domain/message.js';
 import type { MessageBlock } from './ui/blocks.js';
 import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
+export type DesktopPermissionMode = 'ask' | 'auto' | 'full';
+
 /** Session database row - mirrors sessions table. */
 export interface SessionMeta {
   id: string;
@@ -37,6 +39,7 @@ export interface SessionMeta {
   parent_session_id: string | null;
   end_reason: string | null;
   cwd: string | null;
+  permissionMode: DesktopPermissionMode;
 }
 
 /** Message database row - mirrors messages table. */
@@ -100,6 +103,7 @@ export interface SessionListItem {
   tool_call_count: number;
   last_message?: string;
   cwd?: string | null;
+  permissionMode: DesktopPermissionMode;
 }
 
 /** @source hermes_state.py */

@@ -51,6 +51,7 @@ export const SESSION_METHODS = {
   BRANCH: 'session.branch',
   RESUME: 'session.resume',
   INTERRUPT: 'session.interrupt',
+  SET_PERMISSION_MODE: 'session.permission_mode.set',
 } as const;
 
 /** Prompt methods. */

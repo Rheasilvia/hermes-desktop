@@ -38,6 +38,10 @@ class SetSessionProviderRequest(BaseModel):
     model: Optional[str] = None
 
 
+class SetPermissionModeRequest(BaseModel):
+    mode: str
+
+
 class PromptExecuteRequest(BaseModel):
     message: str
     session_id: str
@@ -92,6 +96,7 @@ class SessionResponse(BaseModel):
     ended_at: Optional[float] = None
     message_count: int = 0
     cwd: Optional[str] = None
+    permissionMode: str = "auto"
 
 
 class CreateSessionResponse(BaseModel):
@@ -104,6 +109,7 @@ class CreateSessionResponse(BaseModel):
     started_at: Optional[float] = None
     cwd: Optional[str] = None
     model_configured: bool = False
+    permissionMode: str = "auto"
 
 
 class PromptExecuteResponse(BaseModel):

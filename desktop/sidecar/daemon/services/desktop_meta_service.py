@@ -8,6 +8,15 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+PERMISSION_MODES = frozenset({"ask", "auto", "full"})
+
+
+def normalize_permission_mode(mode: str | None) -> str:
+    value = str(mode or "").strip().lower()
+    if value not in PERMISSION_MODES:
+        raise ValueError(f"invalid permission mode: {mode}")
+    return value
+
 
 class DesktopMetaService:
     """CRUD for the session_desktop_meta table in desktop.db."""
@@ -26,7 +35,7 @@ class DesktopMetaService:
         try:
             row = conn.execute(
                 "SELECT session_id, pinned, archived, "
-                "last_opened_at, created_at, provider "
+                "last_opened_at, created_at, provider, permission_mode "
                 "FROM session_desktop_meta WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
@@ -38,20 +47,23 @@ class DesktopMetaService:
         self,
         session_id: str,
         provider: str = "",
+        permission_mode: str = "auto",
     ) -> None:
         now = time.time()
+        mode = normalize_permission_mode(permission_mode)
         conn = self._connect()
         try:
             conn.execute(
                 """
                 INSERT INTO session_desktop_meta
-                    (session_id, pinned, archived, last_opened_at, created_at, provider)
-                VALUES (?, 0, 0, ?, ?, ?)
+                    (session_id, pinned, archived, last_opened_at, created_at, provider, permission_mode)
+                VALUES (?, 0, 0, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     last_opened_at = excluded.last_opened_at,
-                    provider = excluded.provider
+                    provider = excluded.provider,
+                    permission_mode = excluded.permission_mode
                 """,
-                (session_id, now, now, provider),
+                (session_id, now, now, provider, mode),
             )
             conn.commit()
         finally:
@@ -108,5 +120,50 @@ class DesktopMetaService:
                 (session_id,),
             ).fetchone()
             return row["provider"] if row else None
+        finally:
+            conn.close()
+
+    def set_permission_mode(self, session_id: str, mode: str) -> str:
+        value = normalize_permission_mode(mode)
+        conn = self._connect()
+        try:
+            conn.execute(
+                "UPDATE session_desktop_meta SET permission_mode = ? WHERE session_id = ?",
+                (value, session_id),
+            )
+            conn.commit()
+            return value
+        finally:
+            conn.close()
+
+    def get_permission_mode(self, session_id: str) -> str:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT permission_mode FROM session_desktop_meta WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if not row:
+                return "auto"
+            value = str(row["permission_mode"] or "auto").strip().lower()
+            return value if value in PERMISSION_MODES else "auto"
+        finally:
+            conn.close()
+
+    def get_permission_modes(self, session_ids: list[str]) -> dict[str, str]:
+        if not session_ids:
+            return {}
+        conn = self._connect()
+        try:
+            placeholders = ",".join("?" for _ in session_ids)
+            rows = conn.execute(
+                f"SELECT session_id, permission_mode FROM session_desktop_meta WHERE session_id IN ({placeholders})",
+                tuple(session_ids),
+            ).fetchall()
+            result = {sid: "auto" for sid in session_ids}
+            for row in rows:
+                value = str(row["permission_mode"] or "auto").strip().lower()
+                result[row["session_id"]] = value if value in PERMISSION_MODES else "auto"
+            return result
         finally:
             conn.close()

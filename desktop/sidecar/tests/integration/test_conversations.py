@@ -45,6 +45,7 @@ class TestSessionCRUD:
         data = resp.json()
         assert "session_id" in data
         assert data["session_id"].startswith("desktop_")
+        assert data["permissionMode"] == "auto"
 
     def test_create_session_without_workspace_creates_default_workspace(
         self, client, monkeypatch, tmp_path
@@ -202,6 +203,73 @@ class TestSessionCRUD:
         assert listed.status_code == 200
         ids = [s["id"] for s in listed.json()]
         assert ids.count(first_data["id"]) == 1
+
+    def test_empty_session_reuse_refreshes_permission_mode_from_recent_conversation(self, client):
+        reusable = client.post("/desktop/api/sessions", json={})
+        assert reusable.status_code == 200
+        reusable_id = reusable.json()["id"]
+
+        # Make the reusable empty session stale enough that it is not the recent
+        # non-empty conversation whose mode should seed the next new draft.
+        client.post("/desktop/api/sessions", json={"cwd": reusable.json()["cwd"]})
+        from daemon.db.ui_messages import append
+        append(client.app.state.cfg.hermes_home, reusable_id, "user", {"text": "old"})
+
+        recent = client.post("/desktop/api/sessions", json={})
+        assert recent.status_code == 200
+        recent_id = recent.json()["id"]
+        mode_resp = client.put(
+            f"/desktop/api/sessions/{recent_id}/permission-mode",
+            json={"mode": "full"},
+        )
+        assert mode_resp.status_code == 200
+        append(client.app.state.cfg.hermes_home, recent_id, "user", {"text": "recent"})
+
+        empty = client.post("/desktop/api/sessions", json={})
+        assert empty.status_code == 200
+        empty_id = empty.json()["id"]
+        set_resp = client.put(
+            f"/desktop/api/sessions/{empty_id}/permission-mode",
+            json={"mode": "ask"},
+        )
+        assert set_resp.status_code == 200
+
+        reused = client.post("/desktop/api/sessions", json={})
+
+        assert reused.status_code == 200
+        assert reused.json()["id"] == empty_id
+        assert reused.json()["reused"] is True
+        assert reused.json()["permissionMode"] == "full"
+
+    def test_session_responses_include_permission_mode_and_set_returns_summary(self, client):
+        created = client.post("/desktop/api/sessions", json={})
+        sid = created.json()["id"]
+
+        resp = client.put(
+            f"/desktop/api/sessions/{sid}/permission-mode",
+            json={"mode": "ask"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == sid
+        assert data["permissionMode"] == "ask"
+        assert data["appliedToActiveTurn"] is True
+        assert data["appliesNextTurn"] is False
+        assert client.get(f"/desktop/api/sessions/{sid}").json()["permissionMode"] == "ask"
+        assert client.get("/desktop/api/sessions").json()[0]["permissionMode"] == "ask"
+
+    def test_set_permission_mode_rejects_invalid_value(self, client):
+        created = client.post("/desktop/api/sessions", json={})
+        sid = created.json()["id"]
+
+        resp = client.put(
+            f"/desktop/api/sessions/{sid}/permission-mode",
+            json={"mode": "root"},
+        )
+
+        assert resp.status_code in {400, 422}
+        assert client.get(f"/desktop/api/sessions/{sid}").json()["permissionMode"] == "auto"
 
     def test_create_session_does_not_reuse_session_with_messages(self, client):
         first = client.post("/desktop/api/sessions", json={})

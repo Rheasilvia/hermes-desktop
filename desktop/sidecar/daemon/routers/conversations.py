@@ -7,6 +7,7 @@ All business logic is delegated to service classes injected via FastAPI Depends(
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,6 +20,7 @@ from ..schemas.conversation import (
     ImageDetachRequest,
     PromptExecuteRequest,
     SecretRespondRequest,
+    SetPermissionModeRequest,
     UpdateSessionRequest,
     SetSessionProviderRequest,
     SudoRespondRequest,
@@ -34,6 +36,7 @@ from ..services.dependencies import (
 from ..services.exceptions import SessionNotFoundError
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 # ── Session CRUD ──────────────────────────────────────────────────────────────
@@ -146,6 +149,52 @@ async def set_session_provider(
     else:
         pool.evict(session_id)
 
+    return result
+
+
+@router.post("/sessions/{session_id}/branch")
+async def branch_session(
+    session_id: str,
+    svc=Depends(get_session_service),
+):
+    try:
+        return svc.branch_session(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.put("/sessions/{session_id}/permission-mode")
+async def set_permission_mode(
+    session_id: str,
+    body: SetPermissionModeRequest,
+    svc=Depends(get_session_service),
+    pool=Depends(get_agent_pool),
+    ui=Depends(get_ui_message_service),
+):
+    try:
+        running = pool.is_running(session_id)
+        result = svc.set_permission_mode(session_id, body.mode)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    result["appliedToActiveTurn"] = not running
+    result["appliesNextTurn"] = running
+    try:
+        ui.append(
+            session_id,
+            "permission.mode.changed",
+            {
+                "permissionMode": result["permissionMode"],
+                "appliedToActiveTurn": not running,
+                "appliesNextTurn": running,
+            },
+        )
+    except Exception:
+        log.exception("failed to append permission mode audit event for %s", session_id)
     return result
 
 

@@ -2,6 +2,7 @@ import type { Component } from 'solid-js';
 import { Show, For, createEffect, onMount, onCleanup, createMemo, createSignal, Switch, Match, untrack } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import type { TodoItem } from '@/types/gateway.js';
+import type { DesktopPermissionMode } from '@/types/index.js';
 import type { RenderedMessage, TodoListBlock } from '@/types/index.js';
 import type { MessageActionType } from '@/types/ui/message.js';
 import { chatStore } from '@/stores/chat.js';
@@ -102,6 +103,9 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const canEditWorkspace = createMemo(() => !messages().some((m) => m.role === 'assistant'));
   const isLoading = () => chatStore.isLoadingMessages(sessionId());
   const diagnostics = createMemo(() => chatStore.getDiagnostics(sessionId()));
+  const permissionMode = createMemo(() => sessionStore.activeSession?.permissionMode ?? 'auto');
+  const [permissionModePending, setPermissionModePending] = createSignal(false);
+  const [permissionModeAppliesNextTurn, setPermissionModeAppliesNextTurn] = createSignal(false);
 
   const liveBlocks = createMemo((): MessageBlock[] => {
     const live = liveState();
@@ -199,6 +203,32 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     const timer = window.setInterval(syncConnectionState, 1_000);
     onCleanup(() => window.clearInterval(timer));
   });
+
+  createEffect(() => {
+    const sid = sessionId();
+    setPermissionModeAppliesNextTurn(false);
+    sid;
+  });
+
+  const handlePermissionModeChange = async (mode: DesktopPermissionMode) => {
+    const sid = sessionId();
+    if (!sid || permissionModePending()) return;
+    setPermissionModePending(true);
+    try {
+      const updated = await sessionStore.setPermissionMode(sid, mode);
+      if (!updated) {
+        cards.noticeCard('Could not update permission mode.');
+        return;
+      }
+      const appliesNextTurn = Boolean((updated as typeof updated & { appliesNextTurn?: boolean }).appliesNextTurn);
+      setPermissionModeAppliesNextTurn(appliesNextTurn);
+      if (appliesNextTurn) {
+        cards.noticeCard('Permission mode will apply next turn.');
+      }
+    } finally {
+      setPermissionModePending(false);
+    }
+  };
 
   createEffect(() => {
     const sid = sessionId();
@@ -759,6 +789,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 cwd={cwd()}
                 historyMessages={messages()}
                 onComposerActivity={scroll.handleViewportResize}
+                permissionMode={permissionMode()}
+                permissionModePending={permissionModePending()}
+                permissionModeAppliesNextTurn={permissionModeAppliesNextTurn()}
+                onPermissionModeChange={handlePermissionModeChange}
                 isNewConversation={canEditWorkspace()}
                 onCwdChange={(path) => {
                   const sid = sessionId();

@@ -15,6 +15,7 @@ from typing import Any
 from .exceptions import SessionNotFoundError
 from .interfaces import DesktopMetaStore, SessionStateStore
 from .path_validation import resolve_existing_cwd, resolve_under_cwd
+from .desktop_meta_service import normalize_permission_mode
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +82,32 @@ class SessionService:
         # No active model configured — return None; caller will prompt user to configure.
         return None, None
 
+    def resolve_default_permission_mode(self, *, exclude_session_id: str | None = None) -> str:
+        """Return the current profile's most recent non-empty conversation mode."""
+        try:
+            rows = self._state.list_sessions_rich(
+                source="desktop",
+                include_children=False,
+                order_by_last_active=True,
+                limit=50,
+            )
+        except Exception:
+            log.exception("failed to resolve recent permission mode")
+            return "auto"
+
+        for row in rows:
+            sid = str(row.get("id") or "")
+            if not sid or sid == exclude_session_id:
+                continue
+            if _is_reusable_empty_session(row) and not self._has_ui_messages(sid):
+                continue
+            try:
+                return self._meta.get_permission_mode(sid)
+            except Exception:
+                log.exception("failed to read permission mode for %s", sid)
+                return "auto"
+        return "auto"
+
     # ── Session CRUD ──────────────────────────────────────────────────────
 
     def create_session(
@@ -90,14 +117,23 @@ class SessionService:
         system_prompt: str | None = None,
         model: str | None = None,
         provider: str | None = None,
+        permission_mode: str | None = None,
     ) -> dict:
         if not any((cwd, system_prompt, model, provider)):
             reusable = self.find_reusable_empty_session()
             if reusable:
+                mode = permission_mode or self.resolve_default_permission_mode(
+                    exclude_session_id=reusable["id"]
+                )
+                self._meta.set_permission_mode(reusable["id"], mode)
+                reusable["permissionMode"] = mode
                 return reusable
 
         sid = f"desktop_{uuid.uuid4().hex[:16]}"
         resolved_model, resolved_provider = self.resolve_default_model(model)
+        resolved_permission_mode = normalize_permission_mode(
+            permission_mode or self.resolve_default_permission_mode()
+        )
         resolved_cwd = (
             str(resolve_existing_cwd(cwd))
             if cwd
@@ -111,7 +147,11 @@ class SessionService:
             kwargs["system_prompt"] = system_prompt
 
         self._state.create_session(sid, "desktop", cwd=resolved_cwd, **kwargs)
-        self._meta.upsert_meta(sid, provider=provider or resolved_provider or "")
+        self._meta.upsert_meta(
+            sid,
+            provider=provider or resolved_provider or "",
+            permission_mode=resolved_permission_mode,
+        )
 
         info = self._state.get_session(sid) or {}
         return {
@@ -124,6 +164,7 @@ class SessionService:
             "started_at": info.get("started_at"),
             "cwd": resolved_cwd,
             "model_configured": bool(resolved_model),
+            "permissionMode": resolved_permission_mode,
         }
 
     def find_reusable_empty_session(self) -> dict | None:
@@ -140,14 +181,25 @@ class SessionService:
                     "started_at": row.get("started_at"),
                     "cwd": row.get("cwd") or str(ensure_default_workspace()),
                     "model_configured": bool(row.get("model")),
+                    "permissionMode": self._meta.get_permission_mode(row["id"]),
                     "reused": True,
                 }
         return None
 
     def _has_ui_messages(self, session_id: str) -> bool:
         try:
-            from ..db.ui_messages import latest_seq
-            return latest_seq(self._hermes_home, session_id) > 0
+            import json
+            from ..db.ui_messages import list_messages
+
+            for row in list_messages(self._hermes_home, session_id):
+                msg_type = row.get("type")
+                if msg_type == "permission.mode.changed":
+                    continue
+                payload = json.loads(row.get("payload_json") or "{}")
+                if payload.get("status") == "resolved":
+                    continue
+                return True
+            return False
         except Exception:
             log.exception("failed to inspect desktop ui_messages for reusable session")
             return True
@@ -157,6 +209,7 @@ class SessionService:
         if row is None:
             return None
         meta_providers = self._meta.get_providers([session_id])
+        permission_mode = self._meta.get_permission_mode(session_id)
         return {
             "id": row.get("id", session_id),
             "source": row.get("source", "desktop"),
@@ -167,6 +220,7 @@ class SessionService:
             "ended_at": row.get("ended_at"),
             "message_count": row.get("message_count", 0),
             "cwd": row.get("cwd") or str(ensure_default_workspace()),
+            "permissionMode": permission_mode,
         }
 
     def get_session_or_404(self, session_id: str) -> dict:
@@ -184,6 +238,7 @@ class SessionService:
         )
         session_ids = [r["id"] for r in rows]
         meta_providers = self._meta.get_providers(session_ids) if session_ids else {}
+        permission_modes = self._meta.get_permission_modes(session_ids) if session_ids else {}
         return [
             {
                 "id": r["id"],
@@ -195,9 +250,27 @@ class SessionService:
                 "message_count": r.get("message_count", 0),
                 "last_active": r.get("last_active"),
                 "cwd": r.get("cwd") or str(ensure_default_workspace()),
+                "permissionMode": permission_modes.get(r["id"], "auto"),
             }
             for r in rows
         ]
+
+    def set_permission_mode(self, session_id: str, mode: str) -> dict:
+        self.get_session_or_404(session_id)
+        value = self._meta.set_permission_mode(session_id, mode)
+        session = self.get_session_or_404(session_id)
+        session["permissionMode"] = value
+        return session
+
+    def branch_session(self, session_id: str) -> dict:
+        parent = self.get_session_or_404(session_id)
+        permission_mode = self._meta.get_permission_mode(session_id)
+        return self.create_session(
+            cwd=parent.get("cwd"),
+            model=parent.get("model") or None,
+            provider=parent.get("provider") or None,
+            permission_mode=permission_mode,
+        )
 
     def rename_session(self, session_id: str, title: str) -> None:
         self.get_session_or_404(session_id)

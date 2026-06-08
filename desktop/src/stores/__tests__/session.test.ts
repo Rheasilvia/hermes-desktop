@@ -15,6 +15,7 @@ function row(overrides: Partial<SessionListItem> = {}): SessionListItem {
     message_count: 0,
     tool_call_count: 0,
     cwd: '/tmp/workspace',
+    permissionMode: 'auto',
     ...overrides,
   };
 }
@@ -48,6 +49,7 @@ function meta(overrides: Partial<SessionMeta> = {}): SessionMeta {
     parent_session_id: null,
     end_reason: null,
     cwd: '/tmp/workspace',
+    permissionMode: 'auto',
     ...overrides,
   };
 }
@@ -74,6 +76,9 @@ function gatewayWithSessions(initial: SessionListItem[]) {
         delete: vi.fn(async () => undefined),
         rename: vi.fn(async () => undefined),
         updateCwd: vi.fn(async (_sessionId: string, cwd: string) => ({ cwd })),
+        setPermissionMode: vi.fn(async (sessionId: string, mode: SessionMeta['permissionMode']) =>
+          meta({ id: sessionId, permissionMode: mode })
+        ),
         branch: vi.fn(),
         resume: vi.fn(),
         interrupt: vi.fn(),
@@ -89,6 +94,24 @@ function gatewayWithSessions(initial: SessionListItem[]) {
     list,
   };
 }
+
+describe('sessionStore permission mode', () => {
+  beforeEach(() => {
+    initializeStores(null as unknown as GatewayAdapter);
+    sessionStore.setActiveSession(null);
+  });
+
+  it('updates the cached session permission mode from the backend summary', async () => {
+    const { gateway } = gatewayWithSessions([row({ id: 'session-1', permissionMode: 'auto' })]);
+    initializeStores(gateway);
+    await sessionStore.loadSessions();
+
+    const updated = await sessionStore.setPermissionMode('session-1', 'full');
+
+    expect(updated?.permissionMode).toBe('full');
+    expect(sessionStore.sessions[0]?.permissionMode).toBe('full');
+  });
+});
 
 describe('sessionStore new conversation creation', () => {
   beforeEach(async () => {
