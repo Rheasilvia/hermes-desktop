@@ -94,7 +94,15 @@ describe('MessageInput slash commands', () => {
     expect(commandChipRule).not.toContain('padding: 5px 8px');
   });
 
-  test('backspace at the start of empty args removes the slash chip and restores editable slash text', async () => {
+  test('textarea starts on a full-width row when inline chips are present', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/features/conversation/MessageInput.module.css'), 'utf8');
+    const inlineChipRowRule = css.match(/\.textareaRowWithInlineChips\s+\.textarea\s*\{(?<body>[^}]+)\}/)?.groups?.body ?? '';
+
+    expect(inlineChipRowRule).toContain('flex-basis: 100%');
+    expect(inlineChipRowRule).toContain('width: 100%');
+  });
+
+  test('backspace at the start of empty args removes the slash chip', async () => {
     render(() => <MessageInput onSend={vi.fn()} />);
 
     const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
@@ -105,7 +113,176 @@ describe('MessageInput slash commands', () => {
     input.setSelectionRange(0, 0);
     fireEvent.keyDown(input, { key: 'Backspace' });
 
-    expect(input.value).toBe('/skin');
+    expect(input.value).toBe('');
+    expect(screen.queryByText('/skin')).toBeNull();
+  });
+
+  test('empty ArrowUp and ArrowDown browse previous user messages', async () => {
+    render(() => (
+      <MessageInput
+        onSend={vi.fn()}
+        historyMessages={[
+          {
+            id: 1,
+            sessionId: 'session-history',
+            role: 'user',
+            blocks: [{ type: 'text', id: 'b1', content: 'first prompt' }],
+            timestamp: 1,
+            tokenCount: null,
+            finishReason: null,
+            isStreaming: false,
+            actions: [],
+            toolName: null,
+          },
+          {
+            id: 2,
+            sessionId: 'session-history',
+            role: 'assistant',
+            blocks: [{ type: 'text', id: 'b2', content: 'reply' }],
+            timestamp: 2,
+            tokenCount: null,
+            finishReason: null,
+            isStreaming: false,
+            actions: [],
+            toolName: null,
+          },
+          {
+            id: 3,
+            sessionId: 'session-history',
+            role: 'user',
+            blocks: [{ type: 'text', id: 'b3', content: 'second prompt' }],
+            timestamp: 3,
+            tokenCount: null,
+            finishReason: null,
+            isStreaming: false,
+            actions: [],
+            toolName: null,
+          },
+        ]}
+      />
+    ));
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(input.value).toBe('second prompt');
+
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(input.value).toBe('first prompt');
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(input.value).toBe('second prompt');
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(input.value).toBe('');
+  });
+
+  test('ArrowUp restores slash command history as a command chip', async () => {
+    render(() => (
+      <MessageInput
+        onSend={vi.fn()}
+        historyMessages={[
+          {
+            id: 0,
+            sessionId: 'session-history-chip',
+            role: 'user',
+            blocks: [{ type: 'text', id: 'b0', content: 'older prompt' }],
+            timestamp: 0,
+            tokenCount: null,
+            finishReason: null,
+            isStreaming: false,
+            actions: [],
+            toolName: null,
+          },
+          {
+            id: 1,
+            sessionId: 'session-history-chip',
+            role: 'user',
+            blocks: [{ type: 'text', id: 'b1', content: '/arxiv transformers' }],
+            timestamp: 1,
+            tokenCount: null,
+            finishReason: null,
+            isStreaming: false,
+            actions: [],
+            toolName: null,
+            submitText: 'Expanded skill prompt that should not be restored',
+            slashCommand: { command: 'arxiv', args: 'transformers' },
+          },
+        ]}
+      />
+    ));
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+
+    expect(screen.getByText('/arxiv')).toBeDefined();
+    expect(input.value).toBe('transformers');
+
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+
+    expect(screen.queryByText('/arxiv')).toBeNull();
+    expect(input.value).toBe('older prompt');
+  });
+
+  test('ArrowUp restores inline file history as a file chip', async () => {
+    render(() => (
+      <MessageInput
+        onSend={vi.fn()}
+        historyMessages={[
+          {
+            id: 1,
+            sessionId: 'session-history-file-chip',
+            role: 'user',
+            blocks: [{ type: 'text', id: 'b1', content: '[File 1: README.md] summarize this' }],
+            timestamp: 1,
+            tokenCount: null,
+            finishReason: null,
+            isStreaming: false,
+            actions: [],
+            toolName: null,
+            displayParts: [
+              {
+                type: 'file_ref',
+                refText: '@file:README.md',
+                name: 'README.md',
+                detail: 'README.md',
+                anchor: 'File 1',
+              },
+              { type: 'text', text: ' summarize this' },
+            ],
+          },
+        ]}
+      />
+    ));
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+
+    expect(screen.getByTestId('inline-file-chip')).toBeDefined();
+    expect(screen.getByText('README.md')).toBeDefined();
+    expect(input.value).toBe(' summarize this');
+  });
+
+  test('backspace at the start of empty text removes the previous inline file chip', async () => {
+    mocks.completePath.mockResolvedValue([
+      { text: '@file:docs/mydoc.txt', display: 'mydoc.txt', meta: 'docs' },
+    ]);
+    render(() => <MessageInput sessionId="session-backspace-file" cwd="/repo" onSend={vi.fn()} />);
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    fireEvent.input(input, { target: { value: '@my' } });
+
+    await screen.findByText('mydoc.txt');
+    fireEvent.click(screen.getByText('mydoc.txt'));
+    expect(screen.getByTestId('inline-file-chip')).toBeDefined();
+
+    input.setSelectionRange(0, 0);
+    fireEvent.keyDown(input, { key: 'Backspace' });
+
+    expect(screen.queryByTestId('inline-file-chip')).toBeNull();
+    expect(input.value).toBe('');
   });
 
   test('keeps composer drafts isolated per session', async () => {

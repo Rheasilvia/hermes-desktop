@@ -746,6 +746,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
               isStreaming={isStreaming()}
               modelSlot={(dimmed, disabled) => <ModelSelector sessionId={sessionId()} dimmed={dimmed} disabled={disabled} />}
               cwd={cwd()}
+              historyMessages={messages()}
               isNewConversation={canEditWorkspace()}
               onCwdChange={(path) => {
                 const sid = sessionId();
