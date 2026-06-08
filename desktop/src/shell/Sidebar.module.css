@@ -437,6 +437,19 @@
   color: var(--color-primary);
 }
 
+/* ── Version identifier (bottom-left) ─────────────────────────────────────────── */
+
+.versionLabel {
+  padding: 8px 10px 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--color-on-surface-dim);
+  letter-spacing: 0.02em;
+  user-select: text;
+  cursor: default;
+}
+
 /* ── Context dropdown menu ──────────────────────────────────────────────────── */
 
 .contextDropdown {
