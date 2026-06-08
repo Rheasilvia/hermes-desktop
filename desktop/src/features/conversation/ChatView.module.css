@@ -35,7 +35,9 @@
 
 .messageList {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overflow-anchor: none;
   padding: var(--space-4) var(--space-6) 52px;
   display: flex;
   flex-direction: column;

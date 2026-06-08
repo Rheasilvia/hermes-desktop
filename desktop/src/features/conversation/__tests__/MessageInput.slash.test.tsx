@@ -57,6 +57,16 @@ describe('MessageInput slash commands', () => {
     expect(onSend).toHaveBeenCalledWith('/help now', undefined);
   });
 
+  test('notifies the shell after text input so bottom anchoring can account for capped textarea growth', () => {
+    const onComposerActivity = vi.fn();
+    render(() => <MessageInput onSend={vi.fn()} onComposerActivity={onComposerActivity} />);
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    fireEvent.input(input, { target: { value: 'one\ntwo\nthree' } });
+
+    expect(onComposerActivity).toHaveBeenCalledTimes(1);
+  });
+
   test('selecting a slash command renders a command chip and submits serialized slash text', async () => {
     const onSend = vi.fn();
     render(() => <MessageInput onSend={onSend} />);

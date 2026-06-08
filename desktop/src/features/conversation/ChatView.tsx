@@ -84,6 +84,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const navigate = useNavigate();
   const sessionId = () => props.sessionId ?? '';
   let chatBodyRef: HTMLDivElement | undefined;
+  let messageInputResizeRef: HTMLDivElement | undefined;
   let diffPanelEl: HTMLDivElement | undefined;
   let dragHandleEl: HTMLDivElement | undefined;
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
@@ -123,6 +124,15 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   });
 
   const cards = createCommandCardState();
+
+  onMount(() => {
+    if (!messageInputResizeRef || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      scroll.handleViewportResize();
+    });
+    observer.observe(messageInputResizeRef);
+    onCleanup(() => observer.disconnect());
+  });
 
   const sendPrompt = async (
     promptText: string,
@@ -735,27 +745,30 @@ export const ChatView: Component<ChatViewProps> = (props) => {
             />
             <PromptDock items={promptDockItems()} />
 
-            <MessageInput
-              sessionId={sessionId()}
-              onSend={handleSend}
-              onStop={() => {
-                suppressNextAutoDrain = true;
-                void chatStore.cancelMessage(sessionId());
-              }}
-              disabled={blockingPromptActive() || !modelStore.activeModel}
-              isStreaming={isStreaming()}
-              modelSlot={(dimmed, disabled) => <ModelSelector sessionId={sessionId()} dimmed={dimmed} disabled={disabled} />}
-              cwd={cwd()}
-              historyMessages={messages()}
-              isNewConversation={canEditWorkspace()}
-              onCwdChange={(path) => {
-                const sid = sessionId();
-                if (sid) void sessionStore.updateCwd(sid, path);
-              }}
-              editDraft={editDraft}
-              clearEditDraft={() => setEditDraft(null)}
-              contextUsage={sessionUsage.get(sessionId())}
-            />
+            <div ref={(el) => { messageInputResizeRef = el; }}>
+              <MessageInput
+                sessionId={sessionId()}
+                onSend={handleSend}
+                onStop={() => {
+                  suppressNextAutoDrain = true;
+                  void chatStore.cancelMessage(sessionId());
+                }}
+                disabled={blockingPromptActive() || !modelStore.activeModel}
+                isStreaming={isStreaming()}
+                modelSlot={(dimmed, disabled) => <ModelSelector sessionId={sessionId()} dimmed={dimmed} disabled={disabled} />}
+                cwd={cwd()}
+                historyMessages={messages()}
+                onComposerActivity={scroll.handleViewportResize}
+                isNewConversation={canEditWorkspace()}
+                onCwdChange={(path) => {
+                  const sid = sessionId();
+                  if (sid) void sessionStore.updateCwd(sid, path);
+                }}
+                editDraft={editDraft}
+                clearEditDraft={() => setEditDraft(null)}
+                contextUsage={sessionUsage.get(sessionId())}
+              />
+            </div>
           </div>
         </div>
 
