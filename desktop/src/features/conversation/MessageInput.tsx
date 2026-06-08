@@ -29,6 +29,7 @@ import {
   type UserDisplayPart,
   type UserFileRefDisplayPart,
 } from './display-parts.js';
+import type { RenderedMessage } from '@/types/ui/message.js';
 import styles from './MessageInput.module.css';
 
 interface MessageInputProps {
@@ -45,6 +46,7 @@ interface MessageInputProps {
   editDraft?: Accessor<string | null>;
   clearEditDraft?: () => void;
   contextUsage?: ContextUsageProps;
+  historyMessages?: readonly RenderedMessage[];
 }
 
 type ReferenceKind = 'file' | 'folder' | 'image' | 'url' | 'tool' | 'git' | 'diff' | 'staged';
@@ -57,6 +59,13 @@ interface ReferenceCompletion {
   display: string;
   type: ReferenceCompletionType;
   path?: string;
+}
+
+interface ComposerHistoryEntry {
+  text: string;
+  commandPrefix: ComposerCommandPrefix | null;
+  attachments: AttachmentChip[];
+  displayParts: UserDisplayPart[];
 }
 
 const REFERENCE_STARTERS: ReferenceCompletion[] = [
@@ -87,6 +96,8 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   let textareaRef: HTMLTextAreaElement | undefined;
   let previousSessionId: string | null | undefined;
   let referenceRequestId = 0;
+  let historyCursor = -1;
+  let historyDraftSnapshot: ComposerHistoryEntry | null = null;
 
   const sessionKey = () => props.sessionId?.trim() || null;
   const inlineParts = () => normalizeDisplayPartAnchors([
@@ -95,6 +106,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   ]);
   const inlineAttachments = () => attachmentsFromDisplayParts(inlineParts());
   const hasInlineParts = () => inlineParts().some((part) => part.type === 'file_ref');
+  const hasInlineComposerChips = () => Boolean(commandPrefix()) || displayParts().length > 0;
   const canSend = () => (text().trim().length > 0 || attachments().length > 0 || displayParts().length > 0 || Boolean(commandPrefix())) && !props.disabled;
   const isActive = () => canSend() && focused();
   const hasAttachments = () => attachments().length > 0;
@@ -104,6 +116,146 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     const prefix = commandPrefix();
     if (!prefix) return value;
     return `/${prefix.command}${value ? ` ${value}` : ''}`;
+  };
+
+  const emptyHistoryEntry = (): ComposerHistoryEntry => ({
+    text: '',
+    commandPrefix: null,
+    attachments: [],
+    displayParts: [],
+  });
+
+  const cloneDisplayParts = (parts: readonly UserDisplayPart[] | null | undefined): UserDisplayPart[] =>
+    (parts ?? []).map((part) => ({ ...part }));
+
+  const cloneAttachments = (items: readonly unknown[] | null | undefined): AttachmentChip[] =>
+    (items ?? [])
+      .filter((item): item is AttachmentChip => {
+        if (typeof item !== 'object' || item === null) return false;
+        const value = item as Partial<AttachmentChip>;
+        return typeof value.id === 'string' && typeof value.kind === 'string' && typeof value.name === 'string';
+      })
+      .map((item) => ({ ...item }));
+
+  const messageText = (message: RenderedMessage): string => {
+    return message.blocks
+      .filter((block): block is Extract<RenderedMessage['blocks'][number], { type: 'text' }> => block.type === 'text')
+      .map((block) => block.content)
+      .join('')
+      .trim() || message.submitText?.trim() || '';
+  };
+
+  const historyEntryFromMessage = (message: RenderedMessage): ComposerHistoryEntry | null => {
+    if (message.slashCommand) {
+      const args = message.slashCommand.args.trim();
+      return {
+        text: args,
+        commandPrefix: { command: message.slashCommand.command },
+        attachments: [],
+        displayParts: [],
+      };
+    }
+
+    const parts = cloneDisplayParts(message.displayParts);
+    if (parts.length > 0) {
+      const last = parts[parts.length - 1];
+      const trailingText = last?.type === 'text' ? last.text : '';
+      const displayOnlyParts = trailingText ? parts.slice(0, -1) : parts;
+      return {
+        text: trailingText,
+        commandPrefix: null,
+        attachments: [],
+        displayParts: displayOnlyParts,
+      };
+    }
+
+    const entryText = messageText(message);
+    const entryAttachments = cloneAttachments(message.attachments);
+    if (!entryText && entryAttachments.length === 0) return null;
+    return {
+      text: entryText,
+      commandPrefix: null,
+      attachments: entryAttachments,
+      displayParts: [],
+    };
+  };
+
+  const userInputHistory = createMemo(() => {
+    const history: ComposerHistoryEntry[] = [];
+    const source = props.historyMessages ?? [];
+
+    for (let index = source.length - 1; index >= 0; index -= 1) {
+      const message = source[index];
+      if (!message || message.role !== 'user') continue;
+      const entry = historyEntryFromMessage(message);
+      if (entry) history.push(entry);
+    }
+
+    return history;
+  });
+
+  const resetHistoryBrowse = () => {
+    historyCursor = -1;
+    historyDraftSnapshot = null;
+  };
+
+  const snapshotHistoryEntry = (): ComposerHistoryEntry => ({
+    text: text(),
+    commandPrefix: commandPrefix() ? { ...commandPrefix()! } : null,
+    attachments: attachments().map((attachment) => ({ ...attachment })),
+    displayParts: cloneDisplayParts(displayParts()),
+  });
+
+  const loadHistoryEntry = (entry: ComposerHistoryEntry) => {
+    setCommandPrefix(entry.commandPrefix ? { ...entry.commandPrefix } : null);
+    setAttachments(entry.attachments.map((attachment) => ({ ...attachment })));
+    setDisplayParts(cloneDisplayParts(entry.displayParts));
+    setText(entry.text);
+    queueMicrotask(() => {
+      textareaRef?.focus();
+      if (textareaRef) {
+        textareaRef.selectionStart = textareaRef.value.length;
+        textareaRef.selectionEnd = textareaRef.value.length;
+        autoResize(textareaRef);
+      }
+    });
+  };
+
+  const browseHistoryBackward = (): boolean => {
+    if (historyCursor < 0 && (commandPrefix() || attachments().length > 0 || displayParts().length > 0)) return false;
+    if (historyCursor < 0 && text().trim()) return false;
+
+    const history = userInputHistory();
+    if (history.length === 0) return false;
+
+    if (historyCursor < 0) {
+      historyDraftSnapshot = snapshotHistoryEntry();
+      historyCursor = 0;
+    } else if (historyCursor < history.length - 1) {
+      historyCursor += 1;
+    } else {
+      return true;
+    }
+
+    loadHistoryEntry(history[historyCursor] ?? emptyHistoryEntry());
+    return true;
+  };
+
+  const browseHistoryForward = (): boolean => {
+    if (historyCursor < 0) return false;
+
+    const history = userInputHistory();
+
+    if (historyCursor > 0) {
+      historyCursor -= 1;
+      loadHistoryEntry(history[historyCursor] ?? emptyHistoryEntry());
+      return true;
+    }
+
+    const draft = historyDraftSnapshot ?? emptyHistoryEntry();
+    resetHistoryBrowse();
+    loadHistoryEntry(draft);
+    return true;
   };
 
   const slashFilter = (): string => {
@@ -484,14 +636,58 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
       textareaRef?.selectionEnd === 0
     ) {
       e.preventDefault();
-      const prefix = commandPrefix();
       setCommandPrefix(null);
-      setText(prefix ? `/${prefix.command}` : '');
+      resetHistoryBrowse();
       queueMicrotask(() => {
         textareaRef?.focus();
         if (textareaRef) autoResize(textareaRef);
       });
       return;
+    }
+    if (
+      e.key === 'Backspace' &&
+      !commandPrefix() &&
+      text() === '' &&
+      textareaRef?.selectionStart === 0 &&
+      textareaRef?.selectionEnd === 0
+    ) {
+      const parts = displayParts();
+      if (parts.length > 0) {
+        e.preventDefault();
+        setDisplayParts((prev) => {
+          const next = [...prev];
+          let last = next[next.length - 1];
+          while (last?.type === 'text' && !last.text.trim()) {
+            next.pop();
+            last = next[next.length - 1];
+          }
+          if (next.length > 0) next.pop();
+          return next;
+        });
+        resetHistoryBrowse();
+        queueMicrotask(() => textareaRef?.focus());
+        return;
+      }
+
+      if (attachments().length > 0) {
+        e.preventDefault();
+        setAttachments((prev) => prev.slice(0, -1));
+        resetHistoryBrowse();
+        queueMicrotask(() => textareaRef?.focus());
+        return;
+      }
+    }
+    if (e.key === 'ArrowUp' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (browseHistoryBackward()) {
+        e.preventDefault();
+        return;
+      }
+    }
+    if (e.key === 'ArrowDown' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (browseHistoryForward()) {
+        e.preventDefault();
+        return;
+      }
     }
     // Cmd+Enter (macOS) / Ctrl+Enter (Windows/Linux) is the only send trigger —
     // for prose messages and slash commands alike. Plain Enter / Shift+Enter
@@ -508,6 +704,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     const target = e.target as HTMLTextAreaElement;
     const nextValue = target.value;
     const current = text();
+    resetHistoryBrowse();
     if (displayParts().length > 0 && current && nextValue.startsWith('@') && !current.startsWith('@')) {
       setDisplayParts((prev) => compactDisplayParts([...prev, { type: 'text', text: /\s$/.test(current) ? current : `${current} ` }]));
     }
@@ -670,6 +867,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
       return;
     }
     if (previousSessionId === nextSessionId) return;
+    resetHistoryBrowse();
     const oldSessionId = previousSessionId;
     untrack(() => saveCurrentDraft(oldSessionId));
     previousSessionId = nextSessionId;
@@ -751,7 +949,10 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
         />
 
         {/* Textarea */}
-        <div class={styles.textareaRow}>
+        <div
+          class={styles.textareaRow}
+          classList={{ [styles.textareaRowWithInlineChips]: hasInlineComposerChips() }}
+        >
           <Show when={commandPrefix()}>
             {(prefix) => (
               <div class={styles.commandChip}>

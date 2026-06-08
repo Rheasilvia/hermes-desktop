@@ -105,6 +105,11 @@
   color: var(--color-on-surface-dim);
 }
 
+.textareaRowWithInlineChips .textarea {
+  flex-basis: 100%;
+  width: 100%;
+}
+
 .chipsRow {
   display: flex;
   flex-wrap: wrap;
