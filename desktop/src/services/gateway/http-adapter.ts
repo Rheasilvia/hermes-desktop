@@ -10,6 +10,7 @@
  */
 
 import type {
+  DesktopPermissionMode,
   GatewayAdapter,
   ConnectionState,
   GatewayEventEnvelope,
@@ -71,6 +72,10 @@ export function mapCommandResult(r: Record<string, unknown>): CommandResult {
 
 type EventHandler<K extends keyof GatewayEventMap> = (payload: GatewayEventMap[K]) => void;
 
+function permissionModeOf(value: unknown): DesktopPermissionMode {
+  return value === 'ask' || value === 'full' ? value : 'auto';
+}
+
 /** SSE event shape from the backend. */
 interface SseEvent {
   session_id: string;
@@ -127,6 +132,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           message_count: Number(r.message_count ?? 0),
           tool_call_count: 0,
           cwd: (r.cwd as string) ?? null,
+          permissionMode: permissionModeOf(r.permissionMode),
         }));
       },
 
@@ -178,6 +184,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           parent_session_id: null,
           end_reason: null,
           cwd: (r.cwd as string) ?? params.cwd ?? null,
+          permissionMode: permissionModeOf(r.permissionMode),
         };
       },
 
@@ -196,9 +203,77 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         return { cwd: String(r.cwd ?? cwd) };
       },
 
+      setPermissionMode: async (sessionId: string, mode: DesktopPermissionMode) => {
+        const r = await this.http.put<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}/permission-mode`, { mode });
+        return {
+          id: String(r.id ?? sessionId),
+          source: String(r.source ?? 'desktop'),
+          model: String(r.model ?? ''),
+          title: String(r.title ?? 'New Session'),
+          started_at: String(r.started_at ?? new Date().toISOString()),
+          ended_at: null,
+          message_count: Number(r.message_count ?? 0),
+          tool_call_count: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          reasoning_tokens: 0,
+          billing_provider: null,
+          billing_base_url: null,
+          billing_mode: 'auto',
+          estimated_cost_usd: 0,
+          actual_cost_usd: null,
+          cost_status: null,
+          cost_source: null,
+          pricing_version: null,
+          user_id: null,
+          model_config: null,
+          system_prompt: null,
+          parent_session_id: null,
+          end_reason: null,
+          cwd: (r.cwd as string) ?? null,
+          permissionMode: permissionModeOf(r.permissionMode),
+          appliedToActiveTurn: Boolean(r.appliedToActiveTurn),
+          appliesNextTurn: Boolean(r.appliesNextTurn),
+        };
+      },
+
       branch: async (sessionId: string): Promise<SessionMeta> => {
-        // Branch = create a new session (no server-side branch yet)
-        return this.session.create({ model: undefined, cwd: undefined });
+        const r = await this.http.post<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}/branch`, {});
+        const sid = String(r.session_id ?? r.id ?? '');
+        this.knownSessionIds.add(sid);
+        this.lastSeq.set(sid, 0);
+        return {
+          id: sid,
+          source: 'desktop',
+          model: String(r.model ?? ''),
+          title: 'New Session',
+          started_at: String(r.started_at ?? new Date().toISOString()),
+          ended_at: null,
+          message_count: 0,
+          tool_call_count: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          reasoning_tokens: 0,
+          billing_provider: null,
+          billing_base_url: null,
+          billing_mode: 'auto',
+          estimated_cost_usd: 0,
+          actual_cost_usd: null,
+          cost_status: null,
+          cost_source: null,
+          pricing_version: null,
+          user_id: null,
+          model_config: null,
+          system_prompt: null,
+          parent_session_id: sessionId,
+          end_reason: null,
+          cwd: (r.cwd as string) ?? null,
+          permissionMode: permissionModeOf(r.permissionMode),
+        };
       },
 
       resume: async (_sessionId: string): Promise<void> => {

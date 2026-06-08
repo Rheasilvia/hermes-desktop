@@ -34,4 +34,6 @@ export interface DbDesktopSessionMeta {
   archived: number;        // SQLite 0/1
   last_opened_at: number | null;
   created_at: number;
+  provider: string | null;
+  permission_mode: 'ask' | 'auto' | 'full';
 }

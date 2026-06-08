@@ -372,14 +372,28 @@ def _check_workspace_boundary(
       "search"   → "search:{dir}"        (prefix match: approve dir subtree)
       "terminal" → "terminal:{path}"     (fallback; terminal tool should pass key)
     """
-    from tools.path_approval import get_workspace_root, get_approval_session_id, request_path_approval
+    from tools.path_approval import (
+        get_permission_mode,
+        get_workspace_root,
+        get_approval_session_id,
+        request_path_approval,
+    )
 
     workspace_root = get_workspace_root()
-    if not workspace_root:
-        return None  # Not in desktop mode or no workspace set
-
     session_id = get_approval_session_id()
     if not session_id:
+        return None
+
+    if not workspace_root:
+        mode = get_permission_mode()
+        if mode in {"ask", "auto"} and operation == "write":
+            if session_key is None:
+                session_key = f"write:{resolved}"
+            decision = request_path_approval(str(resolved), operation, session_id, session_key)
+            if decision == "deny":
+                return json.dumps({
+                    "error": f"Access denied: {resolved} requires approval because no workspace is set",
+                })
         return None
 
     from tools.path_security import validate_within_dir

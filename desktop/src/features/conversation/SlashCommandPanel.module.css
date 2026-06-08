@@ -93,15 +93,20 @@
   background: var(--color-hover-overlay);
 }
 
+.commandRowSelected .iconWrapper {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
 .iconWrapper {
   width: 24px;
   height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-alt);
+  background: var(--color-border-light);
   border-radius: 6px;
-  color: var(--color-on-surface-muted);
+  color: var(--color-on-surface);
   flex-shrink: 0;
 }
 

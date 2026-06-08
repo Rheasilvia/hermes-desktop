@@ -34,7 +34,9 @@ Decision values: "once" | "session" | "deny".
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import logging
+import os
 import queue
 import threading
 from pathlib import Path
@@ -55,12 +57,16 @@ _approval_session_id: contextvars.ContextVar[Optional[str]] = contextvars.Contex
 _approval_turn_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "approval_turn_id", default=None,
 )
+_permission_mode: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "permission_mode", default="auto",
+)
 
 
 def set_workspace_context(
     workspace_root: Optional[str],
     session_id: Optional[str],
     turn_id: Optional[str] = None,
+    permission_mode: str = "auto",
 ) -> tuple:
     """Set workspace root and session ID for the current thread context.
 
@@ -70,6 +76,7 @@ def set_workspace_context(
         _workspace_root.set(workspace_root),
         _approval_session_id.set(session_id),
         _approval_turn_id.set(turn_id),
+        _permission_mode.set(_normalize_permission_mode(permission_mode)),
     )
 
 
@@ -79,6 +86,8 @@ def reset_workspace_context(tokens: tuple) -> None:
     _approval_session_id.reset(tokens[1])
     if len(tokens) > 2:
         _approval_turn_id.reset(tokens[2])
+    if len(tokens) > 3:
+        _permission_mode.reset(tokens[3])
 
 
 def get_workspace_root() -> Optional[str]:
@@ -94,6 +103,16 @@ def get_approval_session_id() -> Optional[str]:
 def get_approval_turn_id() -> Optional[str]:
     """Return the current desktop turn ID for path approval, or None."""
     return _approval_turn_id.get()
+
+
+def _normalize_permission_mode(mode: str | None) -> str:
+    value = str(mode or "").strip().lower()
+    return value if value in {"ask", "auto", "full"} else "auto"
+
+
+def get_permission_mode() -> str:
+    """Return the desktop file permission mode for the current turn context."""
+    return _normalize_permission_mode(_permission_mode.get())
 
 
 # ---------------------------------------------------------------------------
@@ -188,13 +207,46 @@ def _session_has_approval(session_id: str, session_key: str) -> bool:
     return False
 
 
+def _workspace_hash(workspace_root: Optional[str]) -> str:
+    raw = workspace_root or "no-workspace"
+    try:
+        raw = os.path.realpath(os.path.expanduser(raw))
+    except Exception:
+        raw = str(raw)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _workspace_scoped_key(session_key: str, workspace_root: Optional[str]) -> str:
+    if session_key.startswith("ws:"):
+        return session_key
+    return f"ws:{_workspace_hash(workspace_root)}:{session_key}"
+
+
+def _path_within_workspace(path: str, workspace_root: Optional[str]) -> bool:
+    if not workspace_root:
+        return False
+    try:
+        candidate = Path(path).expanduser().resolve()
+        workspace = Path(workspace_root).expanduser().resolve()
+        return candidate == workspace or workspace in candidate.parents
+    except Exception:
+        return False
+
+
+def _is_write_operation(operation: str) -> bool:
+    return operation.strip().lower() in {"write", "edit", "patch"}
+
+
 def _load_approvals_from_db(session_id: str) -> None:
     """Populate in-memory cache from DB (called once per session on first miss)."""
     if _hermes_home_cb is None:
         return
     try:
         from desktop.sidecar.daemon.db.ui_messages import load_session_approvals
-        keys = load_session_approvals(_hermes_home_cb(), session_id)
+        keys = {
+            key for key in load_session_approvals(_hermes_home_cb(), session_id)
+            if isinstance(key, str) and key.startswith("ws:")
+        }
         if keys:
             _session_approvals.setdefault(session_id, set()).update(keys)
     except Exception:
@@ -404,13 +456,26 @@ def request_path_approval(
 
     If no notify callback is registered, returns "deny" immediately.
     """
+    workspace_root = get_workspace_root()
+    mode = get_permission_mode()
+    scoped_session_key = _workspace_scoped_key(session_key, workspace_root)
+
+    if mode == "full":
+        return "once"
+
+    within_workspace = _path_within_workspace(path, workspace_root)
+    if mode == "auto" and within_workspace:
+        return "once"
+    if mode == "ask" and within_workspace and not _is_write_operation(operation):
+        return "once"
+
     # Lazy-load DB approvals on first request for this session
     if session_id not in _db_loaded:
         _db_loaded.add(session_id)
         _load_approvals_from_db(session_id)
 
     # Fast path: already approved by a session-level rule
-    if _session_has_approval(session_id, session_key):
+    if _session_has_approval(session_id, scoped_session_key):
         return "once"
 
     # No callback → TUI mode or unregistered session
@@ -427,7 +492,7 @@ def request_path_approval(
         "command": f"{operation}: {path}",
         "description": "Outside workspace boundary",
         "is_path_approval": True,
-        "session_key": session_key,
+        "session_key": scoped_session_key,
     }
     turn_id = get_approval_turn_id()
     if turn_id:
@@ -440,7 +505,7 @@ def request_path_approval(
     event._session_key = session_key  # type: ignore[attr-defined]
 
     _ensure_pump(session_id)
-    _approval_queues[session_id].put((event, path, operation, session_key, payload))
+    _approval_queues[session_id].put((event, path, operation, scoped_session_key, payload))
 
     # Block until the pump dequeues and resolves this event
     event.wait()

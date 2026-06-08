@@ -167,7 +167,31 @@ describe('TurnActivityPanel live tool rows', () => {
     expect(pill.textContent).toContain('1 tool completed');
     expect(pillIconSlot.className).toBe(liveIconSlot.className);
     expect(pillActions.className).not.toContain('summaryActionsPlaceholder');
-    expect(within(pill).getByRole('button', { name: 'Details' })).toBeTruthy();
+    expect(pill.tagName).toBe('BUTTON');
+    expect(pill.textContent).toContain('Details');
+  });
+
+  it('expands details when clicking anywhere on the completed summary row', async () => {
+    const rows: ToolCallRow[] = [
+      {
+        id: 'tool_1',
+        name: 'terminal',
+        status: 'complete',
+        argumentPreview: 'pwd',
+        resultSummary: 'done',
+        durationMs: 19,
+      },
+    ];
+
+    render(() => (
+      <TurnActivityPanel toolRows={rows} />
+    ));
+
+    const pill = screen.getByRole('button', { name: /1 tool completed\. Show details/ });
+    await fireEvent.click(pill);
+
+    expect(screen.getByText('Tools')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /terminal: Show result/, hidden: true })).toBeTruthy();
   });
 
   it('keeps expanded tool status icon slots mounted when a row status changes', async () => {
@@ -186,7 +210,7 @@ describe('TurnActivityPanel live tool rows', () => {
       <TurnActivityPanel toolRows={rows()} />
     ));
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    await fireEvent.click(screen.getByRole('button', { name: /0 tools completed\. Show details/ }));
     const iconSlot = screen.getByTestId('tool-status-icon-slot');
 
     setRows([

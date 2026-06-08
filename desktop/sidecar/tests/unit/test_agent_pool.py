@@ -358,3 +358,138 @@ class TestTurnBoundCallbackPersistence:
 
         assert decision == "deny"
         assert seen_payload["turn_id"] == "turn_path"
+
+    def test_ask_mode_prompts_for_workspace_write_with_workspace_scoped_key(self):
+        from tools.path_approval import (
+            register_path_approval_notify,
+            request_path_approval,
+            reset_workspace_context,
+            resolve_path_approval,
+            set_workspace_context,
+            unregister_path_approval_notify,
+        )
+
+        workspace = "/workspace"
+        sid = "sess_path_ask"
+        seen_payload = {}
+
+        def notify(payload):
+            seen_payload.update(payload)
+            resolve_path_approval(sid, "deny")
+
+        register_path_approval_notify(sid, notify)
+        tokens = set_workspace_context(workspace, sid, "turn_ask", permission_mode="ask")
+        try:
+            decision = request_path_approval(
+                "/workspace/src/app.py",
+                "write",
+                sid,
+                "write:/workspace/src/app.py",
+            )
+        finally:
+            reset_workspace_context(tokens)
+            unregister_path_approval_notify(sid)
+
+        assert decision == "deny"
+        assert seen_payload["is_path_approval"] is True
+        assert seen_payload["session_key"].startswith("ws:")
+        assert seen_payload["session_key"].endswith(":write:/workspace/src/app.py")
+
+    def test_auto_mode_allows_workspace_write_without_prompt(self):
+        from tools.path_approval import (
+            register_path_approval_notify,
+            request_path_approval,
+            reset_workspace_context,
+            set_workspace_context,
+            unregister_path_approval_notify,
+        )
+
+        sid = "sess_path_auto"
+        calls = []
+
+        register_path_approval_notify(sid, lambda payload: calls.append(payload))
+        tokens = set_workspace_context("/workspace", sid, "turn_auto", permission_mode="auto")
+        try:
+            decision = request_path_approval(
+                "/workspace/src/app.py",
+                "write",
+                sid,
+                "write:/workspace/src/app.py",
+            )
+        finally:
+            reset_workspace_context(tokens)
+            unregister_path_approval_notify(sid)
+
+        assert decision == "once"
+        assert calls == []
+
+    def test_full_mode_allows_outside_workspace_without_prompt(self):
+        from tools.path_approval import (
+            register_path_approval_notify,
+            request_path_approval,
+            reset_workspace_context,
+            set_workspace_context,
+            unregister_path_approval_notify,
+        )
+
+        sid = "sess_path_full"
+        calls = []
+
+        register_path_approval_notify(sid, lambda payload: calls.append(payload))
+        tokens = set_workspace_context("/workspace", sid, "turn_full", permission_mode="full")
+        try:
+            decision = request_path_approval(
+                "/outside/app.py",
+                "write",
+                sid,
+                "write:/outside/app.py",
+            )
+        finally:
+            reset_workspace_context(tokens)
+            unregister_path_approval_notify(sid)
+
+        assert decision == "once"
+        assert calls == []
+
+    def test_legacy_unhashed_path_approval_key_is_ignored(self, tmp_path):
+        from tools.path_approval import (
+            clear_session_approvals,
+            preload_session_approvals,
+            register_hermes_home,
+            register_path_approval_notify,
+            request_path_approval,
+            reset_workspace_context,
+            resolve_path_approval,
+            set_workspace_context,
+            unregister_path_approval_notify,
+        )
+        from daemon.db.ui_messages import save_session_approval
+
+        home = tmp_path / ".hermes"
+        sid = "sess_legacy_key"
+        save_session_approval(home, sid, "write:/workspace/src/app.py")
+        register_hermes_home(lambda: home)
+        clear_session_approvals(sid)
+        preload_session_approvals(sid)
+        seen_payload = {}
+
+        def notify(payload):
+            seen_payload.update(payload)
+            resolve_path_approval(sid, "deny")
+
+        register_path_approval_notify(sid, notify)
+        tokens = set_workspace_context("/workspace", sid, "turn_legacy", permission_mode="ask")
+        try:
+            decision = request_path_approval(
+                "/workspace/src/app.py",
+                "write",
+                sid,
+                "write:/workspace/src/app.py",
+            )
+        finally:
+            reset_workspace_context(tokens)
+            unregister_path_approval_notify(sid)
+            clear_session_approvals(sid)
+
+        assert decision == "deny"
+        assert seen_payload["session_key"].startswith("ws:")

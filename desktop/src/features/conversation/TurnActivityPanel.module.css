@@ -153,6 +153,24 @@
 /* ── Collapsed pill ──────────────────────────────────────────────────────── */
 .pill {
   width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.pill:hover {
+  background: var(--color-hover-overlay);
+}
+
+.pill:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .pillSep {

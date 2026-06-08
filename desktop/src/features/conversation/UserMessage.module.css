@@ -47,6 +47,12 @@
   word-break: break-word;
 }
 
+/* Override global ::selection — charcoal bubble background varies by theme */
+.bubble ::selection {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
 .commandBubble {
   display: flex;
   flex-direction: column;

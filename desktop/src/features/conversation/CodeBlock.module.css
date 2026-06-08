@@ -15,7 +15,7 @@
 .languageLabel {
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--color-warm-gray);
+  color: #a0a09a; /* literal-ok: code chrome */
   text-transform: lowercase;
 }
 

@@ -58,6 +58,7 @@ export type { DbMessage } from './db/message.js';
 // Session wire/read-model types
 export type {
   SessionMeta,
+  DesktopPermissionMode,
   SessionMessage,
   SessionUsage,
   SessionInfo,

@@ -147,9 +147,24 @@ class AgentExecutionService:
         agent = entry.agent if entry else None
         turn_callback_snapshot: list[tuple[str, bool, Any]] = []
         workspace_cwd = getattr(entry, "built_cwd", None) or getattr(agent, "workspace_cwd", None)
+        permission_mode_snapshot = "auto"
+        try:
+            permission_mode_snapshot = str(
+                self._session_svc.get_session_or_404(session_id).get("permissionMode") or "auto"
+            )
+        except Exception:
+            permission_mode_snapshot = "auto"
         cleanup = ExitStack()
         cleanup.callback(reset_terminal_cwd, set_terminal_cwd(workspace_cwd))
-        cleanup.callback(reset_workspace_context, set_workspace_context(workspace_cwd, session_id, turn_id))
+        cleanup.callback(
+            reset_workspace_context,
+            set_workspace_context(
+                workspace_cwd,
+                session_id,
+                turn_id,
+                permission_mode=permission_mode_snapshot,
+            ),
+        )
         cleanup.callback(reset_session_cwd, set_session_cwd(workspace_cwd))
         prev_interactive = os.environ.get("HERMES_INTERACTIVE")
 

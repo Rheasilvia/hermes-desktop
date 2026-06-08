@@ -3,7 +3,7 @@
  */
 
 import { createSignal, createMemo } from 'solid-js';
-import type { SessionListItem, SessionMeta } from '@/types/index.js';
+import type { DesktopPermissionMode, SessionListItem, SessionMeta } from '@/types/index.js';
 import { getGateway } from './context.js';
 
 const [sessions, setSessions] = createSignal<SessionListItem[]>([]);
@@ -56,6 +56,32 @@ export const sessionStore = {
       setError(message);
       console.error('[sessionStore] failed to persist cwd:', e);
       return false;
+    }
+  },
+
+  async setPermissionMode(sessionId: string, mode: DesktopPermissionMode): Promise<SessionMeta | null> {
+    const gateway = getGateway();
+    if (!gateway) return null;
+    setError(null);
+    try {
+      const updated = await gateway.session.setPermissionMode(sessionId, mode);
+      setSessions(prev => prev.map(s =>
+        s.id === sessionId ? {
+          ...s,
+          permissionMode: updated.permissionMode,
+          cwd: updated.cwd ?? s.cwd,
+          model: updated.model || s.model,
+          provider: (updated as unknown as { provider?: string | null }).provider ?? s.provider,
+          title: updated.title ?? s.title,
+          message_count: updated.message_count ?? s.message_count,
+        } : s
+      ));
+      return updated;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to update permission mode';
+      setError(message);
+      console.error('[sessionStore] failed to persist permission mode:', e);
+      return null;
     }
   },
 

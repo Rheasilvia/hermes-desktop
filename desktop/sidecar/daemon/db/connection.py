@@ -106,6 +106,22 @@ def _migrate(conn: sqlite3.Connection, current_version: int) -> None:
             """
         )
         conn.execute("UPDATE schema_version SET version = ?", (6,))
+        current_version = 6
+
+    if current_version < 7:
+        try:
+            conn.execute(
+                "ALTER TABLE session_desktop_meta "
+                "ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'auto'"
+            )
+        except Exception:
+            pass  # column already exists
+        conn.execute(
+            "UPDATE session_desktop_meta "
+            "SET permission_mode = 'auto' "
+            "WHERE permission_mode IS NULL OR permission_mode NOT IN ('ask', 'auto', 'full')"
+        )
+        conn.execute("UPDATE schema_version SET version = ?", (7,))
 
 
 def _overlay_json_path(hermes_home: str, domain: str) -> Path:

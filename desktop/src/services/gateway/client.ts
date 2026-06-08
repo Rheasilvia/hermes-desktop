@@ -116,6 +116,8 @@ export class GatewayClient {
       this.call('session.rename', { session_id: sessionId, title }),
     updateCwd: (sessionId: string, cwd: string): Promise<{ cwd: string }> =>
       this.call('session.cwd.set', { session_id: sessionId, cwd }),
+    setPermissionMode: (sessionId: string, mode: SessionMeta['permissionMode']) =>
+      this.call('session.permission_mode.set', { session_id: sessionId, mode }),
     branch: (sessionId: string): Promise<SessionMeta> =>
       this.call('session.branch', { session_id: sessionId }),
     resume: (sessionId: string): Promise<void> =>

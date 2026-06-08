@@ -68,6 +68,7 @@ class DesktopMetaStore(Protocol):
         self,
         session_id: str,
         provider: str | None = None,
+        permission_mode: str = "auto",
     ) -> None:
         """Insert or update a session_desktop_meta row."""
         ...
@@ -86,6 +87,18 @@ class DesktopMetaStore(Protocol):
 
     def get_providers(self, session_ids: list[str]) -> dict[str, str | None]:
         """Batch fetch providers for multiple sessions."""
+        ...
+
+    def set_permission_mode(self, session_id: str, mode: str) -> str:
+        """Persist the conversation permission mode and return the normalized value."""
+        ...
+
+    def get_permission_mode(self, session_id: str) -> str:
+        """Return the stored permission mode for a session, defaulting to auto."""
+        ...
+
+    def get_permission_modes(self, session_ids: list[str]) -> dict[str, str]:
+        """Batch fetch permission modes for multiple sessions."""
         ...
 
 

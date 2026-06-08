@@ -12,6 +12,7 @@ import type {
   SessionUsage,
   SessionListItem,
   Session,
+  DesktopPermissionMode,
   HermesConfig,
   ToolEntry,
   ModelOption,
@@ -131,6 +132,10 @@ export interface SessionMethods {
   delete(sessionId: string): Promise<void>;
   rename(sessionId: string, title: string): Promise<void>;
   updateCwd(sessionId: string, cwd: string): Promise<{ cwd: string }>;
+  setPermissionMode(
+    sessionId: string,
+    mode: DesktopPermissionMode
+  ): Promise<SessionMeta & { appliedToActiveTurn?: boolean; appliesNextTurn?: boolean }>;
   branch(sessionId: string): Promise<SessionMeta>;
   resume(sessionId: string): Promise<void>;
   interrupt(sessionId: string): Promise<void>;
@@ -388,7 +393,7 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   getConnectionState(): ConnectionState;
 }
 
-export type { SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult } from '@/types/index.js';
+export type { DesktopPermissionMode, SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult } from '@/types/index.js';
 
 /** Factory options for creating a gateway adapter. */
 export interface GatewayAdapterOptions {

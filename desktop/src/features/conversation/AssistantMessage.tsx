@@ -129,7 +129,20 @@ function buildBlockGroups(blocks: MessageBlock[]): BlockGroup[] {
       groups.push({ type: 'single', block });
     }
   }
-  return groups;
+  return mergeAdjacentActivityGroups(groups);
+}
+
+function mergeAdjacentActivityGroups(groups: BlockGroup[]): BlockGroup[] {
+  const merged: BlockGroup[] = [];
+  for (const group of groups) {
+    const previous = merged[merged.length - 1];
+    if (previous?.type === 'activity_group' && group.type === 'activity_group') {
+      previous.blocks.push(...group.blocks);
+      continue;
+    }
+    merged.push(group);
+  }
+  return merged;
 }
 
 function blockKey(block: MessageBlock | undefined): string {

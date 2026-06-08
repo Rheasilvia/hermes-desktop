@@ -97,6 +97,46 @@ describe('AssistantMessage live tool activity', () => {
     expect(secondToolPanel).toBeGreaterThan(middleText);
   });
 
+  it('merges adjacent completed tool groups separated only by empty thinking output', () => {
+    const blocks: MessageBlock[] = [
+      tool('tool_1', 'terminal'),
+      reasoning('empty_reasoning', '   ', false),
+      { type: 'text', id: 'empty_text', content: '\n\n' },
+      tool('tool_2', 'read_file'),
+      tool('tool_3', 'web_search'),
+    ];
+
+    const { container } = render(() => (
+      <AssistantMessage blocks={blocks} />
+    ));
+
+    const renderedText = container.textContent ?? '';
+    expect(renderedText).toContain('3 tools completed');
+    expect(renderedText).not.toContain('1 tool completed');
+    expect(renderedText).not.toContain('2 tools completed');
+  });
+
+  it('keeps renderable thinking text as a separator between completed tool groups', () => {
+    const blocks: MessageBlock[] = [
+      tool('tool_1', 'terminal'),
+      reasoning('visible_reasoning', 'I need to inspect the next area.', false),
+      tool('tool_2', 'read_file'),
+    ];
+
+    const { container } = render(() => (
+      <AssistantMessage blocks={blocks} />
+    ));
+
+    const renderedText = container.textContent ?? '';
+    const firstTools = renderedText.indexOf('1 tool completed');
+    const thinking = renderedText.indexOf('I need to inspect the next area.');
+    const secondTools = renderedText.lastIndexOf('1 tool completed');
+
+    expect(firstTools).toBeGreaterThanOrEqual(0);
+    expect(thinking).toBeGreaterThan(firstTools);
+    expect(secondTools).toBeGreaterThan(thinking);
+  });
+
   it('collapses prior work into one trace panel once final answer text follows tools', async () => {
     const blocks: MessageBlock[] = [
       { type: 'text', id: 'text_before', content: 'Before tools.' },
