@@ -47,6 +47,7 @@ interface MessageInputProps {
   clearEditDraft?: () => void;
   contextUsage?: ContextUsageProps;
   historyMessages?: readonly RenderedMessage[];
+  onComposerActivity?: () => void;
 }
 
 type ReferenceKind = 'file' | 'folder' | 'image' | 'url' | 'tool' | 'git' | 'diff' | 'staged';
@@ -710,6 +711,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     }
     setText(nextValue);
     autoResize(target);
+    props.onComposerActivity?.();
   };
 
   const autoResize = (el: HTMLTextAreaElement) => {

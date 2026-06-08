@@ -14,6 +14,7 @@ export interface ScrollController {
   setUnreadCount: (fn: (c: number) => number) => void;
   resetScrollState: () => void;
   handleScroll: () => void;
+  handleViewportResize: () => void;
   scrollToBottom: (opts?: { force?: boolean; behavior?: ScrollBehavior }) => void;
   refs: { messagesEnd: HTMLDivElement | undefined; messageList: HTMLDivElement | undefined };
 }
@@ -27,6 +28,11 @@ export function createScrollController(opts: {
   const refs = { messagesEnd: undefined as HTMLDivElement | undefined, messageList: undefined as HTMLDivElement | undefined };
   let scrollRafId: number | undefined;
   let pendingScrollOpts: { force?: boolean; behavior?: ScrollBehavior } | undefined;
+  let ignoreNextProgrammaticScroll = false;
+  let programmaticScrollTimeout: ReturnType<typeof setTimeout> | undefined;
+  let lastKnownScrollTop: number | undefined;
+  let lastKnownClientHeight: number | undefined;
+  let lastKnownScrollHeight: number | undefined;
   let countedLiveTurnKey: string | null = null;
   let pendingLiveMessageSkipKey: string | null = null;
 
@@ -65,17 +71,68 @@ export function createScrollController(opts: {
     return count;
   };
 
+  const markProgrammaticScroll = (el: HTMLDivElement, top: number) => {
+    ignoreNextProgrammaticScroll = true;
+    lastKnownScrollTop = top;
+    lastKnownClientHeight = el.clientHeight;
+    lastKnownScrollHeight = el.scrollHeight;
+    setIsNearBottom(true);
+    setUserScrolledUp(false);
+    if (programmaticScrollTimeout !== undefined) clearTimeout(programmaticScrollTimeout);
+    programmaticScrollTimeout = setTimeout(() => {
+      ignoreNextProgrammaticScroll = false;
+      programmaticScrollTimeout = undefined;
+    }, 120);
+  };
+
+  const scrollListToBottomNow = (behavior: ScrollBehavior = 'auto') => {
+    const el = refs.messageList;
+    if (!el) return;
+    const top = Math.max(0, el.scrollHeight - el.clientHeight);
+    markProgrammaticScroll(el, top);
+    if (typeof el.scrollTo === 'function') {
+      el.scrollTo({ top, behavior });
+    } else {
+      el.scrollTop = top;
+    }
+  };
+
   const scrollToBottom = (scrollOpts?: { force?: boolean; behavior?: ScrollBehavior }) => {
+    if (!refs.messageList) return;
     if (!scrollOpts?.force && userScrolledUp()) return;
-    pendingScrollOpts = scrollOpts;
+    pendingScrollOpts = {
+      force: pendingScrollOpts?.force || scrollOpts?.force,
+      behavior: scrollOpts?.behavior ?? pendingScrollOpts?.behavior,
+    };
     if (scrollRafId !== undefined) return;
     scrollRafId = requestAnimationFrame(() => {
       const next = pendingScrollOpts;
       scrollRafId = undefined;
       pendingScrollOpts = undefined;
       if (!next?.force && userScrolledUp()) return;
-      refs.messagesEnd?.scrollIntoView({ behavior: next?.behavior ?? 'auto' });
+      scrollListToBottomNow(next?.behavior ?? 'auto');
     });
+  };
+
+  const scrollListToBottom = () => {
+    scrollToBottom({ force: true, behavior: 'auto' });
+  };
+
+  const clearProgrammaticScrollGuard = () => {
+    ignoreNextProgrammaticScroll = false;
+    if (programmaticScrollTimeout !== undefined) {
+      clearTimeout(programmaticScrollTimeout);
+      programmaticScrollTimeout = undefined;
+    }
+  };
+
+  const anchorAfterLayoutChange = (el: HTMLDivElement) => {
+    lastKnownScrollTop = el.scrollTop;
+    lastKnownClientHeight = el.clientHeight;
+    lastKnownScrollHeight = el.scrollHeight;
+    setIsNearBottom(true);
+    setUserScrolledUp(false);
+    scrollListToBottom();
   };
 
   onCleanup(() => {
@@ -84,12 +141,37 @@ export function createScrollController(opts: {
       scrollRafId = undefined;
       pendingScrollOpts = undefined;
     }
+    if (programmaticScrollTimeout !== undefined) {
+      clearTimeout(programmaticScrollTimeout);
+      programmaticScrollTimeout = undefined;
+    }
   });
 
   const handleScroll = () => {
     const el = refs.messageList;
     if (!el) return;
+    const clientHeightChanged = lastKnownClientHeight !== undefined && el.clientHeight !== lastKnownClientHeight;
+    const scrollHeightChanged = lastKnownScrollHeight !== undefined && el.scrollHeight !== lastKnownScrollHeight;
+    if (ignoreNextProgrammaticScroll) {
+      clearProgrammaticScrollGuard();
+      if (!userScrolledUp() && (clientHeightChanged || scrollHeightChanged)) {
+        anchorAfterLayoutChange(el);
+        return;
+      }
+      lastKnownScrollTop = el.scrollTop;
+      lastKnownClientHeight = el.clientHeight;
+      lastKnownScrollHeight = el.scrollHeight;
+      return;
+    }
+    if (!userScrolledUp() && (clientHeightChanged || scrollHeightChanged)) {
+      anchorAfterLayoutChange(el);
+      return;
+    }
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const scrolledUp = lastKnownScrollTop === undefined || el.scrollTop < lastKnownScrollTop;
+    lastKnownScrollTop = el.scrollTop;
+    lastKnownClientHeight = el.clientHeight;
+    lastKnownScrollHeight = el.scrollHeight;
     const near = distanceFromBottom < NEAR_BOTTOM_THRESHOLD;
     setIsNearBottom(near);
     if (near) {
@@ -97,9 +179,15 @@ export function createScrollController(opts: {
       setUnreadCount(() => 0);
       countedLiveTurnKey = null;
       pendingLiveMessageSkipKey = null;
-    } else if (distanceFromBottom > SCROLL_PAUSE_THRESHOLD) {
+    } else if (scrolledUp && distanceFromBottom > SCROLL_PAUSE_THRESHOLD) {
       setUserScrolledUp(true);
     }
+  };
+
+  const handleViewportResize = () => {
+    if (!refs.messageList) return;
+    if (userScrolledUp()) return;
+    scrollListToBottom();
   };
 
   createEffect(() => {
@@ -155,7 +243,26 @@ export function createScrollController(opts: {
     setLastMessageCount(0);
     countedLiveTurnKey = null;
     pendingLiveMessageSkipKey = null;
+    ignoreNextProgrammaticScroll = false;
+    lastKnownScrollTop = undefined;
+    lastKnownClientHeight = undefined;
+    lastKnownScrollHeight = undefined;
+    if (programmaticScrollTimeout !== undefined) {
+      clearTimeout(programmaticScrollTimeout);
+      programmaticScrollTimeout = undefined;
+    }
   };
 
-  return { isNearBottom, userScrolledUp, setUserScrolledUp, unreadCount, setUnreadCount, resetScrollState, handleScroll, scrollToBottom, refs };
+  return {
+    isNearBottom,
+    userScrolledUp,
+    setUserScrolledUp,
+    unreadCount,
+    setUnreadCount,
+    resetScrollState,
+    handleScroll,
+    handleViewportResize,
+    scrollToBottom,
+    refs,
+  };
 }
