@@ -56,9 +56,7 @@
       "entitlements": "./entitlements.plist",
       "signingIdentity": "-",
       "providerShortName": null,
-      "infoPlist": {
-        "NSMicrophoneUsageDescription": "Hermes uses the microphone for voice input (dictation and hands-free conversation mode)."
-      }
+      "infoPlist": "./Info.plist"
     },
     "linux": {
       "deb": {
