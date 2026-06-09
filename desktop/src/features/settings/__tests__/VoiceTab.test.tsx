@@ -81,6 +81,7 @@ describe('VoiceTab', () => {
     expect(screen.getByText('Groq STT Model')).toBeDefined();
     expect(screen.getByText('Max Recording Length')).toBeDefined();
     expect(screen.queryByText('STT Model')).toBeNull();
+    expect(screen.queryByText('Voice Shortcut')).toBeNull();
   });
 
   test('saves nested config dotpaths from schema fields', async () => {

@@ -194,16 +194,15 @@ _SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
         "description": "Read responses aloud",
         "category": "voice",
     },
-    "voice.record_key": {
-        "type": "string",
-        "description": "Voice shortcut",
-        "category": "voice",
-    },
     "voice.max_recording_seconds": {
         "type": "number",
         "description": "Max recording length",
         "category": "voice",
     },
+}
+
+_DESKTOP_HIDDEN_CONFIG_FIELDS = {
+    "voice.record_key",
 }
 
 _CATEGORY_MERGE: dict[str, str] = {
@@ -281,6 +280,8 @@ def _build_schema_from_config(config: dict[str, Any], prefix: str = "") -> dict[
         full_key = f"{prefix}.{key}" if prefix else key
         if full_key == "_config_version":
             continue
+        if full_key in _DESKTOP_HIDDEN_CONFIG_FIELDS:
+            continue
         if prefix:
             category = prefix.split(".", 1)[0]
         elif isinstance(value, dict):
@@ -310,6 +311,8 @@ def _schema(defaults: dict[str, Any]) -> dict[str, Any]:
         if key == "model":
             ordered["model_context_length"] = dict(_SCHEMA_OVERRIDES["model_context_length"])
     for key, value in _SCHEMA_OVERRIDES.items():
+        if key in _DESKTOP_HIDDEN_CONFIG_FIELDS:
+            continue
         if key not in ordered:
             entry = dict(value)
             entry.setdefault("category", key.split(".", 1)[0] if "." in key else "general")

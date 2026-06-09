@@ -311,6 +311,30 @@ class TestTranscribeGroq:
         assert result["success"] is False
         assert "Permission denied" in result["error"]
 
+    def test_dispatch_uses_configured_groq_model(self, monkeypatch, sample_wav):
+        from tools import transcription_tools
+
+        monkeypatch.setattr(
+            transcription_tools,
+            "_load_stt_config",
+            lambda: {
+                "enabled": True,
+                "provider": "groq",
+                "groq": {"model": "whisper-large-v3"},
+            },
+        )
+
+        with patch.object(transcription_tools, "_get_provider", return_value="groq"), \
+             patch.object(
+                 transcription_tools,
+                 "_transcribe_groq",
+                 return_value={"success": True, "transcript": "hello", "provider": "groq"},
+             ) as mock_transcribe:
+            result = transcription_tools.transcribe_audio(sample_wav)
+
+        assert result["success"] is True
+        mock_transcribe.assert_called_once_with(sample_wav, "whisper-large-v3")
+
 
 # ============================================================================
 # _transcribe_openai — additional tests

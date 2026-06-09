@@ -28,6 +28,7 @@ def test_config_defaults_and_schema_include_voice_fields(client, auth):
     assert "stt.elevenlabs.diarize" in fields
     assert "voice.auto_tts" in fields
     assert "voice.max_recording_seconds" in fields
+    assert "voice.record_key" not in fields
     assert "stt.model" not in fields
 
 
