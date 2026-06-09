@@ -226,4 +226,34 @@ describe('ChatView floating todo panel — persisted dismissal on hydration', ()
 
     expect(rendered.queryByTestId('todo-panel')).not.toBeNull();
   });
+
+  it('does NOT flash the panel on a normal turn when the only todos are a completed historical list', async () => {
+    // The reported bug: a list finished, then a normal (no-todo) message streams. The
+    // turn-start reset effect clears the dismissed flag, but a fully-completed historical
+    // list must not re-surface during ordinary conversation.
+    state.streaming = true;   // a normal conversation turn is in progress
+    state.liveTodos = [];     // ...with no todos of its own
+    state.messages = [assistantWithTodos([
+      { id: '1', content: 'a', status: 'completed' },
+      { id: '2', content: 'b', status: 'completed' },
+    ])];
+
+    const { ChatView } = await import('../ChatView.js');
+    const rendered = render(() => <ChatView sessionId="sess-x" />);
+
+    expect(rendered.queryByTestId('todo-panel')).toBeNull();
+  });
+
+  it('still shows the panel during a live turn whose todos just all completed (done moment)', async () => {
+    state.streaming = true;
+    state.liveTodos = [
+      { id: '1', content: 'a', status: 'completed' },
+      { id: '2', content: 'b', status: 'completed' },
+    ];
+
+    const { ChatView } = await import('../ChatView.js');
+    const rendered = render(() => <ChatView sessionId="sess-x" />);
+
+    expect(rendered.queryByTestId('todo-panel')).not.toBeNull();
+  });
 });
