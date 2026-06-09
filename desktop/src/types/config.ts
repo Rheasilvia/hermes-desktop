@@ -96,22 +96,47 @@ export interface PrivacyConfig {
 
 /** TTS (Text-to-Speech) configuration. */
 export interface TtsConfig {
-  enabled?: boolean;
   provider?: string;
-  voice?: string;
+  edge?: { voice?: string; [key: string]: unknown };
+  elevenlabs?: { voice_id?: string; model_id?: string; [key: string]: unknown };
+  openai?: { model?: string; voice?: string; [key: string]: unknown };
+  xai?: { voice_id?: string; language?: string; [key: string]: unknown };
+  minimax?: { model?: string; voice_id?: string; [key: string]: unknown };
+  mistral?: { model?: string; voice_id?: string; [key: string]: unknown };
+  gemini?: { model?: string; voice?: string; [key: string]: unknown };
+  neutts?: { model?: string; device?: string; [key: string]: unknown };
+  kittentts?: { model?: string; voice?: string; [key: string]: unknown };
+  piper?: { voice?: string; [key: string]: unknown };
+  [key: string]: unknown;
 }
 
 /** STT (Speech-to-Text) configuration. */
 export interface SttConfig {
   enabled?: boolean;
   provider?: string;
-  model?: string;
+  local?: { model?: string; language?: string; [key: string]: unknown };
+  openai?: { model?: string; [key: string]: unknown };
+  groq?: { model?: string; [key: string]: unknown };
+  mistral?: { model?: string; [key: string]: unknown };
+  elevenlabs?: {
+    model_id?: string;
+    language_code?: string;
+    tag_audio_events?: boolean;
+    diarize?: boolean;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
 }
 
 /** Voice configuration. */
 export interface VoiceConfig {
-  tts?: TtsConfig;
-  stt?: SttConfig;
+  record_key?: string;
+  max_recording_seconds?: number;
+  auto_tts?: boolean;
+  beep_enabled?: boolean;
+  silence_threshold?: number;
+  silence_duration?: number;
+  [key: string]: unknown;
 }
 
 /** Human delay configuration. */
@@ -260,7 +285,7 @@ export interface SecurityConfig {
 
 /** The full Hermes configuration matching DEFAULT_CONFIG. */
 export interface HermesConfig {
-  model?: ModelConfig;
+  model?: ModelConfig | string;
   providers?: Record<string, ProviderConfig>;
   fallback_providers?: string[];
   credential_pool_strategies?: Record<string, string>;

@@ -70,6 +70,7 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
           onAction={props.onAction}
           isLast={props.isLast}
           actionsDisabled={props.actionsDisabled}
+          messageId={props.message.id}
         />
       </Show>
       <Show when={role() === 'tool'}>

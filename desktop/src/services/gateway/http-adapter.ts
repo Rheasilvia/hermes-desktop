@@ -46,6 +46,7 @@ import type {
 import type { ParsedToolCall } from '@/types/index.js';
 import type { CardType } from '@/types/command-card.js';
 import { httpClient, type HttpClient } from '@/services/api/http-client.js';
+import type { ConfigReadResponse, HermesConfigRecord } from '@/services/api/types.js';
 
 const API_PREFIX = '/desktop/api';
 
@@ -74,6 +75,20 @@ type EventHandler<K extends keyof GatewayEventMap> = (payload: GatewayEventMap[K
 
 function permissionModeOf(value: unknown): DesktopPermissionMode {
   return value === 'ask' || value === 'full' ? value : 'auto';
+}
+
+function setDotPath(target: HermesConfigRecord, path: string, value: unknown): void {
+  const parts = path.split('.').filter(Boolean);
+  if (!parts.length) return;
+  let current: HermesConfigRecord = target;
+  for (const part of parts.slice(0, -1)) {
+    const child = current[part];
+    if (!child || typeof child !== 'object' || Array.isArray(child)) {
+      current[part] = {};
+    }
+    current = current[part] as HermesConfigRecord;
+  }
+  current[parts[parts.length - 1]] = value;
 }
 
 /** SSE event shape from the backend. */
@@ -382,8 +397,14 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     // ── everything else → not implemented ───────────────────────────────
     const notImplemented = (name: string) => () => { throw new Error(`${name} not implemented`); };
     this.config = {
-      get: notImplemented('config.get'),
-      getMtime: async () => 0,
+      get: async (): Promise<HermesConfig> => {
+        const response = await this.http.get<ConfigReadResponse>(`${API_PREFIX}/config`);
+        return response.config as HermesConfig;
+      },
+      getMtime: async () => {
+        const response = await this.http.get<ConfigReadResponse>(`${API_PREFIX}/config`);
+        return response.mtime;
+      },
       set: async (input: import('./types.js').ConfigSetInput) => {
         if (input.key === 'model' && typeof input.value === 'string') {
           const [provider, model] = input.value.split('/');
@@ -391,6 +412,17 @@ export class HttpGatewayAdapter implements GatewayAdapter {
             await this.http.put(`${API_PREFIX}/model/active`, { provider, model });
             return;
           }
+        }
+        if (/^(tts|stt|voice)\./.test(input.key)) {
+          const current = await this.http.get<ConfigReadResponse>(`${API_PREFIX}/config`);
+          const nextConfig = { ...current.config };
+          setDotPath(nextConfig, input.key, input.value);
+          await this.http.put(`${API_PREFIX}/config`, {
+            config: nextConfig,
+            base_mtime: current.mtime,
+            changed_paths: [input.key],
+          });
+          return;
         }
         throw new Error(`config.set: unsupported key '${input.key}'`);
       },

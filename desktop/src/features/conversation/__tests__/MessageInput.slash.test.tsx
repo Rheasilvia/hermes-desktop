@@ -819,6 +819,73 @@ describe('MessageInput slash commands', () => {
     expect(screen.queryByLabelText('Dictate')).toBeNull();
   });
 
+  test('shows a local error and does not start recording when STT is disabled', async () => {
+    const getUserMedia = vi.fn();
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia },
+    });
+
+    render(() => <MessageInput onSend={vi.fn()} sttEnabled={false} />);
+
+    fireEvent.click(screen.getByLabelText('Dictate'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Speech to text is disabled in Voice settings.')).toBeDefined();
+    });
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(mocks.transcribe).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Dictate')).toBeDefined();
+  });
+
+  test('uses configured voice recording limit for auto-stop', async () => {
+    vi.useFakeTimers();
+    const tracks = [{ stop: vi.fn() }];
+    const stream = { getTracks: () => tracks };
+    const stopSpy = vi.fn();
+
+    class FakeMediaRecorder extends EventTarget {
+      static isTypeSupported = vi.fn(() => true);
+      state = 'inactive';
+      mimeType = 'audio/webm';
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onstop: (() => void) | null = null;
+
+      constructor(_stream: unknown, _options?: unknown) {
+        super();
+      }
+
+      start() {
+        this.state = 'recording';
+        this.ondataavailable?.({ data: new Blob(['voice'], { type: 'audio/webm' }) } as BlobEvent);
+      }
+
+      stop() {
+        stopSpy();
+        this.state = 'inactive';
+        this.onstop?.();
+      }
+    }
+
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue(stream) },
+    });
+    mocks.transcribe.mockResolvedValue({ transcript: 'done' });
+
+    const [limit, setLimit] = createSignal(120);
+    render(() => <MessageInput onSend={vi.fn()} maxVoiceRecordingSeconds={limit()} />);
+    setLimit(1);
+    fireEvent.click(screen.getByLabelText('Dictate'));
+    await waitFor(() => expect(screen.getByLabelText('Stop recording')).toBeDefined());
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await waitFor(() => expect(stopSpy).toHaveBeenCalled());
+
+    vi.useRealTimers();
+  });
+
   test('dictation trigger shows process state while transcription is pending and returns to mic when done', async () => {
     let resolveTranscript!: (value: { transcript: string }) => void;
     const pendingTranscript = new Promise<{ transcript: string }>((resolve) => {

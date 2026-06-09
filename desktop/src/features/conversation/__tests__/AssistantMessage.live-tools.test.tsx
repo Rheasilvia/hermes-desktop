@@ -1,10 +1,32 @@
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { AssistantMessage } from '../AssistantMessage';
 import type { MessageBlock, ReasoningBlock, ToolCallBlock, ToolCallRow } from '@/types/index.js';
 
+const voiceMocks = vi.hoisted(() => ({
+  playSpeechText: vi.fn(),
+}));
+
+vi.mock('@/stores/settings.js', () => ({
+  settingsStore: {
+    get config() {
+      return { tts: { provider: 'edge' }, voice: { auto_tts: false } };
+    },
+  },
+}));
+
+vi.mock('@/lib/voice/voice-playback.js', () => ({
+  isVoicePlaybackActive: vi.fn(() => false),
+  playSpeechText: voiceMocks.playSpeechText,
+}));
+
 describe('AssistantMessage live tool activity', () => {
+  beforeEach(() => {
+    voiceMocks.playSpeechText.mockReset();
+    voiceMocks.playSpeechText.mockResolvedValue(true);
+  });
+
   const tool = (id: string, name: string, status: ToolCallBlock['status'] = 'complete'): ToolCallBlock => ({
     type: 'tool_call',
     id: `block_${id}`,
@@ -233,5 +255,25 @@ describe('AssistantMessage live tool activity', () => {
     expect(after[0]).toBe(before[0]);
     expect(after[1]).toBe(before[1]);
     expect(container.textContent).toContain('Second note.');
+  });
+
+  it('shows read-aloud when TTS provider is configured without legacy tts.enabled', async () => {
+    const { container } = render(() => (
+      <AssistantMessage
+        blocks={[{ type: 'text', id: 'answer', content: 'Final answer for speech.' }]}
+        onAction={vi.fn()}
+        isLast
+      />
+    ));
+
+    await fireEvent.mouseEnter(container.firstElementChild!);
+    const readAloud = screen.getByTitle('Read aloud');
+    expect(readAloud).toBeDefined();
+
+    await fireEvent.click(readAloud);
+    expect(voiceMocks.playSpeechText).toHaveBeenCalledWith('Final answer for speech.', {
+      source: 'read-aloud',
+      messageId: 'answer',
+    });
   });
 });

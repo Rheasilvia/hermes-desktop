@@ -1,6 +1,6 @@
 import { createSignal } from 'solid-js';
 
-export type VoicePlaybackSource = 'read-aloud' | 'voice-conversation';
+export type VoicePlaybackSource = 'read-aloud' | 'auto-tts' | 'voice-conversation';
 export type VoicePlaybackStatus = 'idle' | 'preparing' | 'speaking';
 
 export interface VoicePlaybackState {

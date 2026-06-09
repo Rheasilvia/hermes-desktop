@@ -59,6 +59,8 @@ interface MessageInputProps {
   /** For voice conversation mode — accessor returning the current streaming assistant text + pending flag. */
   pendingVoiceResponse?: () => { id: string; pending: boolean; text: string } | null;
   consumePendingVoiceResponse?: () => void;
+  maxVoiceRecordingSeconds?: number;
+  sttEnabled?: boolean;
 }
 
 type ReferenceKind = 'file' | 'folder' | 'image' | 'url' | 'tool' | 'git' | 'diff' | 'staged';
@@ -137,7 +139,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
 
   // Dictation recorder (push-to-talk)
   const dictationRecorder = createVoiceRecorder({
-    maxRecordingSeconds: 120,
+    maxRecordingSeconds: () => props.maxVoiceRecordingSeconds ?? 120,
     focusInput: () => textareaRef?.focus(),
     onTranscript: (t) => {
       setVoiceError('');
@@ -1149,6 +1151,11 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
                 disabled={!!props.disabled}
                 onClick={() => {
                   setVoiceError('');
+                  if (props.sttEnabled === false) {
+                    setVoiceError('Speech to text is disabled in Voice settings.');
+                    textareaRef?.focus();
+                    return;
+                  }
                   dictationRecorder.dictate();
                 }}
               >
