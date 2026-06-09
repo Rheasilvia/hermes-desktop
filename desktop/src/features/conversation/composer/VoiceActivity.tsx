@@ -13,12 +13,17 @@ function formatElapsed(seconds: number): string {
   return `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export const VoiceActivity: Component<{ state: VoiceActivityState }> = (props) => {
+interface VoiceActivityProps {
+  state: VoiceActivityState;
+  class?: string;
+}
+
+export const VoiceActivity: Component<VoiceActivityProps> = (props) => {
   const recording = () => props.state.status === 'recording';
 
   return (
     <Show when={props.state.status !== 'idle'}>
-      <div class={styles.container} role="status" aria-live="polite">
+      <div class={`${styles.container} ${props.class ?? ''}`} role="status" aria-live="polite">
         <span class={styles.icon}>
           <Show when={recording()} fallback={<Icon name="loader" size={12} />}>
             <Icon name="mic" size={12} />

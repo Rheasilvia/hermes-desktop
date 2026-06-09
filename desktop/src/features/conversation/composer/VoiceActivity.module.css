@@ -3,6 +3,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  max-width: 230px;
+  min-width: 0;
   min-height: 28px;
   padding: 0 10px;
   border-radius: 8px;
@@ -28,6 +31,7 @@
 }
 
 .label {
+  min-width: 0;
   font-weight: var(--weight-medium);
   color: var(--color-on-surface);
   white-space: nowrap;
@@ -36,6 +40,7 @@
 }
 
 .elapsed {
+  flex-shrink: 0;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-on-surface-dim);
@@ -90,5 +95,12 @@
   .container,
   .playbackContainer {
     animation: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .elapsed,
+  .waveSpinner {
+    display: none;
   }
 }
