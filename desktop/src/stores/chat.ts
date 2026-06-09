@@ -64,6 +64,11 @@ import {
   finalizeActivityBlocks,
   interruptedBlocksFromLive,
 } from './chat-blocks.js';
+import {
+  transcriptMsgToDomain,
+  liveStateFromTranscript,
+  resolveHydratedLiveState,
+} from './chat-transcript.js';
 import type { ConversationDiagnosticsSnapshot } from './chat-state.js';
 
 export type { ConversationDiagnosticsSnapshot };
