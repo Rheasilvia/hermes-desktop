@@ -1,6 +1,48 @@
 import type { HttpClient } from '../../http-client';
 import type { ListResponse, Provider } from '../../types';
 
+export interface AuxTaskEntry {
+  task: string;
+  provider: string;
+  model: string;
+  base_url: string;
+}
+
+export interface AuxMainEntry {
+  provider: string;
+  model: string;
+}
+
+export interface AuxiliaryModelsResponse {
+  tasks: AuxTaskEntry[];
+  main: AuxMainEntry;
+}
+
+export interface StaleAuxEntry {
+  task: string;
+  provider: string;
+  model: string;
+}
+
+export interface ModelAssignmentRequest {
+  scope: 'main' | 'auxiliary';
+  provider?: string;
+  model?: string;
+  task?: string;
+  base_url?: string;
+}
+
+export interface ModelAssignmentResponse {
+  ok: boolean;
+  scope: string;
+  provider?: string | null;
+  model?: string | null;
+  stale_aux?: StaleAuxEntry[];
+  reset?: boolean | null;
+  tasks?: string[] | null;
+  gateway_tools?: string[];
+}
+
 export interface ModelTransport {
   listProviders(opts?: { configuredOnly?: boolean }): Promise<ListResponse<Provider>>;
   getCatalog(): Promise<{ providers: Provider[]; fetched_at: string | null }>;
@@ -12,6 +54,10 @@ export interface ModelTransport {
   getProviderModelsConfig(providerId: string): Promise<Record<string, Record<string, unknown>> | null>;
   /** Persist per-model params (temperature, max_tokens, capabilities) via overlay. */
   setModelParams(providerId: string, modelId: string, params: Record<string, unknown>): Promise<void>;
+  /** Return current auxiliary task model assignments. */
+  getAuxiliaryModels(): Promise<AuxiliaryModelsResponse>;
+  /** Assign a provider/model to the main slot or an auxiliary task slot. */
+  setModelAssignment(req: ModelAssignmentRequest): Promise<ModelAssignmentResponse>;
 }
 
 export function makeModelTransport(c: HttpClient): ModelTransport {
@@ -58,5 +104,9 @@ export function makeModelTransport(c: HttpClient): ModelTransport {
         `/desktop/api/model/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/params`,
         params,
       ),
+    getAuxiliaryModels: () =>
+      c.get<AuxiliaryModelsResponse>('/desktop/api/model/auxiliary'),
+    setModelAssignment: (req) =>
+      c.post<ModelAssignmentResponse>('/desktop/api/model/assignment', req),
   };
 }

@@ -12,6 +12,7 @@ import { modelStore, modelsStore } from '@/stores/models.js';
 import { Tabs } from '@/ui/molecules/Tabs.js';
 import { ProviderCard } from './ProviderCard.js';
 import { ModelUsageView } from './ModelUsageView.js';
+import { MultimodalModelsView } from './MultimodalModelsView.js';
 import { ConfigureProviderModal } from './ConfigureProviderModal.js';
 import { EmptyProviders } from './EmptyProviders.js';
 import { AddProviderView } from './AddProviderView.js';
@@ -125,6 +126,7 @@ export const ModelSwitcherView: Component = () => {
                 tabs={[
                   { id: 'providers', label: 'Providers' },
                   { id: 'models', label: 'Models' },
+                  { id: 'multimodal', label: 'Multimodal' },
                 ]}
                 activeTab={activeTab()}
                 onChange={setActiveTab}
@@ -155,6 +157,12 @@ export const ModelSwitcherView: Component = () => {
             <Show when={activeTab() === 'models'}>
               <section class={styles.usageSection}>
                 <ModelUsageView />
+              </section>
+            </Show>
+
+            <Show when={activeTab() === 'multimodal'}>
+              <section class={styles.usageSection}>
+                <MultimodalModelsView />
               </section>
             </Show>
           </Show>

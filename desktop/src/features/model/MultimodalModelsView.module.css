@@ -1,0 +1,120 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 0 0 24px;
+}
+
+.sectionTitle {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: color-mix(in srgb, #17171a 94%, transparent);
+  margin: 0 0 4px;
+}
+
+.sectionDesc {
+  font-size: 0.75rem;
+  color: color-mix(in srgb, #17171a 54%, transparent);
+  margin: 0 0 12px;
+}
+
+.mainRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mainBadge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #0053fd 8%, color-mix(in srgb, #17171a 5%, transparent));
+  border: 1px solid color-mix(in srgb, #0053fd 16%, color-mix(in srgb, #17171a 7%, transparent));
+  font-size: 0.75rem;
+  font-family: "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+  color: color-mix(in srgb, #17171a 74%, transparent);
+}
+
+.taskGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.taskRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: transparent;
+  transition: background 0.1s;
+  flex-wrap: wrap;
+}
+
+.taskRow:hover {
+  background: color-mix(in srgb, #0053fd 3%, color-mix(in srgb, #17171a 3%, transparent));
+}
+
+.taskLabel {
+  flex: 1;
+  min-width: 120px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: color-mix(in srgb, #17171a 94%, transparent);
+}
+
+.taskCurrent {
+  font-size: 0.75rem;
+  font-family: "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+  color: color-mix(in srgb, #17171a 54%, transparent);
+  flex: 1;
+  min-width: 80px;
+}
+
+.taskActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 10px 8px 10px;
+}
+
+.staleWarning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, #db704b 40%, transparent);
+  background: color-mix(in srgb, #db704b 10%, transparent);
+  font-size: 0.75rem;
+  color: color-mix(in srgb, #17171a 74%, transparent);
+  flex-wrap: wrap;
+}
+
+.staleText {
+  flex: 1;
+}
+
+.error {
+  font-size: 0.75rem;
+  color: #cf2d56;
+  padding: 4px 0;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}

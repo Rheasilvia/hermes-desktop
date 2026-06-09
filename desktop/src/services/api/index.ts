@@ -1,6 +1,7 @@
 import { api } from './router';
 import { httpClient } from './http-client';
 import { makeAnalyticsTransport } from './transports/http/analytics';
+import { makeAudioTransport } from './transports/http/audio';
 import { makeCronTransport } from './transports/http/cron';
 import { makeModelTransport } from './transports/http/model';
 import { makeOAuthTransport } from './transports/http/oauth';
@@ -46,4 +47,5 @@ export function bootstrapApi(): void {
   api.register('skills', makeSkillsTransport(httpClient));
   api.register('state', makeStateTransport(httpClient));
   api.register('analytics', makeAnalyticsTransport(httpClient));
+  api.register('audio', makeAudioTransport(httpClient));
 }

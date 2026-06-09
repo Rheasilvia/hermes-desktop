@@ -402,3 +402,164 @@ class ModelService:
                     pass
 
             desktop.api_key = None
+
+    # ── Auxiliary model assignment ──────────────────────────────────────────
+
+    # Canonical aux task slots — must match hermes_cli/web_server.py _AUX_TASK_SLOTS
+    _AUX_TASK_SLOTS = (
+        "vision",
+        "web_extract",
+        "compression",
+        "skills_hub",
+        "approval",
+        "mcp",
+        "title_generation",
+        "triage_specifier",
+        "kanban_decomposer",
+        "profile_describer",
+        "curator",
+    )
+
+    def get_auxiliary_models(self) -> dict:
+        """Return current auxiliary task assignments + the active main model."""
+        from hermes_cli.config import load_config  # type: ignore[import]
+
+        cfg = load_config()
+        aux_cfg = cfg.get("auxiliary", {})
+        if not isinstance(aux_cfg, dict):
+            aux_cfg = {}
+
+        tasks = []
+        for slot in self._AUX_TASK_SLOTS:
+            slot_cfg = aux_cfg.get(slot, {})
+            if not isinstance(slot_cfg, dict):
+                slot_cfg = {}
+            tasks.append({
+                "task": slot,
+                "provider": str(slot_cfg.get("provider", "auto") or "auto"),
+                "model": str(slot_cfg.get("model", "") or ""),
+                "base_url": str(slot_cfg.get("base_url", "") or ""),
+            })
+
+        model_cfg = cfg.get("model", {})
+        if isinstance(model_cfg, dict):
+            main = {
+                "provider": str(model_cfg.get("provider", "") or ""),
+                "model": str(model_cfg.get("default", model_cfg.get("name", "")) or ""),
+            }
+        else:
+            main = {"provider": "", "model": str(model_cfg) if model_cfg else ""}
+
+        return {"tasks": tasks, "main": main}
+
+    def set_model_assignment(self, scope: str, provider: str, model: str,
+                             task: str = "", base_url: str = "") -> dict:
+        """Assign a provider/model to the main slot or an auxiliary task slot.
+
+        Mirrors hermes_cli/web_server.py set_model_assignment semantics exactly.
+        """
+        from hermes_cli.config import load_config, save_config  # type: ignore[import]
+
+        cfg = load_config()
+
+        if scope == "main":
+            if not provider or not model:
+                raise ValueError("provider and model required for main scope")
+
+            model_cfg = cfg.get("model", {})
+            if not isinstance(model_cfg, dict):
+                model_cfg = {}
+
+            provider_changed = model_cfg.get("provider") != provider
+            model_cfg["provider"] = provider
+            model_cfg["default"] = model
+            if provider_changed:
+                model_cfg.pop("base_url", None)
+                model_cfg.pop("context_length", None)
+            if base_url:
+                model_cfg["base_url"] = base_url
+
+            cfg["model"] = model_cfg
+
+            # Optionally wire Nous managed defaults (best-effort)
+            gateway_tools: list[str] = []
+            if provider.strip().lower() == "nous":
+                try:
+                    from hermes_cli.nous_subscription import apply_nous_managed_defaults  # type: ignore[import]
+                    from hermes_cli.tools_config import _get_platform_tools  # type: ignore[import]
+
+                    enabled = _get_platform_tools(cfg, "cli", include_default_mcp_servers=False)
+                    changed = apply_nous_managed_defaults(cfg, enabled_toolsets=enabled, force_fresh=True)
+                    gateway_tools = sorted(changed)
+                except Exception:
+                    pass
+
+            save_config(cfg)
+
+            # Notify connected frontends
+            if self._bus is not None:
+                try:
+                    self._bus.publish("", 0, "model.changed", {"provider": provider, "model": model})
+                except Exception:
+                    pass
+
+            # Detect stale aux pins
+            new_provider = provider.strip().lower()
+            stale_aux: list[dict] = []
+            aux_cfg = cfg.get("auxiliary", {})
+            if isinstance(aux_cfg, dict):
+                for slot in self._AUX_TASK_SLOTS:
+                    slot_cfg = aux_cfg.get(slot)
+                    if not isinstance(slot_cfg, dict):
+                        continue
+                    slot_provider = str(slot_cfg.get("provider", "") or "").strip()
+                    if slot_provider and slot_provider.lower() not in {"auto", ""} and slot_provider.lower() != new_provider:
+                        stale_aux.append({
+                            "task": slot,
+                            "provider": slot_provider,
+                            "model": str(slot_cfg.get("model", "") or ""),
+                        })
+
+            return {
+                "ok": True,
+                "scope": "main",
+                "provider": provider,
+                "model": model,
+                "stale_aux": stale_aux,
+                "gateway_tools": gateway_tools,
+            }
+
+        # scope == "auxiliary"
+        aux = cfg.get("auxiliary")
+        if not isinstance(aux, dict):
+            aux = {}
+
+        if task == "__reset__":
+            for slot in self._AUX_TASK_SLOTS:
+                slot_cfg = aux.get(slot)
+                if not isinstance(slot_cfg, dict):
+                    slot_cfg = {}
+                slot_cfg["provider"] = "auto"
+                slot_cfg["model"] = ""
+                aux[slot] = slot_cfg
+            cfg["auxiliary"] = aux
+            save_config(cfg)
+            return {"ok": True, "scope": "auxiliary", "reset": True}
+
+        if not provider:
+            raise ValueError("provider required for auxiliary scope")
+
+        targets = [task] if task else list(self._AUX_TASK_SLOTS)
+        for slot in targets:
+            if slot not in self._AUX_TASK_SLOTS:
+                raise ValueError(f"unknown auxiliary task: {slot}")
+            slot_cfg = aux.get(slot)
+            if not isinstance(slot_cfg, dict):
+                slot_cfg = {}
+            slot_cfg["provider"] = provider
+            slot_cfg["model"] = model
+            aux[slot] = slot_cfg
+
+        cfg["auxiliary"] = aux
+        save_config(cfg)
+        return {"ok": True, "scope": "auxiliary", "tasks": targets, "provider": provider, "model": model}

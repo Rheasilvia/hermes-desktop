@@ -50,3 +50,48 @@ class UpsertProviderRequest(BaseModel):
 class DeleteProviderRequest(BaseModel):
     name: str
     is_builtin: bool = False
+
+
+# ── Auxiliary model assignment ──────────────────────────────────────────────
+
+
+class AuxTaskEntry(BaseModel):
+    task: str
+    provider: str
+    model: str
+    base_url: str = ""
+
+
+class AuxMainEntry(BaseModel):
+    provider: str
+    model: str
+
+
+class AuxiliaryModelsResponse(BaseModel):
+    tasks: list[AuxTaskEntry]
+    main: AuxMainEntry
+
+
+class StaleAuxEntry(BaseModel):
+    task: str
+    provider: str
+    model: str
+
+
+class ModelAssignmentRequest(BaseModel):
+    scope: str  # "main" | "auxiliary"
+    provider: str = ""
+    model: str = ""
+    task: str = ""  # auxiliary slot; "" = all slots; "__reset__" = reset all
+    base_url: str = ""
+
+
+class ModelAssignmentResponse(BaseModel):
+    ok: bool
+    scope: str
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    stale_aux: list[StaleAuxEntry] = Field(default_factory=list)
+    reset: Optional[bool] = None
+    tasks: Optional[list[str]] = None
+    gateway_tools: list[str] = Field(default_factory=list)

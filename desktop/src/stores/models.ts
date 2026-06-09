@@ -6,6 +6,7 @@ import { createSignal } from 'solid-js';
 import type { ProviderEntry, ModelOption } from '@/types/index.js';
 import { api } from '../services/api/router';
 import type { Provider } from '../services/api/types';
+import type { AuxiliaryModelsResponse, StaleAuxEntry } from '../services/api/transports/http/model.js';
 
 const MODEL_PROVIDER_CACHE_KEY = 'hermes.desktop.model.providers.v2';
 
@@ -275,6 +276,55 @@ export const modelStore = {
   clearError() {
     setSwitchError(null);
   },
+};
+
+// ── Auxiliary model assignment store ────────────────────────────────────────
+
+const [auxModels, setAuxModels] = createSignal<AuxiliaryModelsResponse | null>(null);
+const [auxLoading, setAuxLoading] = createSignal(false);
+const [auxError, setAuxError] = createSignal<string | null>(null);
+const [auxStaleAux, setAuxStaleAux] = createSignal<StaleAuxEntry[]>([]);
+
+export const auxiliaryModelStore = {
+  get data() { return auxModels(); },
+  get loading() { return auxLoading(); },
+  get error() { return auxError(); },
+  get staleAux() { return auxStaleAux(); },
+
+  async load(): Promise<void> {
+    setAuxLoading(true);
+    setAuxError(null);
+    try {
+      const data = await api.model().getAuxiliaryModels();
+      setAuxModels(data);
+    } catch (e) {
+      setAuxError(e instanceof Error ? e.message : 'Failed to load auxiliary models');
+    } finally {
+      setAuxLoading(false);
+    }
+  },
+
+  async assign(opts: {
+    scope: 'main' | 'auxiliary';
+    provider: string;
+    model: string;
+    task?: string;
+    base_url?: string;
+  }): Promise<StaleAuxEntry[]> {
+    const result = await api.model().setModelAssignment({
+      scope: opts.scope,
+      provider: opts.provider,
+      model: opts.model,
+      task: opts.task,
+      base_url: opts.base_url,
+    });
+    if (result.stale_aux?.length) setAuxStaleAux(result.stale_aux);
+    else setAuxStaleAux([]);
+    await this.load();
+    return result.stale_aux ?? [];
+  },
+
+  clearStaleAux(): void { setAuxStaleAux([]); },
 };
 
 /** Per-1M-token pricing for well-known models (USD). */

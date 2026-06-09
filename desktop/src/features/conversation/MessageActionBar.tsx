@@ -1,5 +1,8 @@
 import type { Component } from 'solid-js';
+import { Show } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { settingsStore } from '@/stores/settings.js';
+import { playSpeechText, isVoicePlaybackActive } from '@/lib/voice/voice-playback.js';
 import styles from './MessageActionBar.module.css';
 
 export type MessageActionType = 'copy' | 'retry' | 'undo' | 'edit' | 'delete' | 'branch';
@@ -28,6 +31,10 @@ interface MessageActionBarProps {
   disabled?: boolean;
   /** When false, retry is hidden — only meaningful on the last assistant message. */
   isLast?: boolean;
+  /** Plain text content of the assistant message — used for read-aloud. */
+  plainText?: string;
+  /** Message id — used as playback identity for read-aloud. */
+  messageId?: string;
 }
 
 export const MessageActionBar: Component<MessageActionBarProps> = (props) => {
@@ -41,6 +48,13 @@ export const MessageActionBar: Component<MessageActionBarProps> = (props) => {
 
   const handleClick = (action: MessageActionType) => {
     if (!props.disabled) props.onAction(action);
+  };
+
+  const ttsEnabled = () => settingsStore.config?.tts?.enabled ?? false;
+
+  const handleReadAloud = () => {
+    if (!props.plainText || props.disabled) return;
+    void playSpeechText(props.plainText, { source: 'read-aloud', messageId: props.messageId ?? null });
   };
 
   return (
@@ -59,6 +73,18 @@ export const MessageActionBar: Component<MessageActionBarProps> = (props) => {
           </button>
         </>
       ))}
+      <Show when={props.variant === 'ai' && ttsEnabled() && props.plainText}>
+        <div class={styles.divider} />
+        <button
+          class={styles.actionButton}
+          classList={{ [styles.actionButtonDisabled]: !!props.disabled }}
+          title="Read aloud"
+          disabled={!!props.disabled}
+          onClick={handleReadAloud}
+        >
+          <Icon name="volume-2" size={13} />
+        </button>
+      </Show>
     </div>
   );
 };
