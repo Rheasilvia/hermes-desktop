@@ -226,13 +226,17 @@ def _get_live_tracking_cwd(task_id: str = "default") -> str | None:
 def _authoritative_workspace_root(task_id: str = "default") -> str | None:
     """Best-effort absolute workspace root for divergence checks.
 
-    Prefers the live terminal cwd (the directory the agent is actually working
-    in). When no terminal command has run yet — so the live registry is empty —
-    falls back to a registered task/session cwd override (TUI/Desktop/ACP
-    sessions register a raw-keyed cwd before any tool runs), then to a
-    sentinel-free absolute ``$TERMINAL_CWD``. This is what lets a worktree or
-    Desktop session warn about (and resolve into) its workspace from the very
-    first ``write_file``/``patch``, before any ``cd`` has populated the live cwd.
+    Resolution order:
+      1. The live terminal cwd (the directory the agent is actually working in).
+      2. The per-thread ``terminal_cwd`` ContextVar — how the desktop daemon
+         binds a session's workspace. One daemon process serves many sessions on
+         different threads, so the process-global ``$TERMINAL_CWD`` cannot
+         distinguish them; the ContextVar can.
+      3. A sentinel-free, absolute ``$TERMINAL_CWD`` env var (TUI/CLI/cron).
+
+    This is what lets a worktree/desktop session warn about (and resolve into)
+    its workspace from the very first ``write_file``/``patch``, before any
+    ``cd`` has populated the live cwd registry.
 
     Returns ``None`` only when there is genuinely no reliable anchor, in which
     case callers fall back to the process cwd.
@@ -240,9 +244,22 @@ def _authoritative_workspace_root(task_id: str = "default") -> str | None:
     live = _get_live_tracking_cwd(task_id)
     if live:
         return live
-    registered = _registered_task_cwd_override(task_id)
-    if registered:
-        return registered
+    # Desktop multi-session binds the per-thread workspace via a ContextVar
+    # (tools.terminal_cwd.set_terminal_cwd), NOT $TERMINAL_CWD. Honor it with the
+    # same absolute-only, sentinel-free discipline as the env source so that
+    # relative-path resolution and the workspace boundary check
+    # (tools.path_approval) agree on the session root — otherwise an early
+    # relative write resolves against the daemon cwd and is then denied as
+    # "outside workspace".
+    try:
+        from tools.terminal_cwd import get_context_cwd
+        ctx = (get_context_cwd() or "").strip()
+        if ctx and ctx.lower() not in _TERMINAL_CWD_SENTINELS:
+            expanded = os.path.expanduser(ctx)
+            if os.path.isabs(expanded):
+                return expanded
+    except Exception:
+        pass
     return _configured_terminal_cwd()
 
 

@@ -394,3 +394,104 @@ def test_unknown_owner_keeps_prior_single_session_behavior(tmp_path, monkeypatch
     )
     assert ft._get_live_tracking_cwd("default") == str(ws)
     assert ft._get_live_tracking_cwd("any-session") == str(ws)
+
+
+# ── Fix E: desktop multi-session per-thread workspace via ContextVar ─────────
+# (June 2026: the desktop daemon serves many sessions on different threads in
+# ONE process, so it binds each session's workspace through the terminal_cwd
+# ContextVar (tools.terminal_cwd.set_terminal_cwd), NOT the process-global
+# $TERMINAL_CWD env nor the live-terminal registry (empty until a shell command
+# runs). _authoritative_workspace_root must consult that ContextVar, else an
+# early relative write resolves against the daemon cwd and is then denied by the
+# workspace boundary check as "outside workspace". These pin that consultation
+# and its priority/sentinel discipline.)
+
+
+def test_context_cwd_anchors_when_registry_and_env_empty(_isolated_cwd, monkeypatch):
+    """Core fix: a relative write before any shell command lands in the session
+    workspace bound via the ContextVar — not the daemon's process cwd (decoy)."""
+    from tools.terminal_cwd import set_terminal_cwd, reset_terminal_cwd
+
+    workspace, decoy = _isolated_cwd
+    monkeypatch.delenv("TERMINAL_CWD", raising=False)  # env: nothing
+    token = set_terminal_cwd(str(workspace))           # ContextVar: the session workspace
+    try:
+        resolved = ft._resolve_path_for_task("target.py", task_id="default")
+    finally:
+        reset_terminal_cwd(token)
+
+    assert resolved == (workspace / "target.py")
+    assert not str(resolved).startswith(str(decoy))
+
+
+def test_context_cwd_wins_over_env_terminal_cwd(_isolated_cwd, monkeypatch):
+    """The explicit per-session ContextVar takes precedence over a stray env var."""
+    from tools.terminal_cwd import set_terminal_cwd, reset_terminal_cwd
+
+    workspace, decoy = _isolated_cwd
+    other = decoy.parent / "other"
+    other.mkdir()
+    monkeypatch.setenv("TERMINAL_CWD", str(other))     # env points elsewhere
+    token = set_terminal_cwd(str(workspace))
+    try:
+        resolved = ft._resolve_path_for_task("target.py", task_id="default")
+    finally:
+        reset_terminal_cwd(token)
+
+    assert resolved == (workspace / "target.py")
+
+
+def test_live_cwd_wins_over_context_cwd(_isolated_cwd, monkeypatch):
+    """Live terminal cwd (post-``cd``) stays authoritative over the bootstrap
+    ContextVar value."""
+    from tools.terminal_cwd import set_terminal_cwd, reset_terminal_cwd
+
+    workspace, decoy = _isolated_cwd
+    other = decoy.parent / "other2"
+    other.mkdir()
+    monkeypatch.setattr(ft, "_get_live_tracking_cwd", lambda task_id="default": str(workspace))
+    token = set_terminal_cwd(str(other))               # ContextVar points elsewhere
+    try:
+        resolved = ft._resolve_path_for_task("target.py", task_id="default")
+    finally:
+        reset_terminal_cwd(token)
+
+    assert resolved == (workspace / "target.py")
+
+
+@pytest.mark.parametrize("sentinel", ["", ".", "./", "auto", "cwd", "CWD"])
+def test_sentinel_context_cwd_is_treated_as_unset(_isolated_cwd, monkeypatch, sentinel):
+    """A sentinel/relative ContextVar value is not a valid anchor — fall through
+    to the (absolute) process cwd, exactly as for a sentinel env var."""
+    from tools.terminal_cwd import set_terminal_cwd, reset_terminal_cwd
+
+    workspace, decoy = _isolated_cwd
+    monkeypatch.delenv("TERMINAL_CWD", raising=False)
+    token = set_terminal_cwd(sentinel)
+    try:
+        resolved = ft._resolve_path_for_task("target.py", task_id="default")
+    finally:
+        reset_terminal_cwd(token)
+
+    assert resolved.is_absolute()
+    assert resolved == (decoy / "target.py").resolve()
+
+
+def test_warning_uses_context_cwd_workspace_root(_isolated_cwd, monkeypatch):
+    """The divergence warning treats the ContextVar workspace as the root, so an
+    escaping relative path is flagged even before any shell command runs."""
+    from tools.terminal_cwd import set_terminal_cwd, reset_terminal_cwd
+
+    workspace, decoy = _isolated_cwd
+    monkeypatch.delenv("TERMINAL_CWD", raising=False)
+    token = set_terminal_cwd(str(workspace))
+    try:
+        escaping = os.path.relpath(str(decoy / "target.py"), str(workspace))
+        resolved = ft._resolve_path_for_task(escaping, task_id="default")
+        warn = ft._path_resolution_warning(escaping, resolved, task_id="default")
+    finally:
+        reset_terminal_cwd(token)
+
+    assert warn is not None
+    assert "OUTSIDE the active workspace" in warn
+    assert str(workspace) in warn
