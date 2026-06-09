@@ -1,0 +1,94 @@
+.container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #0053fd 16%, color-mix(in srgb, #17171a 7%, transparent));
+  background: color-mix(in srgb, #0053fd 5%, color-mix(in srgb, #17171a 4%, transparent));
+  font-size: 0.75rem;
+  color: color-mix(in srgb, #17171a 74%, transparent);
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: color-mix(in srgb, #0053fd 12%, transparent);
+  color: #0053fd;
+  flex-shrink: 0;
+}
+
+.label {
+  font-weight: 500;
+  color: color-mix(in srgb, #17171a 94%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.elapsed {
+  font-family: "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.6875rem;
+  color: color-mix(in srgb, #17171a 54%, transparent);
+}
+
+.levelBars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+
+.bar {
+  width: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: height 100ms ease-out, opacity 100ms ease-out;
+}
+
+.barActive {
+  opacity: 0.8;
+}
+
+.barIdle {
+  opacity: 0.45;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.7; }
+}
+
+.playbackContainer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #0053fd 20%, transparent);
+  background: color-mix(in srgb, #0053fd 10%, transparent);
+  font-size: 0.75rem;
+  color: #0053fd;
+}
+
+.stopBtn {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 0.6875rem;
+  color: color-mix(in srgb, #17171a 74%, transparent);
+  border: 1px solid color-mix(in srgb, #17171a 12%, transparent);
+  flex-shrink: 0;
+}
+.stopBtn:hover { background: color-mix(in srgb, #17171a 6%, transparent); }

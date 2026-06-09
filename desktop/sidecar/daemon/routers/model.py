@@ -9,7 +9,13 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from ..schemas.model import SetActiveModelRequest, UpsertProviderRequest
+from ..schemas.model import (
+    AuxiliaryModelsResponse,
+    ModelAssignmentRequest,
+    ModelAssignmentResponse,
+    SetActiveModelRequest,
+    UpsertProviderRequest,
+)
 from ..services.dependencies import get_model_service
 from ..services.exceptions import ProviderNotFoundError
 
@@ -88,3 +94,33 @@ def set_model_params(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"ok": True}
+
+
+@router.get("/model/auxiliary", response_model=AuxiliaryModelsResponse)
+def get_auxiliary_models(svc=Depends(get_model_service)):
+    """Return current auxiliary task model assignments."""
+    try:
+        return svc.get_auxiliary_models()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/model/assignment", response_model=ModelAssignmentResponse)
+def set_model_assignment(body: ModelAssignmentRequest, svc=Depends(get_model_service)):
+    """Assign a provider/model to the main slot or an auxiliary task slot."""
+    scope = (body.scope or "").strip().lower()
+    if scope not in {"main", "auxiliary"}:
+        raise HTTPException(status_code=400, detail="scope must be 'main' or 'auxiliary'")
+    try:
+        result = svc.set_model_assignment(
+            scope=scope,
+            provider=(body.provider or "").strip(),
+            model=(body.model or "").strip(),
+            task=(body.task or "").strip().lower(),
+            base_url=(body.base_url or "").strip(),
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

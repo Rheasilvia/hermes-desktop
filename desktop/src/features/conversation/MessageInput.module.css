@@ -491,3 +491,16 @@
 .inputContainerSending .modelPill {
   opacity: 0.5;
 }
+
+.actionBtnActive {
+  background: color-mix(in srgb, #0053fd 12%, transparent);
+  color: #0053fd;
+}
+
+.actionBtnActive:hover {
+  background: color-mix(in srgb, #0053fd 18%, transparent);
+}
+
+.voiceActivityBar {
+  padding: 4px 8px 0;
+}

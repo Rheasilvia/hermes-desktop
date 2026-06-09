@@ -32,6 +32,9 @@ import {
   type UserFileRefDisplayPart,
 } from './display-parts.js';
 import type { RenderedMessage } from '@/types/ui/message.js';
+import { settingsStore } from '@/stores/settings.js';
+import { createVoiceRecorder } from '@/lib/voice/create-voice-recorder.js';
+import { VoiceActivity, VoicePlaybackActivity } from './composer/VoiceActivity.js';
 import styles from './MessageInput.module.css';
 
 interface MessageInputProps {
@@ -54,6 +57,9 @@ interface MessageInputProps {
   permissionModePending?: boolean;
   permissionModeAppliesNextTurn?: boolean;
   onPermissionModeChange?: (mode: DesktopPermissionMode) => void;
+  /** For voice conversation mode — accessor returning the current streaming assistant text + pending flag. */
+  pendingVoiceResponse?: () => { id: string; pending: boolean; text: string } | null;
+  consumePendingVoiceResponse?: () => void;
 }
 
 type ReferenceKind = 'file' | 'folder' | 'image' | 'url' | 'tool' | 'git' | 'diff' | 'staged';
@@ -100,8 +106,20 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const [referenceItems, setReferenceItems] = createSignal<ReferenceCompletion[]>([]);
   const [referencePanelOpen, setReferencePanelOpen] = createSignal(false);
   const [referenceManuallyClosed, setReferenceManuallyClosed] = createSignal(false);
+  const [voiceConvEnabled, setVoiceConvEnabled] = createSignal(false);
   let textareaRef: HTMLTextAreaElement | undefined;
   let previousSessionId: string | null | undefined;
+
+  // Voice settings helpers
+  const sttEnabled = () => settingsStore.config?.stt?.enabled ?? false;
+  const ttsEnabled = () => settingsStore.config?.tts?.enabled ?? false;
+
+  // Dictation recorder (push-to-talk)
+  const dictationRecorder = createVoiceRecorder({
+    maxRecordingSeconds: 120,
+    focusInput: () => textareaRef?.focus(),
+    onTranscript: (t) => { setText((prev) => prev ? `${prev} ${t}` : t); textareaRef?.focus(); },
+  });
   let referenceRequestId = 0;
   let historyCursor = -1;
   let historyDraftSnapshot: ComposerHistoryEntry | null = null;
@@ -929,6 +947,13 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
           <AttachmentChips attachments={attachments()} onRemove={removeAttachment} />
         </div>
       </Show>
+      {/* Voice activity indicators */}
+      <Show when={dictationRecorder.voiceStatus() !== 'idle'}>
+        <div class={styles.voiceActivityBar}>
+          <VoiceActivity state={dictationRecorder.voiceActivityState()} />
+        </div>
+      </Show>
+      <VoicePlaybackActivity />
       <div
         class={styles.inputContainer}
         classList={{
@@ -1048,6 +1073,34 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
               appliesNextTurn={props.permissionModeAppliesNextTurn}
               onChange={(mode) => props.onPermissionModeChange?.(mode)}
             />
+            {/* Dictation button — push-to-talk transcription */}
+            <Show when={sttEnabled()}>
+              <button
+                class={styles.actionBtn}
+                classList={{ [styles.actionBtnActive]: dictationRecorder.voiceStatus() !== 'idle' }}
+                type="button"
+                aria-label={dictationRecorder.voiceStatus() !== 'idle' ? 'Stop recording' : 'Dictate'}
+                title={dictationRecorder.voiceStatus() !== 'idle' ? 'Stop recording' : 'Dictate (push-to-talk)'}
+                disabled={!!props.disabled}
+                onClick={() => dictationRecorder.dictate()}
+              >
+                <Icon name={dictationRecorder.voiceStatus() === 'transcribing' ? 'loader' : 'mic'} size={16} />
+              </button>
+            </Show>
+            {/* Voice conversation toggle — hands-free loop */}
+            <Show when={sttEnabled() && ttsEnabled()}>
+              <button
+                class={styles.actionBtn}
+                classList={{ [styles.actionBtnActive]: voiceConvEnabled() }}
+                type="button"
+                aria-label={voiceConvEnabled() ? 'End voice conversation' : 'Start voice conversation'}
+                title={voiceConvEnabled() ? 'End voice conversation' : 'Voice conversation (hands-free)'}
+                disabled={!!props.disabled}
+                onClick={() => setVoiceConvEnabled((v) => !v)}
+              >
+                <Icon name={voiceConvEnabled() ? 'phone-off' : 'phone'} size={16} />
+              </button>
+            </Show>
           </div>
 
           <Show

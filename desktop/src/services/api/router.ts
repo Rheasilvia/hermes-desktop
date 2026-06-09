@@ -1,4 +1,5 @@
 import type { AnalyticsTransport } from './transports/http/analytics';
+import type { AudioTransport } from './transports/http/audio';
 import type { CronTransport } from './transports/http/cron';
 import type { ModelTransport } from './transports/http/model';
 import type { OAuthTransport } from './transports/http/oauth';
@@ -11,6 +12,7 @@ import type { StateTransport } from './transports/http/state';
 
 type Slot =
   | { kind: 'analytics'; impl: AnalyticsTransport }
+  | { kind: 'audio'; impl: AudioTransport }
   | { kind: 'cron'; impl: CronTransport }
   | { kind: 'model'; impl: ModelTransport }
   | { kind: 'oauth'; impl: OAuthTransport }
@@ -39,6 +41,9 @@ export class ApiRegistry {
 
   analytics(): AnalyticsTransport {
     return this.resolve<AnalyticsTransport>('analytics');
+  }
+  audio(): AudioTransport {
+    return this.resolve<AudioTransport>('audio');
   }
   cron(): CronTransport {
     return this.resolve<CronTransport>('cron');
