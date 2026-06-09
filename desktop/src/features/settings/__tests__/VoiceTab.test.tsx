@@ -27,9 +27,13 @@ const storeState = vi.hoisted(() => ({
       'stt.enabled': { type: 'boolean', description: 'Speech to text' },
       'stt.provider': { type: 'select', description: 'Speech-to-text provider', options: ['local', 'openai', 'groq'] },
       'voice.auto_tts': { type: 'boolean', description: 'Read responses aloud' },
+      'tts.edge.voice': { type: 'string', description: 'Edge voice' },
       'tts.openai.model': { type: 'select', description: 'OpenAI TTS model', options: ['gpt-4o-mini-tts', 'tts-1'] },
       'tts.openai.voice': { type: 'select', description: 'OpenAI voice', options: ['alloy', 'nova'] },
+      'tts.elevenlabs.voice_id': { type: 'string', description: 'ElevenLabs voice' },
+      'tts.elevenlabs.model_id': { type: 'select', description: 'ElevenLabs TTS model', options: ['eleven_multilingual_v2'] },
       'stt.openai.model': { type: 'select', description: 'OpenAI STT model', options: ['whisper-1', 'gpt-4o-transcribe'] },
+      'stt.groq.model': { type: 'string', description: 'Groq STT model' },
       'voice.record_key': { type: 'string', description: 'Voice shortcut' },
       'voice.max_recording_seconds': { type: 'number', description: 'Max recording length' },
     },
@@ -66,12 +70,15 @@ describe('VoiceTab', () => {
     storeState.saveConfig.mockReset();
   });
 
-  test('renders schema-driven voice fields without legacy flat STT model', () => {
+  test('renders Electron-aligned voice fields without legacy flat STT model', () => {
     render(() => <VoiceTab />);
 
-    expect(screen.getByText('Speech To Text')).toBeDefined();
+    expect(screen.getAllByText('Speech To Text').length).toBeGreaterThan(0);
     expect(screen.getByText('Read Responses Aloud')).toBeDefined();
+    expect(screen.getByText('Edge Voice')).toBeDefined();
+    expect(screen.getByText('ElevenLabs Voice')).toBeDefined();
     expect(screen.getByText('OpenAI STT Model')).toBeDefined();
+    expect(screen.getByText('Groq STT Model')).toBeDefined();
     expect(screen.getByText('Max Recording Length')).toBeDefined();
     expect(screen.queryByText('STT Model')).toBeNull();
   });

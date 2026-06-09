@@ -16,7 +16,16 @@ def test_config_defaults_and_schema_include_voice_fields(client, auth):
     assert schema.status_code == 200
     fields = schema.json()["fields"]
     assert "tts.provider" in fields
+    assert "tts.edge.voice" in fields
+    assert "tts.xai.voice_id" in fields
+    assert "tts.minimax.model" in fields
+    assert "tts.mistral.voice_id" in fields
+    assert "tts.gemini.voice" in fields
+    assert "tts.kittentts.voice" in fields
+    assert "tts.piper.voice" in fields
+    assert "stt.groq.model" in fields
     assert "stt.openai.model" in fields
+    assert "stt.elevenlabs.diarize" in fields
     assert "voice.auto_tts" in fields
     assert "voice.max_recording_seconds" in fields
     assert "stt.model" not in fields

@@ -21,6 +21,7 @@ _SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
     "tts.provider": {
         "type": "select",
         "description": "Text-to-speech provider",
+        "category": "tts",
         "options": [
             "edge",
             "elevenlabs",
@@ -34,50 +35,174 @@ _SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
             "piper",
         ],
     },
+    "tts.edge.voice": {
+        "type": "string",
+        "description": "Edge voice",
+        "category": "tts",
+    },
     "tts.openai.model": {
         "type": "select",
         "description": "OpenAI TTS model",
+        "category": "tts",
         "options": ["gpt-4o-mini-tts", "tts-1", "tts-1-hd"],
     },
     "tts.openai.voice": {
         "type": "select",
         "description": "OpenAI voice",
+        "category": "tts",
         "options": ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+    },
+    "tts.elevenlabs.voice_id": {
+        "type": "string",
+        "description": "ElevenLabs voice",
+        "category": "tts",
     },
     "tts.elevenlabs.model_id": {
         "type": "select",
         "description": "ElevenLabs TTS model",
+        "category": "tts",
         "options": ["eleven_multilingual_v2", "eleven_turbo_v2_5", "eleven_flash_v2_5"],
+    },
+    "tts.xai.voice_id": {
+        "type": "string",
+        "description": "xAI voice",
+        "category": "tts",
+    },
+    "tts.xai.language": {
+        "type": "string",
+        "description": "xAI language",
+        "category": "tts",
+    },
+    "tts.minimax.model": {
+        "type": "string",
+        "description": "MiniMax TTS model",
+        "category": "tts",
+    },
+    "tts.minimax.voice_id": {
+        "type": "string",
+        "description": "MiniMax voice",
+        "category": "tts",
+    },
+    "tts.mistral.model": {
+        "type": "string",
+        "description": "Mistral TTS model",
+        "category": "tts",
+    },
+    "tts.mistral.voice_id": {
+        "type": "string",
+        "description": "Mistral voice",
+        "category": "tts",
+    },
+    "tts.gemini.model": {
+        "type": "string",
+        "description": "Gemini TTS model",
+        "category": "tts",
+    },
+    "tts.gemini.voice": {
+        "type": "string",
+        "description": "Gemini voice",
+        "category": "tts",
+    },
+    "tts.neutts.model": {
+        "type": "string",
+        "description": "NeuTTS model",
+        "category": "tts",
     },
     "tts.neutts.device": {
         "type": "select",
         "description": "NeuTTS device",
+        "category": "tts",
         "options": ["cpu", "cuda", "mps"],
+    },
+    "tts.kittentts.model": {
+        "type": "string",
+        "description": "KittenTTS model",
+        "category": "tts",
+    },
+    "tts.kittentts.voice": {
+        "type": "string",
+        "description": "KittenTTS voice",
+        "category": "tts",
+    },
+    "tts.piper.voice": {
+        "type": "string",
+        "description": "Piper voice",
+        "category": "tts",
+    },
+    "stt.enabled": {
+        "type": "boolean",
+        "description": "Speech to text",
+        "category": "stt",
     },
     "stt.provider": {
         "type": "select",
         "description": "Speech-to-text provider",
+        "category": "stt",
         "options": ["local", "groq", "openai", "mistral", "xai", "elevenlabs"],
     },
     "stt.local.model": {
         "type": "select",
         "description": "Local STT model",
+        "category": "stt",
         "options": ["tiny", "base", "small", "medium", "large-v3"],
+    },
+    "stt.local.language": {
+        "type": "string",
+        "description": "Local STT language",
+        "category": "stt",
     },
     "stt.openai.model": {
         "type": "select",
         "description": "OpenAI STT model",
+        "category": "stt",
         "options": ["whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"],
+    },
+    "stt.groq.model": {
+        "type": "string",
+        "description": "Groq STT model",
+        "category": "stt",
     },
     "stt.mistral.model": {
         "type": "select",
         "description": "Mistral STT model",
+        "category": "stt",
         "options": ["voxtral-mini-latest", "voxtral-mini-2602"],
     },
     "stt.elevenlabs.model_id": {
         "type": "select",
         "description": "ElevenLabs STT model",
+        "category": "stt",
         "options": ["scribe_v2", "scribe_v1"],
+    },
+    "stt.elevenlabs.language_code": {
+        "type": "string",
+        "description": "ElevenLabs language",
+        "category": "stt",
+    },
+    "stt.elevenlabs.tag_audio_events": {
+        "type": "boolean",
+        "description": "Tag audio events",
+        "category": "stt",
+    },
+    "stt.elevenlabs.diarize": {
+        "type": "boolean",
+        "description": "Diarize speakers",
+        "category": "stt",
+    },
+    "voice.auto_tts": {
+        "type": "boolean",
+        "description": "Read responses aloud",
+        "category": "voice",
+    },
+    "voice.record_key": {
+        "type": "string",
+        "description": "Voice shortcut",
+        "category": "voice",
+    },
+    "voice.max_recording_seconds": {
+        "type": "number",
+        "description": "Max recording length",
+        "category": "voice",
     },
 }
 
@@ -184,6 +309,11 @@ def _schema(defaults: dict[str, Any]) -> dict[str, Any]:
         ordered[key] = value
         if key == "model":
             ordered["model_context_length"] = dict(_SCHEMA_OVERRIDES["model_context_length"])
+    for key, value in _SCHEMA_OVERRIDES.items():
+        if key not in ordered:
+            entry = dict(value)
+            entry.setdefault("category", key.split(".", 1)[0] if "." in key else "general")
+            ordered[key] = entry
     return {"fields": ordered, "category_order": _CATEGORY_ORDER}
 
 
@@ -280,4 +410,3 @@ class ConfigService:
                 next_config = _denormalize_config(incoming, current)
             save_config(next_config)
             return {"ok": True, "mtime": _mtime(self._hermes_home)}
-

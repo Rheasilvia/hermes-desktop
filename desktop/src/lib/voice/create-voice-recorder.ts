@@ -37,6 +37,31 @@ export interface VoiceRecorderResult {
   voiceStatus(): VoiceStatus;
 }
 
+const TRANSCRIPTION_TIMEOUT_MS = 120_000;
+const TRANSCRIPTION_TIMEOUT_MESSAGE = 'Transcription timed out. Check the STT model and try again.';
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'string' && error.trim()) return error;
+  return 'Transcription failed';
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(TRANSCRIPTION_TIMEOUT_MESSAGE)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 export function createVoiceRecorder(opts: VoiceRecorderOptions): VoiceRecorderResult {
   const recorder = createMicRecorder(ERROR_COPY);
   const [voiceStatus, setVoiceStatus] = createSignal<VoiceStatus>('idle');
@@ -67,7 +92,7 @@ export function createVoiceRecorder(opts: VoiceRecorderOptions): VoiceRecorderRe
       const base64 = btoa(binary);
       const dataUrl = `data:${mimeType};base64,${base64}`;
 
-      const resp = await api.audio().transcribe(dataUrl, mimeType);
+      const resp = await withTimeout(api.audio().transcribe(dataUrl, mimeType), TRANSCRIPTION_TIMEOUT_MS);
       const transcript = resp.transcript.trim();
       if (!transcript) {
         opts.onError?.('No speech detected. Try recording again.');
@@ -75,7 +100,7 @@ export function createVoiceRecorder(opts: VoiceRecorderOptions): VoiceRecorderRe
         opts.onTranscript(transcript);
       }
     } catch (err) {
-      opts.onError?.('Transcription failed');
+      opts.onError?.(errorMessage(err));
     } finally {
       setVoiceStatus('idle');
       opts.focusInput();
