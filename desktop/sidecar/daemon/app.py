@@ -163,6 +163,7 @@ def build_app(cfg: Config) -> FastAPI:
         code = exc.detail if isinstance(exc.detail, str) else "INTERNAL"
         env = ErrorEnvelope(
             code=code,
+            detail=exc.detail if isinstance(exc.detail, str) else None,
             trace_id=getattr(request.state, "trace_id", "unknown"),
         )
         return JSONResponse(

@@ -19,58 +19,38 @@ const CORE_FIELDS: VoiceField[] = [
   { path: 'voice.auto_tts', label: 'Read Responses Aloud', description: 'Automatically read assistant responses when they complete' },
 ];
 
-const TTS_PROVIDER_FIELDS: Record<string, VoiceField[]> = {
-  edge: [{ path: 'tts.edge.voice', label: 'Edge Voice' }],
-  openai: [
-    { path: 'tts.openai.model', label: 'OpenAI TTS Model' },
-    { path: 'tts.openai.voice', label: 'OpenAI Voice' },
-  ],
-  elevenlabs: [
-    { path: 'tts.elevenlabs.voice_id', label: 'ElevenLabs Voice' },
-    { path: 'tts.elevenlabs.model_id', label: 'ElevenLabs TTS Model' },
-  ],
-  xai: [
-    { path: 'tts.xai.voice_id', label: 'xAI Voice' },
-    { path: 'tts.xai.language', label: 'xAI Language' },
-  ],
-  minimax: [
-    { path: 'tts.minimax.model', label: 'MiniMax TTS Model' },
-    { path: 'tts.minimax.voice_id', label: 'MiniMax Voice' },
-  ],
-  mistral: [
-    { path: 'tts.mistral.model', label: 'Mistral TTS Model' },
-    { path: 'tts.mistral.voice_id', label: 'Mistral Voice' },
-  ],
-  gemini: [
-    { path: 'tts.gemini.model', label: 'Gemini TTS Model' },
-    { path: 'tts.gemini.voice', label: 'Gemini Voice' },
-  ],
-  neutts: [
-    { path: 'tts.neutts.model', label: 'NeuTTS Model' },
-    { path: 'tts.neutts.device', label: 'NeuTTS Device' },
-  ],
-  kittentts: [
-    { path: 'tts.kittentts.model', label: 'KittenTTS Model' },
-    { path: 'tts.kittentts.voice', label: 'KittenTTS Voice' },
-  ],
-  piper: [{ path: 'tts.piper.voice', label: 'Piper Voice' }],
-};
+const TTS_FIELDS: VoiceField[] = [
+  { path: 'tts.edge.voice', label: 'Edge Voice' },
+  { path: 'tts.openai.model', label: 'OpenAI TTS Model' },
+  { path: 'tts.openai.voice', label: 'OpenAI Voice' },
+  { path: 'tts.elevenlabs.voice_id', label: 'ElevenLabs Voice' },
+  { path: 'tts.elevenlabs.model_id', label: 'ElevenLabs TTS Model' },
+  { path: 'tts.xai.voice_id', label: 'xAI Voice' },
+  { path: 'tts.xai.language', label: 'xAI Language' },
+  { path: 'tts.minimax.model', label: 'MiniMax TTS Model' },
+  { path: 'tts.minimax.voice_id', label: 'MiniMax Voice' },
+  { path: 'tts.mistral.model', label: 'Mistral TTS Model' },
+  { path: 'tts.mistral.voice_id', label: 'Mistral Voice' },
+  { path: 'tts.gemini.model', label: 'Gemini TTS Model' },
+  { path: 'tts.gemini.voice', label: 'Gemini Voice' },
+  { path: 'tts.neutts.model', label: 'NeuTTS Model' },
+  { path: 'tts.neutts.device', label: 'NeuTTS Device' },
+  { path: 'tts.kittentts.model', label: 'KittenTTS Model' },
+  { path: 'tts.kittentts.voice', label: 'KittenTTS Voice' },
+  { path: 'tts.piper.voice', label: 'Piper Voice' },
+];
 
-const STT_PROVIDER_FIELDS: Record<string, VoiceField[]> = {
-  local: [
-    { path: 'stt.local.model', label: 'Local STT Model' },
-    { path: 'stt.local.language', label: 'Local STT Language' },
-  ],
-  openai: [{ path: 'stt.openai.model', label: 'OpenAI STT Model' }],
-  groq: [{ path: 'stt.groq.model', label: 'Groq STT Model' }],
-  mistral: [{ path: 'stt.mistral.model', label: 'Mistral STT Model' }],
-  elevenlabs: [
-    { path: 'stt.elevenlabs.model_id', label: 'ElevenLabs STT Model' },
-    { path: 'stt.elevenlabs.language_code', label: 'ElevenLabs Language' },
-    { path: 'stt.elevenlabs.tag_audio_events', label: 'Tag Audio Events' },
-    { path: 'stt.elevenlabs.diarize', label: 'Diarize Speakers' },
-  ],
-};
+const STT_FIELDS: VoiceField[] = [
+  { path: 'stt.local.model', label: 'Local STT Model' },
+  { path: 'stt.local.language', label: 'Local STT Language' },
+  { path: 'stt.openai.model', label: 'OpenAI STT Model' },
+  { path: 'stt.groq.model', label: 'Groq STT Model' },
+  { path: 'stt.mistral.model', label: 'Mistral STT Model' },
+  { path: 'stt.elevenlabs.model_id', label: 'ElevenLabs STT Model' },
+  { path: 'stt.elevenlabs.language_code', label: 'ElevenLabs Language' },
+  { path: 'stt.elevenlabs.tag_audio_events', label: 'Tag Audio Events' },
+  { path: 'stt.elevenlabs.diarize', label: 'Diarize Speakers' },
+];
 
 const RECORDING_FIELDS: VoiceField[] = [
   { path: 'voice.record_key', label: 'Voice Shortcut', description: 'Keyboard shortcut used by CLI voice mode' },
@@ -118,8 +98,6 @@ function titleFromPath(path: string): string {
 export const VoiceTab: Component = () => {
   const config = () => settingsStore.config;
   const schema = () => settingsStore.configSchema?.fields ?? {};
-  const ttsProvider = () => String(getPath(config(), 'tts.provider') ?? 'edge');
-  const sttProvider = () => String(getPath(config(), 'stt.provider') ?? 'local');
 
   const [elevenLabsVoices] = createResource(async () => {
     try {
@@ -169,28 +147,33 @@ export const VoiceTab: Component = () => {
     );
   };
 
-  const providerFields = () => [
-    ...(TTS_PROVIDER_FIELDS[ttsProvider()] ?? []),
-    ...(STT_PROVIDER_FIELDS[sttProvider()] ?? []),
-  ].filter((field) => schema()[field.path] || getPath(config(), field.path) !== undefined);
+  const visibleFields = (fields: VoiceField[]) =>
+    fields.filter((field) => schema()[field.path] || getPath(config(), field.path) !== undefined);
 
   return (
     <div class={styles.tab}>
       <section class={styles.section}>
         <h3 class={styles.sectionTitle}>Voice</h3>
-        <For each={CORE_FIELDS}>{renderField}</For>
+        <For each={visibleFields(CORE_FIELDS)}>{renderField}</For>
       </section>
 
-      <Show when={providerFields().length > 0}>
+      <Show when={visibleFields(TTS_FIELDS).length > 0}>
         <section class={styles.section}>
-          <h3 class={styles.sectionTitle}>Provider Details</h3>
-          <For each={providerFields()}>{renderField}</For>
+          <h3 class={styles.sectionTitle}>Text To Speech</h3>
+          <For each={visibleFields(TTS_FIELDS)}>{renderField}</For>
+        </section>
+      </Show>
+
+      <Show when={visibleFields(STT_FIELDS).length > 0}>
+        <section class={styles.section}>
+          <h3 class={styles.sectionTitle}>Speech To Text</h3>
+          <For each={visibleFields(STT_FIELDS)}>{renderField}</For>
         </section>
       </Show>
 
       <section class={styles.section}>
         <h3 class={styles.sectionTitle}>Recording</h3>
-        <For each={RECORDING_FIELDS}>{renderField}</For>
+        <For each={visibleFields(RECORDING_FIELDS)}>{renderField}</For>
       </section>
     </div>
   );

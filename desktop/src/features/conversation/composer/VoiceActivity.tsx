@@ -24,11 +24,6 @@ export const VoiceActivity: Component<VoiceActivityProps> = (props) => {
   return (
     <Show when={props.state.status !== 'idle'}>
       <div class={`${styles.container} ${props.class ?? ''}`} role="status" aria-live="polite">
-        <span class={styles.icon}>
-          <Show when={recording()} fallback={<Icon name="loader" size={12} />}>
-            <Icon name="mic" size={12} />
-          </Show>
-        </span>
         <span class={styles.label}>{recording() ? 'Recording…' : 'Transcribing…'}</span>
         <span class={styles.elapsed}>{formatElapsed(props.state.elapsedSeconds)}</span>
         <Show when={recording()} fallback={<BrailleSpinner name="scan" size={13} class={styles.waveSpinner} />}>

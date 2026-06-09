@@ -532,7 +532,7 @@
 }
 
 .voiceActionProcessing svg {
-  animation: voiceProcessSpin 0.9s linear infinite;
+  animation: voiceProcessSpin 1.8s linear infinite;
 }
 
 .voiceStopGlyph {

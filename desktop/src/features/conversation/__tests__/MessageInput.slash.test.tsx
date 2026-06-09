@@ -948,6 +948,96 @@ describe('MessageInput slash commands', () => {
     expect(screen.getByLabelText('Dictate').className).not.toContain('voiceActionProcessing');
   });
 
+  test('shows backend transcription errors and restores dictation trigger', async () => {
+    const tracks = [{ stop: vi.fn() }];
+    const stream = { getTracks: () => tracks };
+
+    class FakeMediaRecorder extends EventTarget {
+      static isTypeSupported = vi.fn(() => true);
+      state = 'inactive';
+      mimeType = 'audio/webm';
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onstop: (() => void) | null = null;
+
+      constructor(_stream: unknown, _options?: unknown) {
+        super();
+      }
+
+      start() {
+        this.state = 'recording';
+        this.ondataavailable?.({ data: new Blob(['voice'], { type: 'audio/webm' }) } as BlobEvent);
+      }
+
+      stop() {
+        this.state = 'inactive';
+        this.onstop?.();
+      }
+    }
+
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue(stream) },
+    });
+    mocks.transcribe.mockRejectedValue(new Error('Local transcription failed: model not found'));
+
+    render(() => <MessageInput onSend={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText('Dictate'));
+    await waitFor(() => expect(screen.getByLabelText('Stop recording')).toBeDefined());
+    fireEvent.click(screen.getByLabelText('Stop recording'));
+
+    await waitFor(() => expect(screen.getByText('Local transcription failed: model not found')).toBeDefined());
+    expect(screen.getByLabelText('Dictate')).toBeDefined();
+  });
+
+  test('times out stuck transcription and restores dictation trigger', async () => {
+    vi.useFakeTimers();
+    const tracks = [{ stop: vi.fn() }];
+    const stream = { getTracks: () => tracks };
+
+    class FakeMediaRecorder extends EventTarget {
+      static isTypeSupported = vi.fn(() => true);
+      state = 'inactive';
+      mimeType = 'audio/webm';
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onstop: (() => void) | null = null;
+
+      constructor(_stream: unknown, _options?: unknown) {
+        super();
+      }
+
+      start() {
+        this.state = 'recording';
+        this.ondataavailable?.({ data: new Blob(['voice'], { type: 'audio/webm' }) } as BlobEvent);
+      }
+
+      stop() {
+        this.state = 'inactive';
+        this.onstop?.();
+      }
+    }
+
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue(stream) },
+    });
+    mocks.transcribe.mockReturnValue(new Promise(() => {}));
+
+    render(() => <MessageInput onSend={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText('Dictate'));
+    await waitFor(() => expect(screen.getByLabelText('Stop recording')).toBeDefined());
+    fireEvent.click(screen.getByLabelText('Stop recording'));
+    await waitFor(() => expect(screen.getByLabelText('Transcribing')).toBeDefined());
+
+    await vi.advanceTimersByTimeAsync(120000);
+
+    await waitFor(() => expect(screen.getByText('Transcription timed out. Check the STT model and try again.')).toBeDefined());
+    expect(screen.getByLabelText('Dictate')).toBeDefined();
+
+    vi.useRealTimers();
+  });
+
   test('inserts transcribed speech at the current caret', async () => {
     const tracks = [{ stop: vi.fn() }];
     const stream = { getTracks: () => tracks };
@@ -1055,10 +1145,13 @@ describe('MessageInput slash commands', () => {
 
   test('voice activity panel uses waveform motion without rotating the status icon', () => {
     const voiceCss = readFileSync(resolve(process.cwd(), 'src/features/conversation/composer/VoiceActivity.module.css'), 'utf8');
+    const voiceActivityTsx = readFileSync(resolve(process.cwd(), 'src/features/conversation/composer/VoiceActivity.tsx'), 'utf8');
+    const recorderActivitySource = voiceActivityTsx.split('export const VoicePlaybackActivity')[0];
     const composerCss = readFileSync(resolve(process.cwd(), 'src/features/conversation/MessageInput.module.css'), 'utf8');
 
     expect(composerCss).toContain('.voiceStopGlyph');
     expect(composerCss).toContain('.voiceActivityInline');
+    expect(composerCss).toContain('voiceProcessSpin 1.8s linear infinite');
     expect(composerCss).not.toContain('padding: 0 16px 8px');
     expect(composerCss).not.toContain('#0053fd');
     expect(voiceCss).toContain('.waveSpinner');
@@ -1072,5 +1165,7 @@ describe('MessageInput slash commands', () => {
     expect(voiceCss).not.toContain('voiceIconRotate');
     expect(voiceCss).not.toContain('iconRecording svg');
     expect(voiceCss).not.toContain('iconTranscribing svg');
+    expect(recorderActivitySource).not.toContain('<Icon name="loader" size={12} />');
+    expect(recorderActivitySource).not.toContain('class={styles.icon}');
   });
 });
