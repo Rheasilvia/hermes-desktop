@@ -157,10 +157,13 @@ def get_plugins_hub(force_rescan: bool = False) -> dict:
     plugins_root_resolved = (hermes_home / "plugins").resolve()
     rows: List[Dict[str, Any]] = []
 
-    for name, version, description, source, dir_str in _discover_all_plugins():
-        if name in disabled_set:
+    for name, version, description, source, dir_str, key in _discover_all_plugins():
+        aliases = {name}
+        if key:
+            aliases.add(key)
+        if aliases & disabled_set:
             runtime_status = "disabled"
-        elif name in enabled_set:
+        elif aliases & enabled_set:
             runtime_status = "enabled"
         else:
             runtime_status = "inactive"
