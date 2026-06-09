@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   completeSlash: vi.fn(),
   completePath: vi.fn(),
   openDialog: vi.fn(),
+  transcribe: vi.fn(),
 }));
 
 vi.mock('@/stores/context.js', () => ({
@@ -23,6 +24,14 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: mocks.openDialog,
 }));
 
+vi.mock('@/services/api/router.js', () => ({
+  api: {
+    audio: () => ({
+      transcribe: mocks.transcribe,
+    }),
+  },
+}));
+
 describe('MessageInput slash commands', () => {
   beforeEach(() => {
     clearAllComposerDrafts();
@@ -33,6 +42,7 @@ describe('MessageInput slash commands', () => {
     mocks.completePath.mockReset();
     mocks.completePath.mockResolvedValue([]);
     mocks.openDialog.mockReset();
+    mocks.transcribe.mockReset();
   });
 
   test('requests slash completion with the current partial', async () => {
@@ -747,5 +757,198 @@ describe('MessageInput slash commands', () => {
     await waitFor(() => {
       expect(screen.getByText('1.2k tokens')).toBeDefined();
     });
+  });
+
+  test('shows dictation trigger by default when settings config is not loaded', () => {
+    render(() => <MessageInput onSend={vi.fn()} />);
+
+    expect(screen.getByLabelText('Dictate')).toBeDefined();
+  });
+
+  test('places dictation trigger directly before the send button', () => {
+    render(() => <MessageInput onSend={vi.fn()} />);
+
+    const dictate = screen.getByLabelText('Dictate');
+    const send = screen.getByLabelText('Send message');
+
+    expect(dictate.nextElementSibling).toBe(send);
+  });
+
+  test('clicking dictation trigger starts recording UI without requiring settings config', async () => {
+    const tracks = [{ stop: vi.fn() }];
+    const stream = { getTracks: () => tracks };
+
+    class FakeMediaRecorder extends EventTarget {
+      static isTypeSupported = vi.fn(() => true);
+      state = 'inactive';
+      mimeType = 'audio/webm';
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onstop: (() => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+
+      constructor(_stream: unknown, _options?: unknown) {
+        super();
+      }
+
+      start() {
+        this.state = 'recording';
+      }
+
+      stop() {
+        this.state = 'inactive';
+        this.onstop?.();
+      }
+    }
+
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue(stream) },
+    });
+
+    render(() => <MessageInput onSend={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText('Dictate'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Recording…')).toBeDefined();
+    });
+
+    expect(screen.getByLabelText('Stop recording')).toBeDefined();
+    expect(screen.queryByLabelText('Dictate')).toBeNull();
+  });
+
+  test('dictation trigger shows process state while transcription is pending and returns to mic when done', async () => {
+    let resolveTranscript!: (value: { transcript: string }) => void;
+    const pendingTranscript = new Promise<{ transcript: string }>((resolve) => {
+      resolveTranscript = resolve;
+    });
+    const tracks = [{ stop: vi.fn() }];
+    const stream = { getTracks: () => tracks };
+
+    class FakeMediaRecorder extends EventTarget {
+      static isTypeSupported = vi.fn(() => true);
+      state = 'inactive';
+      mimeType = 'audio/webm';
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onstop: (() => void) | null = null;
+
+      constructor(_stream: unknown, _options?: unknown) {
+        super();
+      }
+
+      start() {
+        this.state = 'recording';
+        this.ondataavailable?.({ data: new Blob(['voice'], { type: 'audio/webm' }) } as BlobEvent);
+      }
+
+      stop() {
+        this.state = 'inactive';
+        this.onstop?.();
+      }
+    }
+
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue(stream) },
+    });
+    mocks.transcribe.mockReturnValue(pendingTranscript);
+
+    render(() => <MessageInput onSend={vi.fn()} />);
+    const initialButton = screen.getByLabelText('Dictate');
+    expect(initialButton.querySelector('.lucide-mic')).toBeDefined();
+
+    fireEvent.click(initialButton);
+    await waitFor(() => expect(screen.getByLabelText('Stop recording')).toBeDefined());
+    expect(screen.getByLabelText('Stop recording').querySelector('[aria-hidden="true"]')).toBeDefined();
+    expect(screen.getByLabelText('Stop recording').querySelector('[class*="voiceStopGlyph"]')).toBeDefined();
+    expect(screen.getByLabelText('Stop recording').querySelector('.lucide-square')).toBeNull();
+    expect(screen.getByLabelText('Stop recording').className).toContain('voiceActionRecording');
+
+    fireEvent.click(screen.getByLabelText('Stop recording'));
+    await waitFor(() => expect(screen.getByLabelText('Transcribing')).toBeDefined());
+    expect(screen.getByLabelText('Transcribing').querySelector('.lucide-loader')).toBeDefined();
+    expect(screen.getByLabelText('Transcribing').className).toContain('voiceActionProcessing');
+    expect(screen.queryByLabelText('Stop recording')).toBeNull();
+
+    resolveTranscript({ transcript: 'done' });
+    await waitFor(() => expect(screen.getByLabelText('Dictate')).toBeDefined());
+    expect(screen.getByLabelText('Dictate').querySelector('.lucide-mic')).toBeDefined();
+    expect(screen.getByLabelText('Dictate').className).not.toContain('voiceActionRecording');
+    expect(screen.getByLabelText('Dictate').className).not.toContain('voiceActionProcessing');
+  });
+
+  test('types transcribed speech into the composer', async () => {
+    vi.useFakeTimers();
+
+    const tracks = [{ stop: vi.fn() }];
+    const stream = { getTracks: () => tracks };
+
+    class FakeMediaRecorder extends EventTarget {
+      static isTypeSupported = vi.fn(() => true);
+      state = 'inactive';
+      mimeType = 'audio/webm';
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onstop: (() => void) | null = null;
+
+      constructor(_stream: unknown, _options?: unknown) {
+        super();
+      }
+
+      start() {
+        this.state = 'recording';
+        this.ondataavailable?.({ data: new Blob(['voice'], { type: 'audio/webm' }) } as BlobEvent);
+      }
+
+      stop() {
+        this.state = 'inactive';
+        this.onstop?.();
+      }
+    }
+
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue(stream) },
+    });
+
+    mocks.transcribe.mockResolvedValue({ transcript: 'hello voice' });
+
+    render(() => <MessageInput onSend={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('Dictate'));
+    await waitFor(() => expect(screen.getByLabelText('Stop recording')).toBeDefined());
+
+    fireEvent.click(screen.getByLabelText('Stop recording'));
+    await waitFor(() => expect(mocks.transcribe).toHaveBeenCalled());
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    expect(input.value).toBe('');
+
+    await vi.advanceTimersByTimeAsync(26);
+    expect(input.value.length).toBeGreaterThan(0);
+    expect(input.value).not.toBe('hello voice');
+
+    await vi.advanceTimersByTimeAsync(400);
+    expect(input.value).toBe('hello voice');
+
+    vi.useRealTimers();
+  });
+
+  test('voice activity panel uses waveform motion without rotating the status icon', () => {
+    const voiceCss = readFileSync(resolve(process.cwd(), 'src/features/conversation/composer/VoiceActivity.module.css'), 'utf8');
+    const composerCss = readFileSync(resolve(process.cwd(), 'src/features/conversation/MessageInput.module.css'), 'utf8');
+
+    expect(composerCss).toContain('.voiceStopGlyph');
+    expect(composerCss).not.toContain('#0053fd');
+    expect(voiceCss).toContain('.waveSpinner');
+    expect(voiceCss).not.toContain('levelBars');
+    expect(voiceCss).not.toContain('barActive');
+    expect(voiceCss).not.toContain('barIdle');
+    expect(voiceCss).not.toContain('#0053fd');
+    expect(voiceCss).not.toContain('#17171a');
+    expect(voiceCss).not.toContain('voiceIconRotate');
+    expect(voiceCss).not.toContain('iconRecording svg');
+    expect(voiceCss).not.toContain('iconTranscribing svg');
   });
 });

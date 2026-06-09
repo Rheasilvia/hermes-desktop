@@ -228,6 +228,14 @@
   flex-wrap: wrap;
 }
 
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .attachMenuWrap {
   position: relative;
 }
@@ -493,14 +501,72 @@
 }
 
 .actionBtnActive {
-  background: color-mix(in srgb, #0053fd 12%, transparent);
-  color: #0053fd;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
 }
 
 .actionBtnActive:hover {
-  background: color-mix(in srgb, #0053fd 18%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.voiceActionRecording {
+  background: var(--color-error-surface);
+  color: var(--color-error);
+}
+
+.voiceActionRecording:hover {
+  background: var(--color-error-surface);
+  color: var(--color-error);
+  filter: brightness(0.97);
+}
+
+.voiceActionProcessing {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  color: var(--color-primary);
+}
+
+.voiceActionProcessing:hover {
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  color: var(--color-primary);
+}
+
+.voiceActionProcessing svg {
+  animation: voiceProcessSpin 0.9s linear infinite;
+}
+
+.voiceStopGlyph {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-error) 10%, transparent);
+}
+
+@keyframes voiceProcessSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voiceActionProcessing svg {
+    animation: none;
+  }
 }
 
 .voiceActivityBar {
-  padding: 4px 8px 0;
+  padding: 0 16px 8px;
+}
+
+.voiceError {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 22%, var(--color-border));
+  border-radius: 8px;
+  background: var(--color-error-surface);
+  color: var(--color-error);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 18px;
+  padding: 4px 10px;
 }

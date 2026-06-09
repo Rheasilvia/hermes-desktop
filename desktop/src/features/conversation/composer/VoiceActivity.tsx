@@ -1,6 +1,7 @@
 import type { Component } from 'solid-js';
-import { Show, For } from 'solid-js';
+import { Show } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { BrailleSpinner } from '@/ui/atoms/BrailleSpinner.js';
 import { voicePlayback } from '@/stores/voice-playback.js';
 import { stopVoicePlayback } from '@/lib/voice/voice-playback.js';
 import type { VoiceActivityState } from '@/lib/voice/create-voice-recorder.js';
@@ -10,29 +11,6 @@ function formatElapsed(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   const m = Math.floor(s / 60);
   return `${m}:${String(s % 60).padStart(2, '0')}`;
-}
-
-const BAR_WEIGHTS = [0.5, 0.78, 1, 0.78, 0.5];
-
-function LevelBars(props: { level: number; active: boolean }) {
-  return (
-    <div aria-hidden="true" class={styles.levelBars}>
-      <For each={BAR_WEIGHTS}>
-        {(weight) => {
-          const height = () =>
-            props.active
-              ? 0.25 + Math.min(0.68, props.level * weight)
-              : 0.25;
-          return (
-            <span
-              class={`${styles.bar} ${props.active ? styles.barActive : styles.barIdle}`}
-              style={{ height: `${height() * 100}%` }}
-            />
-          );
-        }}
-      </For>
-    </div>
-  );
 }
 
 export const VoiceActivity: Component<{ state: VoiceActivityState }> = (props) => {
@@ -48,7 +26,9 @@ export const VoiceActivity: Component<{ state: VoiceActivityState }> = (props) =
         </span>
         <span class={styles.label}>{recording() ? 'Recording…' : 'Transcribing…'}</span>
         <span class={styles.elapsed}>{formatElapsed(props.state.elapsedSeconds)}</span>
-        <LevelBars level={props.state.level} active={recording()} />
+        <Show when={recording()} fallback={<BrailleSpinner name="scan" size={13} class={styles.waveSpinner} />}>
+          <BrailleSpinner name="braillewave" size={13} class={styles.waveSpinner} />
+        </Show>
       </div>
     </Show>
   );

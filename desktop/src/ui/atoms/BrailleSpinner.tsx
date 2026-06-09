@@ -3,7 +3,7 @@ import { createSignal, onMount, onCleanup } from 'solid-js';
 import { spinners } from 'unicode-animations';
 
 interface BrailleSpinnerProps {
-  name?: 'orbit' | 'braille' | 'helix' | 'scan' | 'pulse' | 'clock' | 'moon' | 'earth' | 'dots' | 'line' | 'bouncingBall' | 'arc' | 'circle' | 'square' | 'diamond' | 'arrow' | 'triangle' | 'zigzag';
+  name?: keyof typeof spinners;
   size?: number;
   class?: string;
 }

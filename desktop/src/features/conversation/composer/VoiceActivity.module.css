@@ -1,81 +1,63 @@
-.container {
+.container,
+.playbackContainer {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
+  min-height: 28px;
   padding: 0 10px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, #0053fd 16%, color-mix(in srgb, #17171a 7%, transparent));
-  background: color-mix(in srgb, #0053fd 5%, color-mix(in srgb, #17171a 4%, transparent));
-  font-size: 0.75rem;
-  color: color-mix(in srgb, #17171a 74%, transparent);
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-background-alt));
+  color: var(--color-on-surface-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 18px;
+  animation: voicePanelIn 160ms ease-out;
 }
 
 .icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: color-mix(in srgb, #0053fd 12%, transparent);
-  color: #0053fd;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
   flex-shrink: 0;
 }
 
 .label {
-  font-weight: 500;
-  color: color-mix(in srgb, #17171a 94%, transparent);
+  font-weight: var(--weight-medium);
+  color: var(--color-on-surface);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .elapsed {
-  font-family: "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.6875rem;
-  color: color-mix(in srgb, #17171a 54%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-on-surface-dim);
 }
 
-.levelBars {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 16px;
-}
-
-.bar {
-  width: 2px;
-  border-radius: 2px;
-  background: currentColor;
-  transition: height 100ms ease-out, opacity 100ms ease-out;
-}
-
-.barActive {
+.waveSpinner {
+  color: var(--color-primary);
   opacity: 0.8;
+  width: 38px;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
-.barIdle {
-  opacity: 0.45;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 0.7; }
-}
-
-.playbackContainer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, #0053fd 20%, transparent);
-  background: color-mix(in srgb, #0053fd 10%, transparent);
-  font-size: 0.75rem;
-  color: #0053fd;
+@keyframes voicePanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .stopBtn {
@@ -85,10 +67,28 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border-radius: 100px;
-  font-size: 0.6875rem;
-  color: color-mix(in srgb, #17171a 74%, transparent);
-  border: 1px solid color-mix(in srgb, #17171a 12%, transparent);
+  border-radius: 7px;
+  font-size: 11px;
+  color: var(--color-on-surface-muted);
+  border: 1px solid var(--color-border);
   flex-shrink: 0;
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
-.stopBtn:hover { background: color-mix(in srgb, #17171a 6%, transparent); }
+
+.stopBtn:hover,
+.stopBtn:focus-visible {
+  border-color: color-mix(in srgb, var(--color-error) 32%, var(--color-border));
+  background: var(--color-hover-overlay);
+  color: var(--color-error);
+}
+
+.playbackContainer {
+  margin: 0 16px 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .container,
+  .playbackContainer {
+    animation: none;
+  }
+}

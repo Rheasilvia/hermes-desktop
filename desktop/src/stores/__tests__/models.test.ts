@@ -3,6 +3,14 @@ import type { ModelTransport } from '../../services/api/transports/http/model';
 
 let testApi: typeof import('../../services/api/router').api;
 
+const auxiliaryModelMethods = () => ({
+  getAuxiliaryModels: vi.fn().mockResolvedValue({
+    tasks: [],
+    main: { provider: '', model: '' },
+  }),
+  setModelAssignment: vi.fn().mockResolvedValue({ ok: true, scope: 'main' }),
+});
+
 beforeEach(async () => {
   vi.resetModules();
   localStorage.clear();
@@ -28,6 +36,7 @@ beforeEach(async () => {
     deleteProvider: vi.fn(),
     getProviderModelsConfig: vi.fn().mockResolvedValue(null),
     setModelParams: vi.fn(),
+    ...auxiliaryModelMethods(),
   } satisfies ModelTransport);
 });
 
@@ -61,6 +70,7 @@ describe('models store', () => {
       deleteProvider: vi.fn(),
       getProviderModelsConfig: vi.fn().mockResolvedValue(null),
       setModelParams: vi.fn(),
+      ...auxiliaryModelMethods(),
     } satisfies ModelTransport);
 
     const { createModelsStore } = await import('../models');
@@ -119,6 +129,7 @@ describe('loadActive', () => {
       deleteProvider: vi.fn(),
       getProviderModelsConfig: vi.fn().mockResolvedValue(null),
       setModelParams: vi.fn(),
+      ...auxiliaryModelMethods(),
     } satisfies ModelTransport);
 
     const { createModelsStore, modelStore } = await import('../models');
@@ -141,6 +152,7 @@ describe('loadActive', () => {
       deleteProvider: vi.fn(),
       getProviderModelsConfig: vi.fn().mockResolvedValue(null),
       setModelParams: vi.fn(),
+      ...auxiliaryModelMethods(),
     } satisfies ModelTransport);
 
     const { createModelsStore, modelStore } = await import('../models');

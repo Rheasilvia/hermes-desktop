@@ -82,6 +82,11 @@ import {
   Users,
   Play,
   Pin,
+  Mic,
+  Phone,
+  PhoneOff,
+  Volume2,
+  VolumeX,
 } from 'lucide-solid';
 
 export type IconName =
@@ -165,7 +170,12 @@ export type IconName =
   | 'folder'
   | 'users'
   | 'play'
-  | 'pin';
+  | 'pin'
+  | 'mic'
+  | 'phone'
+  | 'phone-off'
+  | 'volume-2'
+  | 'volume-x';
 
 interface IconProps {
   name: IconName;
@@ -256,6 +266,11 @@ const LUCIDE_ICONS: Record<IconName, Component<{ size?: number; strokeWidth?: nu
   'users': Users,
   'play': Play,
   'pin': Pin,
+  'mic': Mic,
+  'phone': Phone,
+  'phone-off': PhoneOff,
+  'volume-2': Volume2,
+  'volume-x': VolumeX,
 };
 
 export const Icon: Component<IconProps> = (props) => {
