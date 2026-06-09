@@ -299,9 +299,18 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     return todos.length > 0 && todos.every((t) => t.status === 'completed' || t.status === 'cancelled');
   });
 
-  const showFloatingPanel = createMemo(() =>
-    !panelManuallyClosed() && (panelTodos().length > 0 || hasActiveTodoTool())
-  );
+  const showFloatingPanel = createMemo(() => {
+    if (panelManuallyClosed()) return false;
+    if (hasActiveTodoTool()) return true;
+    // Live todos in the current streaming turn — includes the brief all-complete
+    // "done" moment, which the 2s auto-close below then dismisses.
+    if (isStreaming() && liveState().todos.length > 0) return true;
+    // Historical fallback (last assistant message's todo_list): only surface it when
+    // there is still unfinished work. A fully-completed list must NOT re-appear on
+    // later conversation turns, even though the reset effect clears the dismissed flag.
+    const todos = panelTodos();
+    return todos.length > 0 && todos.some((t) => t.status !== 'completed' && t.status !== 'cancelled');
+  });
 
   createEffect(() => {
     clearTimeout(autoCloseTimer);
