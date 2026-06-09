@@ -1,12 +1,14 @@
 import { render } from '@solidjs/testing-library';
 import type { Component } from 'solid-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ScrollController } from '../scrollController';
 
-const handleViewportResize = vi.fn();
-const observe = vi.fn();
-const disconnect = vi.fn();
-let resizeCallback: ResizeObserverCallback | undefined;
+// Controllable state shared with the hoisted vi.mock factories below.
+const state = vi.hoisted(() => ({
+  messages: [] as Array<Record<string, unknown>>,
+  dismissed: new Set<string>(),
+  liveTodos: [] as Array<Record<string, unknown>>,
+  streaming: false,
+}));
 
 vi.mock('@solidjs/router', () => ({
   useNavigate: () => vi.fn(),
@@ -14,29 +16,18 @@ vi.mock('@solidjs/router', () => ({
 
 vi.mock('@/stores/chat.js', () => ({
   chatStore: {
-    getMessages: () => [{
-      id: 'msg-1',
-      sessionId: 'session-resize',
-      role: 'user',
-      blocks: [{ type: 'text', id: 'block-1', content: 'hello' }],
-      timestamp: 1,
-      tokenCount: null,
-      finishReason: null,
-      isStreaming: false,
-      actions: [],
-      toolName: null,
-    }],
+    getMessages: () => state.messages,
     getLiveState: () => ({
       activityBlocks: [],
       activeTools: [],
       pendingPermission: null,
       pendingClarify: null,
       memoryContext: null,
-      todos: [],
-      status: 'idle',
+      todos: state.liveTodos,
+      status: state.streaming ? 'streaming' : 'idle',
       turnId: null,
     }),
-    isStreaming: () => false,
+    isStreaming: () => state.streaming,
     getError: () => null,
     getErrorAction: () => null,
     isLoadingMessages: () => false,
@@ -49,9 +40,9 @@ vi.mock('@/stores/chat.js', () => ({
 
 vi.mock('@/stores/session.js', () => ({
   sessionStore: {
-    activeSession: { id: 'session-resize', title: 'Resize', cwd: '/repo', permissionMode: 'auto' },
-    activeSessionId: 'session-resize',
-    sessions: [{ id: 'session-resize' }],
+    activeSession: { id: 'sess-x', title: 'Todo', cwd: '/repo', permissionMode: 'auto' },
+    activeSessionId: 'sess-x',
+    sessions: [{ id: 'sess-x' }],
     setActiveSession: vi.fn(),
     getSessionModel: () => ({ provider: 'test', model: 'test-model' }),
     setSessionModel: vi.fn(),
@@ -73,16 +64,14 @@ vi.mock('@/stores/ui.js', () => ({
   uiStore: {
     connectionState: 'connected',
     setConnectionState: vi.fn(),
-    isTodoPanelDismissed: () => false,
-    dismissTodoPanel: vi.fn(),
-    restoreTodoPanel: vi.fn(),
+    isTodoPanelDismissed: (id: string) => state.dismissed.has(id),
+    dismissTodoPanel: (id: string) => { state.dismissed.add(id); },
+    restoreTodoPanel: (id: string) => { state.dismissed.delete(id); },
   },
 }));
 
 vi.mock('@/stores/usage.js', () => ({
-  sessionUsage: {
-    get: () => undefined,
-  },
+  sessionUsage: { get: () => undefined },
 }));
 
 vi.mock('@/stores/side-panel.js', () => ({
@@ -96,16 +85,11 @@ vi.mock('@/stores/side-panel.js', () => ({
 }));
 
 vi.mock('@/stores/git-view.js', () => ({
-  gitViewStore: {
-    setWorkspacePath: vi.fn(),
-    fetchDiff: vi.fn(),
-  },
+  gitViewStore: { setWorkspacePath: vi.fn(), fetchDiff: vi.fn() },
 }));
 
 vi.mock('@/stores/workspace-tree.js', () => ({
-  workspaceTreeStore: {
-    setWorkspacePath: vi.fn(),
-  },
+  workspaceTreeStore: { setWorkspacePath: vi.fn() },
 }));
 
 vi.mock('@/stores/context.js', () => ({
@@ -127,7 +111,7 @@ vi.mock('@/stores/composer-queue.js', () => ({
 }));
 
 vi.mock('../scrollController.js', () => ({
-  createScrollController: (): ScrollController => ({
+  createScrollController: () => ({
     isNearBottom: () => false,
     userScrolledUp: () => false,
     setUserScrolledUp: vi.fn(),
@@ -135,7 +119,7 @@ vi.mock('../scrollController.js', () => ({
     setUnreadCount: vi.fn(),
     resetScrollState: vi.fn(),
     handleScroll: vi.fn(),
-    handleViewportResize,
+    handleViewportResize: vi.fn(),
     scrollToBottom: vi.fn(),
     refs: { messagesEnd: undefined, messageList: undefined },
   }),
@@ -151,9 +135,7 @@ vi.mock('../commandCardState.js', () => ({
 }));
 
 vi.mock('../slashCommandRunner.js', () => ({
-  createSlashCommandRunner: () => ({
-    handleSlashCommand: vi.fn(),
-  }),
+  createSlashCommandRunner: () => ({ handleSlashCommand: vi.fn() }),
 }));
 
 vi.mock('../eventSubscription.js', () => ({
@@ -180,26 +162,38 @@ vi.mock('../ClarificationCard.js', () => ({ ClarificationCard: stubComponent('cl
 vi.mock('../MemoryContextCard.js', () => ({ MemoryContextCard: stubComponent('memory-context-card') }));
 vi.mock('../TodoPanel.js', () => ({ TodoPanel: stubComponent('todo-panel') }));
 vi.mock('../JumpToBottom.js', () => ({ JumpToBottom: stubComponent('jump-to-bottom') }));
-vi.mock('../turn/PromptDock.js', () => ({ PromptDock: stubComponent('prompt-dock') }));
+// NOTE: PromptDock is intentionally NOT stubbed — it renders the `items` array
+// (including the floating todo panel), so the real component is needed to observe
+// whether the panel is shown.
 vi.mock('../turn/PermissionRequestCard.js', () => ({ PermissionRequestCard: stubComponent('permission-request-card') }));
 vi.mock('../background/BackgroundTaskDock.js', () => ({ BackgroundTaskDock: stubComponent('background-task-dock') }));
 
-describe('ChatView composer resize anchoring', () => {
+function assistantWithTodos(todos: Array<{ id: string; content: string; status: string }>) {
+  return {
+    id: 'msg-assistant',
+    sessionId: 'sess-x',
+    role: 'assistant',
+    blocks: [{ type: 'todo_list', id: 'tl-1', toolId: 'todo', todos }],
+    timestamp: 1,
+    tokenCount: null,
+    finishReason: null,
+    isStreaming: false,
+    actions: [],
+    toolName: null,
+  };
+}
+
+describe('ChatView floating todo panel — persisted dismissal on hydration', () => {
   beforeEach(() => {
-    handleViewportResize.mockClear();
-    observe.mockClear();
-    disconnect.mockClear();
-    resizeCallback = undefined;
+    state.messages = [];
+    state.dismissed = new Set<string>();
+    state.liveTodos = [];
+    state.streaming = false;
 
     class ResizeObserverMock {
-      constructor(callback: ResizeObserverCallback) {
-        resizeCallback = callback;
-      }
-
-      observe = observe;
-      disconnect = disconnect;
+      observe = vi.fn();
+      disconnect = vi.fn();
     }
-
     vi.stubGlobal('ResizeObserver', ResizeObserverMock);
   });
 
@@ -207,20 +201,29 @@ describe('ChatView composer resize anchoring', () => {
     vi.unstubAllGlobals();
   });
 
-  it('observes only the composer input target and anchors the current conversation when it resizes', async () => {
+  it('does not re-show the panel for a dismissed session even with a completed todo_list block', async () => {
+    // Simulates restart of a session that finished its todos (panel had auto-hidden).
+    state.dismissed.add('sess-x');
+    state.messages = [assistantWithTodos([
+      { id: '1', content: 'a', status: 'completed' },
+      { id: '2', content: 'b', status: 'completed' },
+    ])];
+
     const { ChatView } = await import('../ChatView.js');
-    const rendered = render(() => <ChatView sessionId="session-resize" />);
+    const rendered = render(() => <ChatView sessionId="sess-x" />);
 
-    const observedTarget = observe.mock.calls[0][0] as HTMLElement;
-    expect(observe).toHaveBeenCalledTimes(1);
-    expect(observedTarget.contains(rendered.getByTestId('message-input'))).toBe(true);
-    expect(observedTarget.contains(rendered.getByTestId('jump-to-bottom'))).toBe(false);
-    expect(observedTarget.contains(rendered.getByTestId('prompt-dock'))).toBe(false);
+    expect(rendered.queryByTestId('todo-panel')).toBeNull();
+  });
 
-    resizeCallback?.([], {} as ResizeObserver);
+  it('shows the panel on hydration when todos are unfinished and the session was not dismissed', async () => {
+    state.messages = [assistantWithTodos([
+      { id: '1', content: 'a', status: 'completed' },
+      { id: '2', content: 'b', status: 'pending' },
+    ])];
 
-    expect(handleViewportResize).toHaveBeenCalledTimes(1);
-    rendered.unmount();
-    expect(disconnect).toHaveBeenCalledTimes(1);
+    const { ChatView } = await import('../ChatView.js');
+    const rendered = render(() => <ChatView sessionId="sess-x" />);
+
+    expect(rendered.queryByTestId('todo-panel')).not.toBeNull();
   });
 });

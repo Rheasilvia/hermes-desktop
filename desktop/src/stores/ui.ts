@@ -15,6 +15,7 @@ const STORAGE_KEY_PINNED_OPEN = 'hermes-desktop-pinned-open';
 const STORAGE_KEY_CONVERSATIONS_OPEN = 'hermes-desktop-conversations-open';
 const STORAGE_KEY_WORKSPACE_GROUPING = 'hermes-desktop-workspace-grouping';
 const STORAGE_KEY_PINNED_SESSIONS = 'hermes-desktop-pinned-sessions';
+const STORAGE_KEY_TODO_PANEL_DISMISSED = 'hermes-desktop-todo-panel-dismissed';
 
 const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 360;
@@ -82,6 +83,11 @@ const [conversationsSectionOpen, setConversationsSectionOpen] = createSignal(loa
 const [workspaceGrouping, setWorkspaceGrouping] = createSignal(loadBool(STORAGE_KEY_WORKSPACE_GROUPING, false));
 const [pinnedSessionIds, setPinnedSessionIds] = createSignal<string[]>(loadJsonArray(STORAGE_KEY_PINNED_SESSIONS));
 
+// Per-session "floating todo panel was dismissed" state — persisted so the panel
+// restores to its pre-close visibility on restart instead of re-appearing with
+// already-completed todos.
+const [todoPanelDismissedIds, setTodoPanelDismissedIds] = createSignal<string[]>(loadJsonArray(STORAGE_KEY_TODO_PANEL_DISMISSED));
+
 createEffect(() => {
   localStorage.setItem(STORAGE_KEY_THEME, theme());
 });
@@ -108,6 +114,10 @@ createEffect(() => {
 
 createEffect(() => {
   localStorage.setItem(STORAGE_KEY_PINNED_SESSIONS, JSON.stringify(pinnedSessionIds()));
+});
+
+createEffect(() => {
+  localStorage.setItem(STORAGE_KEY_TODO_PANEL_DISMISSED, JSON.stringify(todoPanelDismissedIds()));
 });
 
 export const uiStore = {
@@ -172,5 +182,22 @@ export const uiStore = {
 
   isPinned(id: string): boolean {
     return pinnedSessionIds().includes(id);
+  },
+
+  isTodoPanelDismissed(id: string): boolean {
+    return todoPanelDismissedIds().includes(id);
+  },
+
+  dismissTodoPanel(id: string) {
+    if (!id) return;
+    const current = todoPanelDismissedIds();
+    if (!current.includes(id)) {
+      setTodoPanelDismissedIds([...current, id]);
+    }
+  },
+
+  restoreTodoPanel(id: string) {
+    if (!todoPanelDismissedIds().includes(id)) return;
+    setTodoPanelDismissedIds(todoPanelDismissedIds().filter(s => s !== id));
   },
 };
