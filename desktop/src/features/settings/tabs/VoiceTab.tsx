@@ -53,7 +53,6 @@ const STT_FIELDS: VoiceField[] = [
 ];
 
 const RECORDING_FIELDS: VoiceField[] = [
-  { path: 'voice.record_key', label: 'Voice Shortcut', description: 'Keyboard shortcut used by CLI voice mode' },
   { path: 'voice.max_recording_seconds', label: 'Max Recording Length', description: 'Maximum dictation recording length in seconds' },
 ];
 
