@@ -1,6 +1,6 @@
 import type { Component } from 'solid-js';
 import { createResource, For, Show } from 'solid-js';
-import { settingsStore } from '@/stores/settings.js';
+import { configStore } from '@/stores/config.js';
 import { api } from '@/services/api/router.js';
 import { ConfigField } from '../ConfigField.js';
 import type { ConfigFieldProps } from '../ConfigField.js';
@@ -95,8 +95,8 @@ function titleFromPath(path: string): string {
 }
 
 export const VoiceTab: Component = () => {
-  const config = () => settingsStore.config;
-  const schema = () => settingsStore.configSchema?.fields ?? {};
+  const config = () => configStore.config;
+  const schema = () => configStore.configSchema?.fields ?? {};
 
   const [elevenLabsVoices] = createResource(async () => {
     try {
@@ -107,8 +107,8 @@ export const VoiceTab: Component = () => {
   });
 
   const handleChange = (key: string, value: unknown) => {
-    settingsStore.markDirty();
-    void settingsStore.saveConfig(key, value);
+    configStore.markDirty();
+    void configStore.saveConfig(key, value);
   };
 
   const fieldOptions = (path: string, value: unknown) => {

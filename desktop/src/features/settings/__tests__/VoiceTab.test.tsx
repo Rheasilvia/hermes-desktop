@@ -43,8 +43,8 @@ const storeState = vi.hoisted(() => ({
   saveConfig: vi.fn(),
 }));
 
-vi.mock('@/stores/settings.js', () => ({
-  settingsStore: {
+vi.mock('@/stores/config.js', () => ({
+  configStore: {
     get config() {
       return storeState.config;
     },

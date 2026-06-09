@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { settingsStore } from '@/stores/settings.js';
+import { configStore } from '@/stores/config.js';
 import { ConfigField } from '../ConfigField.js';
 import styles from './AgentTab.module.css';
 
@@ -11,13 +11,13 @@ const NOTIFICATION_OPTIONS = [
 ];
 
 export const AgentTab: Component = () => {
-  const config = () => settingsStore.config;
+  const config = () => configStore.config;
   const agent = () => config()?.agent;
   const display = () => config()?.display;
 
   const handleChange = (key: string, value: unknown) => {
-    settingsStore.markDirty();
-    settingsStore.saveConfig(key, value);
+    configStore.markDirty();
+    configStore.saveConfig(key, value);
   };
 
   return (
