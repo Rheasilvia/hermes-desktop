@@ -1,5 +1,5 @@
 import type { Accessor, Component } from 'solid-js';
-import { createSignal, createEffect, Show, createMemo, untrack, For, onCleanup } from 'solid-js';
+import { createSignal, createEffect, Show, createMemo, untrack, For } from 'solid-js';
 import { fileChipQueue } from '@/stores/file-chip-queue.js';
 import {
   clearComposerDraft,
@@ -108,34 +108,31 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const [voiceError, setVoiceError] = createSignal('');
   let textareaRef: HTMLTextAreaElement | undefined;
   let previousSessionId: string | null | undefined;
-  let transcriptTimer: ReturnType<typeof setInterval> | null = null;
 
-  const clearTranscriptTimer = () => {
-    if (transcriptTimer) {
-      clearInterval(transcriptTimer);
-      transcriptTimer = null;
-    }
-  };
-
-  onCleanup(clearTranscriptTimer);
-
-  const insertTranscript = (transcript: string) => {
+  const insertTranscriptAtCaret = (transcript: string) => {
     const nextTranscript = transcript.trim();
     if (!nextTranscript) return;
-    clearTranscriptTimer();
 
-    const startText = text();
-    const prefix = startText ? ' ' : '';
-    const nextText = `${prefix}${nextTranscript}`;
-    let index = 0;
+    const current = text();
+    const selectionStart = textareaRef?.selectionStart ?? current.length;
+    const selectionEnd = textareaRef?.selectionEnd ?? selectionStart;
+    const start = Math.max(0, Math.min(selectionStart, current.length));
+    const end = Math.max(start, Math.min(selectionEnd, current.length));
+    const before = current.slice(0, start);
+    const after = current.slice(end);
+    const needsLeadingSpace = before.length > 0 && !/\s$/.test(before);
+    const needsTrailingSpace = after.length > 0 && !/^\s/.test(after);
+    const inserted = `${needsLeadingSpace ? ' ' : ''}${nextTranscript}${needsTrailingSpace ? ' ' : ''}`;
+    const nextText = `${before}${inserted}${after}`;
+    const caret = before.length + inserted.length - (needsTrailingSpace ? 1 : 0);
 
-    transcriptTimer = setInterval(() => {
-      index += 1;
-      setText(`${startText}${nextText.slice(0, index)}`);
+    setText(nextText);
+    queueMicrotask(() => {
+      textareaRef?.focus();
+      textareaRef?.setSelectionRange(caret, caret);
       if (textareaRef) autoResize(textareaRef);
       props.onComposerActivity?.();
-      if (index >= nextText.length) clearTranscriptTimer();
-    }, 18);
+    });
   };
 
   // Dictation recorder (push-to-talk)
@@ -144,8 +141,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     focusInput: () => textareaRef?.focus(),
     onTranscript: (t) => {
       setVoiceError('');
-      insertTranscript(t);
-      textareaRef?.focus();
+      insertTranscriptAtCaret(t);
     },
     onError: (message) => setVoiceError(message),
   });
@@ -1074,18 +1070,6 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
           />
         </div>
 
-        <Show when={dictationRecorder.voiceStatus() !== 'idle'}>
-          <div class={styles.voiceActivityBar}>
-            <VoiceActivity state={dictationRecorder.voiceActivityState()} />
-          </div>
-        </Show>
-        <Show when={voiceError()}>
-          <div class={styles.voiceActivityBar}>
-            <div class={styles.voiceError} role="alert">
-              {voiceError()}
-            </div>
-          </div>
-        </Show>
         <VoicePlaybackActivity />
 
         {/* Toolbar */}
@@ -1143,6 +1127,14 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
           </div>
 
           <div class={styles.toolbarRight}>
+            <Show when={dictationRecorder.voiceStatus() !== 'idle'}>
+              <VoiceActivity class={styles.voiceActivityInline} state={dictationRecorder.voiceActivityState()} />
+            </Show>
+            <Show when={voiceError()}>
+              <div class={`${styles.voiceActivityInline} ${styles.voiceError}`} role="alert">
+                {voiceError()}
+              </div>
+            </Show>
             <Show when={!props.isStreaming}>
               <button
                 class={styles.actionBtn}

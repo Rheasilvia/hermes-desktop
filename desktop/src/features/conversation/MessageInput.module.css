@@ -233,7 +233,8 @@
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .attachMenuWrap {
@@ -553,14 +554,19 @@
   }
 }
 
-.voiceActivityBar {
-  padding: 0 16px 8px;
+.voiceActivityInline {
+  display: flex;
+  min-width: 0;
+  max-width: min(230px, 34vw);
+  flex: 1 1 180px;
 }
 
 .voiceError {
   display: flex;
   align-items: center;
   min-height: 28px;
+  width: 100%;
+  min-width: 0;
   border: 1px solid color-mix(in srgb, var(--color-error) 22%, var(--color-border));
   border-radius: 8px;
   background: var(--color-error-surface);
@@ -569,4 +575,14 @@
   font-size: 12px;
   line-height: 18px;
   padding: 4px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .voiceActivityInline {
+    max-width: 154px;
+    flex-basis: 132px;
+  }
 }
