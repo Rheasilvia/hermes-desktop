@@ -53,3 +53,15 @@ def get_terminal_cwd(fallback: Optional[str] = None) -> str:
     if fallback:
         return fallback
     return os.getcwd()
+
+
+def get_context_cwd() -> Optional[str]:
+    """Return ONLY the per-context (ContextVar) terminal cwd, or None.
+
+    Unlike :func:`get_terminal_cwd`, this never falls back to ``$TERMINAL_CWD``
+    or ``os.getcwd()`` — it reports solely the value bound by
+    :func:`set_terminal_cwd` for the current execution context (a desktop
+    session turn-thread). Callers that must distinguish a deliberately-bound
+    session workspace from the process default use this.
+    """
+    return _terminal_cwd.get()

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -311,7 +312,9 @@ def build_turn_context(
 
     # ── System prompt (cached per session for prefix caching) ──
     if agent._cached_system_prompt is None:
+        _t0_sp = time.time()
         restore_or_build_system_prompt(agent, system_message, conversation_history)
+        logger.info("[perf] run_conversation system prompt build: %.2fs", time.time() - _t0_sp)
 
     active_system_prompt = agent._cached_system_prompt
 
@@ -465,11 +468,13 @@ def build_turn_context(
     # External memory provider: prefetch once before the tool loop.
     ext_prefetch_cache = ""
     if agent._memory_manager:
+        _t0_mem = time.time()
         try:
             _query = original_user_message if isinstance(original_user_message, str) else ""
             ext_prefetch_cache = agent._memory_manager.prefetch_all(_query) or ""
         except Exception:
             pass
+        logger.info("[perf] run_conversation memory prefetch: %.2fs", time.time() - _t0_mem)
 
     return TurnContext(
         user_message=user_message,
