@@ -20,6 +20,17 @@ def test_put_settings_round_trip(client, auth):
     assert r2.json()["ui"]["theme"] == "dark"
 
 
+def test_put_settings_rejects_runtime_config_keys(client, auth):
+    for key in ("tts", "stt", "voice", "model", "agent", "security", "memory", "browser"):
+        r = client.put(
+            "/desktop/api/settings",
+            json={"schema_version": 1, "ui": {}, key: {"enabled": True}},
+            headers=auth,
+        )
+        assert r.status_code == 400
+        assert r.json()["detail"] == f"Runtime config key '{key}' belongs in /desktop/api/config"
+
+
 def test_put_settings_schema_mismatch(client, auth):
     r = client.put(
         "/desktop/api/settings",

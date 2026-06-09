@@ -1,7 +1,7 @@
 import type { Component } from 'solid-js';
-import { Show, Switch, Match, onMount } from 'solid-js';
+import { Show, Switch, Match, onMount, createSignal } from 'solid-js';
 import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner.js';
-import { settingsStore } from '@/stores/settings.js';
+import { configStore } from '@/stores/config.js';
 import { GeneralTab } from './tabs/GeneralTab.js';
 import { AgentTab } from './tabs/AgentTab.js';
 import { MemoryTab } from './tabs/MemoryTab.js';
@@ -27,12 +27,14 @@ const SETTINGS_TABS: SettingsTabDef[] = [
 ];
 
 export const SettingsView: Component = () => {
+  const [activeTab, setActiveTab] = createSignal('general');
+
   onMount(() => {
-    settingsStore.loadConfig();
+    configStore.loadConfig();
   });
 
   const handleTabChange = (tabId: string) => {
-    settingsStore.setActiveTab(tabId);
+    setActiveTab(tabId);
   };
 
   return (
@@ -44,8 +46,8 @@ export const SettingsView: Component = () => {
             <button
               type="button"
               role="tab"
-              aria-selected={settingsStore.activeTab === tab.id}
-              class={`${styles.navItem} ${settingsStore.activeTab === tab.id ? styles.navItemActive : ''}`}
+              aria-selected={activeTab() === tab.id}
+              class={`${styles.navItem} ${activeTab() === tab.id ? styles.navItemActive : ''}`}
               onClick={() => handleTabChange(tab.id)}
             >
               {tab.label}
@@ -55,39 +57,39 @@ export const SettingsView: Component = () => {
       </aside>
 
       <main class={styles.content} role="tabpanel">
-        <Show when={settingsStore.isLoading && !settingsStore.config}>
+        <Show when={configStore.isLoading && !configStore.config}>
           <div class={styles.loading}>
             <LoadingSpinner size="md" />
             <p>Loading configuration…</p>
           </div>
         </Show>
 
-        <Show when={settingsStore.error}>
+        <Show when={configStore.error}>
           <div class={styles.errorBanner}>
-            {settingsStore.error}
+            {configStore.error}
           </div>
         </Show>
 
         <Switch>
-          <Match when={settingsStore.activeTab === 'general'}>
+          <Match when={activeTab() === 'general'}>
             <GeneralTab />
           </Match>
-          <Match when={settingsStore.activeTab === 'agent'}>
+          <Match when={activeTab() === 'agent'}>
             <AgentTab />
           </Match>
-          <Match when={settingsStore.activeTab === 'memory'}>
+          <Match when={activeTab() === 'memory'}>
             <MemoryTab />
           </Match>
-          <Match when={settingsStore.activeTab === 'security'}>
+          <Match when={activeTab() === 'security'}>
             <SecurityTab />
           </Match>
-          <Match when={settingsStore.activeTab === 'voice'}>
+          <Match when={activeTab() === 'voice'}>
             <VoiceTab />
           </Match>
-          <Match when={settingsStore.activeTab === 'browser'}>
+          <Match when={activeTab() === 'browser'}>
             <BrowserTab />
           </Match>
-          <Match when={settingsStore.activeTab === 'yaml'}>
+          <Match when={activeTab() === 'yaml'}>
             <YamlTab />
           </Match>
         </Switch>

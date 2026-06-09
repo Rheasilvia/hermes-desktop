@@ -13,7 +13,7 @@ import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { sessionStore } from '@/stores/session.js';
 import { modelStore } from '@/stores/models.js';
 import { uiStore } from '@/stores/ui.js';
-import { settingsStore } from '@/stores/settings.js';
+import { configStore } from '@/stores/config.js';
 import { getGateway } from '@/stores/context.js';
 import { getVoiceRecordingLimit, isAutoTtsEnabled, isSttEnabled, isTtsAvailable } from '@/lib/voice/voice-config.js';
 import { playSpeechText } from '@/lib/voice/voice-playback.js';
@@ -108,7 +108,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const isLoading = () => chatStore.isLoadingMessages(sessionId());
   const diagnostics = createMemo(() => chatStore.getDiagnostics(sessionId()));
   const permissionMode = createMemo(() => sessionStore.activeSession?.permissionMode ?? 'auto');
-  const voiceConfig = createMemo(() => settingsStore.config);
+  const voiceConfig = createMemo(() => configStore.config);
   const sttEnabled = createMemo(() => isSttEnabled(voiceConfig()));
   const maxVoiceRecordingSeconds = createMemo(() => getVoiceRecordingLimit(voiceConfig()));
   const [permissionModePending, setPermissionModePending] = createSignal(false);
@@ -201,7 +201,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   useGatewayEvents({ getGateway });
 
   onMount(() => {
-    void settingsStore.loadConfig();
+    void configStore.loadConfig();
     const syncConnectionState = () => {
       const state = getGateway()?.getConnectionState() ?? uiStore.connectionState;
       setConnectionState(state);

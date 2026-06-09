@@ -8,8 +8,8 @@ const voiceMocks = vi.hoisted(() => ({
   playSpeechText: vi.fn(),
 }));
 
-vi.mock('@/stores/settings.js', () => ({
-  settingsStore: {
+vi.mock('@/stores/config.js', () => ({
+  configStore: {
     get config() {
       return { tts: { provider: 'edge' }, voice: { auto_tts: false } };
     },

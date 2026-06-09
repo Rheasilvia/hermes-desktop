@@ -1,16 +1,16 @@
 import type { Component } from 'solid-js';
-import { settingsStore } from '@/stores/settings.js';
+import { configStore } from '@/stores/config.js';
 import { ConfigField } from '../ConfigField.js';
 import { StringListField } from '@/ui/atoms/StringListField.js';
 import styles from './SecurityTab.module.css';
 
 export const SecurityTab: Component = () => {
-  const config = () => settingsStore.config;
+  const config = () => configStore.config;
   const security = () => config()?.security;
 
   const handleChange = (key: string, value: unknown) => {
-    settingsStore.markDirty();
-    settingsStore.saveConfig(key, value);
+    configStore.markDirty();
+    configStore.saveConfig(key, value);
   };
 
   const handleAddCommand = (cmd: string) => {

@@ -17,9 +17,26 @@ _DEFAULTS: dict[str, Any] = {
     },
 }
 
+_RUNTIME_CONFIG_KEYS = {
+    "tts",
+    "stt",
+    "voice",
+    "model",
+    "agent",
+    "security",
+    "memory",
+    "browser",
+}
+
 
 class SchemaVersionMismatch(RuntimeError):
     pass
+
+
+class RuntimeConfigKeyError(RuntimeError):
+    def __init__(self, key: str):
+        super().__init__(f"Runtime config key '{key}' belongs in /desktop/api/config")
+        self.key = key
 
 
 def load(hermes_home: Path) -> dict[str, Any]:
@@ -49,6 +66,9 @@ def save(hermes_home: Path, payload: dict[str, Any]) -> dict[str, Any]:
         raise SchemaVersionMismatch(
             f"expected schema_version={SCHEMA_VERSION}, got {payload.get('schema_version')!r}"
         )
+    for key in payload:
+        if key in _RUNTIME_CONFIG_KEYS:
+            raise RuntimeConfigKeyError(key)
     conn = connect(hermes_home)
     ensure_schema(conn)
     try:

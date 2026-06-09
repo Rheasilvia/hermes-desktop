@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { settingsStore } from '@/stores/settings.js';
+import { configStore } from '@/stores/config.js';
 import { ConfigField } from '../ConfigField.js';
 import styles from './BrowserTab.module.css';
 
@@ -10,12 +10,12 @@ const BROWSER_PROVIDER_OPTIONS = [
 ];
 
 export const BrowserTab: Component = () => {
-  const config = () => settingsStore.config;
+  const config = () => configStore.config;
   const browser = () => config()?.browser;
 
   const handleChange = (key: string, value: unknown) => {
-    settingsStore.markDirty();
-    settingsStore.saveConfig(key, value);
+    configStore.markDirty();
+    configStore.saveConfig(key, value);
   };
 
   return (

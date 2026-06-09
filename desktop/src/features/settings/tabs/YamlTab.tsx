@@ -1,7 +1,7 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, Show } from 'solid-js';
 import YAML from 'yaml';
-import { settingsStore } from '@/stores/settings.js';
+import { configStore } from '@/stores/config.js';
 import { Button } from '@/ui/atoms/Button.js';
 import styles from './YamlTab.module.css';
 
@@ -11,7 +11,7 @@ export const YamlTab: Component = () => {
   const [isSaving, setIsSaving] = createSignal(false);
 
   createEffect(() => {
-    const cfg = settingsStore.config;
+    const cfg = configStore.config;
     if (cfg) {
       const serialized = YAML.stringify(cfg, { lineWidth: 0 });
       setYamlText(serialized);
@@ -32,7 +32,7 @@ export const YamlTab: Component = () => {
     const text = (e.currentTarget as HTMLTextAreaElement).value;
     setYamlText(text);
     validateYaml(text);
-    settingsStore.markDirty();
+    configStore.markDirty();
   };
 
   const handleSave = async () => {
@@ -42,7 +42,7 @@ export const YamlTab: Component = () => {
       const parsed = YAML.parse(yamlText()) as Record<string, unknown>;
       for (const [key, value] of Object.entries(parsed)) {
         if (key.startsWith('_')) continue;
-        await settingsStore.saveConfig(key, value);
+        await configStore.saveConfig(key, value);
       }
     } finally {
       setIsSaving(false);
@@ -71,7 +71,7 @@ export const YamlTab: Component = () => {
           <Show when={parseError()}>
             <span class={styles.error}>{parseError()}</span>
           </Show>
-          <Show when={!parseError() && settingsStore.isDirty}>
+          <Show when={!parseError() && configStore.isDirty}>
             <span class={styles.valid}>Valid YAML</span>
           </Show>
           <Button
