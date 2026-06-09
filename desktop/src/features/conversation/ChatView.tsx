@@ -261,7 +261,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   // ── Floating TodoPanel state ──────────────────────────────────────────
 
-  const [panelManuallyClosed, setPanelManuallyClosed] = createSignal(false);
+  // Dismissed state is persisted per session (localStorage via uiStore) so the panel
+  // restores to its pre-close visibility on restart — a completed-and-hidden panel
+  // stays hidden, an unfinished one re-appears. A new turn clears it (see effect below).
+  const panelManuallyClosed = () => uiStore.isTodoPanelDismissed(sessionId());
+  const setPanelManuallyClosed = (closed: boolean) => {
+    if (closed) uiStore.dismissTodoPanel(sessionId());
+    else uiStore.restoreTodoPanel(sessionId());
+  };
   const [panelExiting, setPanelExiting] = createSignal(false);
   const [isPaused, setIsPaused] = createSignal(false);
   const [showUndoBar, setShowUndoBar] = createSignal(false);
