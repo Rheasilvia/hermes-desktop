@@ -3,6 +3,7 @@ import { Show } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { settingsStore } from '@/stores/settings.js';
 import { playSpeechText, isVoicePlaybackActive } from '@/lib/voice/voice-playback.js';
+import { isTtsAvailable } from '@/lib/voice/voice-config.js';
 import styles from './MessageActionBar.module.css';
 
 export type MessageActionType = 'copy' | 'retry' | 'undo' | 'edit' | 'delete' | 'branch';
@@ -50,7 +51,7 @@ export const MessageActionBar: Component<MessageActionBarProps> = (props) => {
     if (!props.disabled) props.onAction(action);
   };
 
-  const ttsEnabled = () => settingsStore.config?.tts?.enabled ?? false;
+  const ttsEnabled = () => isTtsAvailable(settingsStore.config);
 
   const handleReadAloud = () => {
     if (!props.plainText || props.disabled) return;

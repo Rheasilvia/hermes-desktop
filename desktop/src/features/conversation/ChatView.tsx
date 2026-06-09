@@ -13,7 +13,10 @@ import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { sessionStore } from '@/stores/session.js';
 import { modelStore } from '@/stores/models.js';
 import { uiStore } from '@/stores/ui.js';
+import { settingsStore } from '@/stores/settings.js';
 import { getGateway } from '@/stores/context.js';
+import { getVoiceRecordingLimit, isAutoTtsEnabled, isSttEnabled, isTtsAvailable } from '@/lib/voice/voice-config.js';
+import { playSpeechText } from '@/lib/voice/voice-playback.js';
 import type { ConnectionState } from '@/services/gateway/types.js';
 import { ROUTES } from '@/routes';
 import { MessageBubble } from './MessageBubble.js';
@@ -92,6 +95,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const [connectionState, setConnectionState] = createSignal<ConnectionState>(uiStore.connectionState);
   let wasBusy = false;
   let suppressNextAutoDrain = false;
+  const autoTtsPlayed = new Set<string>();
 
   const cwd = createMemo(() => sessionStore.activeSession?.cwd ?? null);
   const messages = (): RenderedMessage[] => chatStore.getMessages(sessionId());
@@ -104,6 +108,9 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const isLoading = () => chatStore.isLoadingMessages(sessionId());
   const diagnostics = createMemo(() => chatStore.getDiagnostics(sessionId()));
   const permissionMode = createMemo(() => sessionStore.activeSession?.permissionMode ?? 'auto');
+  const voiceConfig = createMemo(() => settingsStore.config);
+  const sttEnabled = createMemo(() => isSttEnabled(voiceConfig()));
+  const maxVoiceRecordingSeconds = createMemo(() => getVoiceRecordingLimit(voiceConfig()));
   const [permissionModePending, setPermissionModePending] = createSignal(false);
   const [permissionModeAppliesNextTurn, setPermissionModeAppliesNextTurn] = createSignal(false);
 
@@ -194,6 +201,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   useGatewayEvents({ getGateway });
 
   onMount(() => {
+    void settingsStore.loadConfig();
     const syncConnectionState = () => {
       const state = getGateway()?.getConnectionState() ?? uiStore.connectionState;
       setConnectionState(state);
@@ -257,6 +265,23 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       suppressNextAutoDrain = false;
     }
     wasBusy = busy;
+  });
+
+  createEffect(() => {
+    const config = voiceConfig();
+    if (!isAutoTtsEnabled(config) || !isTtsAvailable(config) || isStreaming()) return;
+    const lastAssistant = [...messages()].reverse().find((message) => message.role === 'assistant' && !message.isStreaming);
+    if (!lastAssistant) return;
+    const messageId = String(lastAssistant.id);
+    if (autoTtsPlayed.has(messageId)) return;
+    const text = lastAssistant.blocks
+      .filter((block): block is TextBlock => block.type === 'text')
+      .map((block) => block.content)
+      .join('\n')
+      .trim();
+    if (!text) return;
+    autoTtsPlayed.add(messageId);
+    void playSpeechText(text, { source: 'auto-tts', messageId });
   });
 
   // ── Floating TodoPanel state ──────────────────────────────────────────
@@ -817,6 +842,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 editDraft={editDraft}
                 clearEditDraft={() => setEditDraft(null)}
                 contextUsage={sessionUsage.get(sessionId())}
+                sttEnabled={sttEnabled()}
+                maxVoiceRecordingSeconds={maxVoiceRecordingSeconds()}
               />
             </div>
           </div>

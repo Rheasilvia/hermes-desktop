@@ -25,7 +25,7 @@ const ERROR_COPY = {
 };
 
 export interface VoiceRecorderOptions {
-  maxRecordingSeconds: number;
+  maxRecordingSeconds: number | (() => number);
   focusInput: () => void;
   onTranscript: (text: string) => void;
   onError?: (msg: string) => void;
@@ -89,7 +89,10 @@ export function createVoiceRecorder(opts: VoiceRecorderOptions): VoiceRecorderRe
       setElapsedSeconds(0);
       setVoiceStatus('recording');
       intervalId = setInterval(() => setElapsedSeconds((Date.now() - startedAt) / 1000), 250) as unknown as number;
-      const cap = Math.max(1, Math.min(Math.trunc(opts.maxRecordingSeconds), 600));
+      const rawMax = typeof opts.maxRecordingSeconds === 'function'
+        ? opts.maxRecordingSeconds()
+        : opts.maxRecordingSeconds;
+      const cap = Math.max(1, Math.min(Math.trunc(rawMax), 600));
       timeoutId = setTimeout(() => void stop(), cap * 1000) as unknown as number;
     } catch (err) {
       setVoiceStatus('idle');

@@ -6,9 +6,11 @@ import { createSignal } from 'solid-js';
 import type { HermesConfig } from '@/types/index.js';
 import { getGateway } from './context.js';
 import { api } from '../services/api/router';
-import type { Settings } from '../services/api/types';
+import type { ConfigSchemaResponse, Settings } from '../services/api/types';
 
 const [config, setConfig] = createSignal<HermesConfig | null>(null);
+const [configSchema, setConfigSchema] = createSignal<ConfigSchemaResponse | null>(null);
+const [configMtime, setConfigMtime] = createSignal(0);
 const [activeTab, setActiveTab] = createSignal<string>('general');
 const [isLoading, setIsLoading] = createSignal(false);
 const [error, setError] = createSignal<string | null>(null);
@@ -16,6 +18,8 @@ const [isDirty, setIsDirty] = createSignal(false);
 
 export const settingsStore = {
   get config() { return config(); },
+  get configSchema() { return configSchema(); },
+  get configMtime() { return configMtime(); },
   get activeTab() { return activeTab(); },
   get isLoading() { return isLoading(); },
   get error() { return error(); },
@@ -34,15 +38,28 @@ export const settingsStore = {
     setIsLoading(true);
     setError(null);
     try {
-      const cfg = await gateway.config.get();
-      setConfig(cfg);
+      const [read, schema] = await Promise.all([
+        api.config().get(),
+        api.config().schema(),
+      ]);
+      setConfig(read.config as HermesConfig);
+      setConfigMtime(read.mtime);
+      setConfigSchema(schema);
       setIsDirty(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes('not implemented')) {
-        setConfig(null);
-      } else {
-        setError(msg);
+      try {
+        const cfg = await gateway.config.get();
+        setConfig(cfg);
+        setConfigMtime(await gateway.config.getMtime());
+        setIsDirty(false);
+      } catch {
+        if (msg.includes('not implemented')) {
+          setConfig(null);
+          setConfigSchema(null);
+        } else {
+          setError(msg);
+        }
       }
     } finally {
       setIsLoading(false);

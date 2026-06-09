@@ -39,6 +39,7 @@ interface AssistantMessageProps {
   isLast?: boolean;
   /** Whether action buttons should be disabled (e.g. while another turn is streaming). */
   actionsDisabled?: boolean;
+  messageId?: string | number;
 }
 
 type BlockGroup =
@@ -319,6 +320,19 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
     (activeLiveRows()?.length ?? 0) > 0 || props.blocks.some(isRenderableBlock)
   );
 
+  const plainText = createMemo(() =>
+    props.blocks
+      .filter((block): block is TextBlock => block.type === 'text')
+      .map((block) => block.content)
+      .join('\n')
+      .trim()
+  );
+
+  const playbackMessageId = createMemo(() => {
+    if (props.messageId != null) return String(props.messageId);
+    return props.blocks.find((block) => block.type === 'text')?.id;
+  });
+
   return (
     <Show when={hasRenderableContent()}>
       <div
@@ -378,6 +392,8 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
               onAction={props.onAction!}
               disabled={props.actionsDisabled}
               isLast={props.isLast}
+              plainText={plainText()}
+              messageId={playbackMessageId()}
             />
           </Show>
         </div>

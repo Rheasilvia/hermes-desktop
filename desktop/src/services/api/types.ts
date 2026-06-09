@@ -47,6 +47,37 @@ export interface Settings {
   ui: Record<string, unknown>;
 }
 
+export type HermesConfigRecord = Record<string, unknown>;
+
+export interface ConfigFieldSchema {
+  type: string;
+  description: string;
+  category?: string;
+  options?: string[];
+  [key: string]: unknown;
+}
+
+export interface ConfigSchemaResponse {
+  fields: Record<string, ConfigFieldSchema>;
+  category_order: string[];
+}
+
+export interface ConfigReadResponse {
+  config: HermesConfigRecord;
+  mtime: number;
+}
+
+export interface ConfigSaveRequest {
+  config: HermesConfigRecord;
+  base_mtime?: number;
+  changed_paths?: string[];
+}
+
+export interface ConfigSaveResponse {
+  ok: boolean;
+  mtime: number;
+}
+
 export interface State {
   schema_version: number;
   last_open_route: string;
@@ -91,7 +122,7 @@ export function isApiError(e: unknown): e is ApiError {
   );
 }
 
-export type Domain = 'analytics' | 'cron' | 'model' | 'overlays' | 'plugins' | 'settings' | 'skills' | 'state';
+export type Domain = 'analytics' | 'config' | 'cron' | 'model' | 'overlays' | 'plugins' | 'settings' | 'skills' | 'state';
 
 export interface PluginRow {
   name: string;

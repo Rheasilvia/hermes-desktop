@@ -2,6 +2,7 @@ import { api } from './router';
 import { httpClient } from './http-client';
 import { makeAnalyticsTransport } from './transports/http/analytics';
 import { makeAudioTransport } from './transports/http/audio';
+import { makeConfigTransport } from './transports/http/config';
 import { makeCronTransport } from './transports/http/cron';
 import { makeModelTransport } from './transports/http/model';
 import { makeOAuthTransport } from './transports/http/oauth';
@@ -19,6 +20,12 @@ export type {
   OAuthStartResponse,
   OAuthPollResponse,
   Settings,
+  ConfigFieldSchema,
+  ConfigReadResponse,
+  ConfigSaveRequest,
+  ConfigSaveResponse,
+  ConfigSchemaResponse,
+  HermesConfigRecord,
   SkillInfo,
   SkillsToolset,
   State,
@@ -44,6 +51,7 @@ export function bootstrapApi(): void {
   api.register('plugins', makePluginsTransport(httpClient));
   api.register('session', makeSessionTransport(httpClient));
   api.register('settings', makeSettingsTransport(httpClient));
+  api.register('config', makeConfigTransport(httpClient));
   api.register('skills', makeSkillsTransport(httpClient));
   api.register('state', makeStateTransport(httpClient));
   api.register('analytics', makeAnalyticsTransport(httpClient));
