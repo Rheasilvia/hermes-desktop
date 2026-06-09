@@ -1,5 +1,5 @@
 import type { Accessor, Component } from 'solid-js';
-import { createSignal, createEffect, Show, createMemo, untrack, For } from 'solid-js';
+import { createSignal, createEffect, Show, createMemo, untrack, For, onCleanup } from 'solid-js';
 import { fileChipQueue } from '@/stores/file-chip-queue.js';
 import {
   clearComposerDraft,
@@ -8,7 +8,7 @@ import {
   type ComposerCommandPrefix,
 } from '@/stores/composer-drafts.js';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Icon } from '@/ui/atoms/Icon';
+import { Icon, type IconName } from '@/ui/atoms/Icon';
 import { WorkspacePicker } from './WorkspacePicker';
 import { GitBranchPicker } from './GitBranchPicker';
 import { SlashCommandPanel, type SlashCommand } from './SlashCommandPanel';
@@ -32,7 +32,6 @@ import {
   type UserFileRefDisplayPart,
 } from './display-parts.js';
 import type { RenderedMessage } from '@/types/ui/message.js';
-import { settingsStore } from '@/stores/settings.js';
 import { createVoiceRecorder } from '@/lib/voice/create-voice-recorder.js';
 import { VoiceActivity, VoicePlaybackActivity } from './composer/VoiceActivity.js';
 import styles from './MessageInput.module.css';
@@ -106,19 +105,49 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const [referenceItems, setReferenceItems] = createSignal<ReferenceCompletion[]>([]);
   const [referencePanelOpen, setReferencePanelOpen] = createSignal(false);
   const [referenceManuallyClosed, setReferenceManuallyClosed] = createSignal(false);
-  const [voiceConvEnabled, setVoiceConvEnabled] = createSignal(false);
+  const [voiceError, setVoiceError] = createSignal('');
   let textareaRef: HTMLTextAreaElement | undefined;
   let previousSessionId: string | null | undefined;
+  let transcriptTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Voice settings helpers
-  const sttEnabled = () => settingsStore.config?.stt?.enabled ?? false;
-  const ttsEnabled = () => settingsStore.config?.tts?.enabled ?? false;
+  const clearTranscriptTimer = () => {
+    if (transcriptTimer) {
+      clearInterval(transcriptTimer);
+      transcriptTimer = null;
+    }
+  };
+
+  onCleanup(clearTranscriptTimer);
+
+  const insertTranscript = (transcript: string) => {
+    const nextTranscript = transcript.trim();
+    if (!nextTranscript) return;
+    clearTranscriptTimer();
+
+    const startText = text();
+    const prefix = startText ? ' ' : '';
+    const nextText = `${prefix}${nextTranscript}`;
+    let index = 0;
+
+    transcriptTimer = setInterval(() => {
+      index += 1;
+      setText(`${startText}${nextText.slice(0, index)}`);
+      if (textareaRef) autoResize(textareaRef);
+      props.onComposerActivity?.();
+      if (index >= nextText.length) clearTranscriptTimer();
+    }, 18);
+  };
 
   // Dictation recorder (push-to-talk)
   const dictationRecorder = createVoiceRecorder({
     maxRecordingSeconds: 120,
     focusInput: () => textareaRef?.focus(),
-    onTranscript: (t) => { setText((prev) => prev ? `${prev} ${t}` : t); textareaRef?.focus(); },
+    onTranscript: (t) => {
+      setVoiceError('');
+      insertTranscript(t);
+      textareaRef?.focus();
+    },
+    onError: (message) => setVoiceError(message),
   });
   let referenceRequestId = 0;
   let historyCursor = -1;
@@ -136,6 +165,37 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const isActive = () => canSend() && focused();
   const hasAttachments = () => attachments().length > 0;
   const showPaperclip = () => true;
+  const dictationStatus = () => dictationRecorder.voiceStatus();
+  const dictationButtonLabel = () => {
+    switch (dictationStatus()) {
+      case 'recording':
+        return 'Stop recording';
+      case 'transcribing':
+        return 'Transcribing';
+      default:
+        return 'Dictate';
+    }
+  };
+  const dictationButtonTitle = () => {
+    switch (dictationStatus()) {
+      case 'recording':
+        return 'Stop recording';
+      case 'transcribing':
+        return 'Transcribing voice';
+      default:
+        return 'Dictate (push-to-talk)';
+    }
+  };
+  const dictationButtonIcon = (): IconName | null => {
+    switch (dictationStatus()) {
+      case 'recording':
+        return null;
+      case 'transcribing':
+        return 'loader';
+      default:
+        return 'mic';
+    }
+  };
   const submitText = () => {
     const value = text().trim();
     const prefix = commandPrefix();
@@ -947,13 +1007,6 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
           <AttachmentChips attachments={attachments()} onRemove={removeAttachment} />
         </div>
       </Show>
-      {/* Voice activity indicators */}
-      <Show when={dictationRecorder.voiceStatus() !== 'idle'}>
-        <div class={styles.voiceActivityBar}>
-          <VoiceActivity state={dictationRecorder.voiceActivityState()} />
-        </div>
-      </Show>
-      <VoicePlaybackActivity />
       <div
         class={styles.inputContainer}
         classList={{
@@ -1021,6 +1074,20 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
           />
         </div>
 
+        <Show when={dictationRecorder.voiceStatus() !== 'idle'}>
+          <div class={styles.voiceActivityBar}>
+            <VoiceActivity state={dictationRecorder.voiceActivityState()} />
+          </div>
+        </Show>
+        <Show when={voiceError()}>
+          <div class={styles.voiceActivityBar}>
+            <div class={styles.voiceError} role="alert">
+              {voiceError()}
+            </div>
+          </div>
+        </Show>
+        <VoicePlaybackActivity />
+
         {/* Toolbar */}
         <div class={styles.toolbar}>
           <div class={styles.toolbarLeft}>
@@ -1073,61 +1140,57 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
               appliesNextTurn={props.permissionModeAppliesNextTurn}
               onChange={(mode) => props.onPermissionModeChange?.(mode)}
             />
-            {/* Dictation button — push-to-talk transcription */}
-            <Show when={sttEnabled()}>
+          </div>
+
+          <div class={styles.toolbarRight}>
+            <Show when={!props.isStreaming}>
               <button
                 class={styles.actionBtn}
-                classList={{ [styles.actionBtnActive]: dictationRecorder.voiceStatus() !== 'idle' }}
+                classList={{
+                  [styles.actionBtnActive]: dictationStatus() !== 'idle',
+                  [styles.voiceActionRecording]: dictationStatus() === 'recording',
+                  [styles.voiceActionProcessing]: dictationStatus() === 'transcribing',
+                }}
                 type="button"
-                aria-label={dictationRecorder.voiceStatus() !== 'idle' ? 'Stop recording' : 'Dictate'}
-                title={dictationRecorder.voiceStatus() !== 'idle' ? 'Stop recording' : 'Dictate (push-to-talk)'}
+                aria-label={dictationButtonLabel()}
+                title={dictationButtonTitle()}
                 disabled={!!props.disabled}
-                onClick={() => dictationRecorder.dictate()}
+                onClick={() => {
+                  setVoiceError('');
+                  dictationRecorder.dictate();
+                }}
               >
-                <Icon name={dictationRecorder.voiceStatus() === 'transcribing' ? 'loader' : 'mic'} size={16} />
+                <Show keyed when={dictationButtonIcon()} fallback={<span aria-hidden="true" class={styles.voiceStopGlyph} />}>
+                  {(iconName) => <Icon name={iconName} size={16} />}
+                </Show>
               </button>
             </Show>
-            {/* Voice conversation toggle — hands-free loop */}
-            <Show when={sttEnabled() && ttsEnabled()}>
+            <Show
+              when={!props.isStreaming}
+              fallback={
+                <button
+                  class={styles.stopButton}
+                  onClick={props.onStop}
+                  type="button"
+                  aria-label="Stop generation"
+                >
+                  <Icon name="square" size={12} />
+                  <span>Stop generating</span>
+                </button>
+              }
+            >
               <button
-                class={styles.actionBtn}
-                classList={{ [styles.actionBtnActive]: voiceConvEnabled() }}
+                class={styles.sendButton}
+                classList={{ [styles.sendButtonDisabled]: !canSend() }}
+                onClick={() => void handleSend()}
                 type="button"
-                aria-label={voiceConvEnabled() ? 'End voice conversation' : 'Start voice conversation'}
-                title={voiceConvEnabled() ? 'End voice conversation' : 'Voice conversation (hands-free)'}
-                disabled={!!props.disabled}
-                onClick={() => setVoiceConvEnabled((v) => !v)}
+                aria-label="Send message"
+                disabled={!canSend()}
               >
-                <Icon name={voiceConvEnabled() ? 'phone-off' : 'phone'} size={16} />
+                <Icon name="send" size={14} />
               </button>
             </Show>
           </div>
-
-          <Show
-            when={!props.isStreaming}
-            fallback={
-              <button
-                class={styles.stopButton}
-                onClick={props.onStop}
-                type="button"
-                aria-label="Stop generation"
-              >
-                <Icon name="square" size={12} />
-                <span>Stop generating</span>
-              </button>
-            }
-          >
-            <button
-              class={styles.sendButton}
-              classList={{ [styles.sendButtonDisabled]: !canSend() }}
-              onClick={() => void handleSend()}
-              type="button"
-              aria-label="Send message"
-              disabled={!canSend()}
-            >
-              <Icon name="send" size={14} />
-            </button>
-          </Show>
         </div>
         <ContextUsageBar
           contextUsed={props.contextUsage?.contextUsed ?? null}
