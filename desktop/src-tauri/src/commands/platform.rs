@@ -140,42 +140,61 @@ pub fn reveal_workspace_path(root: String, path: String) -> Result<(), String> {
 mod platform_tests {
     use super::*;
 
-    /// V2 red test: reveal_in_finder accepts any canonical path with no workspace root check.
-    ///
-    /// V1 bug: reveal_in_finder(path) accepts any path that exists on the filesystem,
-    /// with no workspace containment check. The V2 requirement is that a new command
-    /// reveal_workspace_path(root, path) verifies the path is contained within root.
-    ///
-    /// This test calls reveal_in_finder with an existing outside path and asserts it
-    /// returns Err. On V1 it will succeed (returning Ok), making the test fail (red).
-    ///
-    /// Once Task 3 adds reveal_workspace_path(root, path) with containment enforcement,
-    /// this test should be updated to call reveal_workspace_path instead.
     #[test]
-    fn reveal_in_finder_rejects_path_outside_workspace() {
+    fn reveal_workspace_path_rejects_path_outside_root() {
         use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
 
-        let outside = std::env::temp_dir().join("hermes_reveal_outside_test");
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("hermes_reveal_root_{suffix}"));
+        let outside = std::env::temp_dir().join(format!("hermes_reveal_outside_{suffix}"));
+        fs::create_dir_all(&root).unwrap();
         fs::create_dir_all(&outside).unwrap();
 
-        // V1: reveal_in_finder has no root parameter and no containment check.
-        // It succeeds for any existing path, so this assertion fails on V1 (red test).
-        // V2: rename to reveal_workspace_path(root, path) and add containment check.
-        // Until Task 3 is done, we verify V1 does NOT enforce the boundary by calling
-        // reveal_in_finder directly and asserting it should fail but will succeed.
-        //
-        // Strategy: assert that a path-only reveal with an outside path is rejected.
-        // On V1 this is Ok(()), so the assert fires — that's the intended red state.
-        let result = reveal_in_finder(outside.to_string_lossy().to_string());
-
-        // On V1 this assertion FAILS because reveal_in_finder returns Ok(())
-        // (no workspace boundary check). This is the expected red test behaviour.
-        assert!(
-            result.is_err(),
-            "reveal_in_finder must reject paths outside any workspace root; \
-             V1 bug: no root parameter, no containment check — got Ok(())"
+        let result = reveal_workspace_path(
+            root.to_string_lossy().to_string(),
+            outside.to_string_lossy().to_string(),
         );
+        assert!(result.is_err(), "reveal_workspace_path must reject paths outside workspace root");
+        assert!(result.unwrap_err().contains("escapes workspace root"));
 
+        let _ = fs::remove_dir_all(root);
         let _ = fs::remove_dir_all(outside);
+    }
+
+    #[test]
+    fn reveal_workspace_path_accepts_path_inside_root() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("hermes_reveal_inside_{suffix}"));
+        let inside = root.join("subdir");
+        fs::create_dir_all(&inside).unwrap();
+
+        // reveal_workspace_path spawns `open -R` on macOS — only test the containment
+        // logic, not the actual spawn (which would open Finder in a test run).
+        // We verify the function at least reaches the spawn step (no Err on containment).
+        // The spawn itself may fail in a headless CI environment, which is acceptable.
+        let result = reveal_workspace_path(
+            root.to_string_lossy().to_string(),
+            inside.to_string_lossy().to_string(),
+        );
+        // Accept Ok (Finder opened) or Err from spawn failure in headless env —
+        // only fail if the error is about workspace containment.
+        if let Err(ref e) = result {
+            assert!(
+                !e.contains("escapes workspace root"),
+                "reveal_workspace_path must not reject paths inside workspace root; got: {e}"
+            );
+        }
+
+        let _ = fs::remove_dir_all(root);
     }
 }
