@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import logging
+import threading as _threading
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -8,6 +9,11 @@ log = logging.getLogger(__name__)
 _INSTALLED = False
 ORIGINAL_TOOLS: dict[str, Any] = {}  # name -> ToolEntry
 _DELEGATE_PATCHED = False
+_execute_code_popen_lock = _threading.Lock()
+
+# Process ownership registry: proc_id -> {workspace_hash, session_id}
+_desktop_process_registry: dict[str, dict] = {}
+_desktop_process_registry_lock = _threading.Lock()
 
 
 def install_desktop_tool_overrides() -> None:
@@ -228,7 +234,27 @@ def _install_wrappers(registry) -> None:
                     except Exception:
                         pass  # don't block on parse errors
 
-            # 3. Pass through with canonical workdir
+            # 3. Check for relative escape tokens (../outside.txt)
+            if command:
+                import re as _re
+                _cmd_str = str(command)
+                # Extract path-like tokens that contain ../ or ..\
+                for _token in _re.findall(r'[^\s;|&>]*\.\.[/\\][^\s;|&>]*', _cmd_str):
+                    try:
+                        from pathlib import Path as _Path2
+                        _candidate = (_Path2(snapshot.cwd) / _token).resolve()
+                        if _candidate.exists():
+                            try:
+                                _candidate.relative_to(snapshot.workspace_root)
+                            except ValueError:
+                                return json.dumps({
+                                    "error": f"terminal denied: command contains relative escape path {_token}",
+                                    "code": "WORKSPACE_VIOLATION",
+                                })
+                    except Exception:
+                        pass  # don't block on parse errors
+
+            # 4. Pass through with canonical workdir
             new_args = {**args, "workdir": str(decision.resolved_path)}
             return original_entry.handler(new_args, **kwargs)
 
@@ -243,6 +269,9 @@ def _install_wrappers(registry) -> None:
         if original_entry is None:
             return None
 
+        # Actions that require ownership verification
+        _OWNERSHIP_ACTIONS = {"poll", "log", "wait", "kill", "write", "submit", "close"}
+
         def wrapper(args, **kwargs) -> str:
             snapshot = get_workspace_policy_snapshot()
             if snapshot is None:
@@ -251,8 +280,7 @@ def _install_wrappers(registry) -> None:
             if not isinstance(args, dict):
                 return original_entry.handler(args, **kwargs)
 
-            # Deny arbitrary process control
-            # Allow only workspace-owned operations (operations on processes this session started)
+            action = args.get("action", "")
 
             # If a path/cwd argument is given, verify it's inside workspace
             for path_key in ("path", "cwd", "workdir"):
@@ -265,8 +293,41 @@ def _install_wrappers(registry) -> None:
                             "code": "WORKSPACE_VIOLATION"
                         })
 
-            # Pass through — process tool manages its own session-scoped PIDs
-            return original_entry.handler(args, **kwargs)
+            # Ownership check: poll/log/wait/kill/write/submit/close require proc ownership
+            if action in _OWNERSHIP_ACTIONS:
+                proc_id = args.get("id") or args.get("session_id") or args.get("process_id")
+                if proc_id is not None:
+                    with _desktop_process_registry_lock:
+                        owner_info = _desktop_process_registry.get(str(proc_id))
+                    if owner_info is None or owner_info.get("workspace_hash") != snapshot.workspace_hash:
+                        return json.dumps({
+                            "error": f"process denied: process {proc_id!r} is not owned by this workspace session",
+                            "code": "PROCESS_NOT_OWNED",
+                        })
+
+            # Call original handler
+            result_str = original_entry.handler(args, **kwargs)
+
+            # After a successful spawn/start, register the new process ID
+            if action in ("spawn", "start", ""):
+                try:
+                    import json as _json
+                    result_obj = _json.loads(result_str)
+                    new_proc_id = (
+                        result_obj.get("id")
+                        or result_obj.get("session_id")
+                        or result_obj.get("process_id")
+                    )
+                    if new_proc_id:
+                        with _desktop_process_registry_lock:
+                            _desktop_process_registry[str(new_proc_id)] = {
+                                "workspace_hash": snapshot.workspace_hash,
+                                "session_id": snapshot.session_id,
+                            }
+                except Exception:
+                    pass  # don't fail if result is not JSON or has no id
+
+            return result_str
 
         return wrapper
 
@@ -292,8 +353,36 @@ def _install_wrappers(registry) -> None:
                     "code": "SANDBOX_UNAVAILABLE",
                 })
 
-            # Sandbox is available and snapshot is active — pass through to original handler.
-            return original_entry.handler(args, **kwargs)
+            # Temporarily patch subprocess.Popen inside code_execution_tool so the
+            # child Python process is spawned through the macOS seatbelt sandbox.
+            # The lock serializes the patch to avoid races between concurrent turns.
+            import tools.code_execution_tool as _cet
+
+            def _sandboxed_popen(command, *, cwd=None, env=None, stdin=None,
+                                  stdout=None, stderr=None, text=False,
+                                  encoding=None, errors=None, preexec_fn=None,
+                                  **kw):
+                return runner.popen(
+                    command,
+                    snapshot=snapshot,
+                    cwd=cwd,
+                    env=env,
+                    stdin=stdin,
+                    stdout=stdout,
+                    stderr=stderr,
+                    text=text,
+                    encoding=encoding,
+                    errors=errors,
+                    preexec_fn=preexec_fn,
+                )
+
+            with _execute_code_popen_lock:
+                original_popen = _cet.subprocess.Popen
+                _cet.subprocess.Popen = _sandboxed_popen
+                try:
+                    return original_entry.handler(args, **kwargs)
+                finally:
+                    _cet.subprocess.Popen = original_popen
 
         return wrapper
 
