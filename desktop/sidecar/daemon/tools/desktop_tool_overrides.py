@@ -360,6 +360,61 @@ def _install_delegate_patch() -> None:
                 child._desktop_workspace_policy_snapshot = snap
                 child.workspace_cwd = str(snap.cwd)
                 child.session_cwd = str(snap.cwd)
+
+                if getattr(child, "_desktop_policy_injected", None) is not True:
+                    _orig_run_conv = child.run_conversation
+
+                    def _sandboxed_run_conv(*args, _snap=snap, _orig=_orig_run_conv, **kwargs):
+                        from ..services.workspace_policy import (
+                            set_workspace_policy_snapshot,
+                            reset_workspace_policy_snapshot,
+                        )
+                        wp_token = set_workspace_policy_snapshot(_snap)
+                        pa_token = tcwd_token = rcwd_token = None
+                        try:
+                            import tools.path_approval as _pa
+                            pa_token = _pa.set_workspace_context(
+                                str(_snap.cwd), _snap.session_id, _snap.turn_id,
+                                permission_mode=_snap.permission_mode,
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            import tools.terminal_cwd as _tcwd
+                            tcwd_token = _tcwd.set_terminal_cwd(str(_snap.cwd))
+                        except Exception:
+                            pass
+                        try:
+                            import agent.runtime_cwd as _rcwd
+                            rcwd_token = _rcwd.set_session_cwd(str(_snap.cwd))
+                        except Exception:
+                            pass
+                        try:
+                            return _orig(*args, **kwargs)
+                        finally:
+                            if rcwd_token is not None:
+                                try:
+                                    import agent.runtime_cwd as _rcwd
+                                    _rcwd.reset_session_cwd(rcwd_token)
+                                except Exception:
+                                    pass
+                            if tcwd_token is not None:
+                                try:
+                                    import tools.terminal_cwd as _tcwd
+                                    _tcwd.reset_terminal_cwd(tcwd_token)
+                                except Exception:
+                                    pass
+                            if pa_token is not None:
+                                try:
+                                    import tools.path_approval as _pa
+                                    _pa.reset_workspace_context(pa_token)
+                                except Exception:
+                                    pass
+                            reset_workspace_policy_snapshot(wp_token)
+
+                    child.run_conversation = _sandboxed_run_conv
+                    child._desktop_policy_injected = True
+
             return child
 
         _dt._build_child_agent = _policy_build_child_agent
