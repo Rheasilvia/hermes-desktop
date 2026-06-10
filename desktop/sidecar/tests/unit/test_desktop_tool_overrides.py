@@ -237,11 +237,7 @@ class TestInstallFailsOnMissingTool:
         """
         import pytest as _pytest
 
-        mod_name = "daemon.tools.desktop_tool_overrides"
-        for key in list(sys.modules.keys()):
-            if key == mod_name or key.startswith(mod_name + "."):
-                del sys.modules[key]
-        overrides = importlib.import_module(mod_name)
+        overrides = _fresh_overrides_module()
 
         # Only provide 6 of the 7 required tools (missing "execute_code")
         tool_names = ["read_file", "write_file", "patch", "search_files", "terminal", "process"]
