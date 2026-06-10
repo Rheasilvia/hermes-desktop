@@ -77,6 +77,7 @@ def _install_wrappers(registry) -> None:
                 return _fail_closed(name, args)
             path = args.get("path", ".") if isinstance(args, dict) else "."
             decision = resolve_path(snapshot, str(path), "read")
+            # Outside-workspace denials are final — never route to approval flow.
             if not decision.allowed:
                 return json.dumps({"error": f"{name} denied: {decision.reason}", "code": "WORKSPACE_VIOLATION"})
             new_args = {**args, "path": str(decision.resolved_path)} if isinstance(args, dict) else args
@@ -99,6 +100,7 @@ def _install_wrappers(registry) -> None:
                 return _fail_closed(name, args)
             path = args.get("path", "") if isinstance(args, dict) else ""
             decision = resolve_path(snapshot, str(path), "write")
+            # Outside-workspace denials are final — never route to approval flow.
             if not decision.allowed:
                 return json.dumps({"error": f"{name} denied: {decision.reason}", "code": "WORKSPACE_VIOLATION"})
             new_args = {**args, "path": str(decision.resolved_path)} if isinstance(args, dict) else args
@@ -237,6 +239,9 @@ def _install_wrappers(registry) -> None:
                         pass  # don't block on parse errors
 
             # 3. Check for relative escape tokens (../outside.txt)
+            # Outside-workspace workdir/path denials are always hard-denied.
+            # permissionMode only gates approval prompts for workspace-internal operations.
+            # full mode skips prompts for workspace-internal ops but still denies outside workspace.
             if command:
                 _cmd_str = str(command)
                 for _token in _re.findall(r'[^\s;|&>]*\.\.[/\\][^\s;|&>]*', _cmd_str):
