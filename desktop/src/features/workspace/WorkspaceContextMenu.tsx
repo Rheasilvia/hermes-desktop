@@ -92,7 +92,7 @@ export const WorkspaceContextMenu: Component<Props> = (props) => {
           type="button"
           class={styles.item}
           onClick={() => {
-            void invoke('reveal_in_finder', { path: props.node.path });
+            void invoke('reveal_workspace_path', { root: props.workspaceRoot, path: props.node.path });
             props.onClose();
           }}
         >

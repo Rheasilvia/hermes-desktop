@@ -45,6 +45,7 @@ pub fn run() {
             commands::git::checkout_git_branch,
             commands::workspace::read_workspace_file,
             commands::platform::reveal_in_finder,
+            commands::platform::reveal_workspace_path,
             sidecar_info,
             updater::check_for_updates,
             updater::install_update,
