@@ -102,7 +102,7 @@ pub fn reveal_workspace_path(root: String, path: String) -> Result<(), String> {
         .map_err(|e| format!("path not found: {}", e))?;
 
     if !canonical.starts_with(&canonical_root) {
-        return Err(format!("path escapes workspace root"));
+        return Err("path escapes workspace root".to_string());
     }
 
     let canonical_str = canonical.to_string_lossy();
