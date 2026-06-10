@@ -229,47 +229,83 @@ class TestBuildSeatbeltPolicy:
         assert workspace_root in policy
 
     def test_policy_denies_hermes_env_path(self, tmp_path):
-        """_build_seatbelt_policy includes a deny rule for the hermes .env file."""
+        """_build_seatbelt_policy includes a subpath deny rule for the entire hermes home dir."""
         from daemon.services.sandbox_runner import _build_seatbelt_policy
 
         hermes_home = str(tmp_path / ".hermes")
         policy = _build_seatbelt_policy(str(tmp_path), hermes_home=hermes_home)
 
-        expected_env_path = str(tmp_path / ".hermes" / ".env")
-        assert expected_env_path in policy
+        # The deny rule must use subpath to cover the entire hermes home directory,
+        # not just a literal .env file.
+        assert f'(subpath "{hermes_home}")' in policy
+        # The deny must be a file-read* AND file-write* deny
+        assert '(deny file-read* file-write* (subpath "' in policy
         # The deny rule must come after the workspace allow rule
-        deny_pos = policy.find('(deny file-read*')
+        deny_pos = policy.find('(deny file-read* file-write*')
         allow_pos = policy.find('(allow file-read* file-write* file-test-existence')
-        assert deny_pos > allow_pos, "deny rule for .env should appear after the workspace allow rule"
+        assert deny_pos > allow_pos, "deny rule for hermes home should appear after the workspace allow rule"
 
 
 # ---------------------------------------------------------------------------
-# Test 6: V2 red test — execute_code must call sandbox runner, not original handler
+# Test 6: V2 — execute_code must patch subprocess.Popen in code_execution_tool
 # ---------------------------------------------------------------------------
 
 
 class TestExecuteCodeCallsSandboxRunner:
-    """V2: execute_code must call runner.run or runner.popen, not just the original handler."""
+    """V2: execute_code must patch subprocess.Popen inside code_execution_tool to use sandbox runner."""
 
-    def test_execute_code_calls_runner_not_original(self, installed_wrappers):
-        """When sandbox runner is available and snapshot active, wrapper must call runner.run/popen.
+    def test_execute_code_patches_popen_in_code_execution_tool(self, installed_wrappers):
+        """When sandbox runner is available and snapshot active, wrapper must replace
+        subprocess.Popen inside code_execution_tool with a sandboxed version for the
+        duration of the original handler call, then restore the original.
 
-        V1 bug: wrapper calls original_entry.handler directly, skipping the sandbox runner entirely.
-        This test fails on V1.
+        V1 bug: wrapper calls original_entry.handler directly with no Popen patch,
+        so the child Python process is never sandboxed.
         """
+        import tools.code_execution_tool as _cet
+        import daemon.tools.desktop_tool_overrides as _dto
+
         wrappers, entries, tmp_path = installed_wrappers
         wrapper = wrappers["execute_code"]
 
-        mock_runner = MagicMock()
-        mock_runner.is_available.return_value = True
-        mock_runner.run.return_value = MagicMock(returncode=0, stdout='{"result": "sandbox_ran"}', stderr="")
+        popen_seen_during_call = []
+        original_popen = _cet.subprocess.Popen
 
-        with patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=mock_runner):
-            wrapper({"language": "python", "code": "print('hello')"})
+        # Replace the mock entry handler with one that captures what Popen is
+        # inside code_execution_tool at call time — this is the key assertion.
+        original_entry = _dto.ORIGINAL_TOOLS.get("execute_code")
+        assert original_entry is not None, "execute_code must be in ORIGINAL_TOOLS"
 
-        # The sandbox runner must have been invoked
-        assert mock_runner.run.called or mock_runner.popen.called, (
-            "execute_code must route through runner.run or runner.popen, not just the original handler"
-        )
-        # The original handler must NOT have been called (sandbox runner replaces it)
-        entries["execute_code"].handler.assert_not_called()
+        saved_handler = original_entry.handler
+
+        def capturing_handler(args, **kwargs):
+            popen_seen_during_call.append(_cet.subprocess.Popen)
+            return json.dumps({"result": "ok"})
+
+        original_entry.handler = capturing_handler
+
+        try:
+            mock_runner = MagicMock()
+            mock_runner.is_available.return_value = True
+
+            with patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=mock_runner):
+                result_json = wrapper({"language": "python", "code": "print('hello')"})
+
+            # Handler must have been called
+            assert len(popen_seen_during_call) == 1, "original handler should have been called once"
+
+            # subprocess.Popen must have been replaced with the sandboxed version during the call
+            assert popen_seen_during_call[0] is not original_popen, (
+                "subprocess.Popen in code_execution_tool must be replaced with sandboxed version "
+                "during the handler call (V1 bug: it was the original, meaning child process ran unsandboxed)"
+            )
+
+            # After the call, the original Popen must be restored
+            assert _cet.subprocess.Popen is original_popen, (
+                "subprocess.Popen must be restored to original after the handler call"
+            )
+
+            result = json.loads(result_json)
+            assert result.get("result") == "ok"
+        finally:
+            original_entry.handler = saved_handler

@@ -11,9 +11,14 @@ log = logging.getLogger(__name__)
 _INSTALLED = False
 ORIGINAL_TOOLS: dict[str, Any] = {}  # name -> ToolEntry
 _DELEGATE_PATCHED = False
+# Serializes execute_code calls to prevent races on the _cet.subprocess.Popen monkey-patch.
+# The patch replaces a module-level attribute; concurrent patches from two threads would
+# corrupt each other's restore. Single-session desktop use keeps this lock uncontested.
 _execute_code_popen_lock = _threading.Lock()
 
-# Process ownership registry: proc_id -> {workspace_hash, session_id}
+# Process ownership registry: proc_id -> {workspace_hash, session_id}.
+# Entries accumulate and are never evicted — acceptable for single-session desktop use.
+# TODO: wire cleanup to session_end events when multi-session support is added.
 _desktop_process_registry: dict[str, dict] = {}
 _desktop_process_registry_lock = _threading.Lock()
 
@@ -218,7 +223,7 @@ def _install_wrappers(registry) -> None:
             command = args.get("command") or args.get("cmd") or ""
             if command:
                 for match in _OUTSIDE_ABS_PATH_RE.finditer(str(command)):
-                    candidate = match.group(1)
+                    candidate = match.group(1).strip("\"'")
                     # System executables and device paths are always allowed
                     if any(candidate.startswith(prefix) for prefix in _SYSTEM_PATH_PREFIXES):
                         continue
@@ -246,13 +251,14 @@ def _install_wrappers(registry) -> None:
                 _cmd_str = str(command)
                 for _token in _re.findall(r'[^\s;|&>]*\.\.[/\\][^\s;|&>]*', _cmd_str):
                     try:
-                        _candidate = (_PathUtil(snapshot.cwd) / _token).resolve()
+                        _clean_token = _token.strip("\"'")
+                        _candidate = (_PathUtil(snapshot.cwd) / _clean_token).resolve()
                         if _candidate.exists():
                             try:
                                 _candidate.relative_to(snapshot.workspace_root)
                             except ValueError:
                                 return json.dumps({
-                                    "error": f"terminal denied: command contains relative escape path {_token}",
+                                    "error": f"terminal denied: command contains relative escape path {_clean_token}",
                                     "code": "WORKSPACE_VIOLATION",
                                 })
                     except Exception:
@@ -380,6 +386,9 @@ def _install_wrappers(registry) -> None:
                     preexec_fn=preexec_fn,
                 )
 
+            # COUPLING HAZARD: patches tools.code_execution_tool.subprocess.Popen (module-level attr).
+            # If code_execution_tool switches to `from subprocess import Popen`, this patch stops
+            # working silently. test_execute_code_calls_sandbox_runner_not_original is the regression guard.
             with _execute_code_popen_lock:
                 original_popen = _cet.subprocess.Popen
                 _cet.subprocess.Popen = _sandboxed_popen
