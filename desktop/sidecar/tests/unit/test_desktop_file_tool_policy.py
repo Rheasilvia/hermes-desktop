@@ -210,6 +210,21 @@ class TestSearchFilesWrapper:
         assert result.get("code") == "WORKSPACE_VIOLATION"
         entries["search_files"].handler.assert_not_called()
 
+    def test_search_files_defaults_path_to_workspace_root(self, installed_wrappers):
+        """When no 'path' key is provided, should default to workspace root (cwd)."""
+        wrappers, entries, tmp_path = installed_wrappers
+        entries["search_files"].handler.return_value = "[]"
+
+        wrapper = wrappers["search_files"]
+        result = wrapper({"pattern": "*.py"})
+
+        # Original should be called — no path means default "." resolves to workspace root
+        assert entries["search_files"].handler.called
+        called_args = entries["search_files"].handler.call_args[0][0]
+        assert "path" in called_args
+        # The resolved path should be the workspace root (tmp_path)
+        assert str(tmp_path) in called_args["path"] or called_args["path"] == str(tmp_path)
+
 
 # ---------------------------------------------------------------------------
 # Tests 7-10: patch

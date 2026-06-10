@@ -123,6 +123,7 @@ def _install_wrappers(registry) -> None:
                         touched.append(line[len("--- a/"):])
                     elif line.startswith("+++ b/"):
                         touched.append(line[len("+++ b/"):])
+                touched = list(dict.fromkeys(touched))  # deduplicate same-file --- a/ and +++ b/ entries
                 # Resolve each touched path; deny if any escape workspace
                 from pathlib import Path as _Path
                 for raw_path in touched:
