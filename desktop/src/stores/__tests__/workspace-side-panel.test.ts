@@ -1,7 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  gateway: {
+    workspace: {
+      children: vi.fn(),
+    },
+    git: {
+      diff: vi.fn(),
+    },
+  },
+}));
+
+vi.mock('../context.js', () => ({
+  getGateway: () => mocks.gateway,
 }));
 
 function deferred<T>() {
@@ -38,18 +49,17 @@ describe('sidePanelStore', () => {
 describe('gitViewStore', () => {
   it('clears old diff state on workspace changes and ignores stale responses', async () => {
     vi.resetModules();
-    const { invoke } = await import('@tauri-apps/api/core');
-    const invokeMock = vi.mocked(invoke);
     const first = deferred<unknown>();
     const second = deferred<unknown>();
-    invokeMock
+    mocks.gateway.git.diff
+      .mockReset()
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
     const { gitViewStore } = await import('../git-view.js');
 
-    gitViewStore.setWorkspacePath('/workspace-one');
+    gitViewStore.setWorkspace('session-one', '/workspace-one');
     const firstFetch = gitViewStore.fetchDiff();
-    gitViewStore.setWorkspacePath('/workspace-two');
+    gitViewStore.setWorkspace('session-two', '/workspace-two');
     const secondFetch = gitViewStore.fetchDiff();
 
     second.resolve({ files: [], summary: { files_changed: 0, insertions: 0, deletions: 0 }, working_dir: '/workspace-two' });
@@ -60,19 +70,18 @@ describe('gitViewStore', () => {
     expect(gitViewStore.diffData()?.working_dir).toBe('/workspace-two');
     expect(gitViewStore.diffData()?.summary.files_changed).toBe(0);
     expect(gitViewStore.diffError()).toBeNull();
+    expect(mocks.gateway.git.diff).toHaveBeenCalledWith('session-one');
+    expect(mocks.gateway.git.diff).toHaveBeenCalledWith('session-two');
   });
 });
 
 describe('workspaceTreeStore', () => {
   it('does not leak expanded paths between workspaces', async () => {
     vi.resetModules();
-    const { invoke } = await import('@tauri-apps/api/core');
-    vi.mocked(invoke).mockImplementation(async (command, args) => {
-      if (command === 'get_workspace_root') return (args as { path: string }).path;
-      if (command === 'list_workspace_children') {
-        const path = (args as { path: string }).path;
+    mocks.gateway.workspace.children.mockReset();
+    mocks.gateway.workspace.children.mockImplementation(async (_sessionId: string, path: string) => {
         return {
-          root: (args as { root: string }).root,
+          root: path,
           path,
           children: path === '/one'
             ? [{ path: '/one/src', name: 'src', kind: 'directory', ignored: false, loaded: false }]
@@ -80,38 +89,33 @@ describe('workspaceTreeStore', () => {
           truncated: false,
           total_read: 1,
         };
-      }
-      throw new Error(`unexpected command: ${command}`);
     });
     const { workspaceTreeStore } = await import('../workspace-tree.js');
 
-    await workspaceTreeStore.setWorkspacePath('/one');
+    await workspaceTreeStore.setWorkspace('session-one', '/one');
     await workspaceTreeStore.toggleExpanded('/one/src');
-    await workspaceTreeStore.setWorkspacePath('/two');
+    await workspaceTreeStore.setWorkspace('session-two', '/two');
 
     expect(workspaceTreeStore.state()?.root).toBe('/two');
     expect(workspaceTreeStore.state()?.expanded.has('/one/src')).toBe(false);
     expect(workspaceTreeStore.rows().map((row) => row.node.path)).toEqual(['/two', '/two/app']);
+    expect(mocks.gateway.workspace.children).toHaveBeenCalledWith('session-one', '/one');
+    expect(mocks.gateway.workspace.children).toHaveBeenCalledWith('session-two', '/two');
   });
 
   it('ignores stale tree responses after the workspace changes', async () => {
     vi.resetModules();
-    const { invoke } = await import('@tauri-apps/api/core');
     const firstList = deferred<unknown>();
     const secondList = deferred<unknown>();
-    vi.mocked(invoke).mockImplementation((command, args) => {
-      if (command === 'get_workspace_root') return Promise.resolve((args as { path: string }).path);
-      if (command === 'list_workspace_children') {
-        const path = (args as { path: string }).path;
-        return path === '/one' ? firstList.promise : secondList.promise;
-      }
-      return Promise.reject(new Error(`unexpected command: ${command}`));
+    mocks.gateway.workspace.children.mockReset();
+    mocks.gateway.workspace.children.mockImplementation((_sessionId: string, path: string) => {
+      return path === '/one' ? firstList.promise : secondList.promise;
     });
     const { workspaceTreeStore } = await import('../workspace-tree.js');
 
-    const firstSet = workspaceTreeStore.setWorkspacePath('/one');
+    const firstSet = workspaceTreeStore.setWorkspace('session-one', '/one');
     await flushPromises();
-    const secondSet = workspaceTreeStore.setWorkspacePath('/two');
+    const secondSet = workspaceTreeStore.setWorkspace('session-two', '/two');
     await flushPromises();
 
     secondList.resolve({

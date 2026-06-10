@@ -1,12 +1,5 @@
-interface TauriCore {
-  invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
-}
-
-interface TauriWindow extends Window {
-  __TAURI__?: {
-    core: TauriCore;
-  };
-}
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import templateSettings from '@/assets/desktop-settings-template.json';
 
 const SETTINGS_PATH = 'desktop/settings.json';
 const LOCALSTORAGE_KEY = 'hermes-desktop-settings';
@@ -24,21 +17,12 @@ export interface DesktopSettings {
   showReasoning: boolean;
 }
 
-import templateSettings from '@/assets/desktop-settings-template.json';
-
 const DEFAULT_SETTINGS: DesktopSettings = {
   ...(templateSettings as DesktopSettings),
 };
 
-function getTauri(): TauriCore | null {
-  if (typeof window === 'undefined') return null;
-  const w = window as TauriWindow;
-  return w.__TAURI__?.core ?? null;
-}
-
 export async function loadDesktopSettings(): Promise<DesktopSettings> {
-  const tauri = getTauri();
-  if (!tauri) {
+  if (!isTauri()) {
     // Web preview mode — fall back to localStorage
     try {
       const raw = localStorage.getItem(LOCALSTORAGE_KEY);
@@ -53,7 +37,7 @@ export async function loadDesktopSettings(): Promise<DesktopSettings> {
   }
 
   try {
-    const content = await tauri.invoke<string>('read_file', { path: SETTINGS_PATH });
+    const content = await invoke<string>('read_file', { path: SETTINGS_PATH });
     const parsed = JSON.parse(content) as Partial<DesktopSettings>;
     return { ...DEFAULT_SETTINGS, ...parsed };
   } catch {
@@ -62,8 +46,7 @@ export async function loadDesktopSettings(): Promise<DesktopSettings> {
 }
 
 export async function saveDesktopSettings(settings: DesktopSettings): Promise<void> {
-  const tauri = getTauri();
-  if (!tauri) {
+  if (!isTauri()) {
     // Web preview mode — fall back to localStorage
     try {
       localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(settings));
@@ -73,7 +56,7 @@ export async function saveDesktopSettings(settings: DesktopSettings): Promise<vo
     return;
   }
 
-  await tauri.invoke('write_file', {
+  await invoke('write_file', {
     path: SETTINGS_PATH,
     content: JSON.stringify(settings, null, 2),
   });

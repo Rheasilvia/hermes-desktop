@@ -8,6 +8,8 @@ bucket.
 from __future__ import annotations
 
 import typing
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -36,6 +38,22 @@ def _make_service(tmp_path) -> CommandService:
     # Lifecycle actions and live-data card directives resolve without touching
     # the session service or agent pool.
     return CommandService(hermes_home=tmp_path, session_service=None, agent_pool=None)
+
+
+class _SessionService:
+    def __init__(self, cwd: str):
+        self._cwd = cwd
+
+    def get_session(self, session_id: str):
+        return {"id": session_id, "cwd": self._cwd}
+
+
+def _make_service_with_cwd(tmp_path, cwd) -> CommandService:
+    return CommandService(
+        hermes_home=tmp_path,
+        session_service=_SessionService(str(cwd)),
+        agent_pool=None,
+    )
 
 
 @pytest.mark.parametrize(
@@ -261,3 +279,74 @@ def test_every_registry_command_is_categorized():
         "in command_service.py (_SESSION_ACTIONS / _CARD_COMMANDS / _CLI_CARD / "
         "_DEFERRED / _TERMINAL_ONLY / _INLINE_HANDLED)."
     )
+
+
+def test_quick_exec_requires_session_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "hermes_cli.config.load_config",
+        lambda: {"quick_commands": {"build": {"type": "exec", "command": "echo ok"}}},
+    )
+
+    result = _make_service(tmp_path).exec(session_id=None, command="build", args="")
+
+    assert result.kind == "error"
+    assert result.message == "SESSION_REQUIRED"
+
+
+def test_quick_exec_fails_closed_when_sandbox_runner_unavailable(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(
+        "hermes_cli.config.load_config",
+        lambda: {"quick_commands": {"build": {"type": "exec", "command": "echo ok"}}},
+    )
+    monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", lambda: None)
+
+    result = _make_service_with_cwd(tmp_path, workspace).exec(
+        session_id="s1",
+        command="build",
+        args="",
+    )
+
+    assert result.kind == "error"
+    assert result.message == "SANDBOX_UNAVAILABLE"
+
+
+def test_quick_exec_uses_sandbox_runner_without_shell_true(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runner = Mock()
+    runner.run.return_value = SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
+    monkeypatch.setattr(
+        "hermes_cli.config.load_config",
+        lambda: {"quick_commands": {"build": {"type": "exec", "command": "echo ok"}}},
+    )
+    monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", lambda: runner)
+    subprocess_run = Mock(side_effect=AssertionError("subprocess.run must not be called directly"))
+    monkeypatch.setattr("daemon.services.command_service.subprocess.run", subprocess_run)
+
+    result = _make_service_with_cwd(tmp_path, workspace).exec(
+        session_id="s1",
+        command="build",
+        args="",
+    )
+
+    assert result.kind == "output"
+    assert result.message == "ok"
+    runner.run.assert_called_once()
+    command = runner.run.call_args.kwargs["command"]
+    assert command[:2] in (["/bin/sh", "-lc"], ["sh", "-lc"])
+    assert runner.run.call_args.kwargs["workspace_root"] == str(workspace.resolve())
+    subprocess_run.assert_not_called()
+
+
+def test_plugin_commands_are_disabled_in_desktop(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "hermes_cli.plugins.get_plugin_command_handler",
+        lambda name: (lambda arg: "ran"),
+    )
+
+    result = _make_service(tmp_path).exec(session_id="s1", command="plugin-cmd", args="")
+
+    assert result.kind == "unsupported"
+    assert result.message == "Plugin commands are not available in Desktop."

@@ -343,7 +343,7 @@ describe('MessageInput slash commands', () => {
     });
   });
 
-  test('requests @ path completions with the active session and cwd', async () => {
+  test('requests @ path completions with the active session', async () => {
     mocks.completePath.mockResolvedValue([]);
     render(() => <MessageInput sessionId="session-at" cwd="/repo" onSend={vi.fn()} />);
 
@@ -354,7 +354,6 @@ describe('MessageInput slash commands', () => {
       expect(mocks.completePath).toHaveBeenCalledWith({
         partial: '@file:sr',
         sessionId: 'session-at',
-        cwd: '/repo',
       });
     });
   });
@@ -373,7 +372,6 @@ describe('MessageInput slash commands', () => {
       expect(mocks.completePath).toHaveBeenCalledWith({
         partial: '@my',
         sessionId: 'session-bare-at',
-        cwd: '/repo',
       });
     });
     await screen.findByText('mydoc.txt');
@@ -611,8 +609,8 @@ describe('MessageInput slash commands', () => {
     let resolveOld!: (value: unknown) => void;
     let setSession!: (sessionId: string) => void;
     let setCwd!: (cwd: string) => void;
-    mocks.completePath.mockImplementation(({ cwd }: { cwd: string }) => {
-      if (cwd === '/repo-a') {
+    mocks.completePath.mockImplementation(({ sessionId }: { sessionId: string }) => {
+      if (sessionId === 'session-stale-a') {
         return new Promise((resolve) => {
           resolveOld = resolve;
         });
@@ -637,7 +635,6 @@ describe('MessageInput slash commands', () => {
       expect(mocks.completePath).toHaveBeenCalledWith({
         partial: '@file:o',
         sessionId: 'session-stale-a',
-        cwd: '/repo-a',
       });
     });
 

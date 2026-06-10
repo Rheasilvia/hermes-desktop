@@ -16,6 +16,13 @@ export interface WorkspaceChildrenResult {
   total_read: number;
 }
 
+export interface WorkspaceFileResult {
+  content: string | null;
+  truncated: boolean;
+  binary: boolean;
+  size: number;
+}
+
 export interface WorkspaceTreeRow {
   node: WorkspaceTreeNode;
   depth: number;

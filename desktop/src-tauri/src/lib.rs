@@ -2,7 +2,24 @@ pub mod commands;
 mod sidecar;
 mod updater;
 
+use serde::Deserialize;
 use tauri::{Emitter, Manager};
+use tauri_plugin_dialog::DialogExt;
+
+#[cfg(test)]
+const REGISTERED_TAURI_COMMANDS: &[&str] = &[
+    "get_app_version",
+    "get_hermes_home",
+    "read_file",
+    "write_file",
+    "list_dir",
+    "open_external",
+    "get_platform",
+    "select_workspace_for_session",
+    "sidecar_info",
+    "check_for_updates",
+    "install_update",
+];
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tauri::command]
@@ -12,18 +29,78 @@ async fn sidecar_info() -> Result<sidecar::SidecarInfo, String> {
         .ok_or_else(|| "sidecar not ready".into())
 }
 
+#[derive(Deserialize)]
+struct SessionWorkspaceResponse {
+    cwd: Option<String>,
+}
+
+fn session_update_url(base_url: &str, session_id: &str) -> Result<reqwest::Url, String> {
+    let mut url = reqwest::Url::parse(base_url)
+        .map_err(|e| format!("invalid sidecar URL: {e}"))?;
+    {
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|_| "invalid sidecar URL path".to_string())?;
+        segments.clear();
+        segments.push("desktop");
+        segments.push("api");
+        segments.push("sessions");
+        segments.push(session_id);
+    }
+    Ok(url)
+}
+
+#[tauri::command]
+async fn select_workspace_for_session(
+    app: tauri::AppHandle,
+    session_id: String,
+) -> Result<String, String> {
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("Select Workspace")
+        .blocking_pick_folder()
+        .ok_or_else(|| "WORKSPACE_SELECTION_CANCELLED".to_string())?;
+    let selected_path = selected
+        .into_path()
+        .map_err(|e| format!("invalid workspace path: {e}"))?
+        .canonicalize()
+        .map_err(|e| format!("workspace not found: {e}"))?;
+    if !selected_path.is_dir() {
+        return Err("workspace path is not a directory".into());
+    }
+
+    let info = sidecar::current_info()
+        .await
+        .ok_or_else(|| "sidecar not ready".to_string())?;
+    let grant = sidecar::current_workspace_grant_token()
+        .await
+        .ok_or_else(|| "workspace grant unavailable".to_string())?;
+    let url = session_update_url(&info.base_url, &session_id)?;
+    let resp = reqwest::Client::new()
+        .patch(url)
+        .bearer_auth(info.token)
+        .header("X-Desktop-Workspace-Grant", grant)
+        .json(&serde_json::json!({ "cwd": selected_path.to_string_lossy() }))
+        .send()
+        .await
+        .map_err(|e| format!("workspace update failed: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("workspace update failed: {status}: {body}"));
+    }
+    let body: SessionWorkspaceResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("workspace update response invalid: {e}"))?;
+    body.cwd.ok_or_else(|| "workspace update response missing cwd".into())
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_store::Builder::new().build())
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
@@ -38,13 +115,7 @@ pub fn run() {
             commands::hermes_home::list_dir,
             commands::platform::open_external,
             commands::platform::get_platform,
-            commands::workspace::get_workspace_root,
-            commands::workspace::list_workspace_children,
-            commands::git::run_git_diff,
-            commands::git::get_git_branches,
-            commands::git::checkout_git_branch,
-            commands::workspace::read_workspace_file,
-            commands::platform::reveal_workspace_path,
+            select_workspace_for_session,
             sidecar_info,
             updater::check_for_updates,
             updater::install_update,
@@ -93,4 +164,31 @@ pub fn run() {
             });
         }
     });
+}
+
+#[cfg(test)]
+mod command_surface_tests {
+    use super::*;
+
+    #[test]
+    fn session_update_url_encodes_renderer_session_id_as_path_segment() {
+        let url = session_update_url("http://127.0.0.1:18080", "desktop_abc/../../config")
+            .expect("session url should build");
+
+        assert_eq!(
+            url.as_str(),
+            "http://127.0.0.1:18080/desktop/api/sessions/desktop_abc%2F..%2F..%2Fconfig"
+        );
+    }
+
+    #[test]
+    fn unsafe_workspace_and_git_invokes_are_not_registered() {
+        assert!(!REGISTERED_TAURI_COMMANDS.contains(&"get_workspace_root"));
+        assert!(!REGISTERED_TAURI_COMMANDS.contains(&"list_workspace_children"));
+        assert!(!REGISTERED_TAURI_COMMANDS.contains(&"read_workspace_file"));
+        assert!(!REGISTERED_TAURI_COMMANDS.contains(&"reveal_workspace_path"));
+        assert!(!REGISTERED_TAURI_COMMANDS.contains(&"run_git_diff"));
+        assert!(!REGISTERED_TAURI_COMMANDS.contains(&"get_git_branches"));
+        assert!(!REGISTERED_TAURI_COMMANDS.contains(&"checkout_git_branch"));
+    }
 }

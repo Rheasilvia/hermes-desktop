@@ -151,7 +151,7 @@ describe('commands HTTP methods', () => {
     expect(result).toEqual([{ command: 'model', description: 'Switch model', category: 'Configuration' }]);
   });
 
-  it('maps complete.path to the desktop path completion endpoint', async () => {
+  it('maps complete.path to the desktop path completion endpoint without request cwd', async () => {
     const mockHttp = {
       get: vi.fn(),
       post: vi.fn().mockResolvedValue({
@@ -166,15 +166,60 @@ describe('commands HTTP methods', () => {
     const result = await adapter.complete.path({
       partial: '@my',
       sessionId: 'sess_1',
-      cwd: '/repo',
     });
 
     expect(mockHttp.post).toHaveBeenCalledWith('/desktop/api/commands/complete/path', {
       word: '@my',
       session_id: 'sess_1',
-      cwd: '/repo',
     });
     expect(result).toEqual([{ text: '@file:docs/mydoc.txt', display: 'mydoc.txt', meta: 'docs' }]);
+  });
+
+  it('maps workspace and git methods to session-scoped sidecar endpoints', async () => {
+    const mockHttp = {
+      get: vi.fn()
+        .mockResolvedValueOnce({ root: '/repo', path: '/repo', children: [], truncated: false, total_read: 0 })
+        .mockResolvedValueOnce({ content: 'hello', truncated: false, binary: false, size: 5 })
+        .mockResolvedValueOnce({ files: [], summary: { files_changed: 0, insertions: 0, deletions: 0 }, working_dir: '/repo' })
+        .mockResolvedValueOnce({ current: 'main', branches: ['main'] }),
+      post: vi.fn().mockResolvedValue({ ok: true }),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    };
+    const adapter = new HttpGatewayAdapter(mockHttp as any);
+
+    await adapter.workspace.children('sess_1', '.');
+    await adapter.workspace.readFile('sess_1', 'README.md');
+    await adapter.workspace.reveal('sess_1', 'README.md');
+    await adapter.git.diff('sess_1');
+    await adapter.git.branches('sess_1');
+    await adapter.git.checkout('sess_1', 'main');
+
+    expect(mockHttp.get).toHaveBeenNthCalledWith(
+      1,
+      '/desktop/api/sessions/sess_1/workspace/children?path=.',
+    );
+    expect(mockHttp.get).toHaveBeenNthCalledWith(
+      2,
+      '/desktop/api/sessions/sess_1/workspace/file?path=README.md',
+    );
+    expect(mockHttp.post).toHaveBeenCalledWith(
+      '/desktop/api/sessions/sess_1/workspace/reveal',
+      { path: 'README.md' },
+    );
+    expect(mockHttp.get).toHaveBeenNthCalledWith(
+      3,
+      '/desktop/api/sessions/sess_1/git/diff',
+    );
+    expect(mockHttp.get).toHaveBeenNthCalledWith(
+      4,
+      '/desktop/api/sessions/sess_1/git/branches',
+    );
+    expect(mockHttp.post).toHaveBeenCalledWith(
+      '/desktop/api/sessions/sess_1/git/checkout',
+      { branch: 'main' },
+    );
   });
 
   it('posts slash.exec and returns the structured command result', async () => {

@@ -15,6 +15,9 @@ import type {
   DesktopPermissionMode,
   HermesConfig,
   ToolEntry,
+  WorkspaceChildrenResult,
+  WorkspaceFileResult,
+  GitDiffResult,
   ModelOption,
   CronJob,
   CreateCronJobParams,
@@ -324,7 +327,24 @@ export interface CompletionEntry {
 
 export interface CompleteMethods {
   slash(params: { partial: string }): Promise<{ command: string; description: string; category?: string; icon?: string }[]>;
-  path(params: { partial: string; sessionId?: string | null; cwd: string }): Promise<CompletionEntry[]>;
+  path(params: { partial: string; sessionId: string }): Promise<CompletionEntry[]>;
+}
+
+export interface WorkspaceMethods {
+  children(sessionId: string, path: string): Promise<WorkspaceChildrenResult>;
+  readFile(sessionId: string, path: string): Promise<WorkspaceFileResult>;
+  reveal(sessionId: string, path: string): Promise<void>;
+}
+
+export interface GitBranchInfo {
+  current: string;
+  branches: string[];
+}
+
+export interface GitMethods {
+  diff(sessionId: string): Promise<GitDiffResult>;
+  branches(sessionId: string): Promise<GitBranchInfo>;
+  checkout(sessionId: string, branch: string): Promise<void>;
 }
 
 /** Lifecycle session actions performed by the frontend (mirror of backend ActionName). */
@@ -379,6 +399,8 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   readonly memory: MemoryMethods;
   readonly skills: SkillsMethods;
   readonly complete: CompleteMethods;
+  readonly workspace: WorkspaceMethods;
+  readonly git: GitMethods;
   readonly slash: SlashMethods;
   readonly command: CommandMethods;
   readonly delegation: DelegationMethods;
@@ -393,7 +415,7 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   getConnectionState(): ConnectionState;
 }
 
-export type { DesktopPermissionMode, SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult } from '@/types/index.js';
+export type { DesktopPermissionMode, SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, WorkspaceChildrenResult, WorkspaceFileResult, GitDiffResult, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult } from '@/types/index.js';
 
 /** Factory options for creating a gateway adapter. */
 export interface GatewayAdapterOptions {

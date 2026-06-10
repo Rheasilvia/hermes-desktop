@@ -9,6 +9,7 @@ import { Icon } from '@/ui/atoms/Icon.js';
 import styles from './WorkspaceSidePanel.module.css';
 
 interface WorkspaceSidePanelProps {
+  sessionId: string | null;
   workspacePath: string | null;
   panelWidth: number;
   ref?: (el: HTMLDivElement) => void;
@@ -61,7 +62,7 @@ export const WorkspaceSidePanel: Component<WorkspaceSidePanelProps> = (props) =>
       <div class={styles.body}>
         <Switch>
           <Match when={sidePanelStore.activeTab() === 'workspace'}>
-            <WorkspaceTreeView workspacePath={props.workspacePath} />
+            <WorkspaceTreeView sessionId={props.sessionId} workspacePath={props.workspacePath} />
           </Match>
           <Match when={sidePanelStore.activeTab() === 'git'}>
             <DiffPanel

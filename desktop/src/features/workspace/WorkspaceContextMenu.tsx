@@ -1,8 +1,8 @@
 import type { Component } from 'solid-js';
 import { Show, onCleanup, onMount } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { invoke } from '@tauri-apps/api/core';
 import type { WorkspaceTreeNode } from '@/types/index.js';
+import { getGateway } from '@/stores/context.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { fileChipQueue } from '@/stores/file-chip-queue.js';
 import styles from './WorkspaceContextMenu.module.css';
@@ -10,6 +10,7 @@ import styles from './WorkspaceContextMenu.module.css';
 interface Props {
   node: WorkspaceTreeNode;
   workspaceRoot: string;
+  sessionId: string;
   position: { x: number; y: number };
   onClose: () => void;
   onPreview?: () => void;
@@ -92,7 +93,7 @@ export const WorkspaceContextMenu: Component<Props> = (props) => {
           type="button"
           class={styles.item}
           onClick={() => {
-            void invoke('reveal_workspace_path', { root: props.workspaceRoot, path: props.node.path });
+            void getGateway()?.workspace.reveal(props.sessionId, props.node.path);
             props.onClose();
           }}
         >

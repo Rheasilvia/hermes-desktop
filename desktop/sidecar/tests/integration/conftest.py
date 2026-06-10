@@ -25,6 +25,7 @@ def cfg(hermes_home: Path) -> Config:
         hermes_home=hermes_home,
         bind_host="127.0.0.1",
         token="test-token",
+        workspace_grant_token="workspace-grant",
     )
 
 
@@ -36,3 +37,8 @@ def client(cfg: Config) -> TestClient:
 @pytest.fixture
 def auth() -> dict[str, str]:
     return {"Authorization": "Bearer test-token"}
+
+
+@pytest.fixture
+def workspace_grant(auth: dict[str, str]) -> dict[str, str]:
+    return {**auth, "X-Desktop-Workspace-Grant": "workspace-grant"}

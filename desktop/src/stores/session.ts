@@ -59,6 +59,12 @@ export const sessionStore = {
     }
   },
 
+  applyCwd(sessionId: string, cwd: string): void {
+    setSessions(prev => prev.map(s =>
+      s.id === sessionId ? { ...s, cwd } : s
+    ));
+  },
+
   async setPermissionMode(sessionId: string, mode: DesktopPermissionMode): Promise<SessionMeta | null> {
     const gateway = getGateway();
     if (!gateway) return null;

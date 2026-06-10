@@ -4,14 +4,11 @@ import { Icon } from '@/ui/atoms/Icon';
 import styles from './WorkspacePicker.module.css';
 
 interface WorkspacePickerProps {
+  sessionId: string | null | undefined;
   workspacePath: string | null | undefined;
   editable?: boolean;
   disabled?: boolean;
   onChange?: (path: string) => void;
-}
-
-function isTauri() {
-  return typeof window !== 'undefined' && '__TAURI__' in window;
 }
 
 export const WorkspacePicker: Component<WorkspacePickerProps> = (props) => {
@@ -62,18 +59,18 @@ export const WorkspacePicker: Component<WorkspacePickerProps> = (props) => {
     if (isDisabled()) return;
 
     if (isEditable()) {
-      if (isTauri()) {
+      const sid = props.sessionId;
+      if (sid) {
         try {
-          const { open: openDialog } = await import('@tauri-apps/plugin-dialog');
-          const selected = await openDialog({
-            directory: true,
-            title: 'Select Workspace',
-          });
-          if (selected && typeof selected === 'string') {
-            props.onChange?.(selected);
+          const { invoke, isTauri } = await import('@tauri-apps/api/core');
+          if (!isTauri()) {
+            startEditing();
+            return;
           }
+          const selected = await invoke<string>('select_workspace_for_session', { sessionId: sid });
+          props.onChange?.(selected);
         } catch {
-          // dialog plugin may not be available
+          // Native workspace selection is the only trusted Tauri path.
         }
       } else {
         startEditing();

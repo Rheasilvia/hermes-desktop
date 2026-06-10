@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..schemas.commands import CommandRequest, PathCompleteRequest, SlashCompleteRequest
 from ..services.dependencies import get_command_service, get_session_service
@@ -24,8 +24,12 @@ def complete_path_refs(
     body: PathCompleteRequest,
     session_svc=Depends(get_session_service),
 ) -> dict:
-    session = session_svc.get_session(body.session_id) if body.session_id else None
-    root = completion_root(cwd=body.cwd, fallback=(session or {}).get("cwd"))
+    if not body.session_id:
+        raise HTTPException(status_code=400, detail="SESSION_REQUIRED")
+    session = session_svc.get_session(body.session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+    root = completion_root(fallback=session.get("cwd"))
     return {"items": complete_path(body.word, root=root)}
 
 
