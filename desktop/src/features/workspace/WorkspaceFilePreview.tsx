@@ -1,23 +1,17 @@
 import type { Component } from 'solid-js';
 import { Show, createResource } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { invoke } from '@tauri-apps/api/core';
-import type { WorkspaceTreeNode } from '@/types/index.js';
+import type { WorkspaceFileResult, WorkspaceTreeNode } from '@/types/index.js';
+import { getGateway } from '@/stores/context.js';
 import { Modal } from '@/ui/molecules/Modal.js';
 import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner.js';
 import { FileContentView } from '@/ui/molecules/FileContentView.js';
 import styles from './WorkspaceFilePreview.module.css';
 
-interface WorkspaceFileResult {
-  content: string | null;
-  truncated: boolean;
-  binary: boolean;
-  size: number;
-}
-
 interface Props {
   node: WorkspaceTreeNode;
   workspaceRoot: string;
+  sessionId: string;
   onClose: () => void;
 }
 
@@ -27,7 +21,8 @@ function formatKB(bytes: number): string {
 
 export const WorkspaceFilePreview: Component<Props> = (props) => {
   const [fileResult] = createResource<WorkspaceFileResult>(() =>
-    invoke('read_workspace_file', { root: props.workspaceRoot, path: props.node.path })
+    getGateway()?.workspace.readFile(props.sessionId, props.node.path)
+      ?? Promise.reject(new Error('Gateway is not initialized'))
   );
 
   return (

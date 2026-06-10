@@ -581,13 +581,13 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     const requestCwd = props.cwd ?? '';
 
     const gateway = getGateway();
-    if (!gateway || !requestCwd) {
+    if (!gateway || !requestSessionId) {
       setReferenceItems(mergeWithLocalStarters([], token));
       return;
     }
 
     try {
-      const result = await gateway.complete.path({ partial: token, sessionId: requestSessionId, cwd: requestCwd });
+      const result = await gateway.complete.path({ partial: token, sessionId: requestSessionId });
       if (
         requestId !== referenceRequestId ||
         referenceToken() !== requestToken ||
@@ -1110,12 +1110,14 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
               <div class={styles.modelPill}>{props.modelSlot!(Boolean(props.disabled && !props.isStreaming), Boolean(props.isStreaming))}</div>
             </Show>
             <WorkspacePicker
+              sessionId={props.sessionId}
               workspacePath={props.cwd}
               editable={props.isNewConversation}
               disabled={!props.isNewConversation}
               onChange={props.onCwdChange}
             />
             <GitBranchPicker
+              sessionId={props.sessionId}
               workspacePath={props.cwd}
               disabled={props.disabled}
             />

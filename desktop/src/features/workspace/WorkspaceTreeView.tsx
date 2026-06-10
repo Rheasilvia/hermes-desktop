@@ -8,6 +8,7 @@ import { WorkspaceFilePreview } from './WorkspaceFilePreview.js';
 import styles from './WorkspaceTreeView.module.css';
 
 interface WorkspaceTreeViewProps {
+  sessionId: string | null;
   workspacePath: string | null;
 }
 
@@ -152,22 +153,32 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
       </Show>
       <Show when={previewNode()}>
         {(node) => (
-          <WorkspaceFilePreview
-            node={node()}
-            workspaceRoot={state()?.root ?? ''}
-            onClose={() => setPreviewNode(null)}
-          />
+          <Show when={props.sessionId}>
+            {(sessionId) => (
+              <WorkspaceFilePreview
+                node={node()}
+                workspaceRoot={state()?.root ?? ''}
+                sessionId={sessionId()}
+                onClose={() => setPreviewNode(null)}
+              />
+            )}
+          </Show>
         )}
       </Show>
       <Show when={contextMenu()}>
         {(menu) => (
-          <WorkspaceContextMenu
-            node={menu().node}
-            workspaceRoot={state()?.root ?? ''}
-            position={{ x: menu().x, y: menu().y }}
-            onClose={() => setContextMenu(null)}
-            onPreview={() => setPreviewNode(menu().node)}
-          />
+          <Show when={props.sessionId}>
+            {(sessionId) => (
+              <WorkspaceContextMenu
+                node={menu().node}
+                workspaceRoot={state()?.root ?? ''}
+                sessionId={sessionId()}
+                position={{ x: menu().x, y: menu().y }}
+                onClose={() => setContextMenu(null)}
+                onPreview={() => setPreviewNode(menu().node)}
+              />
+            )}
+          </Show>
         )}
       </Show>
     </div>

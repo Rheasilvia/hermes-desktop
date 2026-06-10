@@ -114,3 +114,22 @@ def get_command_service(request: Request):
             agent_pool=get_agent_pool(request),
         )
     return request.app.state.command_svc
+
+
+def get_workspace_service(request: Request):
+    if not hasattr(request.app.state, "workspace_svc"):
+        from .workspace_service import WorkspaceService
+        request.app.state.workspace_svc = WorkspaceService(
+            session_service=get_session_service(request),
+        )
+    return request.app.state.workspace_svc
+
+
+def get_git_service(request: Request):
+    if not hasattr(request.app.state, "git_svc"):
+        from .git_service import GitService
+        request.app.state.git_svc = GitService(
+            session_service=get_session_service(request),
+            hermes_home=request.app.state.cfg.hermes_home,
+        )
+    return request.app.state.git_svc

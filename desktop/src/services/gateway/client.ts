@@ -31,6 +31,10 @@ import type {
   UpsertProviderInput,
   DeleteProviderInput,
   CompletionEntry,
+  WorkspaceChildrenResult,
+  WorkspaceFileResult,
+  GitDiffResult,
+  GitBranchInfo,
 } from './types.js';
 import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
@@ -268,15 +272,32 @@ export class GatewayClient {
   complete = {
     slash: (params: { partial: string }): Promise<{ command: string; description: string }[]> =>
       this.call('complete.slash', params),
-    path: async (params: { partial: string; sessionId?: string | null; cwd: string }): Promise<CompletionEntry[]> => {
+    path: async (params: { partial: string; sessionId: string }): Promise<CompletionEntry[]> => {
       const payload: Record<string, unknown> = {
         word: params.partial,
-        cwd: params.cwd,
+        session_id: params.sessionId,
       };
-      if (params.sessionId) payload.session_id = params.sessionId;
       const result = await this.call('complete.path', payload);
       return this.normalizeCompletionEntries(result);
     },
+  };
+
+  workspace = {
+    children: (sessionId: string, path: string): Promise<WorkspaceChildrenResult> =>
+      this.call('workspace.children', { session_id: sessionId, path }),
+    readFile: (sessionId: string, path: string): Promise<WorkspaceFileResult> =>
+      this.call('workspace.file', { session_id: sessionId, path }),
+    reveal: (sessionId: string, path: string): Promise<void> =>
+      this.call('workspace.reveal', { session_id: sessionId, path }),
+  };
+
+  git = {
+    diff: (sessionId: string): Promise<GitDiffResult> =>
+      this.call('git.diff', { session_id: sessionId }),
+    branches: (sessionId: string): Promise<GitBranchInfo> =>
+      this.call('git.branches', { session_id: sessionId }),
+    checkout: (sessionId: string, branch: string): Promise<void> =>
+      this.call('git.checkout', { session_id: sessionId, branch }),
   };
 
   slash = {

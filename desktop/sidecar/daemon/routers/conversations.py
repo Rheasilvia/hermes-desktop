@@ -10,7 +10,9 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+import hmac
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..schemas.conversation import (
     ApprovalRespondRequest,
@@ -38,16 +40,28 @@ from ..services.exceptions import SessionNotFoundError
 router = APIRouter()
 log = logging.getLogger(__name__)
 
+_WORKSPACE_GRANT_HEADER = "x-desktop-workspace-grant"
+
+
+def _require_workspace_grant(request: Request) -> None:
+    expected = getattr(request.app.state.cfg, "workspace_grant_token", None)
+    provided = request.headers.get(_WORKSPACE_GRANT_HEADER, "")
+    if not expected or not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=403, detail="WORKSPACE_GRANT_REQUIRED")
+
 
 # ── Session CRUD ──────────────────────────────────────────────────────────────
 
 
 @router.post("/sessions")
 async def create_session(
+    request: Request,
     body: CreateSessionRequest,
     svc=Depends(get_session_service),
     pool=Depends(get_agent_pool),
 ):
+    if body.cwd is not None:
+        _require_workspace_grant(request)
     result = svc.create_session(
         cwd=body.cwd,
         system_prompt=body.system_prompt,
@@ -89,6 +103,7 @@ async def get_session(session_id: str, svc=Depends(get_session_service)):
 
 @router.patch("/sessions/{session_id}")
 async def update_session(
+    request: Request,
     session_id: str,
     body: UpdateSessionRequest,
     svc=Depends(get_session_service),
@@ -97,6 +112,7 @@ async def update_session(
     try:
         resolved_cwd = None
         if body.cwd is not None:
+            _require_workspace_grant(request)
             svc.get_session_or_404(session_id)
             if pool.is_running(session_id):
                 raise HTTPException(status_code=409, detail="SESSION_BUSY")

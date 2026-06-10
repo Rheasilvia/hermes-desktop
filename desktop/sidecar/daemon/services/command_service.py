@@ -131,7 +131,7 @@ _DESKTOP_UNAVAILABLE = frozenset({"whoami"})
 _DESKTOP_TRIMMED = frozenset({
     "status", "help", "platforms", "agents",
     "profile", "gquota", "insights", "debug", "save",
-    "rollback", "curator", "kanban", "update",
+    "rollback", "curator", "kanban", "update", "version",
 })
 
 # Catalog/help "supported" flag derives from this union — single source of truth,
@@ -376,10 +376,44 @@ class CommandService:
                 return CommandResult(kind="error", message=f"Quick command /{name} has no target.")
             return self.exec(session_id=session_id, command=f"{target} {arg}".strip())
         if qc.get("type") == "exec":
+            if not session_id:
+                return CommandResult(kind="error", message="SESSION_REQUIRED")
+            if self._session_service is None:
+                return CommandResult(kind="error", message="SESSION_SERVICE_UNAVAILABLE")
+            session = self._session_service.get_session(session_id)
+            if session is None:
+                return CommandResult(kind="error", message="SESSION_NOT_FOUND")
             try:
-                result = subprocess.run(str(qc.get("command") or ""), shell=True, capture_output=True, text=True, timeout=30)
-            except Exception as exc:
-                return CommandResult(kind="error", message=f"Quick command error: {exc}")
+                workspace = Path(str(session.get("cwd") or "")).expanduser().resolve(strict=True)
+            except Exception:
+                return CommandResult(kind="error", message="WORKSPACE_UNAVAILABLE")
+            if not workspace.is_dir():
+                return CommandResult(kind="error", message="WORKSPACE_UNAVAILABLE")
+            try:
+                from .sandbox_runner import get_sandbox_runner
+                runner = get_sandbox_runner()
+            except Exception:
+                runner = None
+            if runner is None:
+                return CommandResult(kind="error", message="SANDBOX_UNAVAILABLE")
+            command = str(qc.get("command") or "").strip()
+            if not command:
+                return CommandResult(kind="error", message=f"Quick command /{name} has no command.")
+            shell = "/bin/sh" if os.path.exists("/bin/sh") else "sh"
+            env = {
+                "HOME": str(workspace),
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
+                "NO_COLOR": "1",
+                "TERM": "dumb",
+            }
+            result = runner.run(
+                command=[shell, "-lc", command],
+                cwd=str(workspace),
+                env=env,
+                timeout=30,
+                workspace_root=str(workspace),
+                hermes_home=str(self._hermes_home),
+            )
             output = "\n".join(p for p in [result.stdout, result.stderr] if p).strip()
             if result.returncode != 0:
                 return CommandResult(kind="error", message=output or f"Quick command failed with exit code {result.returncode}")
@@ -388,12 +422,11 @@ class CommandService:
 
     def _handle_plugin_command(self, name: str, arg: str) -> CommandResult | None:
         try:
-            from hermes_cli.plugins import get_plugin_command_handler, resolve_plugin_command_result
+            from hermes_cli.plugins import get_plugin_command_handler
             handler = get_plugin_command_handler(name)
             if not handler:
                 return None
-            result = resolve_plugin_command_result(handler(arg))
-            return CommandResult(kind="output", message=str(result or "Command returned no output."))
+            return CommandResult(kind="unsupported", message="Plugin commands are not available in Desktop.")
         except Exception:
             return None
 

@@ -540,9 +540,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   });
 
   createEffect(() => {
+    const sid = sessionId();
     const path = cwd();
-    gitViewStore.setWorkspacePath(path);
-    void workspaceTreeStore.setWorkspacePath(path);
+    gitViewStore.setWorkspace(sid, path);
+    void workspaceTreeStore.setWorkspace(sid, path);
     if (path && sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git') {
       void gitViewStore.fetchDiff();
     }
@@ -858,7 +859,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 isNewConversation={canEditWorkspace()}
                 onCwdChange={(path) => {
                   const sid = sessionId();
-                  if (sid) void sessionStore.updateCwd(sid, path);
+                  if (sid) sessionStore.applyCwd(sid, path);
                 }}
                 editDraft={editDraft}
                 clearEditDraft={() => setEditDraft(null)}
@@ -881,6 +882,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         <Show when={sidePanelStore.isOpen()}>
           <WorkspaceSidePanel
             ref={(el: HTMLDivElement) => { diffPanelEl = el; }}
+            sessionId={sessionId()}
             workspacePath={cwd()}
             panelWidth={sidePanelStore.panelWidth()}
           />

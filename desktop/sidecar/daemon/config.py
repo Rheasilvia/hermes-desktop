@@ -17,6 +17,7 @@ class Config:
     bind_host: str = "127.0.0.1"
     port: int = 18080
     token: Optional[str] = None
+    workspace_grant_token: Optional[str] = None
 
 
 def _default_hermes_home() -> Path:
@@ -30,4 +31,10 @@ def load_config() -> Config:
     home = _default_hermes_home()
     port = int(os.environ.get("DESKTOP_BACKEND_PORT", "18080"))
     token = os.environ.get("DESKTOP_BACKEND_TOKEN") or None
-    return Config(hermes_home=home, port=port, token=token)
+    workspace_grant_token = os.environ.get("DESKTOP_WORKSPACE_GRANT_TOKEN") or None
+    return Config(
+        hermes_home=home,
+        port=port,
+        token=token,
+        workspace_grant_token=workspace_grant_token,
+    )

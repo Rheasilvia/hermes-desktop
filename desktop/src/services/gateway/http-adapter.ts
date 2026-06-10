@@ -42,6 +42,10 @@ import type {
   CommandResult,
   CommandAction,
   CompletionEntry,
+  WorkspaceChildrenResult,
+  WorkspaceFileResult,
+  GitDiffResult,
+  GitBranchInfo,
 } from './types.js';
 import type { ParsedToolCall } from '@/types/index.js';
 import type { CardType } from '@/types/command-card.js';
@@ -116,6 +120,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
   readonly memory: GatewayAdapter['memory'];
   readonly skills: GatewayAdapter['skills'];
   readonly complete: GatewayAdapter['complete'];
+  readonly workspace: GatewayAdapter['workspace'];
+  readonly git: GatewayAdapter['git'];
   readonly slash: GatewayAdapter['slash'];
   readonly command: GatewayAdapter['command'];
   readonly delegation: GatewayAdapter['delegation'];
@@ -541,14 +547,45 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       path: async (params): Promise<CompletionEntry[]> => {
         const body: Record<string, unknown> = {
           word: params.partial,
-          cwd: params.cwd,
+          session_id: params.sessionId,
         };
-        if (params.sessionId) body.session_id = params.sessionId;
         const r = await this.http.post<{ items?: CompletionEntry[] }>(
           `${API_PREFIX}/commands/complete/path`,
           body,
         );
         return Array.isArray(r.items) ? r.items : [];
+      },
+    };
+    this.workspace = {
+      children: async (sessionId: string, path: string): Promise<WorkspaceChildrenResult> =>
+        this.http.get<WorkspaceChildrenResult>(
+          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/workspace/children?path=${encodeURIComponent(path)}`,
+        ),
+      readFile: async (sessionId: string, path: string): Promise<WorkspaceFileResult> =>
+        this.http.get<WorkspaceFileResult>(
+          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/workspace/file?path=${encodeURIComponent(path)}`,
+        ),
+      reveal: async (sessionId: string, path: string): Promise<void> => {
+        await this.http.post(
+          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/workspace/reveal`,
+          { path },
+        );
+      },
+    };
+    this.git = {
+      diff: async (sessionId: string): Promise<GitDiffResult> =>
+        this.http.get<GitDiffResult>(
+          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/git/diff`,
+        ),
+      branches: async (sessionId: string): Promise<GitBranchInfo> =>
+        this.http.get<GitBranchInfo>(
+          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/git/branches`,
+        ),
+      checkout: async (sessionId: string, branch: string): Promise<void> => {
+        await this.http.post(
+          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/git/checkout`,
+          { branch },
+        );
       },
     };
     this.slash = {

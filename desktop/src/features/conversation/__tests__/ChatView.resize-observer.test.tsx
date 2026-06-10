@@ -97,6 +97,7 @@ vi.mock('@/stores/side-panel.js', () => ({
 
 vi.mock('@/stores/git-view.js', () => ({
   gitViewStore: {
+    setWorkspace: vi.fn(),
     setWorkspacePath: vi.fn(),
     fetchDiff: vi.fn(),
   },
@@ -104,6 +105,7 @@ vi.mock('@/stores/git-view.js', () => ({
 
 vi.mock('@/stores/workspace-tree.js', () => ({
   workspaceTreeStore: {
+    setWorkspace: vi.fn(async () => undefined),
     setWorkspacePath: vi.fn(),
   },
 }));

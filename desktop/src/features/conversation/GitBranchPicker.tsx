@@ -1,6 +1,6 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, For, Show } from 'solid-js';
-import { invoke } from '@tauri-apps/api/core';
+import { getGateway } from '@/stores/context.js';
 import { Icon } from '@/ui/atoms/Icon';
 import styles from './GitBranchPicker.module.css';
 
@@ -10,6 +10,7 @@ interface GitBranchInfo {
 }
 
 interface GitBranchPickerProps {
+  sessionId: string | null | undefined;
   workspacePath: string | null | undefined;
   disabled?: boolean;
 }
@@ -22,9 +23,10 @@ export const GitBranchPicker: Component<GitBranchPickerProps> = (props) => {
 
   const isDisabled = () => props.disabled ?? false;
 
-  const loadBranches = async (cwd: string) => {
+  const loadBranches = async (sessionId: string) => {
     try {
-      const info = await invoke<GitBranchInfo>('get_git_branches', { cwd });
+      const info = await getGateway()?.git.branches(sessionId);
+      if (!info) throw new Error('Gateway is not initialized');
       setCurrentBranch(info.current || null);
       setBranches(info.branches);
     } catch {
@@ -34,13 +36,13 @@ export const GitBranchPicker: Component<GitBranchPickerProps> = (props) => {
   };
 
   createEffect(() => {
-    const cwd = props.workspacePath;
-    if (!cwd) {
+    const sid = props.sessionId;
+    if (!sid || !props.workspacePath) {
       setCurrentBranch(null);
       setBranches([]);
       return;
     }
-    void loadBranches(cwd);
+    void loadBranches(sid);
   });
 
   const handleClick = () => {
@@ -49,11 +51,11 @@ export const GitBranchPicker: Component<GitBranchPickerProps> = (props) => {
   };
 
   const handleSelectBranch = async (branch: string) => {
-    const cwd = props.workspacePath;
-    if (!cwd) return;
+    const sid = props.sessionId;
+    if (!sid) return;
     setOpen(false);
     try {
-      await invoke('checkout_git_branch', { cwd, branch });
+      await getGateway()?.git.checkout(sid, branch);
       setCurrentBranch(branch);
     } catch {
       // silently ignore checkout errors

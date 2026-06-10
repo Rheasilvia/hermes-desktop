@@ -11,20 +11,18 @@ function makeTransport(response: unknown): Transport & { send: ReturnType<typeof
 }
 
 describe('GatewayClient complete.path', () => {
-  it('serializes word, session_id, and cwd', async () => {
+  it('serializes word and session_id without request cwd', async () => {
     const transport = makeTransport({ items: [] });
     const client = new GatewayClient(transport);
 
     await client.complete.path({
       partial: '@file:sr',
       sessionId: 'session-a',
-      cwd: '/repo',
     });
 
     expect(transport.send).toHaveBeenCalledWith('complete.path', {
       word: '@file:sr',
       session_id: 'session-a',
-      cwd: '/repo',
     });
   });
 
@@ -34,7 +32,7 @@ describe('GatewayClient complete.path', () => {
     });
     const client = new GatewayClient(transport);
 
-    await expect(client.complete.path({ partial: '@file:sr', cwd: '/repo' })).resolves.toEqual([
+    await expect(client.complete.path({ partial: '@file:sr', sessionId: 'session-a' })).resolves.toEqual([
       { text: '@file:src/main.ts', display: 'main.ts', meta: 'src' },
     ]);
   });
@@ -43,6 +41,6 @@ describe('GatewayClient complete.path', () => {
     const transport = makeTransport({ nope: true });
     const client = new GatewayClient(transport);
 
-    await expect(client.complete.path({ partial: '@file:sr', cwd: '/repo' })).resolves.toEqual([]);
+    await expect(client.complete.path({ partial: '@file:sr', sessionId: 'session-a' })).resolves.toEqual([]);
   });
 });

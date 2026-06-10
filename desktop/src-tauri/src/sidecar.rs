@@ -1,14 +1,15 @@
 use anyhow::{bail, Result};
 #[cfg(not(debug_assertions))]
 use anyhow::Context;
-use tauri::Emitter;
 use once_cell::sync::OnceCell;
+use rand::{distributions::Alphanumeric, Rng};
 use serde::Serialize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
 use tokio::process::Child;
+use tokio::process::Command;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 
@@ -21,6 +22,7 @@ pub struct SidecarInfo {
 #[derive(Default)]
 pub struct SidecarState {
     info: Mutex<Option<SidecarInfo>>,
+    workspace_grant_token: Mutex<Option<String>>,
     child: Mutex<Option<Child>>,
 }
 
@@ -49,15 +51,67 @@ fn kill_backend_process() {
     }
 }
 
+pub(crate) fn generate_secret_token() -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(48)
+        .map(char::from)
+        .collect()
+}
+
+fn non_empty(value: Option<String>) -> Option<String> {
+    value.and_then(|token| {
+        let trimmed = token.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+pub(crate) fn resolve_sidecar_token(
+    hermes_backend_token: Option<String>,
+    desktop_backend_token: Option<String>,
+) -> String {
+    non_empty(hermes_backend_token)
+        .or_else(|| non_empty(desktop_backend_token))
+        .unwrap_or_else(generate_secret_token)
+}
+
+pub(crate) fn resolve_workspace_grant_token(existing: Option<String>) -> String {
+    non_empty(existing).unwrap_or_else(generate_secret_token)
+}
+
+pub(crate) fn build_sidecar_env(
+    base_url: &str,
+    port: u16,
+    token: &str,
+    workspace_grant_token: &str,
+) -> Vec<(String, String)> {
+    vec![
+        ("DESKTOP_BACKEND_PORT".into(), port.to_string()),
+        ("DESKTOP_BACKEND_TOKEN".into(), token.into()),
+        ("HERMES_BACKEND_URL".into(), base_url.into()),
+        (
+            "DESKTOP_WORKSPACE_GRANT_TOKEN".into(),
+            workspace_grant_token.into(),
+        ),
+    ]
+}
+
 /// Dev mode: spawn the backend via `uv run` if not already running.
 /// Reads HERMES_BACKEND_URL (default: http://127.0.0.1:18080)
 /// and HERMES_BACKEND_TOKEN from env vars.
 pub async fn spawn_dev() -> Result<SidecarInfo> {
     let base_url = std::env::var("HERMES_BACKEND_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:18080".into());
-    let token = std::env::var("HERMES_BACKEND_TOKEN")
-        .or_else(|_| std::env::var("DESKTOP_BACKEND_TOKEN"))
-        .unwrap_or_else(|_| "dev-secret".into());
+    let token = resolve_sidecar_token(
+        std::env::var("HERMES_BACKEND_TOKEN").ok(),
+        std::env::var("DESKTOP_BACKEND_TOKEN").ok(),
+    );
+    let workspace_grant_token =
+        resolve_workspace_grant_token(std::env::var("DESKTOP_WORKSPACE_GRANT_TOKEN").ok());
     let port = std::env::var("DESKTOP_BACKEND_PORT")
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
@@ -82,9 +136,9 @@ pub async fn spawn_dev() -> Result<SidecarInfo> {
     cmd.arg("python");
     cmd.arg("-m");
     cmd.arg("daemon");
-    cmd.env("DESKTOP_BACKEND_PORT", port.to_string());
-    cmd.env("DESKTOP_BACKEND_TOKEN", &token);
-    cmd.env("HERMES_BACKEND_URL", &base_url);
+    for (key, value) in build_sidecar_env(&base_url, port, &token, &workspace_grant_token) {
+        cmd.env(key, value);
+    }
     use std::process::Stdio;
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -113,12 +167,17 @@ pub async fn spawn_dev() -> Result<SidecarInfo> {
     };
     let s = state();
     *s.info.lock().await = Some(info.clone());
+    *s.workspace_grant_token.lock().await = Some(workspace_grant_token);
     *s.child.lock().await = Some(child);
     Ok(info)
 }
 
 pub async fn current_info() -> Option<SidecarInfo> {
     state().info.lock().await.clone()
+}
+
+pub async fn current_workspace_grant_token() -> Option<String> {
+    state().workspace_grant_token.lock().await.clone()
 }
 
 /// Take the child process handle (used for cleanup on exit).
@@ -184,6 +243,7 @@ async fn restart_with_backoff(handle: &tauri::AppHandle) -> Result<()> {
         let _ = child.wait().await;
     }
     *state().info.lock().await = None;
+    *state().workspace_grant_token.lock().await = None;
 
     let attempt = ledger().attempts.lock().await.len() as u32;
     let backoff = std::cmp::min(2u64.saturating_pow(attempt), 30);
@@ -239,15 +299,22 @@ pub async fn spawn(handle: tauri::AppHandle) -> Result<SidecarInfo> {
     #[cfg(not(debug_assertions))]
     {
         let bin = release_binary(&handle)?;
-        let token = std::env::var("HERMES_BACKEND_TOKEN").unwrap_or_default();
+        let token = resolve_sidecar_token(
+            std::env::var("HERMES_BACKEND_TOKEN").ok(),
+            std::env::var("DESKTOP_BACKEND_TOKEN").ok(),
+        );
+        let workspace_grant_token =
+            resolve_workspace_grant_token(std::env::var("DESKTOP_WORKSPACE_GRANT_TOKEN").ok());
         let port = std::env::var("DESKTOP_BACKEND_PORT")
             .ok()
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(18081);
+        let base_url = format!("http://127.0.0.1:{port}");
         let mut cmd = Command::new(bin);
         cmd.env("HERMES_HOME", hermes_home());
-        cmd.env("DESKTOP_BACKEND_PORT", port.to_string());
-        cmd.env("DESKTOP_BACKEND_TOKEN", &token);
+        for (key, value) in build_sidecar_env(&base_url, port, &token, &workspace_grant_token) {
+            cmd.env(key, value);
+        }
         use std::process::Stdio;
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
@@ -271,7 +338,60 @@ pub async fn spawn(handle: tauri::AppHandle) -> Result<SidecarInfo> {
         };
         let s = state();
         *s.info.lock().await = Some(info.clone());
+        *s.workspace_grant_token.lock().await = Some(workspace_grant_token);
         *s.child.lock().await = Some(child);
         Ok(info)
+    }
+}
+
+#[cfg(test)]
+mod sidecar_security_tests {
+    use super::*;
+
+    #[test]
+    fn generated_sidecar_tokens_are_random_and_non_empty() {
+        let first = generate_secret_token();
+        let second = generate_secret_token();
+
+        assert!(first.len() >= 32);
+        assert!(second.len() >= 32);
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn sidecar_token_fallback_is_random_not_dev_secret() {
+        let first = resolve_sidecar_token(None, None);
+        let second = resolve_sidecar_token(None, None);
+
+        assert_ne!(first, "dev-secret");
+        assert_ne!(first, "");
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn sidecar_token_prefers_existing_env_values() {
+        assert_eq!(
+            resolve_sidecar_token(Some("hermes-token".into()), Some("desktop-token".into())),
+            "hermes-token"
+        );
+        assert_eq!(
+            resolve_sidecar_token(None, Some("desktop-token".into())),
+            "desktop-token"
+        );
+    }
+
+    #[test]
+    fn workspace_grant_token_is_separate_and_injected_into_sidecar_env() {
+        let backend_token = resolve_sidecar_token(None, None);
+        let grant_token = resolve_workspace_grant_token(None);
+        let env = build_sidecar_env("http://127.0.0.1:18080", 18080, &backend_token, &grant_token);
+
+        assert_ne!(backend_token, grant_token);
+        assert_eq!(
+            env.iter()
+                .find(|(key, _)| key == "DESKTOP_WORKSPACE_GRANT_TOKEN")
+                .map(|(_, value)| value),
+            Some(&grant_token)
+        );
     }
 }

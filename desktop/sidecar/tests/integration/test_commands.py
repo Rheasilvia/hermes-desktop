@@ -8,7 +8,7 @@ def test_commands_catalog_includes_registry_commands(client, auth):
     items = r.json()["items"]
     by_name = {item["command"]: item for item in items}
     assert "help" in by_name
-    assert by_name["help"]["supported"] is True
+    assert by_name["help"]["supported"] is False
     assert "mouse" in by_name
     assert by_name["mouse"]["supported"] is False
 
@@ -22,18 +22,38 @@ def test_complete_slash_filters_by_partial(client, auth):
 
     assert r.status_code == 200
     commands = [item["command"] for item in r.json()["items"]]
-    assert "model" in commands
+    assert "model" not in commands
 
 
-def test_complete_path_fuzzy_file_candidates(client, auth, tmp_path):
+def test_complete_path_requires_session_id(client, auth, tmp_path):
     workspace = tmp_path / "workspace"
-    docs = workspace / "docs"
-    docs.mkdir(parents=True)
-    (docs / "mydoc.txt").write_text("hello", encoding="utf-8")
+    workspace.mkdir()
 
     r = client.post(
         "/desktop/api/commands/complete/path",
         json={"word": "@my", "cwd": str(workspace)},
+        headers=auth,
+    )
+
+    assert r.status_code == 400
+    assert r.json()["detail"] == "SESSION_REQUIRED"
+
+
+def test_complete_path_fuzzy_file_candidates(client, auth, workspace_grant, tmp_path):
+    workspace = tmp_path / "workspace"
+    docs = workspace / "docs"
+    docs.mkdir(parents=True)
+    (docs / "mydoc.txt").write_text("hello", encoding="utf-8")
+    created = client.post(
+        "/desktop/api/sessions",
+        json={"cwd": str(workspace)},
+        headers=workspace_grant,
+    )
+    sid = created.json()["session_id"]
+
+    r = client.post(
+        "/desktop/api/commands/complete/path",
+        json={"word": "@my", "session_id": sid},
         headers=auth,
     )
 
@@ -43,20 +63,26 @@ def test_complete_path_fuzzy_file_candidates(client, auth, tmp_path):
     ]
 
 
-def test_complete_path_honors_file_and_folder_prefixes(client, auth, tmp_path):
+def test_complete_path_honors_file_and_folder_prefixes(client, auth, workspace_grant, tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "docs").mkdir()
     (workspace / "docs.txt").write_text("hello", encoding="utf-8")
+    created = client.post(
+        "/desktop/api/sessions",
+        json={"cwd": str(workspace)},
+        headers=workspace_grant,
+    )
+    sid = created.json()["session_id"]
 
     folder_resp = client.post(
         "/desktop/api/commands/complete/path",
-        json={"word": "@folder:d", "cwd": str(workspace)},
+        json={"word": "@folder:d", "session_id": sid},
         headers=auth,
     )
     file_resp = client.post(
         "/desktop/api/commands/complete/path",
-        json={"word": "@file:d", "cwd": str(workspace)},
+        json={"word": "@file:d", "session_id": sid},
         headers=auth,
     )
 
@@ -69,27 +95,28 @@ def test_complete_path_honors_file_and_folder_prefixes(client, auth, tmp_path):
     assert "@file:docs/" not in [item["text"] for item in file_resp.json()["items"]]
 
 
-def test_complete_path_uses_session_cwd_when_request_cwd_is_missing(client, auth, tmp_path):
+def test_complete_path_uses_session_cwd_and_ignores_request_cwd(client, auth, workspace_grant, tmp_path):
     workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
     workspace.mkdir()
+    outside.mkdir()
     (workspace / "notes.md").write_text("hello", encoding="utf-8")
+    (outside / "secret.md").write_text("nope", encoding="utf-8")
     created = client.post(
         "/desktop/api/sessions",
         json={"cwd": str(workspace)},
-        headers=auth,
+        headers=workspace_grant,
     )
     sid = created.json()["session_id"]
 
     r = client.post(
         "/desktop/api/commands/complete/path",
-        json={"word": "@no", "session_id": sid},
+        json={"word": "@se", "session_id": sid, "cwd": str(outside)},
         headers=auth,
     )
 
     assert r.status_code == 200
-    assert r.json()["items"] == [
-        {"text": "@file:notes.md", "display": "notes.md", "meta": ""}
-    ]
+    assert r.json()["items"] == []
 
 
 def test_slash_exec_help_returns_output(client, auth):
@@ -104,8 +131,8 @@ def test_slash_exec_help_returns_output(client, auth):
 
     assert r.status_code == 200
     body = r.json()
-    assert body["kind"] == "output"
-    assert "Available slash commands" in body["message"]
+    assert body["kind"] == "unsupported"
+    assert body["message"] == "/help is not available in Desktop."
 
 
 def test_slash_exec_alias_queue_returns_send(client, auth):

@@ -31,7 +31,7 @@ def client(tmp_path):
     # Write a minimal config.yaml so _resolve_default_model has a fallback
     config_yaml = home / "config.yaml"
     config_yaml.write_text("model:\n  provider: openai\n  default: gpt-4\n")
-    cfg = Config(hermes_home=home, port=18080, token=None)
+    cfg = Config(hermes_home=home, port=18080, token=None, workspace_grant_token="workspace-grant")
     app = build_app(cfg)
     return TestClient(app)
 
@@ -66,11 +66,33 @@ class TestSessionCRUD:
         resp = client.post("/desktop/api/sessions", json={
             "model": "anthropic/claude-opus-4.5",
             "cwd": str(cwd),
-        })
+        }, headers={"X-Desktop-Workspace-Grant": "workspace-grant"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["model"] == "anthropic/claude-opus-4.5"
         assert data["cwd"] == str(cwd)
+
+    def test_create_session_with_cwd_requires_workspace_grant(self, client, tmp_path):
+        cwd = tmp_path / "test"
+        cwd.mkdir()
+
+        resp = client.post("/desktop/api/sessions", json={"cwd": str(cwd)})
+
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "WORKSPACE_GRANT_REQUIRED"
+
+    def test_create_session_with_cwd_accepts_workspace_grant(self, client, tmp_path):
+        cwd = tmp_path / "test"
+        cwd.mkdir()
+
+        resp = client.post(
+            "/desktop/api/sessions",
+            json={"cwd": str(cwd)},
+            headers={"X-Desktop-Workspace-Grant": "workspace-grant"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["cwd"] == str(cwd)
 
     def test_create_session_preserves_explicit_workspace(
         self, client, monkeypatch, tmp_path
@@ -81,7 +103,9 @@ class TestSessionCRUD:
         monkeypatch.setattr(session_service, "DEFAULT_WORKSPACE", default_workspace)
 
         resp = client.post(
-            "/desktop/api/sessions", json={"cwd": str(explicit_workspace)}
+            "/desktop/api/sessions",
+            json={"cwd": str(explicit_workspace)},
+            headers={"X-Desktop-Workspace-Grant": "workspace-grant"},
         )
 
         assert resp.status_code == 200
@@ -94,7 +118,11 @@ class TestSessionCRUD:
         next_cwd = tmp_path / "next"
         first_cwd.mkdir()
         next_cwd.mkdir()
-        r = client.post("/desktop/api/sessions", json={"cwd": str(first_cwd)})
+        r = client.post(
+            "/desktop/api/sessions",
+            json={"cwd": str(first_cwd)},
+            headers={"X-Desktop-Workspace-Grant": "workspace-grant"},
+        )
         sid = r.json()["session_id"]
 
         from daemon.services.agent_pool import AgentPool
@@ -106,7 +134,20 @@ class TestSessionCRUD:
             client.app.state.agent_pool.get_or_create(sid)
         assert client.app.state.agent_pool.get_pooled_entry(sid) is not None
 
-        resp = client.patch(f"/desktop/api/sessions/{sid}", json={"cwd": str(next_cwd)})
+        resp = client.patch(
+            f"/desktop/api/sessions/{sid}",
+            json={"cwd": str(next_cwd)},
+        )
+
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "WORKSPACE_GRANT_REQUIRED"
+        assert client.app.state.agent_pool.get_pooled_entry(sid) is not None
+
+        resp = client.patch(
+            f"/desktop/api/sessions/{sid}",
+            json={"cwd": str(next_cwd)},
+            headers={"X-Desktop-Workspace-Grant": "workspace-grant"},
+        )
 
         assert resp.status_code == 200
         assert resp.json()["cwd"] == str(next_cwd)
@@ -119,10 +160,18 @@ class TestSessionCRUD:
         first_cwd = tmp_path / "first"
         first_cwd.mkdir()
         missing_cwd = tmp_path / "missing"
-        r = client.post("/desktop/api/sessions", json={"cwd": str(first_cwd)})
+        r = client.post(
+            "/desktop/api/sessions",
+            json={"cwd": str(first_cwd)},
+            headers={"X-Desktop-Workspace-Grant": "workspace-grant"},
+        )
         sid = r.json()["session_id"]
 
-        resp = client.patch(f"/desktop/api/sessions/{sid}", json={"cwd": str(missing_cwd)})
+        resp = client.patch(
+            f"/desktop/api/sessions/{sid}",
+            json={"cwd": str(missing_cwd)},
+            headers={"X-Desktop-Workspace-Grant": "workspace-grant"},
+        )
 
         assert resp.status_code == 400
         session = client.get(f"/desktop/api/sessions/{sid}").json()
@@ -133,7 +182,11 @@ class TestSessionCRUD:
         next_cwd = tmp_path / "next"
         first_cwd.mkdir()
         next_cwd.mkdir()
-        r = client.post("/desktop/api/sessions", json={"cwd": str(first_cwd)})
+        r = client.post(
+            "/desktop/api/sessions",
+            json={"cwd": str(first_cwd)},
+            headers={"X-Desktop-Workspace-Grant": "workspace-grant"},
+        )
         sid = r.json()["session_id"]
 
         from daemon.services.agent_pool import AgentPool
@@ -158,7 +211,11 @@ class TestSessionCRUD:
                 assert run_resp.status_code == 202
                 time.sleep(0.1)
 
-                resp = client.patch(f"/desktop/api/sessions/{sid}", json={"cwd": str(next_cwd)})
+                resp = client.patch(
+                    f"/desktop/api/sessions/{sid}",
+                    json={"cwd": str(next_cwd)},
+                    headers={"X-Desktop-Workspace-Grant": "workspace-grant"},
+                )
 
                 assert resp.status_code == 409
                 assert resp.json()["code"] == "SESSION_BUSY"
@@ -177,7 +234,11 @@ class TestSessionCRUD:
         outside_image = outside / "out.png"
         inside_image.write_bytes(b"png")
         outside_image.write_bytes(b"png")
-        r = client.post("/desktop/api/sessions", json={"cwd": str(cwd)})
+        r = client.post(
+            "/desktop/api/sessions",
+            json={"cwd": str(cwd)},
+            headers={"X-Desktop-Workspace-Grant": "workspace-grant"},
+        )
         sid = r.json()["session_id"]
 
         ok = client.post("/desktop/api/image/attach", json={"session_id": sid, "path": str(inside_image)})
@@ -211,7 +272,11 @@ class TestSessionCRUD:
 
         # Make the reusable empty session stale enough that it is not the recent
         # non-empty conversation whose mode should seed the next new draft.
-        client.post("/desktop/api/sessions", json={"cwd": reusable.json()["cwd"]})
+        client.post(
+            "/desktop/api/sessions",
+            json={"cwd": reusable.json()["cwd"]},
+            headers={"X-Desktop-Workspace-Grant": "workspace-grant"},
+        )
         from daemon.db.ui_messages import append
         append(client.app.state.cfg.hermes_home, reusable_id, "user", {"text": "old"})
 

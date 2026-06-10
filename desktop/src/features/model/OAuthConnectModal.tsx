@@ -1,6 +1,6 @@
 import type { Component } from 'solid-js';
 import { createSignal, Show, Switch, Match } from 'solid-js';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import type {
   OAuthProvider,
   OAuthStartResponse,
@@ -79,28 +79,18 @@ export const OAuthConnectModal: Component<OAuthConnectModalProps> = (props) => {
     props.onClose();
   };
 
-  // ── Open browser (3-tier: Tauri command → plugin → fallback) ──
+  // ── Open browser (Tauri command → web fallback) ──
   // Mirrors the Electron app's openSignInUrl() pattern:
   //   window.hermesDesktop.openExternal(url) → window.open(url)
   const openBrowser = async (url: string) => {
-    // Tier 1: Tauri open_external command (Rust `open` crate — most reliable)
-    try {
-      const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> } } }).__TAURI__;
-      if (tauri?.core?.invoke) {
-        await tauri.core.invoke('open_external', { url });
+    if (isTauri()) {
+      try {
+        await invoke('open_external', { url });
         return;
+      } catch (e) {
+        console.warn('[OAuth] open_external failed, falling back to window.open:', e);
       }
-    } catch (e) {
-      console.warn('[OAuth] open_external failed, trying plugin-opener:', e);
     }
-    // Tier 2: @tauri-apps/plugin-opener
-    try {
-      await openUrl(url);
-      return;
-    } catch (e) {
-      console.warn('[OAuth] plugin-opener failed, falling back to window.open:', e);
-    }
-    // Tier 3: Last resort for non-Tauri environments (dev browser)
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 

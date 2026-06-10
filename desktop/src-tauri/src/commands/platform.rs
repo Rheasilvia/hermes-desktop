@@ -32,7 +32,24 @@ pub fn get_platform() -> Platform {
 /// Opens a URL in the default browser
 #[tauri::command]
 pub async fn open_external(url: String) -> Result<(), String> {
+    validate_external_url(&url)?;
     open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
+}
+
+pub(crate) fn validate_external_url(url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| "invalid URL".to_string())?;
+    match parsed.scheme() {
+        "https" => Ok(()),
+        "http" if is_localhost_http(&parsed) => Ok(()),
+        _ => Err("external URL scheme is not allowed".to_string()),
+    }
+}
+
+fn is_localhost_http(url: &reqwest::Url) -> bool {
+    matches!(
+        url.host_str(),
+        Some("localhost") | Some("127.0.0.1") | Some("[::1]") | Some("::1")
+    )
 }
 
 /// Spawns a child process. Returns the process ID.
@@ -104,6 +121,19 @@ pub fn reveal_workspace_path(root: String, path: String) -> Result<(), String> {
 #[cfg(test)]
 mod platform_tests {
     use super::*;
+
+    #[test]
+    fn open_external_allows_https_and_localhost_http_only() {
+        assert!(validate_external_url("https://example.com/path").is_ok());
+        assert!(validate_external_url("http://localhost:1420").is_ok());
+        assert!(validate_external_url("http://127.0.0.1:1420").is_ok());
+        assert!(validate_external_url("http://[::1]:1420").is_ok());
+
+        assert!(validate_external_url("http://example.com").is_err());
+        assert!(validate_external_url("file:///etc/passwd").is_err());
+        assert!(validate_external_url("javascript:alert(1)").is_err());
+        assert!(validate_external_url("hermes://callback").is_err());
+    }
 
     #[test]
     fn reveal_workspace_path_rejects_path_outside_root() {

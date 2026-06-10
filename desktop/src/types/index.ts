@@ -49,7 +49,7 @@ export type {
 export type { McpTransport, McpAuthType, McpServer, McpOAuthConfig, McpSamplingConfig, McpTool, McpInputSchema, McpSchemaProperty, McpConnectionStatus } from './mcp.js';
 
 // Workspace tree types
-export type { WorkspaceTreeNodeKind, WorkspaceTreeNode, WorkspaceChildrenResult, WorkspaceTreeRow } from './workspace-tree.js';
+export type { WorkspaceTreeNodeKind, WorkspaceTreeNode, WorkspaceChildrenResult, WorkspaceFileResult, WorkspaceTreeRow } from './workspace-tree.js';
 
 // DB row types (snake_case, mirrors SQLite columns)
 export type { DbSession, DbDesktopSessionMeta } from './db/session.js';

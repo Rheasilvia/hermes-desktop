@@ -4,16 +4,8 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default",
-    "shell:allow-open",
     "dialog:default",
-    "clipboard-manager:default",
-    "notification:default",
     "window-state:default",
-    "store:default",
-    "http:default",
-    "os:default",
-    "process:default",
     "updater:default"
   ]
 }
