@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import subprocess
 import sys
 from types import ModuleType
 from unittest.mock import MagicMock, patch
@@ -309,3 +310,108 @@ class TestExecuteCodeCallsSandboxRunner:
             assert result.get("result") == "ok"
         finally:
             original_entry.handler = saved_handler
+
+    def test_execute_code_uses_subprocess_proxy_without_patching_global_popen(self, installed_wrappers):
+        """The desktop execute_code wrapper must not mutate the stdlib subprocess module.
+
+        The previous implementation assigned tools.code_execution_tool.subprocess.Popen.
+        Because that object is the real stdlib subprocess module, it also changed
+        subprocess.Popen globally and made sandbox_runner.popen recurse when it
+        tried to spawn sandbox-exec.
+        """
+        import tools.code_execution_tool as _cet
+        import daemon.tools.desktop_tool_overrides as _dto
+
+        wrappers, _entries, _tmp_path = installed_wrappers
+        wrapper = wrappers["execute_code"]
+
+        original_global_popen = subprocess.Popen
+        original_subprocess_module = _cet.subprocess
+        seen = []
+
+        original_entry = _dto.ORIGINAL_TOOLS.get("execute_code")
+        assert original_entry is not None
+        saved_handler = original_entry.handler
+
+        def capturing_handler(args, **kwargs):
+            seen.append({
+                "module_is_proxy": _cet.subprocess is not original_subprocess_module,
+                "global_popen_is_original": subprocess.Popen is original_global_popen,
+                "create_no_window": getattr(_cet.subprocess, "CREATE_NO_WINDOW", None),
+            })
+            _cet.subprocess.Popen(["python"], stdout="stdout-sentinel", creationflags=77)
+            return json.dumps({"result": "ok"})
+
+        original_entry.handler = capturing_handler
+
+        try:
+            mock_runner = MagicMock()
+            mock_runner.popen.return_value = MagicMock()
+
+            with patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=mock_runner):
+                result_json = wrapper({"language": "python", "code": "print('hello')"})
+
+            assert json.loads(result_json).get("result") == "ok"
+            assert seen == [{
+                "module_is_proxy": True,
+                "global_popen_is_original": True,
+                "create_no_window": getattr(original_subprocess_module, "CREATE_NO_WINDOW", None),
+            }]
+            assert subprocess.Popen is original_global_popen
+            assert _cet.subprocess is original_subprocess_module
+            mock_runner.popen.assert_called_once()
+            assert mock_runner.popen.call_args.kwargs["creationflags"] == 77
+        finally:
+            original_entry.handler = saved_handler
+
+
+class TestSandboxRunnerPopen:
+    def test_runner_popen_uses_raw_popen_and_forwards_kwargs(self, monkeypatch, tmp_path):
+        """runner.popen must bypass any temporary subprocess proxy and forward Popen kwargs."""
+        import daemon.services.sandbox_runner as sr
+
+        assert hasattr(sr, "_RAW_POPEN"), "sandbox_runner must keep an immutable raw Popen reference"
+
+        calls = []
+
+        def fake_raw_popen(argv, **kwargs):
+            calls.append((argv, kwargs))
+            return MagicMock()
+
+        monkeypatch.setattr(sr, "_RAW_POPEN", fake_raw_popen)
+        monkeypatch.setattr(sr, "_build_seatbelt_policy", lambda workspace_root, hermes_home=None: "POLICY")
+
+        snapshot = MagicMock()
+        snapshot.workspace_root = tmp_path
+        runner = sr.MacOSSandboxRunner()
+        result = runner.popen(
+            ["python", "script.py"],
+            snapshot=snapshot,
+            cwd=str(tmp_path),
+            env={"A": "B"},
+            stdin="stdin-sentinel",
+            stdout="stdout-sentinel",
+            stderr="stderr-sentinel",
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            preexec_fn="preexec-sentinel",
+            creationflags=123,
+            start_new_session=True,
+        )
+
+        assert result is not None
+        assert len(calls) == 1
+        argv, kwargs = calls[0]
+        assert argv == [sr._SEATBELT_EXECUTABLE, "-p", "POLICY", "--", "python", "script.py"]
+        assert kwargs["cwd"] == str(tmp_path)
+        assert kwargs["env"] == {"A": "B"}
+        assert kwargs["stdin"] == "stdin-sentinel"
+        assert kwargs["stdout"] == "stdout-sentinel"
+        assert kwargs["stderr"] == "stderr-sentinel"
+        assert kwargs["text"] is True
+        assert kwargs["encoding"] == "utf-8"
+        assert kwargs["errors"] == "replace"
+        assert kwargs["preexec_fn"] == "preexec-sentinel"
+        assert kwargs["creationflags"] == 123
+        assert kwargs["start_new_session"] is True

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import subprocess
 import sys
 from types import ModuleType
 from unittest.mock import MagicMock, patch
@@ -212,6 +213,179 @@ class TestTerminalWrapper:
         assert entries["terminal"].handler.called
         called_args = entries["terminal"].handler.call_args[0][0]
         assert called_args["workdir"] == str(workspace)
+
+    def test_local_terminal_fails_closed_when_sandbox_runner_unavailable(self, installed_wrappers):
+        """Local terminal must not run unsandboxed when no macOS sandbox runner is available."""
+        wrappers, entries, tmp_path = installed_wrappers
+
+        wrapper = wrappers["terminal"]
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=None),
+        ):
+            result_json = wrapper({"command": "python -c 'print(1)'", "workdir": str(tmp_path)})
+
+        result = json.loads(result_json)
+        assert result.get("code") == "SANDBOX_UNAVAILABLE"
+        entries["terminal"].handler.assert_not_called()
+
+    def test_local_terminal_background_pty_fails_closed(self, installed_wrappers):
+        """Local background PTY must not bypass the subprocess sandbox proxy."""
+        wrappers, entries, tmp_path = installed_wrappers
+
+        wrapper = wrappers["terminal"]
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=MagicMock()),
+        ):
+            result_json = wrapper({
+                "command": "python -i",
+                "background": True,
+                "pty": True,
+                "workdir": str(tmp_path),
+            })
+
+        result = json.loads(result_json)
+        assert result.get("code") == "SANDBOX_UNAVAILABLE"
+        assert "pty" in result.get("error", "").lower()
+        entries["terminal"].handler.assert_not_called()
+
+    def test_local_terminal_handler_runs_with_sandboxed_subprocess_proxies(self, installed_wrappers):
+        """Foreground/background local terminal spawn modules must see a sandboxed Popen proxy."""
+        import tools.environments.local as local_env
+        import tools.process_registry as process_registry
+
+        wrappers, entries, tmp_path = installed_wrappers
+        wrapper = wrappers["terminal"]
+
+        original_local_popen = local_env.subprocess.Popen
+        original_registry_popen = process_registry.subprocess.Popen
+        original_global_popen = subprocess.Popen
+        seen = []
+
+        def capturing_terminal_handler(args, **kwargs):
+            seen.append({
+                "local_popen_is_proxy": local_env.subprocess.Popen is not original_local_popen,
+                "registry_popen_is_proxy": process_registry.subprocess.Popen is not original_registry_popen,
+                "global_popen_is_original": subprocess.Popen is original_global_popen,
+            })
+            local_env.subprocess.Popen(["python"], stdout="local-stdout")
+            process_registry.subprocess.Popen(["python"], stderr="registry-stderr")
+            return json.dumps({"result": "ok"})
+
+        entries["terminal"].handler = MagicMock(side_effect=capturing_terminal_handler)
+        mock_runner = MagicMock()
+
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=mock_runner),
+        ):
+            result_json = wrapper({"command": "python -c 'print(1)'", "workdir": str(tmp_path)})
+
+        assert json.loads(result_json).get("result") == "ok"
+        assert seen == [{
+            "local_popen_is_proxy": True,
+            "registry_popen_is_proxy": True,
+            "global_popen_is_original": True,
+        }]
+        assert local_env.subprocess.Popen is original_local_popen
+        assert process_registry.subprocess.Popen is original_registry_popen
+        assert subprocess.Popen is original_global_popen
+        assert mock_runner.popen.call_count == 2
+
+    def test_local_terminal_background_registers_process_for_same_session(self, installed_wrappers):
+        """terminal(background=true) must register the returned proc id for later process calls."""
+        wrappers, entries, tmp_path = installed_wrappers
+
+        terminal_wrapper = wrappers["terminal"]
+        process_wrapper = wrappers["process"]
+        entries["terminal"].handler = MagicMock(return_value=json.dumps({
+            "status": "started",
+            "session_id": "proc_owned",
+        }))
+        entries["process"].handler = MagicMock(return_value=json.dumps({"status": "running"}))
+
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=MagicMock()),
+        ):
+            terminal_result = json.loads(terminal_wrapper({
+                "command": "sleep 30",
+                "background": True,
+                "workdir": str(tmp_path),
+            }))
+
+        assert terminal_result["session_id"] == "proc_owned"
+
+        process_result = json.loads(process_wrapper({"action": "poll", "session_id": "proc_owned"}))
+        assert process_result == {"status": "running"}
+        entries["process"].handler.assert_called_once()
+
+    def test_process_owned_by_different_desktop_session_is_denied(self, installed_wrappers):
+        """Process ownership must include desktop session_id, not only workspace_hash."""
+        from daemon.services.workspace_policy import (
+            build_workspace_policy_snapshot,
+            reset_workspace_policy_snapshot,
+            set_workspace_policy_snapshot,
+        )
+
+        wrappers, entries, tmp_path = installed_wrappers
+        terminal_wrapper = wrappers["terminal"]
+        process_wrapper = wrappers["process"]
+        entries["terminal"].handler = MagicMock(return_value=json.dumps({
+            "status": "started",
+            "session_id": "proc_session_scoped",
+        }))
+
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=MagicMock()),
+        ):
+            terminal_wrapper({
+                "command": "sleep 30",
+                "background": True,
+                "workdir": str(tmp_path),
+            })
+
+        other_snapshot = build_workspace_policy_snapshot("sess2", "turn2", str(tmp_path), "auto")
+        token = set_workspace_policy_snapshot(other_snapshot)
+        try:
+            result = json.loads(process_wrapper({"action": "poll", "session_id": "proc_session_scoped"}))
+        finally:
+            reset_workspace_policy_snapshot(token)
+
+        assert result.get("code") == "PROCESS_NOT_OWNED"
+        entries["process"].handler.assert_not_called()
+
+    def test_process_list_is_filtered_to_owned_processes(self, installed_wrappers):
+        """process(action=list) must not reveal processes from other desktop sessions."""
+        wrappers, entries, tmp_path = installed_wrappers
+        terminal_wrapper = wrappers["terminal"]
+        process_wrapper = wrappers["process"]
+        entries["terminal"].handler = MagicMock(return_value=json.dumps({
+            "status": "started",
+            "session_id": "proc_visible",
+        }))
+        entries["process"].handler = MagicMock(return_value=json.dumps({
+            "processes": [
+                {"session_id": "proc_visible", "command": "owned"},
+                {"session_id": "proc_hidden", "command": "foreign"},
+            ]
+        }))
+
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=MagicMock()),
+        ):
+            terminal_wrapper({
+                "command": "sleep 30",
+                "background": True,
+                "workdir": str(tmp_path),
+            })
+
+        result = json.loads(process_wrapper({"action": "list"}))
+
+        assert result == {"processes": [{"session_id": "proc_visible", "command": "owned"}]}
 
 
 # ---------------------------------------------------------------------------

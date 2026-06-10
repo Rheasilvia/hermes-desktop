@@ -12,15 +12,94 @@ _INSTALLED = False
 ORIGINAL_TOOLS: dict[str, Any] = {}  # name -> ToolEntry
 _DELEGATE_PATCHED = False
 # Serializes execute_code calls to prevent races on the _cet.subprocess.Popen monkey-patch.
-# The patch replaces a module-level attribute; concurrent patches from two threads would
-# corrupt each other's restore. Single-session desktop use keeps this lock uncontested.
+# The patch replaces module-level subprocess references; concurrent patches from two
+# threads would corrupt each other's restore. Single-session desktop use keeps this
+# lock uncontested.
 _execute_code_popen_lock = _threading.Lock()
+_terminal_popen_lock = _threading.Lock()
 
 # Process ownership registry: proc_id -> {workspace_hash, session_id}.
 # Entries accumulate and are never evicted — acceptable for single-session desktop use.
 # TODO: wire cleanup to session_end events when multi-session support is added.
 _desktop_process_registry: dict[str, dict] = {}
 _desktop_process_registry_lock = _threading.Lock()
+
+
+class _SandboxedSubprocessProxy:
+    """Proxy a subprocess module while routing Popen through the sandbox runner."""
+
+    def __init__(self, original_module: Any, runner: Any, snapshot: Any) -> None:
+        self._original_module = original_module
+        self._runner = runner
+        self._snapshot = snapshot
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._original_module, name)
+
+    def Popen(self, command, *args, **kwargs):
+        if args:
+            raise TypeError("desktop sandbox proxy does not support positional Popen options")
+        return self._runner.popen(command, snapshot=self._snapshot, **kwargs)
+
+
+def _register_process_owner(snapshot: Any, result_str: str) -> None:
+    """Record a terminal(background=true) process id as owned by this desktop turn."""
+    try:
+        result_obj = json.loads(result_str)
+    except Exception:
+        return
+    if not isinstance(result_obj, dict):
+        return
+    proc_id = (
+        result_obj.get("session_id")
+        or result_obj.get("id")
+        or result_obj.get("process_id")
+    )
+    if not proc_id:
+        return
+    with _desktop_process_registry_lock:
+        _desktop_process_registry[str(proc_id)] = {
+            "workspace_hash": snapshot.workspace_hash,
+            "session_id": snapshot.session_id,
+        }
+
+
+def _process_owned_by_snapshot(snapshot: Any, proc_id: str) -> bool:
+    with _desktop_process_registry_lock:
+        owner_info = _desktop_process_registry.get(str(proc_id))
+    return bool(
+        owner_info
+        and owner_info.get("workspace_hash") == snapshot.workspace_hash
+        and owner_info.get("session_id") == snapshot.session_id
+    )
+
+
+def _filter_process_list_for_snapshot(snapshot: Any, result_str: str) -> str:
+    """Filter process(action=list) output to processes owned by this desktop session."""
+    try:
+        result_obj = json.loads(result_str)
+    except Exception:
+        return result_str
+    if not isinstance(result_obj, dict) or not isinstance(result_obj.get("processes"), list):
+        return result_str
+    with _desktop_process_registry_lock:
+        owned = {
+            proc_id
+            for proc_id, owner_info in _desktop_process_registry.items()
+            if (
+                owner_info.get("workspace_hash") == snapshot.workspace_hash
+                and owner_info.get("session_id") == snapshot.session_id
+            )
+        }
+    filtered = []
+    for proc in result_obj["processes"]:
+        if not isinstance(proc, dict):
+            continue
+        proc_id = proc.get("session_id") or proc.get("id") or proc.get("process_id")
+        if proc_id and str(proc_id) in owned:
+            filtered.append(proc)
+    result_obj["processes"] = filtered
+    return json.dumps(result_obj, ensure_ascii=False)
 
 
 def install_desktop_tool_overrides() -> None:
@@ -264,9 +343,59 @@ def _install_wrappers(registry) -> None:
                     except Exception:
                         pass  # don't block on parse errors
 
-            # 4. Pass through with canonical workdir
+            # 4. Pass through with canonical workdir. For local desktop terminal,
+            # command parsing is only an early rejection layer; the subprocess
+            # itself must be created through macOS seatbelt.
             new_args = {**args, "workdir": str(decision.resolved_path)}
-            return original_entry.handler(new_args, **kwargs)
+            try:
+                import tools.terminal_tool as _terminal_tool
+                env_type = (_terminal_tool._get_env_config() or {}).get("env_type", "local")
+            except Exception:
+                env_type = "local"
+
+            if env_type != "local":
+                result_str = original_entry.handler(new_args, **kwargs)
+                if bool(new_args.get("background")):
+                    _register_process_owner(snapshot, result_str)
+                return result_str
+
+            if bool(new_args.get("pty")):
+                return json.dumps({
+                    "error": (
+                        "terminal unavailable: local PTY execution is not sandboxed "
+                        "in desktop; run without pty or use a non-local backend"
+                    ),
+                    "code": "SANDBOX_UNAVAILABLE",
+                })
+
+            from ..services.sandbox_runner import get_sandbox_runner
+            runner = get_sandbox_runner()
+            if runner is None:
+                return json.dumps({
+                    "error": "terminal unavailable: sandbox runner not available on this platform",
+                    "code": "SANDBOX_UNAVAILABLE",
+                })
+
+            import tools.environments.local as _local_env
+            import tools.process_registry as _process_registry
+
+            local_subprocess = _local_env.subprocess
+            registry_subprocess = _process_registry.subprocess
+            proxy_for_local = _SandboxedSubprocessProxy(local_subprocess, runner, snapshot)
+            proxy_for_registry = _SandboxedSubprocessProxy(registry_subprocess, runner, snapshot)
+
+            with _terminal_popen_lock:
+                _local_env.subprocess = proxy_for_local
+                _process_registry.subprocess = proxy_for_registry
+                try:
+                    result_str = original_entry.handler(new_args, **kwargs)
+                finally:
+                    _local_env.subprocess = local_subprocess
+                    _process_registry.subprocess = registry_subprocess
+
+            if bool(new_args.get("background")):
+                _register_process_owner(snapshot, result_str)
+            return result_str
 
         return wrapper
 
@@ -307,9 +436,7 @@ def _install_wrappers(registry) -> None:
             if action in _OWNERSHIP_ACTIONS:
                 proc_id = args.get("id") or args.get("session_id") or args.get("process_id")
                 if proc_id is not None:
-                    with _desktop_process_registry_lock:
-                        owner_info = _desktop_process_registry.get(str(proc_id))
-                    if owner_info is None or owner_info.get("workspace_hash") != snapshot.workspace_hash:
+                    if not _process_owned_by_snapshot(snapshot, str(proc_id)):
                         return json.dumps({
                             "error": f"process denied: process {proc_id!r} is not owned by this workspace session",
                             "code": "PROCESS_NOT_OWNED",
@@ -318,24 +445,8 @@ def _install_wrappers(registry) -> None:
             # Call original handler
             result_str = original_entry.handler(args, **kwargs)
 
-            # After a successful spawn/start, register the new process ID
-            if action in ("spawn", "start"):
-                try:
-                    import json as _json
-                    result_obj = _json.loads(result_str)
-                    new_proc_id = (
-                        result_obj.get("id")
-                        or result_obj.get("session_id")
-                        or result_obj.get("process_id")
-                    )
-                    if new_proc_id:
-                        with _desktop_process_registry_lock:
-                            _desktop_process_registry[str(new_proc_id)] = {
-                                "workspace_hash": snapshot.workspace_hash,
-                                "session_id": snapshot.session_id,
-                            }
-                except Exception:
-                    pass  # don't fail if result is not JSON or has no id
+            if action == "list":
+                return _filter_process_list_for_snapshot(snapshot, result_str)
 
             return result_str
 
@@ -363,39 +474,22 @@ def _install_wrappers(registry) -> None:
                     "code": "SANDBOX_UNAVAILABLE",
                 })
 
-            # Temporarily patch subprocess.Popen inside code_execution_tool so the
-            # child Python process is spawned through the macOS seatbelt sandbox.
-            # The lock serializes the patch to avoid races between concurrent turns.
+            # Temporarily replace code_execution_tool's subprocess module reference
+            # with a proxy so only that module's Popen is sandboxed. Assigning
+            # _cet.subprocess.Popen would mutate the stdlib module object globally
+            # and make sandbox_runner.popen recurse into this wrapper.
             import tools.code_execution_tool as _cet
 
-            def _sandboxed_popen(command, *, cwd=None, env=None, stdin=None,
-                                  stdout=None, stderr=None, text=False,
-                                  encoding=None, errors=None, preexec_fn=None,
-                                  **kw):
-                return runner.popen(
-                    command,
-                    snapshot=snapshot,
-                    cwd=cwd,
-                    env=env,
-                    stdin=stdin,
-                    stdout=stdout,
-                    stderr=stderr,
-                    text=text,
-                    encoding=encoding,
-                    errors=errors,
-                    preexec_fn=preexec_fn,
-                )
-
-            # COUPLING HAZARD: patches tools.code_execution_tool.subprocess.Popen (module-level attr).
+            # COUPLING HAZARD: patches tools.code_execution_tool.subprocess (module-level attr).
             # If code_execution_tool switches to `from subprocess import Popen`, this patch stops
             # working silently. test_execute_code_calls_sandbox_runner_not_original is the regression guard.
             with _execute_code_popen_lock:
-                original_popen = _cet.subprocess.Popen
-                _cet.subprocess.Popen = _sandboxed_popen
+                original_subprocess = _cet.subprocess
+                _cet.subprocess = _SandboxedSubprocessProxy(original_subprocess, runner, snapshot)
                 try:
                     return original_entry.handler(args, **kwargs)
                 finally:
-                    _cet.subprocess.Popen = original_popen
+                    _cet.subprocess = original_subprocess
 
         return wrapper
 
