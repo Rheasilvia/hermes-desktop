@@ -129,6 +129,14 @@ class TestResolvePathAllowed:
         assert decision.allowed
         assert decision.resolved_path == tmp_path / "readme.md"
 
+    def test_existing_file_inside_workspace(self, tmp_path):
+        f = tmp_path / "existing.txt"
+        f.write_text("data")
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, str(f), "read")
+        assert decision.allowed
+        assert decision.resolved_path == f
+
 
 # ---------------------------------------------------------------------------
 # resolve_path — denied cases

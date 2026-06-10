@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextvars
 import hashlib
 from contextvars import Token
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -74,9 +74,7 @@ def build_workspace_policy_snapshot(
     Raises ValueError if cwd does not exist or is not a directory.
     """
     canonical = Path(cwd).expanduser().resolve(strict=True)
-    if not canonical.exists():
-        raise ValueError(f"workspace directory does not exist: {cwd}")
-    if not canonical.is_dir():
+    if not canonical.is_dir():  # strict=True follows symlinks; catches symlink-to-file inputs
         raise ValueError(f"workspace path is not a directory: {cwd}")
 
     workspace_hash = hashlib.sha256(str(canonical).encode()).hexdigest()[:16]
@@ -118,6 +116,10 @@ def resolve_path(
     - Existing targets → canonicalized with strict=True (follows symlinks to real path).
     - Non-existing write targets → parent canonicalized with strict=True, filename appended.
     - Final canonical path must be under snapshot.workspace_root.
+
+    Note: ``requires_approval`` is always False from this function; it is
+    reserved for the enforcement layer (Task 4) which may upgrade decisions
+    to require human approval based on permission_mode and operation type.
     """
     if not path or not path.strip():
         return PolicyDecision(
