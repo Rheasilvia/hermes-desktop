@@ -86,6 +86,56 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn reveal_workspace_path(root: String, path: String) -> Result<(), String> {
+    use std::process::Command;
+
+    let canonical_root = std::path::PathBuf::from(&root)
+        .canonicalize()
+        .map_err(|e| format!("workspace root not found: {}", e))?;
+
+    // Resolve path — if relative, join under root first
+    let raw = std::path::PathBuf::from(&path);
+    let absolute = if raw.is_absolute() { raw } else { canonical_root.join(raw) };
+    let canonical = absolute
+        .canonicalize()
+        .map_err(|e| format!("path not found: {}", e))?;
+
+    if !canonical.starts_with(&canonical_root) {
+        return Err(format!("path escapes workspace root"));
+    }
+
+    let canonical_str = canonical.to_string_lossy();
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-R", canonical_str.as_ref()])
+            .spawn()
+            .map_err(|e| format!("reveal failed: {}", e))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .args([format!("/select,{}", canonical_str)])
+            .spawn()
+            .map_err(|e| format!("reveal failed: {}", e))?;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let parent = canonical
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| canonical_str.to_string());
+        Command::new("xdg-open")
+            .arg(&parent)
+            .spawn()
+            .map_err(|e| format!("reveal failed: {}", e))?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod platform_tests {
     use super::*;

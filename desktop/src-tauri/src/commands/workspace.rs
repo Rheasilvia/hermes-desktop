@@ -69,11 +69,7 @@ pub fn list_workspace_children(
     path: String,
 ) -> Result<WorkspaceChildrenResult, String> {
     let canonical_root = canonicalize_existing_dir(&root, "workspace root")?;
-    let canonical_path = canonicalize_existing_dir(&path, "workspace path")?;
-
-    if !canonical_path.starts_with(&canonical_root) {
-        return Err("path escapes workspace root".to_string());
-    }
+    let canonical_path = resolve_path_under_root(&canonical_root, &path, "workspace path")?;
 
     let mut children = Vec::new();
     let mut total_read = 0usize;
@@ -139,13 +135,7 @@ pub fn list_workspace_children(
 #[tauri::command]
 pub fn read_workspace_file(root: String, path: String) -> Result<WorkspaceFileResult, String> {
     let canonical_root = canonicalize_existing_dir(&root, "workspace root")?;
-    let canonical_path = PathBuf::from(&path)
-        .canonicalize()
-        .map_err(|e| format!("file not found: {}", e))?;
-
-    if !canonical_path.starts_with(&canonical_root) {
-        return Err("path escapes workspace root".to_string());
-    }
+    let canonical_path = resolve_path_under_root(&canonical_root, &path, "workspace file")?;
 
     let meta = fs::metadata(&canonical_path).map_err(|e| format!("cannot stat file: {}", e))?;
     let size = meta.len();
@@ -172,6 +162,22 @@ pub(super) fn canonicalize_existing_dir(path: &str, label: &str) -> Result<PathB
         .map_err(|e| format!("{} not found: {}", label, e))?;
     if !canonical.is_dir() {
         return Err(format!("{} is not a directory", label));
+    }
+    Ok(canonical)
+}
+
+fn resolve_path_under_root(canonical_root: &std::path::Path, path: &str, label: &str) -> Result<std::path::PathBuf, String> {
+    let raw = std::path::PathBuf::from(path);
+    let absolute = if raw.is_absolute() {
+        raw
+    } else {
+        canonical_root.join(raw)
+    };
+    let canonical = absolute
+        .canonicalize()
+        .map_err(|e| format!("{} not found: {}", label, e))?;
+    if !canonical.starts_with(canonical_root) {
+        return Err(format!("{} escapes workspace root", label));
     }
     Ok(canonical)
 }
