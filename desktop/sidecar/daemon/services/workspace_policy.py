@@ -63,6 +63,11 @@ def get_workspace_policy_snapshot() -> WorkspacePolicySnapshot | None:
 # ---------------------------------------------------------------------------
 
 
+# Security contract: approval cannot expand workspace containment.
+# Outside-workspace path denials are final regardless of permissionMode.
+# permissionMode ("ask", "auto", "full") only controls prompts for operations
+# INSIDE workspace; it never grants outside-workspace file access.
+
 _VALID_PERMISSION_MODES = {"ask", "auto", "full"}
 
 
@@ -106,6 +111,7 @@ def _make_approval_key(
     resolved: Path,
 ) -> str:
     """Build an approval key from canonical resolved path, never raw caller path."""
+    # workspace_hash prefix prevents approval reuse after switching workspace roots
     return f"ws:{snapshot.workspace_hash}:{access}:path:{resolved}"
 
 
