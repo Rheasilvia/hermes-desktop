@@ -84,6 +84,29 @@ export function resolvePromptDispatch(
   return { message: submitText };
 }
 
+export function resolveMessageCopyText(message: RenderedMessage): string {
+  if (message.role === 'user' && message.slashCommand) {
+    const { command, args } = message.slashCommand;
+    return args ? `/${command} ${args}` : `/${command}`;
+  }
+  return message.blocks
+    .filter((b): b is TextBlock => b.type === 'text')
+    .map((b) => b.content)
+    .join('\n');
+}
+
+export function resolveMessageEditDraft(message: RenderedMessage): string {
+  if (message.slashCommand) {
+    const { command, args } = message.slashCommand;
+    return args ? `/${command} ${args}` : `/${command}`;
+  }
+  return message.blocks
+    .filter((b): b is TextBlock => b.type === 'text')
+    .map((b) => b.content)
+    .join('\n')
+    .trim();
+}
+
 export const ChatView: Component<ChatViewProps> = (props) => {
   const navigate = useNavigate();
   const sessionId = () => props.sessionId ?? '';
@@ -536,13 +559,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const handleMessageAction = async (sid: string, action: MessageActionType, message: RenderedMessage) => {
     switch (action) {
       case 'copy': {
-        const content = message.blocks.filter((b) => b.type === 'text').map((b) => b.content).join('\n');
-        await navigator.clipboard.writeText(content);
+        await navigator.clipboard.writeText(resolveMessageCopyText(message));
         break;
       }
       case 'edit': {
-        const textContent = message.blocks.filter((b) => b.type === 'text').map((b) => (b as any).content as string).join('\n').trim();
-        setEditDraft(textContent);
+        setEditDraft(resolveMessageEditDraft(message));
         break;
       }
       case 'retry': {
