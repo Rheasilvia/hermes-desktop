@@ -25,7 +25,6 @@ import { createJavaScriptRegexEngine } from '@shikijs/engine-javascript';
 
 const renderer = new Renderer();
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const origLink = renderer.link.bind(renderer) as (token: any) => string;
 renderer.link = function (token) {
   let html = origLink(token);
@@ -35,7 +34,6 @@ renderer.link = function (token) {
   return html;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const origImage = renderer.image.bind(renderer) as (token: any) => string;
 renderer.image = function (token) {
   let html = origImage(token);
@@ -43,14 +41,12 @@ renderer.image = function (token) {
   return html;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const origTable = renderer.table.bind(renderer) as (token: any) => string;
 renderer.table = function (token) {
   const html = origTable(token);
   return `<div class="markdown-table-wrapper">${html}</div>`;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const origCheckbox = renderer.checkbox.bind(renderer) as (token: any) => string;
 renderer.checkbox = function (token) {
   const html = origCheckbox(token);
