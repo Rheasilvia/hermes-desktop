@@ -121,19 +121,38 @@ def _install_wrappers(registry) -> None:
                 return original_entry.handler(new_args, **kwargs)
 
             elif isinstance(args, dict) and "patch" in args:
-                # Patch mode: parse unified diff headers to extract touched files
                 patch_text = args["patch"]
                 touched: list[str] = []
                 for line in patch_text.splitlines():
+                    # Unified diff headers
                     if line.startswith("--- a/"):
-                        touched.append(line[len("--- a/"):])
+                        raw = line[len("--- a/"):]
+                        if raw.strip() not in ("/dev/null", ""):
+                            touched.append(raw)
                     elif line.startswith("+++ b/"):
-                        touched.append(line[len("+++ b/"):])
-                touched = list(dict.fromkeys(touched))  # deduplicate same-file --- a/ and +++ b/ entries
-                # Resolve each touched path; deny if any escape workspace
+                        raw = line[len("+++ b/"):]
+                        if raw.strip() not in ("/dev/null", ""):
+                            touched.append(raw)
+                    # V4A headers
+                    elif line.startswith("*** Add File: "):
+                        touched.append(line[len("*** Add File: "):].strip())
+                    elif line.startswith("*** Update File: "):
+                        touched.append(line[len("*** Update File: "):].strip())
+                    elif line.startswith("*** Delete File: "):
+                        touched.append(line[len("*** Delete File: "):].strip())
+                    elif line.startswith("*** Move to: "):
+                        touched.append(line[len("*** Move to: "):].strip())
+
+                # Non-empty patch with no recognized file headers → unknown format, reject
+                if not touched and patch_text.strip():
+                    return json.dumps({
+                        "error": "patch denied: unrecognized patch format",
+                        "code": "WORKSPACE_VIOLATION",
+                    })
+
+                touched = list(dict.fromkeys(touched))  # deduplicate
                 from pathlib import Path as _Path
                 for raw_path in touched:
-                    # Resolve relative to cwd
                     full = _Path(snapshot.cwd) / raw_path
                     decision = resolve_path(snapshot, str(full), "write")
                     if not decision.allowed:
@@ -144,8 +163,11 @@ def _install_wrappers(registry) -> None:
                 return original_entry.handler(args, **kwargs)
 
             else:
-                # Unknown format — pass through and let original handle
-                return original_entry.handler(args, **kwargs)
+                # Unknown args structure — reject; do not pass through
+                return json.dumps({
+                    "error": "patch denied: unrecognized argument structure",
+                    "code": "WORKSPACE_VIOLATION",
+                })
 
         return wrapper
 
