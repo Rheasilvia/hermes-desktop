@@ -41,30 +41,138 @@ def install_desktop_tool_overrides() -> None:
 
 def _install_wrappers(registry) -> None:
     """Register desktop-policy wrappers for each tool. Called only once."""
-    from ..services.workspace_policy import get_workspace_policy_snapshot
+    from ..services.workspace_policy import get_workspace_policy_snapshot, resolve_path
 
-    def _fail_closed(tool_name: str, args: dict) -> str:
+    _TOOL_WRAPPERS: dict[str, Any] = {}
+
+    def _fail_closed(tool_name: str, args: Any) -> str:
         return json.dumps({"error": f"desktop policy: no workspace snapshot active for {tool_name}", "code": "POLICY_MISSING"})
 
-    # Helper: build wrapper that calls original handler with policy check
-    def _make_wrapper(name: str):
+    # -----------------------------------------------------------------------
+    # read_file / search_files: resolve path with "read" access
+    # -----------------------------------------------------------------------
+
+    def _make_file_read_wrapper(name: str):
         original_entry = ORIGINAL_TOOLS.get(name)
         if original_entry is None:
-            return None  # tool not registered; skip
+            return None
 
         def wrapper(args, **kwargs) -> str:
             snapshot = get_workspace_policy_snapshot()
             if snapshot is None:
                 return _fail_closed(name, args)
-            # Specific enforcement per tool is added in Tasks 4-7.
-            # For now, just pass through to original (skeleton).
+            path = args.get("path", ".") if isinstance(args, dict) else "."
+            decision = resolve_path(snapshot, str(path), "read")
+            if not decision.allowed:
+                return json.dumps({"error": f"{name} denied: {decision.reason}", "code": "WORKSPACE_VIOLATION"})
+            new_args = {**args, "path": str(decision.resolved_path)} if isinstance(args, dict) else args
+            return original_entry.handler(new_args, **kwargs)
+
+        return wrapper
+
+    # -----------------------------------------------------------------------
+    # write_file: resolve path with "write" access
+    # -----------------------------------------------------------------------
+
+    def _make_file_write_wrapper(name: str):
+        original_entry = ORIGINAL_TOOLS.get(name)
+        if original_entry is None:
+            return None
+
+        def wrapper(args, **kwargs) -> str:
+            snapshot = get_workspace_policy_snapshot()
+            if snapshot is None:
+                return _fail_closed(name, args)
+            path = args.get("path", "") if isinstance(args, dict) else ""
+            decision = resolve_path(snapshot, str(path), "write")
+            if not decision.allowed:
+                return json.dumps({"error": f"{name} denied: {decision.reason}", "code": "WORKSPACE_VIOLATION"})
+            new_args = {**args, "path": str(decision.resolved_path)} if isinstance(args, dict) else args
+            return original_entry.handler(new_args, **kwargs)
+
+        return wrapper
+
+    # -----------------------------------------------------------------------
+    # patch: handle both replace-mode (args["path"]) and patch-mode (args["patch"])
+    # -----------------------------------------------------------------------
+
+    def _make_patch_wrapper():
+        original_entry = ORIGINAL_TOOLS.get("patch")
+        if original_entry is None:
+            return None
+
+        def wrapper(args, **kwargs) -> str:
+            snapshot = get_workspace_policy_snapshot()
+            if snapshot is None:
+                return _fail_closed("patch", args)
+
+            if isinstance(args, dict) and "path" in args:
+                # Replace mode: single file write
+                decision = resolve_path(snapshot, str(args["path"]), "write")
+                if not decision.allowed:
+                    return json.dumps({"error": f"patch denied: {decision.reason}", "code": "WORKSPACE_VIOLATION"})
+                new_args = {**args, "path": str(decision.resolved_path)}
+                return original_entry.handler(new_args, **kwargs)
+
+            elif isinstance(args, dict) and "patch" in args:
+                # Patch mode: parse unified diff headers to extract touched files
+                patch_text = args["patch"]
+                touched: list[str] = []
+                for line in patch_text.splitlines():
+                    if line.startswith("--- a/"):
+                        touched.append(line[len("--- a/"):])
+                    elif line.startswith("+++ b/"):
+                        touched.append(line[len("+++ b/"):])
+                # Resolve each touched path; deny if any escape workspace
+                from pathlib import Path as _Path
+                for raw_path in touched:
+                    # Resolve relative to cwd
+                    full = _Path(snapshot.cwd) / raw_path
+                    decision = resolve_path(snapshot, str(full), "write")
+                    if not decision.allowed:
+                        return json.dumps({
+                            "error": f"patch denied: {decision.reason} (file: {raw_path})",
+                            "code": "WORKSPACE_VIOLATION",
+                        })
+                return original_entry.handler(args, **kwargs)
+
+            else:
+                # Unknown format — pass through and let original handle
+                return original_entry.handler(args, **kwargs)
+
+        return wrapper
+
+    # -----------------------------------------------------------------------
+    # terminal / process / execute_code: skeleton — fail closed, then pass through
+    # (enforcement added in Tasks 5 and 7)
+    # -----------------------------------------------------------------------
+
+    def _make_passthrough_wrapper(name: str):
+        original_entry = ORIGINAL_TOOLS.get(name)
+        if original_entry is None:
+            return None
+
+        def wrapper(args, **kwargs) -> str:
+            snapshot = get_workspace_policy_snapshot()
+            if snapshot is None:
+                return _fail_closed(name, args)
             return original_entry.handler(args, **kwargs)
 
         return wrapper
 
-    for name in list(ORIGINAL_TOOLS.keys()):
-        wrapper = _make_wrapper(name)
-        if wrapper is None:
+    # -----------------------------------------------------------------------
+    # Wire up wrappers
+    # -----------------------------------------------------------------------
+
+    _TOOL_WRAPPERS["read_file"] = _make_file_read_wrapper("read_file")
+    _TOOL_WRAPPERS["write_file"] = _make_file_write_wrapper("write_file")
+    _TOOL_WRAPPERS["patch"] = _make_patch_wrapper()
+    _TOOL_WRAPPERS["search_files"] = _make_file_read_wrapper("search_files")
+    for name in ["terminal", "process", "execute_code"]:
+        _TOOL_WRAPPERS[name] = _make_passthrough_wrapper(name)
+
+    for name, wrapper in _TOOL_WRAPPERS.items():
+        if wrapper is None or name not in ORIGINAL_TOOLS:
             continue
         original = ORIGINAL_TOOLS[name]
         registry.register(
