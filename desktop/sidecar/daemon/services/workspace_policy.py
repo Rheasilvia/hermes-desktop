@@ -63,6 +63,9 @@ def get_workspace_policy_snapshot() -> WorkspacePolicySnapshot | None:
 # ---------------------------------------------------------------------------
 
 
+_VALID_PERMISSION_MODES = {"ask", "auto", "full"}
+
+
 def build_workspace_policy_snapshot(
     session_id: str,
     turn_id: str,
@@ -76,6 +79,9 @@ def build_workspace_policy_snapshot(
     canonical = Path(cwd).expanduser().resolve(strict=True)
     if not canonical.is_dir():  # strict=True follows symlinks; catches symlink-to-file inputs
         raise ValueError(f"workspace path is not a directory: {cwd}")
+
+    if permission_mode not in _VALID_PERMISSION_MODES:
+        permission_mode = "auto"
 
     workspace_hash = hashlib.sha256(str(canonical).encode()).hexdigest()[:16]
 
@@ -181,6 +187,15 @@ def resolve_path(
     )
 
 
+def is_workspace_internal(snapshot: WorkspacePolicySnapshot, resolved_path: Path) -> bool:
+    """Return True only when resolved_path is contained within snapshot.workspace_root."""
+    try:
+        resolved_path.relative_to(snapshot.workspace_root)
+        return True
+    except ValueError:
+        return False
+
+
 __all__ = [
     "WorkspacePolicySnapshot",
     "PolicyDecision",
@@ -189,4 +204,5 @@ __all__ = [
     "get_workspace_policy_snapshot",
     "build_workspace_policy_snapshot",
     "resolve_path",
+    "is_workspace_internal",
 ]

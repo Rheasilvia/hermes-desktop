@@ -28,8 +28,9 @@ def install_desktop_tool_overrides() -> None:
                    "terminal", "process", "execute_code"]
     for name in _TOOL_NAMES:
         entry = registry.get_entry(name)
-        if entry is not None:
-            ORIGINAL_TOOLS[name] = entry
+        if entry is None:
+            raise RuntimeError(f"desktop policy: missing required tool: {name}")
+        ORIGINAL_TOOLS[name] = entry
 
     # Step 3: register same-name wrappers with override=True
     _install_wrappers(registry)
@@ -268,8 +269,7 @@ def _install_wrappers(registry) -> None:
                     "code": "SANDBOX_UNAVAILABLE",
                 })
 
-            # Sandbox is available and snapshot is active — pass through to
-            # original handler. Full process-level sandboxing is a future enhancement.
+            # Sandbox is available and snapshot is active — pass through to original handler.
             return original_entry.handler(args, **kwargs)
 
         return wrapper
