@@ -143,12 +143,64 @@ class TestWrapperFailsClosedWithoutSnapshot:
 
         # Ensure no snapshot is active (default ContextVar is None)
         wrapper = registered_wrappers["read_file"]
-        result_json = wrapper(path="/some/file.txt")
+        result_json = wrapper({"path": "/some/file.txt"})
         result = json.loads(result_json)
 
         assert result.get("code") == "POLICY_MISSING"
         # Original handler must NOT have been called
         fake_entries["read_file"].handler.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Test 3b: wrappers pass through positional args dict when snapshot is active
+# ---------------------------------------------------------------------------
+
+class TestWrapperPassThroughWithSnapshot:
+    def test_wrapped_handler_passes_args_dict_positionally_when_snapshot_active(self):
+        """When a workspace policy snapshot IS active, the wrapper must call
+        original_entry.handler(args, **kwargs) with the positional args dict —
+        not keyword-spread it.
+
+        The wrapper closure captures get_workspace_policy_snapshot via a local
+        `from ..services.workspace_policy import ...` inside _install_wrappers,
+        so we must inject a fake workspace_policy module into sys.modules BEFORE
+        install_desktop_tool_overrides() runs, so the closure binds to our mock.
+        """
+        fake_snapshot = MagicMock()
+
+        fake_workspace_policy = MagicMock()
+        fake_workspace_policy.get_workspace_policy_snapshot = MagicMock(
+            return_value=fake_snapshot
+        )
+
+        overrides = _fresh_overrides_module()
+        fake_entries, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
+
+        registered_wrappers: dict[str, MagicMock] = {}
+
+        def capture_register(**kwargs):
+            if kwargs.get("override"):
+                registered_wrappers[kwargs["name"]] = kwargs["handler"]
+
+        fake_registry.register.side_effect = capture_register
+
+        with patch.dict(sys.modules, {
+            "tools.registry": fake_registry_module,
+            "model_tools": fake_model_tools,
+            "daemon.services.workspace_policy": fake_workspace_policy,
+        }):
+            overrides.install_desktop_tool_overrides()
+
+            assert "read_file" in registered_wrappers
+
+            wrapper = registered_wrappers["read_file"]
+            args_dict = {"path": "/some/file.txt"}
+            result_json = wrapper(args_dict)
+
+        # handler must have been called with the positional args dict as first arg
+        fake_entries["read_file"].handler.assert_called_once_with(args_dict)
+        result = json.loads(result_json)
+        assert result.get("result") == "ok"
 
 
 # ---------------------------------------------------------------------------
