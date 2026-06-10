@@ -166,7 +166,8 @@ class AgentExecutionService:
                     session_id, turn_id, workspace_cwd, permission_mode_snapshot
                 )
             except Exception as exc:
-                log.debug("workspace policy snapshot build failed: %s", exc, exc_info=True)
+                # Policy snapshot build failed — tool wrappers will deny all calls via POLICY_MISSING.
+                log.warning("[desktop] workspace policy snapshot build failed for turn %s; tools will fail-closed: %s", turn_id, exc)
         cleanup = ExitStack()
         cleanup.callback(reset_terminal_cwd, set_terminal_cwd(workspace_cwd))
         cleanup.callback(

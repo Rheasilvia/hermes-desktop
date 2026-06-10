@@ -344,15 +344,16 @@ def _build_seatbelt_policy(workspace_root: str, hermes_home: str | None = None) 
         hermes_home = str(Path.home() / ".hermes")
 
     workspace_root_escaped = workspace_root.replace('"', '\\"')
-    hermes_env_path = str(Path(hermes_home) / ".env").replace('"', '\\"')
+    hermes_home_escaped = hermes_home.replace('"', '\\"')
 
     dynamic_policy = f"""
 ; Workspace access
 (allow file-read* file-write* file-test-existence
   (subpath "{workspace_root_escaped}"))
 
-; Deny hermes credentials
-(deny file-read* (literal "{hermes_env_path}"))
+; Deny entire hermes home directory (config.yaml, .env, gateway_state, credentials)
+; This takes precedence over the workspace allow above when hermes_home is inside workspace_root.
+(deny file-read* file-write* (subpath "{hermes_home_escaped}"))
 """
     return "\n".join([_SEATBELT_BASE_POLICY, _SEATBELT_PLATFORM_DEFAULTS, dynamic_policy])
 
@@ -395,6 +396,39 @@ class MacOSSandboxRunner:
             return SandboxResult(-1, "", "sandbox execution timed out")
         except Exception as exc:
             return SandboxResult(-1, "", f"sandbox execution error: {exc}")
+
+
+    def popen(
+        self,
+        command: list[str],
+        *,
+        snapshot,
+        cwd: str | None = None,
+        env: dict | None = None,
+        stdin=None,
+        stdout=None,
+        stderr=None,
+        text: bool = False,
+        encoding: str | None = None,
+        errors: str | None = None,
+        preexec_fn=None,
+        **kwargs,
+    ) -> subprocess.Popen:
+        """Wrap a subprocess spawn inside the macOS seatbelt sandbox."""
+        policy = _build_seatbelt_policy(str(snapshot.workspace_root))
+        sandboxed_cmd = [_SEATBELT_EXECUTABLE, "-p", policy, "--"] + command
+        return subprocess.Popen(
+            sandboxed_cmd,
+            cwd=cwd,
+            env=env,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            text=text,
+            encoding=encoding,
+            errors=errors,
+            preexec_fn=preexec_fn,
+        )
 
 
 _RUNNER: MacOSSandboxRunner | None = None
