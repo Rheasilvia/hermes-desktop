@@ -184,6 +184,35 @@ class TestTerminalWrapper:
         assert result.get("result") == "ok"
         entries["terminal"].handler.assert_called_once()
 
+    def test_terminal_command_with_system_executable_is_allowed(self, installed_wrappers):
+        """terminal command containing a system executable path is allowed (not a data-file violation)."""
+        wrappers, entries, tmp_path = installed_wrappers
+
+        wrapper = wrappers["terminal"]
+        for cmd in [
+            "/usr/bin/python3 script.py",
+            "/bin/bash -c 'ls'",
+            "ls 2>/dev/null",
+        ]:
+            entries["terminal"].handler.reset_mock()
+            result_json = wrapper({"command": cmd, "workdir": str(tmp_path)})
+            result = json.loads(result_json)
+            assert result.get("result") == "ok", f"command {cmd!r} was unexpectedly denied: {result}"
+            entries["terminal"].handler.assert_called_once()
+
+    def test_terminal_no_workdir_defaults_to_snapshot_cwd(self, installed_wrappers):
+        """When no workdir/cwd provided, should default to snapshot.cwd (the workspace)."""
+        wrappers, entries, workspace = installed_wrappers
+
+        wrapper = wrappers["terminal"]
+        result_json = wrapper({"command": "ls"})  # no workdir key
+        result = json.loads(result_json)
+
+        assert result.get("result") == "ok"
+        assert entries["terminal"].handler.called
+        called_args = entries["terminal"].handler.call_args[0][0]
+        assert called_args["workdir"] == str(workspace)
+
 
 # ---------------------------------------------------------------------------
 # Tests: process wrapper

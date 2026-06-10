@@ -155,6 +155,13 @@ def _install_wrappers(registry) -> None:
 
         _OUTSIDE_ABS_PATH_RE = re.compile(r'(?<![/\w])(/(?!tmp/|var/tmp/|private/tmp/)[^\s;|&>]+)')
 
+        # System paths that are always safe to use in commands
+        _SYSTEM_PATH_PREFIXES = (
+            "/usr/bin/", "/usr/sbin/", "/usr/local/bin/", "/usr/local/sbin/",
+            "/bin/", "/sbin/", "/opt/", "/System/", "/Library/",
+            "/dev/", "/proc/",
+        )
+
         def wrapper(args, **kwargs) -> str:
             snapshot = get_workspace_policy_snapshot()
             if snapshot is None:
@@ -174,6 +181,9 @@ def _install_wrappers(registry) -> None:
             if command:
                 for match in _OUTSIDE_ABS_PATH_RE.finditer(str(command)):
                     candidate = match.group(1)
+                    # System executables and device paths are always allowed
+                    if any(candidate.startswith(prefix) for prefix in _SYSTEM_PATH_PREFIXES):
+                        continue
                     # Quick check: is this path outside workspace?
                     try:
                         from pathlib import Path
