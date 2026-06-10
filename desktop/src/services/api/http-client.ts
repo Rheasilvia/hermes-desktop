@@ -88,7 +88,6 @@ export class HttpClient {
 
     let attempt = 0;
     let lastError: unknown;
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       try {
         const resp = await fetch(url, merged);
