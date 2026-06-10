@@ -316,3 +316,57 @@ class TestPatchWrapper:
 
         assert result.get("result") == "ok"
         entries["patch"].handler.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Tests 11-15: V4A patch headers (V2 red tests)
+# ---------------------------------------------------------------------------
+
+
+class TestPatchV4AHeaders:
+    """V2: patch wrapper must parse V4A-format headers and reject unknown non-empty formats."""
+
+    def test_patch_v4a_add_file_outside_workspace_denied(self, installed_wrappers):
+        """V4A '*** Add File:' header with outside path must be denied."""
+        wrappers, entries, tmp_path = installed_wrappers
+        patch_text = "*** Add File: ../outside.txt\n<some content>\n"
+        result = json.loads(wrappers["patch"]({"patch": patch_text}))
+        assert result.get("code") == "WORKSPACE_VIOLATION", f"got: {result}"
+        entries["patch"].handler.assert_not_called()
+
+    def test_patch_v4a_update_file_outside_workspace_denied(self, installed_wrappers):
+        """V4A '*** Update File:' header with outside path must be denied."""
+        wrappers, entries, tmp_path = installed_wrappers
+        patch_text = "*** Update File: ../outside.txt\n<some content>\n"
+        result = json.loads(wrappers["patch"]({"patch": patch_text}))
+        assert result.get("code") == "WORKSPACE_VIOLATION", f"got: {result}"
+        entries["patch"].handler.assert_not_called()
+
+    def test_patch_v4a_delete_file_outside_workspace_denied(self, installed_wrappers):
+        """V4A '*** Delete File:' header with outside path must be denied."""
+        wrappers, entries, tmp_path = installed_wrappers
+        patch_text = "*** Delete File: ../outside.txt\n"
+        result = json.loads(wrappers["patch"]({"patch": patch_text}))
+        assert result.get("code") == "WORKSPACE_VIOLATION", f"got: {result}"
+        entries["patch"].handler.assert_not_called()
+
+    def test_patch_v4a_move_to_outside_workspace_denied(self, installed_wrappers):
+        """V4A '*** Move to:' header with outside path must be denied."""
+        wrappers, entries, tmp_path = installed_wrappers
+        patch_text = "*** Move to: ../outside.txt\n"
+        result = json.loads(wrappers["patch"]({"patch": patch_text}))
+        assert result.get("code") == "WORKSPACE_VIOLATION", f"got: {result}"
+        entries["patch"].handler.assert_not_called()
+
+    def test_patch_unknown_nonempty_format_denied(self, installed_wrappers):
+        """Non-empty patch text with no recognized headers must be denied (not passed through).
+
+        V1 bug: unknown format falls through to original handler unchecked.
+        """
+        wrappers, entries, tmp_path = installed_wrappers
+        patch_text = "SOME_CUSTOM_FORMAT: file.txt\ncontent here\n"
+        result = json.loads(wrappers["patch"]({"patch": patch_text}))
+        assert result.get("code") == "WORKSPACE_VIOLATION", (
+            f"Unknown non-empty patch format must be denied, got: {result}"
+        )
+        entries["patch"].handler.assert_not_called()

@@ -241,3 +241,33 @@ class TestBuildSeatbeltPolicy:
         deny_pos = policy.find('(deny file-read*')
         allow_pos = policy.find('(allow file-read* file-write* file-test-existence')
         assert deny_pos > allow_pos, "deny rule for .env should appear after the workspace allow rule"
+
+
+# ---------------------------------------------------------------------------
+# Test 6: V2 red test — execute_code must call sandbox runner, not original handler
+# ---------------------------------------------------------------------------
+
+
+class TestExecuteCodeCallsSandboxRunner:
+    """V2: execute_code must call runner.run or runner.popen, not just the original handler."""
+
+    def test_execute_code_calls_runner_not_original(self, installed_wrappers):
+        """When sandbox runner is available and snapshot active, wrapper must call runner.run/popen.
+
+        V1 bug: wrapper calls original_entry.handler directly, skipping the sandbox runner entirely.
+        This test fails on V1.
+        """
+        wrappers, entries, tmp_path = installed_wrappers
+        wrapper = wrappers["execute_code"]
+
+        mock_runner = MagicMock()
+        mock_runner.is_available.return_value = True
+        mock_runner.run.return_value = MagicMock(returncode=0, stdout='{"result": "sandbox_ran"}', stderr="")
+
+        with patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=mock_runner):
+            wrapper({"language": "python", "code": "print('hello')"})
+
+        # The sandbox runner must have been invoked
+        assert mock_runner.run.called or mock_runner.popen.called, (
+            "execute_code must route through runner.run or runner.popen, not just the original handler"
+        )

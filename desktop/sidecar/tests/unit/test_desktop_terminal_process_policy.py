@@ -257,3 +257,42 @@ class TestProcessWrapper:
 
         assert result.get("result") == "ok"
         entries["process"].handler.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Tests: V2 red tests — process ownership enforcement
+# ---------------------------------------------------------------------------
+
+
+class TestProcessOwnershipEnforcement:
+    """V2: process poll/log/wait/kill/write/submit/close must verify session ownership."""
+
+    def test_process_poll_unknown_session_denied(self, installed_wrappers):
+        """process with action='poll' and unknown process ID must be denied.
+
+        V1 bug: no-path actions pass through without ownership check.
+        """
+        wrappers, entries, tmp_path = installed_wrappers
+
+        wrapper = wrappers["process"]
+        # 'unknown-proc-id-xyz' was never registered by a spawn in this session
+        result_json = wrapper({"action": "poll", "id": "unknown-proc-id-xyz"})
+        result = json.loads(result_json)
+
+        assert result.get("code") in ("WORKSPACE_VIOLATION", "PROCESS_NOT_OWNED"), (
+            f"process poll with unknown ID must be denied, got: {result}"
+        )
+        entries["process"].handler.assert_not_called()
+
+    def test_process_kill_unknown_session_denied(self, installed_wrappers):
+        """process with action='kill' and unknown process ID must be denied."""
+        wrappers, entries, tmp_path = installed_wrappers
+
+        wrapper = wrappers["process"]
+        result_json = wrapper({"action": "kill", "id": "unknown-proc-id-xyz"})
+        result = json.loads(result_json)
+
+        assert result.get("code") in ("WORKSPACE_VIOLATION", "PROCESS_NOT_OWNED"), (
+            f"process kill with unknown ID must be denied, got: {result}"
+        )
+        entries["process"].handler.assert_not_called()
