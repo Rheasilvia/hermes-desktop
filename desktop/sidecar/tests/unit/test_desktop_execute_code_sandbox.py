@@ -271,3 +271,5 @@ class TestExecuteCodeCallsSandboxRunner:
         assert mock_runner.run.called or mock_runner.popen.called, (
             "execute_code must route through runner.run or runner.popen, not just the original handler"
         )
+        # The original handler must NOT have been called (sandbox runner replaces it)
+        entries["execute_code"].handler.assert_not_called()

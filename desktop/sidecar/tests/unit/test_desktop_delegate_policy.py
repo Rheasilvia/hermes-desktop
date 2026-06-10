@@ -10,6 +10,7 @@ All tests mock tools.delegate_tool to avoid importing the full Hermes agent stac
 from __future__ import annotations
 
 import sys
+import threading
 import types
 from unittest.mock import MagicMock, patch
 
@@ -284,7 +285,6 @@ class TestChildContextVarInWorkerThread:
         This test fails on V1 because the delegate patch only sets the agent attribute,
         not the ContextVar, so get_workspace_policy_snapshot() returns None in the worker thread.
         """
-        import threading
         snap = _build_snapshot(tmp_path)
 
         fake_dt = _make_fake_delegate_tool_module()

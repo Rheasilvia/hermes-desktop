@@ -260,7 +260,7 @@ class TestProcessWrapper:
 
 
 # ---------------------------------------------------------------------------
-# Tests: V2 red tests — process ownership enforcement
+# Tests: process ownership enforcement (V2 red tests)
 # ---------------------------------------------------------------------------
 
 

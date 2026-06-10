@@ -105,8 +105,6 @@ mod platform_tests {
     fn reveal_in_finder_rejects_path_outside_workspace() {
         use std::fs;
 
-        let root = std::env::temp_dir().join("hermes_reveal_root_test");
-        fs::create_dir_all(&root).unwrap();
         let outside = std::env::temp_dir().join("hermes_reveal_outside_test");
         fs::create_dir_all(&outside).unwrap();
 
@@ -128,7 +126,6 @@ mod platform_tests {
              V1 bug: no root parameter, no containment check — got Ok(())"
         );
 
-        let _ = fs::remove_dir_all(root);
         let _ = fs::remove_dir_all(outside);
     }
 }
