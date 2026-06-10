@@ -144,8 +144,97 @@ def _install_wrappers(registry) -> None:
         return wrapper
 
     # -----------------------------------------------------------------------
-    # terminal / process / execute_code: skeleton — fail closed, then pass through
-    # (enforcement added in Tasks 5 and 7)
+    # terminal: workdir enforcement + best-effort command path scan
+    # -----------------------------------------------------------------------
+
+    def _make_terminal_wrapper():
+        import re
+        original_entry = ORIGINAL_TOOLS.get("terminal")
+        if original_entry is None:
+            return None
+
+        _OUTSIDE_ABS_PATH_RE = re.compile(r'(?<![/\w])(/(?!tmp/|var/tmp/|private/tmp/)[^\s;|&>]+)')
+
+        def wrapper(args, **kwargs) -> str:
+            snapshot = get_workspace_policy_snapshot()
+            if snapshot is None:
+                return _fail_closed("terminal", args)
+
+            if not isinstance(args, dict):
+                return original_entry.handler(args, **kwargs)
+
+            # 1. Resolve workdir
+            workdir = args.get("workdir") or args.get("cwd") or str(snapshot.cwd)
+            decision = resolve_path(snapshot, str(workdir), "read")
+            if not decision.allowed:
+                return json.dumps({"error": f"terminal denied: workdir {decision.reason}", "code": "WORKSPACE_VIOLATION"})
+
+            # 2. Best-effort scan command for obvious outside absolute paths
+            command = args.get("command") or args.get("cmd") or ""
+            if command:
+                for match in _OUTSIDE_ABS_PATH_RE.finditer(str(command)):
+                    candidate = match.group(1)
+                    # Quick check: is this path outside workspace?
+                    try:
+                        from pathlib import Path
+                        p = Path(candidate)
+                        if p.exists():
+                            canonical = p.resolve()
+                            try:
+                                canonical.relative_to(snapshot.workspace_root)
+                            except ValueError:
+                                return json.dumps({
+                                    "error": f"terminal denied: command contains outside path {candidate}",
+                                    "code": "WORKSPACE_VIOLATION"
+                                })
+                    except Exception:
+                        pass  # don't block on parse errors
+
+            # 3. Pass through with canonical workdir
+            new_args = {**args, "workdir": str(decision.resolved_path)}
+            return original_entry.handler(new_args, **kwargs)
+
+        return wrapper
+
+    # -----------------------------------------------------------------------
+    # process: path argument enforcement
+    # -----------------------------------------------------------------------
+
+    def _make_process_wrapper():
+        original_entry = ORIGINAL_TOOLS.get("process")
+        if original_entry is None:
+            return None
+
+        def wrapper(args, **kwargs) -> str:
+            snapshot = get_workspace_policy_snapshot()
+            if snapshot is None:
+                return _fail_closed("process", args)
+
+            if not isinstance(args, dict):
+                return original_entry.handler(args, **kwargs)
+
+            # Deny arbitrary process control
+            # Allow only workspace-owned operations (operations on processes this session started)
+
+            # If a path/cwd argument is given, verify it's inside workspace
+            for path_key in ("path", "cwd", "workdir"):
+                path_val = args.get(path_key)
+                if path_val:
+                    decision = resolve_path(snapshot, str(path_val), "read")
+                    if not decision.allowed:
+                        return json.dumps({
+                            "error": f"process denied: {path_key} {decision.reason}",
+                            "code": "WORKSPACE_VIOLATION"
+                        })
+
+            # Pass through — process tool manages its own session-scoped PIDs
+            return original_entry.handler(args, **kwargs)
+
+        return wrapper
+
+    # -----------------------------------------------------------------------
+    # execute_code: skeleton — fail closed, then pass through
+    # (enforcement added in Task 7)
     # -----------------------------------------------------------------------
 
     def _make_passthrough_wrapper(name: str):
@@ -169,8 +258,9 @@ def _install_wrappers(registry) -> None:
     _TOOL_WRAPPERS["write_file"] = _make_file_write_wrapper("write_file")
     _TOOL_WRAPPERS["patch"] = _make_patch_wrapper()
     _TOOL_WRAPPERS["search_files"] = _make_file_read_wrapper("search_files")
-    for name in ["terminal", "process", "execute_code"]:
-        _TOOL_WRAPPERS[name] = _make_passthrough_wrapper(name)
+    _TOOL_WRAPPERS["terminal"] = _make_terminal_wrapper()
+    _TOOL_WRAPPERS["process"] = _make_process_wrapper()
+    _TOOL_WRAPPERS["execute_code"] = _make_passthrough_wrapper("execute_code")
 
     for name, wrapper in _TOOL_WRAPPERS.items():
         if wrapper is None or name not in ORIGINAL_TOOLS:
