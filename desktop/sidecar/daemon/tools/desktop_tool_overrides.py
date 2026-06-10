@@ -7,6 +7,7 @@ log = logging.getLogger(__name__)
 
 _INSTALLED = False
 ORIGINAL_TOOLS: dict[str, Any] = {}  # name -> ToolEntry
+_DELEGATE_PATCHED = False
 
 
 def install_desktop_tool_overrides() -> None:
@@ -32,6 +33,9 @@ def install_desktop_tool_overrides() -> None:
 
     # Step 3: register same-name wrappers with override=True
     _install_wrappers(registry)
+
+    # Step 3b: wrap _build_child_agent to propagate desktop workspace policy to child agents
+    _install_delegate_patch()
 
     # Step 4: clear model tool definition caches
     model_tools._clear_tool_defs_cache()
@@ -291,3 +295,42 @@ def _install_wrappers(registry) -> None:
             override=True,
         )
         log.info("[desktop] installed policy wrapper for tool: %s", name)
+
+
+# ---------------------------------------------------------------------------
+# _install_delegate_patch: propagate workspace policy snapshot to child agents
+# ---------------------------------------------------------------------------
+
+
+def _install_delegate_patch() -> None:
+    """Monkey-patch tools.delegate_tool._build_child_agent to copy parent snapshot to child.
+
+    This prevents child agents spawned via delegate_task from widening the workspace
+    boundary — they inherit the parent's WorkspacePolicySnapshot verbatim.
+
+    The patch is idempotent via _DELEGATE_PATCHED; import failures are warned, not raised.
+    """
+    global _DELEGATE_PATCHED
+    if _DELEGATE_PATCHED:
+        return
+
+    try:
+        import tools.delegate_tool as _dt
+        _orig_build_child = _dt._build_child_agent
+
+        def _policy_build_child_agent(task_index, goal, context, toolsets, model,
+                                       max_iterations, task_count, parent_agent, **kwargs):
+            child = _orig_build_child(task_index, goal, context, toolsets, model,
+                                      max_iterations, task_count, parent_agent, **kwargs)
+            snap = getattr(parent_agent, "_desktop_workspace_policy_snapshot", None)
+            if snap is not None:
+                child._desktop_workspace_policy_snapshot = snap
+                child.workspace_cwd = str(snap.cwd)
+                child.session_cwd = str(snap.cwd)
+            return child
+
+        _dt._build_child_agent = _policy_build_child_agent
+        _DELEGATE_PATCHED = True
+        log.info("[desktop] installed delegate_task child-agent policy patch")
+    except Exception as exc:
+        log.warning("[desktop] failed to install delegate_task patch: %s", exc)
