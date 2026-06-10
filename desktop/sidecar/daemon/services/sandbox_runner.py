@@ -6,6 +6,11 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+# Keep an immutable reference to the real Popen. Desktop tool overrides install
+# short-lived subprocess proxy objects; the runner itself must bypass those
+# proxies when spawning sandbox-exec or it recurses back into the wrapper.
+_RAW_POPEN = subprocess.Popen
+
 # ---------------------------------------------------------------------------
 # Embedded seatbelt policy content (from codex project)
 # ---------------------------------------------------------------------------
@@ -417,7 +422,7 @@ class MacOSSandboxRunner:
         """Wrap a subprocess spawn inside the macOS seatbelt sandbox."""
         policy = _build_seatbelt_policy(str(snapshot.workspace_root))
         sandboxed_cmd = [_SEATBELT_EXECUTABLE, "-p", policy, "--"] + command
-        return subprocess.Popen(
+        return _RAW_POPEN(
             sandboxed_cmd,
             cwd=cwd,
             env=env,
@@ -428,6 +433,7 @@ class MacOSSandboxRunner:
             encoding=encoding,
             errors=errors,
             preexec_fn=preexec_fn,
+            **kwargs,
         )
 
 
