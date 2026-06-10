@@ -51,16 +51,16 @@ export class HttpClient {
 
   private async info(force = false): Promise<SidecarInfo> {
     if (!this.cached || force) {
-      // 优先使用 env vars（开发调试用）
-      const env = envSidecarInfo();
-      if (env) {
-        this.cached = env;
-        return this.cached;
-      }
-      // 其次尝试 Tauri sidecar_info
+      // In Tauri, the sidecar owns the live token. Env vars are only a
+      // browser-only fallback for standalone web debugging.
       const tauri = await tauriSidecarInfo();
       if (tauri) {
         this.cached = tauri;
+        return this.cached;
+      }
+      const env = envSidecarInfo();
+      if (env) {
+        this.cached = env;
         return this.cached;
       }
       throw new Error(
