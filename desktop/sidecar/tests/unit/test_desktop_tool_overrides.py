@@ -158,47 +158,67 @@ class TestWrapperFailsClosedWithoutSnapshot:
 class TestWrapperPassThroughWithSnapshot:
     def test_wrapped_handler_passes_args_dict_positionally_when_snapshot_active(self):
         """When a workspace policy snapshot IS active, the wrapper must call
-        original_entry.handler(args, **kwargs) with the positional args dict —
-        not keyword-spread it.
+        original_entry.handler with the args dict as the positional first argument.
 
-        The wrapper closure captures get_workspace_policy_snapshot via a local
-        `from ..services.workspace_policy import ...` inside _install_wrappers,
-        so we must inject a fake workspace_policy module into sys.modules BEFORE
-        install_desktop_tool_overrides() runs, so the closure binds to our mock.
+        read_file now enforces path policy via resolve_path, so we need
+        resolve_path to return an allowed PolicyDecision.  We use a real snapshot
+        and a real resolve_path call (by injecting a real workspace into the
+        fake workspace_policy module) so the handler is actually reached.
         """
-        fake_snapshot = MagicMock()
-
-        fake_workspace_policy = MagicMock()
-        fake_workspace_policy.get_workspace_policy_snapshot = MagicMock(
-            return_value=fake_snapshot
+        import pathlib
+        import tempfile
+        from daemon.services.workspace_policy import (
+            PolicyDecision,
+            build_workspace_policy_snapshot,
         )
 
-        overrides = _fresh_overrides_module()
-        fake_entries, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            canonical_path = pathlib.Path(tmpdir)
+            fake_snapshot = build_workspace_policy_snapshot(
+                "sess", "turn", tmpdir, "auto"
+            )
 
-        registered_wrappers: dict[str, MagicMock] = {}
+            # Build a PolicyDecision that allows the path — resolved_path must be a Path
+            allowed_path = canonical_path / "file.txt"
+            fake_decision = PolicyDecision(
+                allowed=True,
+                requires_approval=False,
+                reason="path is within workspace",
+                resolved_path=allowed_path,
+            )
 
-        def capture_register(**kwargs):
-            if kwargs.get("override"):
-                registered_wrappers[kwargs["name"]] = kwargs["handler"]
+            fake_workspace_policy = MagicMock()
+            fake_workspace_policy.get_workspace_policy_snapshot = MagicMock(
+                return_value=fake_snapshot
+            )
+            fake_workspace_policy.resolve_path = MagicMock(return_value=fake_decision)
 
-        fake_registry.register.side_effect = capture_register
+            overrides = _fresh_overrides_module()
+            fake_entries, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
 
-        with patch.dict(sys.modules, {
-            "tools.registry": fake_registry_module,
-            "model_tools": fake_model_tools,
-            "daemon.services.workspace_policy": fake_workspace_policy,
-        }):
-            overrides.install_desktop_tool_overrides()
+            registered_wrappers: dict[str, MagicMock] = {}
 
-            assert "read_file" in registered_wrappers
+            def capture_register(**kwargs):
+                if kwargs.get("override"):
+                    registered_wrappers[kwargs["name"]] = kwargs["handler"]
 
-            wrapper = registered_wrappers["read_file"]
-            args_dict = {"path": "/some/file.txt"}
-            result_json = wrapper(args_dict)
+            fake_registry.register.side_effect = capture_register
 
-        # handler must have been called with the positional args dict as first arg
-        fake_entries["read_file"].handler.assert_called_once_with(args_dict)
+            with patch.dict(sys.modules, {
+                "tools.registry": fake_registry_module,
+                "model_tools": fake_model_tools,
+                "daemon.services.workspace_policy": fake_workspace_policy,
+            }):
+                overrides.install_desktop_tool_overrides()
+
+                assert "read_file" in registered_wrappers
+
+                wrapper = registered_wrappers["read_file"]
+                args_dict = {"path": str(allowed_path)}
+                result_json = wrapper(args_dict)
+
+        # handler must have been called exactly once — with canonical path rewritten
+        fake_entries["read_file"].handler.assert_called_once()
         result = json.loads(result_json)
         assert result.get("result") == "ok"
 
