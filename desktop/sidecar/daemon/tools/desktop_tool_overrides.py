@@ -25,6 +25,20 @@ _desktop_process_registry: dict[str, dict] = {}
 _desktop_process_registry_lock = _threading.Lock()
 
 
+def _import_required_tool_modules() -> None:
+    """Import the built-in tools the desktop policy wraps.
+
+    The normal registry discovery path scans ``tools/*.py`` on disk before
+    importing modules. In a PyInstaller bundle those modules live in the PYZ
+    archive, so the source-file scan can find nothing. Direct imports keep the
+    desktop sidecar startup independent of that filesystem scan.
+    """
+    import tools.code_execution_tool  # noqa: F401
+    import tools.file_tools  # noqa: F401
+    import tools.process_registry  # noqa: F401
+    import tools.terminal_tool  # noqa: F401
+
+
 class _SandboxedSubprocessProxy:
     """Proxy a subprocess module while routing Popen through the sandbox runner."""
 
@@ -114,6 +128,7 @@ def install_desktop_tool_overrides() -> None:
 
     # Step 1: discover and import all built-in tool modules so they are registered
     _registry_module.discover_builtin_tools()
+    _import_required_tool_modules()
 
     # Step 2: capture originals BEFORE any override
     _TOOL_NAMES = ["read_file", "write_file", "patch", "search_files",

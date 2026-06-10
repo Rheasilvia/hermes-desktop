@@ -1,19 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
+ROOT = Path.cwd().parent.parent
 
 hiddenimports = (
     collect_submodules("daemon")
+    + collect_submodules("tools")
     + collect_submodules("uvicorn")
     + collect_submodules("fastapi")
     + collect_submodules("pydantic")
+    + ["model_tools", "toolsets"]
 )
 
 a = Analysis(
     ["daemon/__main__.py"],
-    pathex=["."],
+    pathex=[".", str(ROOT)],
     binaries=[],
     datas=[],
     hiddenimports=hiddenimports,

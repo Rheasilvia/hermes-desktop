@@ -20,5 +20,8 @@ TMP_HOME="$(mktemp -d)"
 HERMES_HOME="$TMP_HOME/.hermes" ./dist/daemon/daemon-$TRIPLE &
 BPID=$!
 sleep 2
+if ! kill -0 "$BPID" 2>/dev/null; then
+  wait "$BPID"
+fi
 kill $BPID || true
 echo "Built: ./dist/daemon/daemon-$TRIPLE"
