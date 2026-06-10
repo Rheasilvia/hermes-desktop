@@ -38,7 +38,6 @@ pub fn run() {
             commands::hermes_home::list_dir,
             commands::platform::open_external,
             commands::platform::get_platform,
-            commands::platform::spawn_process,
             commands::workspace::get_workspace_root,
             commands::workspace::list_workspace_children,
             commands::git::run_git_diff,
