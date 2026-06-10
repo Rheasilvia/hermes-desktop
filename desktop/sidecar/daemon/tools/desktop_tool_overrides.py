@@ -1,6 +1,8 @@
 from __future__ import annotations
+from contextlib import contextmanager as _contextmanager
 import json
 import logging
+import os as _os
 import re as _re
 import threading as _threading
 from pathlib import Path as _PathUtil
@@ -23,6 +25,34 @@ _terminal_popen_lock = _threading.Lock()
 # TODO: wire cleanup to session_end events when multi-session support is added.
 _desktop_process_registry: dict[str, dict] = {}
 _desktop_process_registry_lock = _threading.Lock()
+_TEMP_ENV_KEYS = ("TMPDIR", "TMP", "TEMP", "HERMES_EXECUTE_CODE_SOCKET_DIR")
+
+
+@_contextmanager
+def _workspace_execute_code_temp_env(snapshot: Any, code_execution_tool_module: Any):
+    scratch = _PathUtil(snapshot.workspace_root) / ".hermes-sandbox"
+    scratch.mkdir(parents=True, exist_ok=True)
+    try:
+        scratch.chmod(0o700)
+    except OSError:
+        pass
+
+    scratch_str = str(scratch)
+    previous_env = {key: _os.environ.get(key) for key in _TEMP_ENV_KEYS}
+    previous_tempdir = code_execution_tool_module.tempfile.tempdir
+
+    try:
+        for key in _TEMP_ENV_KEYS:
+            _os.environ[key] = scratch_str
+        code_execution_tool_module.tempfile.tempdir = None
+        yield scratch
+    finally:
+        for key, value in previous_env.items():
+            if value is None:
+                _os.environ.pop(key, None)
+            else:
+                _os.environ[key] = value
+        code_execution_tool_module.tempfile.tempdir = previous_tempdir
 
 
 def _import_required_tool_modules() -> None:
@@ -42,10 +72,18 @@ def _import_required_tool_modules() -> None:
 class _SandboxedSubprocessProxy:
     """Proxy a subprocess module while routing Popen through the sandbox runner."""
 
-    def __init__(self, original_module: Any, runner: Any, snapshot: Any) -> None:
+    def __init__(
+        self,
+        original_module: Any,
+        runner: Any,
+        snapshot: Any,
+        *,
+        allow_command_executable: bool = False,
+    ) -> None:
         self._original_module = original_module
         self._runner = runner
         self._snapshot = snapshot
+        self._allow_command_executable = allow_command_executable
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._original_module, name)
@@ -53,7 +91,12 @@ class _SandboxedSubprocessProxy:
     def Popen(self, command, *args, **kwargs):
         if args:
             raise TypeError("desktop sandbox proxy does not support positional Popen options")
-        return self._runner.popen(command, snapshot=self._snapshot, **kwargs)
+        return self._runner.popen(
+            command,
+            snapshot=self._snapshot,
+            allow_command_executable=self._allow_command_executable,
+            **kwargs,
+        )
 
 
 def _register_process_owner(snapshot: Any, result_str: str) -> None:
@@ -290,7 +333,13 @@ def _install_wrappers(registry) -> None:
         if original_entry is None:
             return None
 
-        _OUTSIDE_ABS_PATH_RE = re.compile(r'(?<![/\w])(/(?!tmp/|var/tmp/|private/tmp/)[^\s;|&>]+)')
+        _OUTSIDE_ABS_PATH_RE = re.compile(r'(?<![/\w])(/[^\s;|&>]+)')
+        _DENIED_TEMP_PATH_PREFIXES = (
+            "/tmp/",
+            "/private/tmp/",
+            "/var/tmp/",
+            "/private/var/tmp/",
+        )
 
         # System paths that are always safe to use in commands
         _SYSTEM_PATH_PREFIXES = (
@@ -318,6 +367,13 @@ def _install_wrappers(registry) -> None:
             if command:
                 for match in _OUTSIDE_ABS_PATH_RE.finditer(str(command)):
                     candidate = match.group(1).strip("\"'")
+                    if candidate in ("/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp") or any(
+                        candidate.startswith(prefix) for prefix in _DENIED_TEMP_PATH_PREFIXES
+                    ):
+                        return json.dumps({
+                            "error": f"terminal denied: command contains outside path {candidate}",
+                            "code": "WORKSPACE_VIOLATION"
+                        })
                     # System executables and device paths are always allowed
                     if any(candidate.startswith(prefix) for prefix in _SYSTEM_PATH_PREFIXES):
                         continue
@@ -500,9 +556,15 @@ def _install_wrappers(registry) -> None:
             # working silently. test_execute_code_calls_sandbox_runner_not_original is the regression guard.
             with _execute_code_popen_lock:
                 original_subprocess = _cet.subprocess
-                _cet.subprocess = _SandboxedSubprocessProxy(original_subprocess, runner, snapshot)
+                _cet.subprocess = _SandboxedSubprocessProxy(
+                    original_subprocess,
+                    runner,
+                    snapshot,
+                    allow_command_executable=True,
+                )
                 try:
-                    return original_entry.handler(args, **kwargs)
+                    with _workspace_execute_code_temp_env(snapshot, _cet):
+                        return original_entry.handler(args, **kwargs)
                 finally:
                     _cet.subprocess = original_subprocess
 

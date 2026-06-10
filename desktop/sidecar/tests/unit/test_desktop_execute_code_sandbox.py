@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from types import ModuleType
 from unittest.mock import MagicMock, patch
 
@@ -246,6 +248,22 @@ class TestBuildSeatbeltPolicy:
         allow_pos = policy.find('(allow file-read* file-write* file-test-existence')
         assert deny_pos > allow_pos, "deny rule for hermes home should appear after the workspace allow rule"
 
+    def test_policy_does_not_allow_arbitrary_tmp_read_write(self, tmp_path):
+        """The process sandbox must not allow symlink escapes into world temp dirs.
+
+        Terminal command parsing may miss an existing workspace symlink such as
+        ``.sandbox-tmp-link -> /tmp``. The macOS seatbelt policy is the
+        enforcement backstop, so it must not grant arbitrary read/write access
+        to temp directories outside the workspace.
+        """
+        from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        policy = _build_seatbelt_policy(str(tmp_path))
+
+        for temp_dir in ("/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"):
+            assert f'(allow file-read* file-test-existence file-write* (subpath "{temp_dir}"))' not in policy
+            assert f'(allow file-read* file-write* (subpath "{temp_dir}"))' not in policy
+
 
 # ---------------------------------------------------------------------------
 # Test 6: V2 — execute_code must patch subprocess.Popen in code_execution_tool
@@ -364,8 +382,97 @@ class TestExecuteCodeCallsSandboxRunner:
         finally:
             original_entry.handler = saved_handler
 
+    def test_execute_code_uses_workspace_local_temp_and_socket_dir(
+        self, installed_wrappers, monkeypatch
+    ):
+        """Desktop execute_code must not rely on world-writable temp directories.
+
+        Removing broad /tmp permissions from the process sandbox only works if
+        the desktop wrapper stages execute_code temp files and macOS RPC sockets
+        under the active workspace before the original handler runs.
+        """
+        import tools.code_execution_tool as _cet
+        import daemon.tools.desktop_tool_overrides as _dto
+
+        wrappers, _entries, tmp_path = installed_wrappers
+        wrapper = wrappers["execute_code"]
+
+        monkeypatch.setenv("TMPDIR", "/tmp/original-tmpdir")
+        monkeypatch.setenv("TMP", "/tmp/original-tmp")
+        monkeypatch.setenv("TEMP", "/tmp/original-temp")
+        monkeypatch.setenv("HERMES_EXECUTE_CODE_SOCKET_DIR", "/tmp/original-socket")
+        monkeypatch.setattr(tempfile, "tempdir", "/tmp/cached-tempdir")
+
+        original_entry = _dto.ORIGINAL_TOOLS.get("execute_code")
+        assert original_entry is not None
+        saved_handler = original_entry.handler
+        seen = []
+
+        def capturing_handler(args, **kwargs):
+            seen.append({
+                "tmpdir": os.environ.get("TMPDIR"),
+                "tmp": os.environ.get("TMP"),
+                "temp": os.environ.get("TEMP"),
+                "socket_dir": os.environ.get("HERMES_EXECUTE_CODE_SOCKET_DIR"),
+                "gettempdir": _cet.tempfile.gettempdir(),
+            })
+            return json.dumps({"result": "ok"})
+
+        original_entry.handler = capturing_handler
+
+        try:
+            mock_runner = MagicMock()
+            mock_runner.popen.return_value = MagicMock()
+
+            with patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=mock_runner):
+                result_json = wrapper({"language": "python", "code": "print('hello')"})
+
+            scratch = str(tmp_path / ".hermes-sandbox")
+            assert json.loads(result_json).get("result") == "ok"
+            assert seen == [{
+                "tmpdir": scratch,
+                "tmp": scratch,
+                "temp": scratch,
+                "socket_dir": scratch,
+                "gettempdir": scratch,
+            }]
+            assert os.environ["TMPDIR"] == "/tmp/original-tmpdir"
+            assert os.environ["TMP"] == "/tmp/original-tmp"
+            assert os.environ["TEMP"] == "/tmp/original-temp"
+            assert os.environ["HERMES_EXECUTE_CODE_SOCKET_DIR"] == "/tmp/original-socket"
+            assert tempfile.tempdir == "/tmp/cached-tempdir"
+            assert (tmp_path / ".hermes-sandbox").is_dir()
+        finally:
+            original_entry.handler = saved_handler
+
+
+class TestExecuteCodeSocketTempDir:
+    def test_socket_temp_dir_prefers_env_override_on_macos(self, monkeypatch, tmp_path):
+        """macOS execute_code RPC sockets can be redirected into workspace scratch."""
+        import tools.code_execution_tool as _cet
+
+        monkeypatch.setenv("HERMES_EXECUTE_CODE_SOCKET_DIR", str(tmp_path))
+
+        with patch.object(_cet.sys, "platform", "darwin"):
+            assert _cet._socket_temp_dir() == str(tmp_path)
+
 
 class TestSandboxRunnerPopen:
+    def test_policy_allows_explicit_executable_roots_without_write_access(self, tmp_path):
+        """execute_code can run an interpreter outside workspace without widening writes."""
+        from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        executable_root = tmp_path / "uv-python-runtime"
+        policy = _build_seatbelt_policy(
+            "/workspace",
+            executable_roots=[str(executable_root)],
+        )
+
+        assert f'(subpath "{executable_root}")' in policy
+        assert f'(allow file-read* file-test-existence (subpath "{executable_root}")' in policy
+        assert f'(allow file-map-executable (subpath "{executable_root}")' in policy
+        assert f'(allow file-write* (subpath "{executable_root}")' not in policy
+
     def test_runner_popen_uses_raw_popen_and_forwards_kwargs(self, monkeypatch, tmp_path):
         """runner.popen must bypass any temporary subprocess proxy and forward Popen kwargs."""
         import daemon.services.sandbox_runner as sr
@@ -415,3 +522,50 @@ class TestSandboxRunnerPopen:
         assert kwargs["preexec_fn"] == "preexec-sentinel"
         assert kwargs["creationflags"] == 123
         assert kwargs["start_new_session"] is True
+
+    def test_runner_popen_can_allow_resolved_command_executable_root(
+        self, monkeypatch, tmp_path
+    ):
+        """execute_code Popen can grant read/map access to a venv symlink target."""
+        import daemon.services.sandbox_runner as sr
+
+        runtime_root = tmp_path / "uv-python-runtime"
+        runtime_bin = runtime_root / "bin"
+        runtime_bin.mkdir(parents=True)
+        real_python = runtime_bin / "python3.12"
+        real_python.write_text("#!python\n")
+
+        workspace = tmp_path / "workspace"
+        workspace_bin = workspace / ".venv" / "bin"
+        workspace_bin.mkdir(parents=True)
+        venv_python = workspace_bin / "python"
+        venv_python.symlink_to(real_python)
+
+        calls = []
+        policies = []
+
+        def fake_raw_popen(argv, **kwargs):
+            calls.append(argv)
+            return MagicMock()
+
+        def fake_build_policy(workspace_root, hermes_home=None, executable_roots=None):
+            policies.append({
+                "workspace_root": workspace_root,
+                "executable_roots": executable_roots,
+            })
+            return "POLICY"
+
+        monkeypatch.setattr(sr, "_RAW_POPEN", fake_raw_popen)
+        monkeypatch.setattr(sr, "_build_seatbelt_policy", fake_build_policy)
+
+        snapshot = MagicMock()
+        snapshot.workspace_root = workspace
+
+        runner = sr.MacOSSandboxRunner()
+        runner.popen([str(venv_python), "script.py"], snapshot=snapshot, allow_command_executable=True)
+
+        assert calls == [[sr._SEATBELT_EXECUTABLE, "-p", "POLICY", "--", str(real_python), "script.py"]]
+        assert policies == [{
+            "workspace_root": str(workspace),
+            "executable_roots": [str(runtime_root)],
+        }]

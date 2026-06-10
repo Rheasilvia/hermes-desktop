@@ -732,6 +732,14 @@ def _env_temp_dir(env: Any) -> str:
     return "/tmp"
 
 
+def _socket_temp_dir() -> str:
+    """Return the directory for local RPC sockets used by execute_code."""
+    override = os.getenv("HERMES_EXECUTE_CODE_SOCKET_DIR")
+    if override:
+        return override
+    return "/tmp" if sys.platform == "darwin" else tempfile.gettempdir()
+
+
 def _rpc_poll_loop(
     env,
     rpc_dir: str,
@@ -1141,8 +1149,10 @@ def execute_code(
 
     # --- Set up temp directory with hermes_tools.py and script.py ---
     tmpdir = tempfile.mkdtemp(prefix="hermes_sandbox_")
-    # Use /tmp on macOS to avoid the long /var/folders/... path that pushes
-    # Unix domain socket paths past the 104-byte macOS AF_UNIX limit.
+    # Use /tmp on macOS by default to avoid the long /var/folders/... path that pushes
+    # Unix domain socket paths past the 104-byte macOS AF_UNIX limit. Desktop
+    # sidecar can override this to a workspace-local scratch dir so its sandbox
+    # does not need broad /tmp permissions.
     # On Linux, tempfile.gettempdir() already returns /tmp.
     #
     # Windows: Python 3.9+ added partial AF_UNIX support but the file-backed
@@ -1152,13 +1162,13 @@ def execute_code(
     # same ephemeral port, same 1-connection listen queue, same serialized
     # request/response framing.  The generated client reads the transport
     # selector from HERMES_RPC_SOCKET (path vs. ``tcp://host:port``).
-    _sock_tmpdir = "/tmp" if sys.platform == "darwin" else tempfile.gettempdir()
+    _sock_tmpdir = _socket_temp_dir()
     _use_tcp_rpc = _IS_WINDOWS
     if _use_tcp_rpc:
         sock_path = None  # not used on Windows; TCP endpoint stored below
         rpc_endpoint = None  # set after bind()
     else:
-        sock_path = os.path.join(_sock_tmpdir, f"hermes_rpc_{uuid.uuid4().hex}.sock")
+        sock_path = os.path.join(_sock_tmpdir, f"r_{uuid.uuid4().hex[:16]}.sock")
         rpc_endpoint = sock_path
 
     tool_call_log: list = []

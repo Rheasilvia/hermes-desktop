@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -231,11 +232,8 @@ _SEATBELT_PLATFORM_DEFAULTS = r"""; macOS platform defaults included when a spli
 (allow file-read* file-test-existence file-write-data file-ioctl
   (literal "/dev/dtracehelper"))
 
-; Scratch space so tools can create temp files.
-(allow file-read* file-test-existence file-write* (subpath "/tmp"))
-(allow file-read* file-write* (subpath "/private/tmp"))
-(allow file-read* file-write* (subpath "/var/tmp"))
-(allow file-read* file-write* (subpath "/private/var/tmp"))
+; Do not grant broad read/write access to world-writable temp directories.
+; Desktop tools that need scratch space must stage it under the workspace.
 
 ; Allow reading standard config directories.
 (allow file-read* (subpath "/etc"))
@@ -343,13 +341,71 @@ _SEATBELT_PLATFORM_DEFAULTS = r"""; macOS platform defaults included when a spli
 _SEATBELT_EXECUTABLE = "/usr/bin/sandbox-exec"
 
 
-def _build_seatbelt_policy(workspace_root: str, hermes_home: str | None = None) -> str:
+def _quote_seatbelt_path(path: str) -> str:
+    return path.replace('"', '\\"')
+
+
+def _build_executable_roots_policy(executable_roots: list[str] | None) -> str:
+    if not executable_roots:
+        return ""
+
+    rules: list[str] = ["; Explicit read-only executable runtimes"]
+    seen: set[str] = set()
+    for root in executable_roots:
+        root_escaped = _quote_seatbelt_path(root)
+        if root_escaped in seen:
+            continue
+        seen.add(root_escaped)
+        rules.append(f'(allow file-read* file-test-existence (subpath "{root_escaped}"))')
+        rules.append(f'(allow file-map-executable (subpath "{root_escaped}"))')
+    return "\n".join(rules)
+
+
+def _resolved_executable_path(command: list[str], env: dict | None = None) -> Path | None:
+    if not command:
+        return None
+    executable = command[0]
+    if not isinstance(executable, str) or not executable:
+        return None
+
+    if "/" in executable:
+        executable_path = Path(executable)
+    else:
+        found = shutil.which(executable, path=(env or {}).get("PATH"))
+        if not found:
+            return None
+        executable_path = Path(found)
+
+    try:
+        return executable_path.resolve(strict=True)
+    except OSError:
+        return None
+
+
+def _executable_root(resolved: Path) -> str:
+    if resolved.parent.name == "bin":
+        return str(resolved.parent.parent)
+    return str(resolved.parent)
+
+
+def _resolved_executable_root(command: list[str], env: dict | None = None) -> str | None:
+    resolved = _resolved_executable_path(command, env)
+    if resolved is None:
+        return None
+    return _executable_root(resolved)
+
+
+def _build_seatbelt_policy(
+    workspace_root: str,
+    hermes_home: str | None = None,
+    executable_roots: list[str] | None = None,
+) -> str:
     """Build the full seatbelt policy with workspace-specific rules."""
     if hermes_home is None:
         hermes_home = str(Path.home() / ".hermes")
 
-    workspace_root_escaped = workspace_root.replace('"', '\\"')
-    hermes_home_escaped = hermes_home.replace('"', '\\"')
+    workspace_root_escaped = _quote_seatbelt_path(workspace_root)
+    hermes_home_escaped = _quote_seatbelt_path(hermes_home)
 
     dynamic_policy = f"""
 ; Workspace access
@@ -360,7 +416,12 @@ def _build_seatbelt_policy(workspace_root: str, hermes_home: str | None = None) 
 ; This takes precedence over the workspace allow above when hermes_home is inside workspace_root.
 (deny file-read* file-write* (subpath "{hermes_home_escaped}"))
 """
-    return "\n".join([_SEATBELT_BASE_POLICY, _SEATBELT_PLATFORM_DEFAULTS, dynamic_policy])
+    return "\n".join([
+        _SEATBELT_BASE_POLICY,
+        _SEATBELT_PLATFORM_DEFAULTS,
+        _build_executable_roots_policy(executable_roots),
+        dynamic_policy,
+    ])
 
 
 class SandboxResult:
@@ -417,11 +478,25 @@ class MacOSSandboxRunner:
         encoding: str | None = None,
         errors: str | None = None,
         preexec_fn=None,
+        allow_command_executable: bool = False,
         **kwargs,
     ) -> subprocess.Popen:
         """Wrap a subprocess spawn inside the macOS seatbelt sandbox."""
-        policy = _build_seatbelt_policy(str(snapshot.workspace_root))
-        sandboxed_cmd = [_SEATBELT_EXECUTABLE, "-p", policy, "--"] + command
+        executable_roots = None
+        sandbox_command = command
+        if allow_command_executable:
+            resolved = _resolved_executable_path(command, env)
+            if resolved is not None:
+                sandbox_command = [str(resolved), *command[1:]]
+                executable_roots = [_executable_root(resolved)]
+        if executable_roots is None:
+            policy = _build_seatbelt_policy(str(snapshot.workspace_root))
+        else:
+            policy = _build_seatbelt_policy(
+                str(snapshot.workspace_root),
+                executable_roots=executable_roots,
+            )
+        sandboxed_cmd = [_SEATBELT_EXECUTABLE, "-p", policy, "--"] + sandbox_command
         return _RAW_POPEN(
             sandboxed_cmd,
             cwd=cwd,
