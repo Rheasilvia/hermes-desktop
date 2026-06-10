@@ -272,6 +272,77 @@ class TestWrapperDoesNotBypassIntersection:
 # ---------------------------------------------------------------------------
 
 
+class TestChildContextVarInWorkerThread:
+    """V2: child run_conversation must have ContextVar set in its worker thread.
+
+    V1 bug: only agent attribute is set; ContextVar is empty in the new thread.
+    """
+
+    def test_child_worker_thread_sees_workspace_snapshot(self, tmp_path):
+        """Child's run_conversation, when called from a new thread, must see the policy snapshot via ContextVar.
+
+        This test fails on V1 because the delegate patch only sets the agent attribute,
+        not the ContextVar, so get_workspace_policy_snapshot() returns None in the worker thread.
+        """
+        import threading
+        snap = _build_snapshot(tmp_path)
+
+        fake_dt = _make_fake_delegate_tool_module()
+
+        snapshot_seen_in_thread = []
+
+        def fake_run_conversation(*args, **kwargs):
+            from daemon.services.workspace_policy import get_workspace_policy_snapshot
+            snapshot_seen_in_thread.append(get_workspace_policy_snapshot())
+
+        child_mock = MagicMock()
+        child_mock.run_conversation = fake_run_conversation
+
+        orig_build = MagicMock(return_value=child_mock)
+        fake_dt._build_child_agent = orig_build
+
+        overrides = _fresh_overrides_module(fake_dt)
+        overrides._DELEGATE_PATCHED = False
+
+        with patch.dict(sys.modules, {
+            "tools": _make_fake_tools_package(),
+            "tools.delegate_tool": fake_dt,
+        }):
+            overrides._install_delegate_patch()
+
+        wrapper = fake_dt._build_child_agent
+        parent_agent = MagicMock()
+        parent_agent._desktop_workspace_policy_snapshot = snap
+
+        child = wrapper(
+            task_index=0,
+            goal="do something",
+            context="ctx",
+            toolsets=[],
+            model="claude-opus-4-5",
+            max_iterations=10,
+            task_count=1,
+            parent_agent=parent_agent,
+        )
+
+        # Simulate what delegate_tool does: run child.run_conversation in a worker thread
+        t = threading.Thread(target=child.run_conversation, args=("goal",))
+        t.start()
+        t.join(timeout=5)
+
+        assert len(snapshot_seen_in_thread) == 1, "run_conversation must have been called"
+        assert snapshot_seen_in_thread[0] is not None, (
+            "get_workspace_policy_snapshot() must return non-None inside the child worker thread. "
+            "V1 bug: ContextVar is not set in the new thread."
+        )
+        assert snapshot_seen_in_thread[0] is snap
+
+
+# ---------------------------------------------------------------------------
+# Test 6: import failure of tools.delegate_tool is handled gracefully
+# ---------------------------------------------------------------------------
+
+
 class TestImportFailureHandledGracefully:
     def test_missing_delegate_tool_does_not_raise(self):
         """If tools.delegate_tool cannot be imported, _install_delegate_patch warns but does not raise."""

@@ -241,6 +241,58 @@ mod workspace_tree_tests {
         let _ = fs::remove_dir_all(outside);
     }
 
+    // -----------------------------------------------------------------------
+    // V2 red tests: relative path resolution
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn list_workspace_children_relative_path_resolves_under_root() {
+        // V1 bug: canonicalize_existing_dir(&path) for a relative path like "subdir"
+        // resolves against process cwd, not the workspace root.
+        // This test creates root/subdir, then calls list_workspace_children(root, "subdir").
+        // If the implementation is correct, it resolves "subdir" relative to root.
+        // If buggy, it resolves relative to process cwd (which is different) and likely errors.
+        let root = temp_workspace("rel_list");
+        let subdir = root.join("subdir");
+        fs::create_dir_all(&subdir).unwrap();
+        fs::write(subdir.join("file.txt"), "hello").unwrap();
+
+        // Call with relative path "subdir" (not absolute path)
+        let result = list_workspace_children(
+            root.to_string_lossy().to_string(),
+            "subdir".to_string(), // relative path — must resolve under root
+        );
+
+        // If the implementation resolves relative paths under root, this succeeds
+        // If it resolves against process cwd (V1 bug), this fails with "workspace path not found"
+        assert!(
+            result.is_ok(),
+            "list_workspace_children with relative path 'subdir' should resolve under root, got: {:?}",
+            result.err()
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_workspace_file_relative_path_resolves_under_root() {
+        // V1 bug: PathBuf::from(&path).canonicalize() for relative "file.txt" resolves
+        // against process cwd instead of the workspace root.
+        let root = temp_workspace("rel_read");
+        fs::write(root.join("file.txt"), "content").unwrap();
+
+        let result = read_workspace_file(
+            root.to_string_lossy().to_string(),
+            "file.txt".to_string(), // relative path — must resolve under root
+        );
+
+        assert!(
+            result.is_ok(),
+            "read_workspace_file with relative path 'file.txt' should resolve under root, got: {:?}",
+            result.err()
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn workspace_children_skips_heavy_and_symlink_dirs() {
         let root = temp_workspace("skip");

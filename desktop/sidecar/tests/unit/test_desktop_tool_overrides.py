@@ -227,6 +227,50 @@ class TestWrapperPassThroughWithSnapshot:
 # Test 4: importing shared tool modules does not install desktop overrides
 # ---------------------------------------------------------------------------
 
+class TestInstallFailsOnMissingTool:
+    """V2: install_desktop_tool_overrides must raise RuntimeError if any expected tool is missing."""
+
+    def test_missing_tool_raises_runtime_error(self):
+        """If any of the 7 expected tool originals is not found, install must raise RuntimeError.
+
+        V1 bug: missing tools are silently skipped.
+        """
+        import pytest as _pytest
+
+        mod_name = "daemon.tools.desktop_tool_overrides"
+        for key in list(sys.modules.keys()):
+            if key == mod_name or key.startswith(mod_name + "."):
+                del sys.modules[key]
+        overrides = importlib.import_module(mod_name)
+
+        # Only provide 6 of the 7 required tools (missing "execute_code")
+        tool_names = ["read_file", "write_file", "patch", "search_files", "terminal", "process"]
+        fake_entries = {name: _make_fake_entry(name) for name in tool_names}
+
+        fake_registry = MagicMock()
+        fake_registry.get_entry.side_effect = lambda name: fake_entries.get(name)  # returns None for execute_code
+        fake_registry.register = MagicMock()
+
+        fake_registry_module = MagicMock()
+        fake_registry_module.registry = fake_registry
+        fake_registry_module.discover_builtin_tools = MagicMock()
+
+        fake_model_tools = MagicMock()
+        fake_model_tools._clear_tool_defs_cache = MagicMock()
+
+        with patch.dict(sys.modules, {
+            "tools.registry": fake_registry_module,
+            "model_tools": fake_model_tools,
+        }):
+            with _pytest.raises(RuntimeError, match="execute_code"):
+                overrides.install_desktop_tool_overrides()
+
+
+# ---------------------------------------------------------------------------
+# Test 5: importing shared tool modules does not install desktop overrides
+# ---------------------------------------------------------------------------
+
+
 class TestSharedImportDoesNotInstallOverrides:
     def test_importing_tools_registry_does_not_set_installed(self):
         """Importing tools.registry or a tool module must not touch _INSTALLED."""
