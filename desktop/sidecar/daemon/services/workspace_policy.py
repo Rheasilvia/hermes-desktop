@@ -81,7 +81,7 @@ def build_workspace_policy_snapshot(
         raise ValueError(f"workspace path is not a directory: {cwd}")
 
     if permission_mode not in _VALID_PERMISSION_MODES:
-        permission_mode = "auto"
+        raise ValueError(f"invalid permission_mode {permission_mode!r}; expected one of {sorted(_VALID_PERMISSION_MODES)}")
 
     workspace_hash = hashlib.sha256(str(canonical).encode()).hexdigest()[:16]
 
@@ -187,6 +187,7 @@ def resolve_path(
     )
 
 
+# Used by desktop tool wrappers to check approval candidates against workspace boundary.
 def is_workspace_internal(snapshot: WorkspacePolicySnapshot, resolved_path: Path) -> bool:
     """Return True only when resolved_path is contained within snapshot.workspace_root."""
     try:
