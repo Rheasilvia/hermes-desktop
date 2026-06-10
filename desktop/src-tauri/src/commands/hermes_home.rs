@@ -35,29 +35,24 @@ pub fn read_file(path: String, app: tauri::AppHandle) -> Result<String, String> 
     fs::read_to_string(canonical_path).map_err(|e| format!("Failed to read file: {}", e))
 }
 
-/// Writes a file relative to HERMES_HOME
+/// Writes a file relative to HERMES_HOME, rejecting any path that escapes the home boundary.
 #[tauri::command]
 pub fn write_file(path: String, content: String, app: tauri::AppHandle) -> Result<(), String> {
     use std::fs;
     let home = get_hermes_home(app.clone())?;
-    let full_path = PathBuf::from(&home).join(&path);
-
-    if let Some(parent) = full_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
-    }
-
-    fs::write(full_path, content).map_err(|e| format!("Failed to write file: {}", e))
+    let final_path = resolve_under_hermes_home(&home, &path)?;
+    fs::write(final_path, content).map_err(|e| format!("Failed to write file: {}", e))
 }
 
-/// Lists directory contents relative to HERMES_HOME
+/// Lists directory contents relative to HERMES_HOME, rejecting any path that escapes the home boundary.
 #[tauri::command]
 pub fn list_dir(path: String, app: tauri::AppHandle) -> Result<Vec<String>, String> {
     use std::fs;
     let home = get_hermes_home(app)?;
-    let full_path = PathBuf::from(&home).join(&path);
+    let canonical_path = resolve_existing_under_hermes_home(&home, &path)?;
 
     let entries =
-        fs::read_dir(full_path).map_err(|e| format!("Failed to read directory: {}", e))?;
+        fs::read_dir(canonical_path).map_err(|e| format!("Failed to read directory: {}", e))?;
 
     let mut result: Vec<String> = entries
         .filter_map(|entry| entry.ok())
@@ -65,4 +60,181 @@ pub fn list_dir(path: String, app: tauri::AppHandle) -> Result<Vec<String>, Stri
         .collect();
     result.sort();
     Ok(result)
+}
+
+/// Resolves `rel_path` under `home`, creating parent directories as needed.
+/// Returns the final absolute path, or an error if the path escapes `home`.
+/// Used by `write_file` and unit tests.
+fn resolve_under_hermes_home(home: &str, rel_path: &str) -> Result<PathBuf, String> {
+    let canonical_home = std::fs::canonicalize(home)
+        .or_else(|_| std::fs::create_dir_all(home).and_then(|_| std::fs::canonicalize(home)))
+        .map_err(|e| format!("Invalid home path: {}", e))?;
+
+    let full_path = PathBuf::from(home).join(rel_path);
+    let parent = full_path
+        .parent()
+        .ok_or_else(|| "path has no parent".to_string())?;
+
+    std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+
+    let canonical_parent = std::fs::canonicalize(parent)
+        .map_err(|e| format!("Failed to resolve parent: {}", e))?;
+
+    if !canonical_parent.starts_with(&canonical_home) {
+        return Err("Path escapes HERMES_HOME".to_string());
+    }
+
+    let filename = full_path
+        .file_name()
+        .ok_or_else(|| "path has no filename".to_string())?;
+
+    Ok(canonical_parent.join(filename))
+}
+
+/// Resolves `rel_path` under `home` for an already-existing directory.
+/// Returns the canonicalized path, or an error if the directory doesn't exist or escapes `home`.
+/// Used by `list_dir` and unit tests.
+fn resolve_existing_under_hermes_home(home: &str, rel_path: &str) -> Result<PathBuf, String> {
+    let canonical_home = std::fs::canonicalize(home)
+        .or_else(|_| std::fs::create_dir_all(home).and_then(|_| std::fs::canonicalize(home)))
+        .map_err(|e| format!("Invalid home path: {}", e))?;
+
+    let full_path = PathBuf::from(home).join(rel_path);
+    let canonical_path = std::fs::canonicalize(&full_path)
+        .map_err(|e| format!("Directory not found: {}", e))?;
+
+    if !canonical_path.starts_with(&canonical_home) {
+        return Err("Path escapes HERMES_HOME".to_string());
+    }
+
+    Ok(canonical_path)
+}
+
+#[cfg(test)]
+mod hermes_home_tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_hermes_home(name: &str) -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("hermes_home_test_{name}_{suffix}"));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    // --- resolve_under_hermes_home ---
+
+    #[test]
+    fn test_resolve_under_hermes_home_normal_path() {
+        let home = temp_hermes_home("write_normal");
+        let canonical_home = fs::canonicalize(&home).unwrap();
+        let result =
+            resolve_under_hermes_home(home.to_str().unwrap(), "config.json").unwrap();
+        assert!(result.starts_with(&canonical_home));
+        assert_eq!(result.file_name().unwrap(), "config.json");
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn test_resolve_under_hermes_home_nested_path() {
+        let home = temp_hermes_home("write_nested");
+        let canonical_home = fs::canonicalize(&home).unwrap();
+        let result =
+            resolve_under_hermes_home(home.to_str().unwrap(), "subdir/settings.json").unwrap();
+        assert!(result.starts_with(&canonical_home));
+        assert_eq!(result.file_name().unwrap(), "settings.json");
+        // Parent subdir should have been created.
+        assert!(home.join("subdir").is_dir());
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn test_resolve_under_hermes_home_traversal_rejected() {
+        let home = temp_hermes_home("write_escape");
+        let err =
+            resolve_under_hermes_home(home.to_str().unwrap(), "../../etc/passwd").unwrap_err();
+        assert!(
+            err.contains("escapes HERMES_HOME"),
+            "unexpected error: {err}"
+        );
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn test_resolve_under_hermes_home_absolute_outside_rejected() {
+        let home = temp_hermes_home("write_abs");
+        // An absolute path that points outside home should be rejected.
+        // join() with an absolute path replaces the base on most platforms.
+        // On Unix this means PathBuf::from(home).join("/tmp/evil") == /tmp/evil.
+        let err =
+            resolve_under_hermes_home(home.to_str().unwrap(), "/tmp/evil_file.txt").unwrap_err();
+        // Could be "escapes HERMES_HOME" or a directory-creation error for "/tmp" parent.
+        // Either means the write was blocked from writing outside home.
+        assert!(
+            err.contains("escapes HERMES_HOME") || err.contains("Failed to create directory"),
+            "unexpected error: {err}"
+        );
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    // --- resolve_existing_under_hermes_home ---
+
+    #[test]
+    fn test_list_dir_normal_path() {
+        let home = temp_hermes_home("list_normal");
+        let canonical_home = fs::canonicalize(&home).unwrap();
+        let subdir = home.join("logs");
+        fs::create_dir_all(&subdir).unwrap();
+        let result =
+            resolve_existing_under_hermes_home(home.to_str().unwrap(), "logs").unwrap();
+        assert!(result.starts_with(&canonical_home));
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn test_list_dir_escape_rejected() {
+        let home = temp_hermes_home("list_escape");
+        // Create a real sibling directory so canonicalize would succeed if the
+        // escape check were absent.
+        let sibling = std::env::temp_dir().join(format!(
+            "hermes_sibling_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&sibling).unwrap();
+
+        // Construct a traversal that would land in the sibling directory.
+        let home_str = home.to_str().unwrap();
+        let sibling_name = sibling.file_name().unwrap().to_str().unwrap();
+        let traversal = format!("../{}", sibling_name);
+
+        let err =
+            resolve_existing_under_hermes_home(home_str, &traversal).unwrap_err();
+        assert!(
+            err.contains("escapes HERMES_HOME"),
+            "unexpected error: {err}"
+        );
+
+        let _ = fs::remove_dir_all(&home);
+        let _ = fs::remove_dir_all(&sibling);
+    }
+
+    #[test]
+    fn test_list_dir_missing_directory_returns_error() {
+        let home = temp_hermes_home("list_missing");
+        let err =
+            resolve_existing_under_hermes_home(home.to_str().unwrap(), "nonexistent").unwrap_err();
+        assert!(
+            err.contains("Directory not found"),
+            "unexpected error: {err}"
+        );
+        let _ = fs::remove_dir_all(&home);
+    }
 }

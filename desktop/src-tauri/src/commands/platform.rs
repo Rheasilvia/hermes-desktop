@@ -36,7 +36,7 @@ pub async fn open_external(url: String) -> Result<(), String> {
 }
 
 /// Spawns a child process. Returns the process ID.
-#[tauri::command]
+/// NOTE: Not registered as a Tauri command — not callable from the frontend.
 pub async fn spawn_process(cmd: String, args: Vec<String>) -> Result<u32, String> {
     use std::process::Command;
     let child = Command::new(&cmd)
@@ -47,30 +47,36 @@ pub async fn spawn_process(cmd: String, args: Vec<String>) -> Result<u32, String
 }
 
 /// Reveals a file or folder in the native file manager.
+/// Canonicalizes the path first to reject crafted or nonexistent paths.
 #[tauri::command]
 pub fn reveal_in_finder(path: String) -> Result<(), String> {
     use std::process::Command;
 
+    // Verify the path exists and resolve symlinks / `..` components.
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|e| format!("Path not found or inaccessible: {}", e))?;
+    let canonical_str = canonical.to_string_lossy();
+
     #[cfg(target_os = "macos")]
     {
         Command::new("open")
-            .args(["-R", &path])
+            .args(["-R", canonical_str.as_ref()])
             .spawn()
             .map_err(|e| format!("reveal failed: {}", e))?;
     }
     #[cfg(target_os = "windows")]
     {
         Command::new("explorer")
-            .args([format!("/select,{}", path)])
+            .args([format!("/select,{}", canonical_str)])
             .spawn()
             .map_err(|e| format!("reveal failed: {}", e))?;
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let parent = std::path::PathBuf::from(&path)
+        let parent = canonical
             .parent()
             .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or(path);
+            .unwrap_or_else(|| canonical_str.to_string());
         Command::new("xdg-open")
             .arg(&parent)
             .spawn()
