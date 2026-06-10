@@ -37,6 +37,12 @@ _SERVICE_ERROR_STATUS = {
 
 
 def build_app(cfg: Config) -> FastAPI:
+    from .tools.desktop_tool_overrides import install_desktop_tool_overrides
+    try:
+        install_desktop_tool_overrides()
+    except Exception:
+        log.exception("[desktop] failed to install tool overrides; proceeding without enforcement")
+
     from .services.session_service import ensure_default_workspace
 
     ensure_default_workspace()
