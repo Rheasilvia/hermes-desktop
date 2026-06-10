@@ -52,13 +52,13 @@ def _install_wrappers(registry) -> None:
         if original_entry is None:
             return None  # tool not registered; skip
 
-        def wrapper(**kwargs) -> str:
+        def wrapper(args, **kwargs) -> str:
             snapshot = get_workspace_policy_snapshot()
             if snapshot is None:
-                return _fail_closed(name, kwargs)
+                return _fail_closed(name, args)
             # Specific enforcement per tool is added in Tasks 4-7.
             # For now, just pass through to original (skeleton).
-            return original_entry.handler(**kwargs)
+            return original_entry.handler(args, **kwargs)
 
         return wrapper
 
