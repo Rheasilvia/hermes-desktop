@@ -1,7 +1,9 @@
 from __future__ import annotations
 import json
 import logging
+import re as _re
 import threading as _threading
+from pathlib import Path as _PathUtil
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -236,13 +238,10 @@ def _install_wrappers(registry) -> None:
 
             # 3. Check for relative escape tokens (../outside.txt)
             if command:
-                import re as _re
                 _cmd_str = str(command)
-                # Extract path-like tokens that contain ../ or ..\
                 for _token in _re.findall(r'[^\s;|&>]*\.\.[/\\][^\s;|&>]*', _cmd_str):
                     try:
-                        from pathlib import Path as _Path2
-                        _candidate = (_Path2(snapshot.cwd) / _token).resolve()
+                        _candidate = (_PathUtil(snapshot.cwd) / _token).resolve()
                         if _candidate.exists():
                             try:
                                 _candidate.relative_to(snapshot.workspace_root)
@@ -309,7 +308,7 @@ def _install_wrappers(registry) -> None:
             result_str = original_entry.handler(args, **kwargs)
 
             # After a successful spawn/start, register the new process ID
-            if action in ("spawn", "start", ""):
+            if action in ("spawn", "start"):
                 try:
                     import json as _json
                     result_obj = _json.loads(result_str)
