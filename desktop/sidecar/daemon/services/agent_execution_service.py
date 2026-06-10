@@ -154,6 +154,17 @@ class AgentExecutionService:
             )
         except Exception:
             permission_mode_snapshot = "auto"
+        from .workspace_policy import (
+            build_workspace_policy_snapshot,
+            set_workspace_policy_snapshot,
+            reset_workspace_policy_snapshot,
+        )
+        try:
+            policy_snapshot = build_workspace_policy_snapshot(
+                session_id, turn_id, workspace_cwd or ".", permission_mode_snapshot
+            )
+        except Exception:
+            policy_snapshot = None
         cleanup = ExitStack()
         cleanup.callback(reset_terminal_cwd, set_terminal_cwd(workspace_cwd))
         cleanup.callback(
@@ -166,6 +177,15 @@ class AgentExecutionService:
             ),
         )
         cleanup.callback(reset_session_cwd, set_session_cwd(workspace_cwd))
+        if policy_snapshot is not None:
+            cleanup.callback(reset_workspace_policy_snapshot, set_workspace_policy_snapshot(policy_snapshot))
+            if agent is not None:
+                agent._desktop_workspace_policy_snapshot = policy_snapshot
+
+        def _clear_policy_snapshot():
+            if agent is not None and hasattr(agent, "_desktop_workspace_policy_snapshot"):
+                del agent._desktop_workspace_policy_snapshot
+        cleanup.callback(_clear_policy_snapshot)
         prev_interactive = os.environ.get("HERMES_INTERACTIVE")
 
         def _restore_interactive() -> None:
