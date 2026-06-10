@@ -247,19 +247,29 @@ def _install_wrappers(registry) -> None:
         return wrapper
 
     # -----------------------------------------------------------------------
-    # execute_code: skeleton — fail closed, then pass through
-    # (enforcement added in Task 7)
+    # execute_code: require sandbox availability + fail closed without snapshot
     # -----------------------------------------------------------------------
 
-    def _make_passthrough_wrapper(name: str):
-        original_entry = ORIGINAL_TOOLS.get(name)
+    def _make_execute_code_wrapper():
+        original_entry = ORIGINAL_TOOLS.get("execute_code")
         if original_entry is None:
             return None
 
         def wrapper(args, **kwargs) -> str:
             snapshot = get_workspace_policy_snapshot()
             if snapshot is None:
-                return _fail_closed(name, args)
+                return _fail_closed("execute_code", args)
+
+            from ..services.sandbox_runner import get_sandbox_runner
+            runner = get_sandbox_runner()
+            if runner is None:
+                return json.dumps({
+                    "error": "execute_code unavailable: sandbox runner not available on this platform",
+                    "code": "SANDBOX_UNAVAILABLE",
+                })
+
+            # Sandbox is available and snapshot is active — pass through to
+            # original handler. Full process-level sandboxing is a future enhancement.
             return original_entry.handler(args, **kwargs)
 
         return wrapper
@@ -274,7 +284,7 @@ def _install_wrappers(registry) -> None:
     _TOOL_WRAPPERS["search_files"] = _make_file_read_wrapper("search_files")
     _TOOL_WRAPPERS["terminal"] = _make_terminal_wrapper()
     _TOOL_WRAPPERS["process"] = _make_process_wrapper()
-    _TOOL_WRAPPERS["execute_code"] = _make_passthrough_wrapper("execute_code")
+    _TOOL_WRAPPERS["execute_code"] = _make_execute_code_wrapper()
 
     for name, wrapper in _TOOL_WRAPPERS.items():
         if wrapper is None or name not in ORIGINAL_TOOLS:
