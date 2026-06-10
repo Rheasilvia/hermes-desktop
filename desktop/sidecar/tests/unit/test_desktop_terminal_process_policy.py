@@ -170,8 +170,8 @@ class TestTerminalWrapper:
         finally:
             outside_file.unlink(missing_ok=True)
 
-    def test_terminal_command_with_tmp_path_is_allowed(self, installed_wrappers):
-        """terminal command referencing /tmp is allowed (system temp path)."""
+    def test_terminal_command_with_tmp_path_is_denied(self, installed_wrappers):
+        """terminal command referencing /tmp is denied as outside workspace data."""
         wrappers, entries, tmp_path = installed_wrappers
 
         wrapper = wrappers["terminal"]
@@ -181,9 +181,9 @@ class TestTerminalWrapper:
         })
         result = json.loads(result_json)
 
-        # Should pass through — /tmp path is excluded from the scan
-        assert result.get("result") == "ok"
-        entries["terminal"].handler.assert_called_once()
+        assert result.get("code") == "WORKSPACE_VIOLATION"
+        assert "outside path" in result.get("error", "")
+        entries["terminal"].handler.assert_not_called()
 
     def test_terminal_command_with_system_executable_is_allowed(self, installed_wrappers):
         """terminal command containing a system executable path is allowed (not a data-file violation)."""
