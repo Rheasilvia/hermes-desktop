@@ -43,9 +43,25 @@ describe('HttpClient', () => {
     });
   });
 
-  it('prepends base url + Authorization via env vars', async () => {
+  it('prefers Tauri sidecar_info over env vars when both are present', async () => {
     vi.stubEnv('VITE_SIDECAR_URL', 'http://127.0.0.1:9999');
     vi.stubEnv('VITE_SIDECAR_TOKEN', 'env-token');
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const c = new HttpClient();
+    await c.get('/desktop/api/health');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://127.0.0.1:54321/desktop/api/health');
+    expect((init as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer token-A',
+    });
+  });
+
+  it('falls back to env vars when Tauri sidecar_info is unavailable', async () => {
+    vi.stubEnv('VITE_SIDECAR_URL', 'http://127.0.0.1:9999');
+    vi.stubEnv('VITE_SIDECAR_TOKEN', 'env-token');
+    mockSidecarInfo.mockRejectedValueOnce(new Error('sidecar not ready'));
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     );
