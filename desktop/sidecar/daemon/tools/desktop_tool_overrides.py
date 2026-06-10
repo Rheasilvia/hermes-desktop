@@ -36,6 +36,7 @@ def install_desktop_tool_overrides() -> None:
     _install_wrappers(registry)
 
     # Step 3b: wrap _build_child_agent to propagate desktop workspace policy to child agents
+    # Best-effort: child-agent propagation degrades gracefully; process still sandboxed by parent turn.
     _install_delegate_patch()
 
     # Step 4: clear model tool definition caches
