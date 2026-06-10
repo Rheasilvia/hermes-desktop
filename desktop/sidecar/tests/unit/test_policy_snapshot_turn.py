@@ -120,13 +120,15 @@ def test_snapshot_is_set_during_turn(tmp_path):
     bus = _FakeBus()
     entry = _FakeEntry(agent, cwd=str(tmp_path))
 
+    session_svc = MagicMock()
+    session_svc.get_session_or_404.return_value = {"permissionMode": "auto"}
     svc = AgentExecutionService(
         hermes_home=tmp_path,
         state=_FakeState(),
         ui_messages=ui,
         event_bus=bus,
         agent_pool=_FakePool(entry),
-        session_service=MagicMock(),
+        session_service=session_svc,
     )
 
     turn_id = "turn-snap-set"
@@ -162,13 +164,15 @@ def test_snapshot_is_cleared_after_turn(tmp_path):
     bus = _FakeBus()
     entry = _FakeEntry(agent, cwd=str(tmp_path))
 
+    session_svc = MagicMock()
+    session_svc.get_session_or_404.return_value = {"permissionMode": "auto"}
     svc = AgentExecutionService(
         hermes_home=tmp_path,
         state=_FakeState(),
         ui_messages=ui,
         event_bus=bus,
         agent_pool=_FakePool(entry),
-        session_service=MagicMock(),
+        session_service=session_svc,
     )
 
     turn_id = "turn-snap-clear"
@@ -208,13 +212,15 @@ def test_invalid_cwd_does_not_crash_turn(tmp_path):
     # Point built_cwd to a path that does not exist
     entry = _FakeEntry(agent, cwd=str(tmp_path / "does_not_exist"))
 
+    session_svc = MagicMock()
+    session_svc.get_session_or_404.return_value = {"permissionMode": "auto"}
     svc = AgentExecutionService(
         hermes_home=tmp_path,
         state=_FakeState(),
         ui_messages=ui,
         event_bus=bus,
         agent_pool=_FakePool(entry),
-        session_service=MagicMock(),
+        session_service=session_svc,
     )
 
     turn_id = "turn-bad-cwd"
