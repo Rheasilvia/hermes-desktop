@@ -388,3 +388,137 @@ class TestPatchV4AHeaders:
             f"Unknown non-empty patch format must be denied, got: {result}"
         )
         entries["patch"].handler.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests: file-tool I/O runs under the macOS sandbox proxy (#4b)
+# ---------------------------------------------------------------------------
+
+
+class TestFileToolSandboxing:
+    """#4b: read/write/patch file I/O must run with the local-subprocess sandbox
+    proxy installed, so the kernel re-checks paths at the shell command's open()
+    (closing the TOCTOU window between L1 resolve_path and the actual open), then
+    restore the originals afterward. When no macOS sandbox runner is available
+    (Linux/Windows desktop) or the backend is non-local (docker/ssh), fall back
+    to a direct call — L1 resolve_path remains the containment boundary.
+    """
+
+    def _assert_runs_under_proxy(self, wrapper, entry, args):
+        """Drive *wrapper* with a capturing handler and assert the local +
+        process-registry subprocess modules are proxied during the call,
+        the runner is exercised, and the originals are restored afterward."""
+        import subprocess
+        import tools.environments.local as local_env
+        import tools.process_registry as process_registry
+
+        original_local = local_env.subprocess.Popen
+        original_registry = process_registry.subprocess.Popen
+        original_global = subprocess.Popen
+        seen = []
+
+        def handler(_a, **_kw):
+            seen.append({
+                "local_is_proxy": local_env.subprocess.Popen is not original_local,
+                "registry_is_proxy": process_registry.subprocess.Popen is not original_registry,
+                "global_is_original": subprocess.Popen is original_global,
+            })
+            # Exercise the proxied Popen so the sandbox runner is actually invoked.
+            local_env.subprocess.Popen(["python"], stdout="local-stdout")
+            return json.dumps({"result": "ok"})
+
+        entry.handler = MagicMock(side_effect=handler)
+        mock_runner = MagicMock()
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=mock_runner),
+        ):
+            result_json = wrapper(args)
+
+        assert json.loads(result_json).get("result") == "ok"
+        assert seen == [{
+            "local_is_proxy": True,
+            "registry_is_proxy": True,
+            "global_is_original": True,
+        }]
+        assert mock_runner.popen.call_count >= 1
+        # Module attributes restored after the call.
+        assert local_env.subprocess.Popen is original_local
+        assert process_registry.subprocess.Popen is original_registry
+        assert subprocess.Popen is original_global
+
+    def test_read_file_io_runs_under_sandbox_proxy(self, installed_wrappers):
+        wrappers, entries, tmp_path = installed_wrappers
+        inner = tmp_path / "notes.txt"
+        inner.write_text("hi")
+        self._assert_runs_under_proxy(
+            wrappers["read_file"], entries["read_file"], {"path": str(inner)})
+
+    def test_write_file_io_runs_under_sandbox_proxy(self, installed_wrappers):
+        wrappers, entries, tmp_path = installed_wrappers
+        self._assert_runs_under_proxy(
+            wrappers["write_file"], entries["write_file"],
+            {"path": str(tmp_path / "out.txt"), "content": "x"})
+
+    def test_patch_io_runs_under_sandbox_proxy(self, installed_wrappers):
+        wrappers, entries, tmp_path = installed_wrappers
+        target = tmp_path / "main.py"
+        target.write_text("x = 1\n")
+        self._assert_runs_under_proxy(
+            wrappers["patch"], entries["patch"],
+            {"path": str(target), "old_string": "x = 1", "new_string": "x = 2"})
+
+    def test_l1_denial_short_circuits_before_sandbox(self, installed_wrappers):
+        """Outside-workspace path denied at L1 — the sandbox runner is never consulted."""
+        wrappers, entries, tmp_path = installed_wrappers
+        with patch("daemon.services.sandbox_runner.get_sandbox_runner") as get_runner:
+            result = json.loads(wrappers["read_file"]({"path": "/etc/passwd"}))
+        assert result.get("code") == "WORKSPACE_VIOLATION"
+        entries["read_file"].handler.assert_not_called()
+        get_runner.assert_not_called()
+
+    def test_no_sandbox_runner_falls_back_to_direct_call(self, installed_wrappers):
+        """No macOS runner ⇒ file I/O runs directly (L1 stays the boundary; file
+        tools do NOT fail closed, unlike terminal which executes arbitrary commands)."""
+        import tools.environments.local as local_env
+        wrappers, entries, tmp_path = installed_wrappers
+        inner = tmp_path / "notes.txt"
+        inner.write_text("hi")
+        original_local = local_env.subprocess.Popen
+        seen = []
+
+        def handler(_a, **_kw):
+            seen.append(local_env.subprocess.Popen is original_local)  # original, not a proxy
+            return json.dumps({"result": "ok"})
+
+        entries["read_file"].handler = MagicMock(side_effect=handler)
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=None),
+        ):
+            result = json.loads(wrappers["read_file"]({"path": str(inner)}))
+        assert result.get("result") == "ok"
+        assert seen == [True]
+
+    def test_non_local_backend_skips_local_proxy(self, installed_wrappers):
+        """A non-local backend (docker/ssh) isolates itself; the local-subprocess
+        proxy must NOT be installed (it would wrongly sandbox the host helper)."""
+        import tools.environments.local as local_env
+        wrappers, entries, tmp_path = installed_wrappers
+        inner = tmp_path / "notes.txt"
+        inner.write_text("hi")
+        original_local = local_env.subprocess.Popen
+        seen = []
+
+        def handler(_a, **_kw):
+            seen.append(local_env.subprocess.Popen is original_local)
+            return json.dumps({"result": "ok"})
+
+        entries["read_file"].handler = MagicMock(side_effect=handler)
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "docker"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=MagicMock()),
+        ):
+            result = json.loads(wrappers["read_file"]({"path": str(inner)}))
+        assert result.get("result") == "ok"
+        assert seen == [True]
