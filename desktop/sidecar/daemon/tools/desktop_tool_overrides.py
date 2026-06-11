@@ -18,7 +18,12 @@ _DELEGATE_PATCHED = False
 # threads would corrupt each other's restore. Single-session desktop use keeps this
 # lock uncontested.
 _execute_code_popen_lock = _threading.Lock()
-_terminal_popen_lock = _threading.Lock()
+# Serializes the tools.environments.local.subprocess / process_registry.subprocess
+# swap shared by the terminal tool AND the file tools (#4b): both route their
+# command/disk I/O through that module attribute, so one shared lock prevents one
+# tool's restore from clobbering another's. Single-session desktop use keeps it
+# uncontested (file I/O serializes behind it — an accepted tradeoff).
+_local_subprocess_lock = _threading.Lock()
 
 # Process ownership registry: proc_id -> {workspace_hash, session_id}.
 # Entries accumulate and are never evicted — acceptable for single-session desktop use.
@@ -97,6 +102,66 @@ class _SandboxedSubprocessProxy:
             allow_command_executable=self._allow_command_executable,
             **kwargs,
         )
+
+
+@_contextmanager
+def _sandboxed_local_subprocess(snapshot: Any, runner: Any):
+    """Route LocalEnvironment / process-registry subprocess spawns through the
+    macOS seatbelt sandbox for the duration of the block.
+
+    The terminal tool and the file tools both reach disk/commands via
+    ``tools.environments.local.subprocess.Popen`` (file tools shell out to
+    wc/head/sed/cat/python3/rg — verified: no in-process open()). Swapping that
+    module attribute (and process_registry's) to a sandbox proxy makes the kernel
+    re-validate every path at the command's open()/exec(), which is what closes the
+    TOCTOU window between the L1 ``resolve_path`` check and the actual open. The
+    swap is a process-global mutation, so ``_local_subprocess_lock`` serializes it
+    across terminal + file tools (single-session desktop assumption)."""
+    import tools.environments.local as _local_env
+    import tools.process_registry as _process_registry
+
+    local_subprocess = _local_env.subprocess
+    registry_subprocess = _process_registry.subprocess
+    proxy_for_local = _SandboxedSubprocessProxy(local_subprocess, runner, snapshot)
+    proxy_for_registry = _SandboxedSubprocessProxy(registry_subprocess, runner, snapshot)
+
+    with _local_subprocess_lock:
+        _local_env.subprocess = proxy_for_local
+        _process_registry.subprocess = proxy_for_registry
+        try:
+            yield
+        finally:
+            _local_env.subprocess = local_subprocess
+            _process_registry.subprocess = registry_subprocess
+
+
+def _run_file_tool_sandboxed(
+    original_entry: Any, call_args: Any, snapshot: Any, handler_kwargs: dict
+) -> str:
+    """Invoke a file-tool handler, sandboxing its disk-I/O subprocess (#4b).
+
+    File tools (read/write/patch/search) reach disk via ``ShellFileOperations`` →
+    ``self.env.execute()`` → ``tools.environments.local.subprocess.Popen``. On a
+    local backend with a macOS sandbox runner available, run the handler inside
+    ``_sandboxed_local_subprocess`` so the kernel re-checks paths at open() time (a
+    TOCTOU symlink-swap to outside the workspace is then denied by the seatbelt
+    policy). Otherwise call directly: L1 ``resolve_path`` already enforced workspace
+    containment, so — unlike the terminal tool, which executes arbitrary commands
+    and fails closed — file tools degrade to the Python boundary on non-darwin /
+    no-runner / remote backends rather than becoming unavailable."""
+    try:
+        import tools.terminal_tool as _terminal_tool
+        env_type = (_terminal_tool._get_env_config() or {}).get("env_type", "local")
+    except Exception:
+        env_type = "local"
+
+    if env_type == "local":
+        from ..services.sandbox_runner import get_sandbox_runner
+        runner = get_sandbox_runner()
+        if runner is not None:
+            with _sandboxed_local_subprocess(snapshot, runner):
+                return original_entry.handler(call_args, **handler_kwargs)
+    return original_entry.handler(call_args, **handler_kwargs)
 
 
 def _register_process_owner(snapshot: Any, result_str: str) -> None:
@@ -205,12 +270,17 @@ def _install_wrappers(registry) -> None:
         return json.dumps({"error": f"desktop policy: no workspace snapshot active for {tool_name}", "code": "POLICY_MISSING"})
 
     # Boundary note: file tools (read_file/write_file/patch/search_files) are
-    # confined by workspace_policy.resolve_path — the Python path boundary, which
-    # canonicalizes (incl. final-component symlinks) and enforces workspace
-    # containment. Unlike terminal/execute_code, their disk I/O does NOT yet run
-    # under the OS sandbox. Kernel-level enforcement for file I/O (sandbox-exec
-    # helper, codex parity) is tracked follow-up "#4b"; resolve_path is the sole
-    # boundary here, so its symlink/containment invariants must hold.
+    # confined FIRST by workspace_policy.resolve_path — the Python path boundary
+    # (L1), which canonicalizes (incl. final-component symlinks) and enforces
+    # workspace containment. On a local backend with a macOS sandbox runner, the
+    # handler then runs inside _sandboxed_local_subprocess (#4b): its disk-I/O
+    # subprocess (ShellFileOperations shells out via the local env's Popen) is
+    # wrapped in sandbox-exec, so the kernel re-validates paths at open() time and a
+    # TOCTOU symlink-swap to outside the workspace is denied. Reads of permissive
+    # system paths stay allowed (codex parity, by decision); HERMES_HOME stays
+    # denied. On non-darwin / no-runner / remote backends, file tools fall back to
+    # the L1 boundary alone — they do NOT fail closed, since L1 still guarantees
+    # containment. Hardlinks remain a path-vs-inode limit shared with codex (#4c).
     # -----------------------------------------------------------------------
     # read_file / search_files: resolve path with "read" access
     # -----------------------------------------------------------------------
@@ -230,7 +300,7 @@ def _install_wrappers(registry) -> None:
             if not decision.allowed:
                 return json.dumps({"error": f"{name} denied: {decision.reason}", "code": "WORKSPACE_VIOLATION"})
             new_args = {**args, "path": str(decision.resolved_path)} if isinstance(args, dict) else args
-            return original_entry.handler(new_args, **kwargs)
+            return _run_file_tool_sandboxed(original_entry, new_args, snapshot, kwargs)
 
         return wrapper
 
@@ -253,7 +323,7 @@ def _install_wrappers(registry) -> None:
             if not decision.allowed:
                 return json.dumps({"error": f"{name} denied: {decision.reason}", "code": "WORKSPACE_VIOLATION"})
             new_args = {**args, "path": str(decision.resolved_path)} if isinstance(args, dict) else args
-            return original_entry.handler(new_args, **kwargs)
+            return _run_file_tool_sandboxed(original_entry, new_args, snapshot, kwargs)
 
         return wrapper
 
@@ -277,7 +347,7 @@ def _install_wrappers(registry) -> None:
                 if not decision.allowed:
                     return json.dumps({"error": f"patch denied: {decision.reason}", "code": "WORKSPACE_VIOLATION"})
                 new_args = {**args, "path": str(decision.resolved_path)}
-                return original_entry.handler(new_args, **kwargs)
+                return _run_file_tool_sandboxed(original_entry, new_args, snapshot, kwargs)
 
             elif isinstance(args, dict) and "patch" in args:
                 patch_text = args["patch"]
@@ -319,7 +389,7 @@ def _install_wrappers(registry) -> None:
                             "error": f"patch denied: {decision.reason} (file: {raw_path})",
                             "code": "WORKSPACE_VIOLATION",
                         })
-                return original_entry.handler(args, **kwargs)
+                return _run_file_tool_sandboxed(original_entry, args, snapshot, kwargs)
 
             else:
                 # Unknown args structure — reject; do not pass through
@@ -454,22 +524,8 @@ def _install_wrappers(registry) -> None:
                     "code": "SANDBOX_UNAVAILABLE",
                 })
 
-            import tools.environments.local as _local_env
-            import tools.process_registry as _process_registry
-
-            local_subprocess = _local_env.subprocess
-            registry_subprocess = _process_registry.subprocess
-            proxy_for_local = _SandboxedSubprocessProxy(local_subprocess, runner, snapshot)
-            proxy_for_registry = _SandboxedSubprocessProxy(registry_subprocess, runner, snapshot)
-
-            with _terminal_popen_lock:
-                _local_env.subprocess = proxy_for_local
-                _process_registry.subprocess = proxy_for_registry
-                try:
-                    result_str = original_entry.handler(new_args, **kwargs)
-                finally:
-                    _local_env.subprocess = local_subprocess
-                    _process_registry.subprocess = registry_subprocess
+            with _sandboxed_local_subprocess(snapshot, runner):
+                result_str = original_entry.handler(new_args, **kwargs)
 
             if bool(new_args.get("background")):
                 _register_process_owner(snapshot, result_str)
