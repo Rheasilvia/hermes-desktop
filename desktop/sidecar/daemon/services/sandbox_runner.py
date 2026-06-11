@@ -341,24 +341,29 @@ _SEATBELT_PLATFORM_DEFAULTS = r"""; macOS platform defaults included when a spli
 _SEATBELT_EXECUTABLE = "/usr/bin/sandbox-exec"
 
 
-def _quote_seatbelt_path(path: str) -> str:
-    return path.replace('"', '\\"')
+def _build_executable_roots_policy(
+    executable_roots: list[str] | None,
+) -> tuple[str, list[tuple[str, str]]]:
+    """Return ``(policy_text, params)`` granting read-only access to runtime roots.
 
-
-def _build_executable_roots_policy(executable_roots: list[str] | None) -> str:
+    Paths are passed as ``-D`` parameters (referenced via ``(param …)``) so no
+    path content is ever interpolated into the policy text.
+    """
     if not executable_roots:
-        return ""
+        return "", []
 
     rules: list[str] = ["; Explicit read-only executable runtimes"]
+    params: list[tuple[str, str]] = []
     seen: set[str] = set()
     for root in executable_roots:
-        root_escaped = _quote_seatbelt_path(root)
-        if root_escaped in seen:
+        if root in seen:
             continue
-        seen.add(root_escaped)
-        rules.append(f'(allow file-read* file-test-existence (subpath "{root_escaped}"))')
-        rules.append(f'(allow file-map-executable (subpath "{root_escaped}"))')
-    return "\n".join(rules)
+        seen.add(root)
+        key = f"EXEC_ROOT_{len(params)}"
+        params.append((key, root))
+        rules.append(f'(allow file-read* file-test-existence (subpath (param "{key}")))')
+        rules.append(f'(allow file-map-executable (subpath (param "{key}")))')
+    return "\n".join(rules), params
 
 
 def _resolved_executable_path(command: list[str], env: dict | None = None) -> Path | None:
@@ -399,29 +404,61 @@ def _build_seatbelt_policy(
     workspace_root: str,
     hermes_home: str | None = None,
     executable_roots: list[str] | None = None,
-) -> str:
-    """Build the full seatbelt policy with workspace-specific rules."""
+) -> tuple[str, list[tuple[str, str]]]:
+    """Build the seatbelt policy and its ``-D`` parameter list.
+
+    Workspace-specific paths are passed to ``sandbox-exec`` as ``-D key=value``
+    parameters (referenced via ``(param …)``) rather than interpolated into the
+    policy text, so a workspace path containing policy metacharacters can neither
+    break the policy nor inject rules (mirrors the codex sandbox).
+    """
     if hermes_home is None:
         hermes_home = str(Path.home() / ".hermes")
 
-    workspace_root_escaped = _quote_seatbelt_path(workspace_root)
-    hermes_home_escaped = _quote_seatbelt_path(hermes_home)
+    # Canonicalize so the -D params match the REAL paths seatbelt evaluates
+    # (e.g. macOS /var -> /private/var, /tmp -> /private/tmp); mirrors codex's
+    # normalize_path_for_sandbox. Production snapshots are already canonical, so
+    # this is idempotent there and only matters for non-canonical callers.
+    try:
+        workspace_root = str(Path(workspace_root).resolve())
+    except OSError:
+        pass
+    try:
+        hermes_home = str(Path(hermes_home).resolve())
+    except OSError:
+        pass
 
-    dynamic_policy = f"""
+    exec_policy, exec_params = _build_executable_roots_policy(executable_roots)
+
+    dynamic_policy = """
 ; Workspace access
 (allow file-read* file-write* file-test-existence
-  (subpath "{workspace_root_escaped}"))
+  (subpath (param "WORKSPACE_ROOT")))
 
-; Deny entire hermes home directory (config.yaml, .env, gateway_state, credentials)
+; .git/hooks and .git/config are an unsandboxed code-execution surface (a hook
+; runs on the next git op; config sets core.hooksPath / aliases). Deny writes
+; there while leaving the rest of .git and all reads working.
+(deny file-write* (subpath (param "WS_GIT_HOOKS")))
+(deny file-write* (literal (param "WS_GIT_CONFIG")))
+
+; Deny entire hermes home directory (config.yaml, .env, gateway_state, credentials).
 ; This takes precedence over the workspace allow above when hermes_home is inside workspace_root.
-(deny file-read* file-write* (subpath "{hermes_home_escaped}"))
+(deny file-read* file-write* (subpath (param "HERMES_HOME")))
 """
-    return "\n".join([
+    params: list[tuple[str, str]] = [
+        ("WORKSPACE_ROOT", workspace_root),
+        ("WS_GIT_HOOKS", str(Path(workspace_root) / ".git" / "hooks")),
+        ("WS_GIT_CONFIG", str(Path(workspace_root) / ".git" / "config")),
+        ("HERMES_HOME", hermes_home),
+        *exec_params,
+    ]
+    policy = "\n".join([
         _SEATBELT_BASE_POLICY,
         _SEATBELT_PLATFORM_DEFAULTS,
-        _build_executable_roots_policy(executable_roots),
+        exec_policy,
         dynamic_policy,
     ])
+    return policy, params
 
 
 class SandboxResult:
@@ -446,8 +483,9 @@ class MacOSSandboxRunner:
         workspace_root: str,
         hermes_home: str | None = None,
     ) -> SandboxResult:
-        policy = _build_seatbelt_policy(workspace_root, hermes_home)
-        argv = [_SEATBELT_EXECUTABLE, "-p", policy, "--"] + command
+        policy, params = _build_seatbelt_policy(workspace_root, hermes_home)
+        define_args = [f"-D{key}={value}" for key, value in params]
+        argv = [_SEATBELT_EXECUTABLE, "-p", policy, *define_args, "--", *command]
         try:
             result = subprocess.run(
                 argv,
@@ -490,13 +528,14 @@ class MacOSSandboxRunner:
                 sandbox_command = [str(resolved), *command[1:]]
                 executable_roots = [_executable_root(resolved)]
         if executable_roots is None:
-            policy = _build_seatbelt_policy(str(snapshot.workspace_root))
+            policy, params = _build_seatbelt_policy(str(snapshot.workspace_root))
         else:
-            policy = _build_seatbelt_policy(
+            policy, params = _build_seatbelt_policy(
                 str(snapshot.workspace_root),
                 executable_roots=executable_roots,
             )
-        sandboxed_cmd = [_SEATBELT_EXECUTABLE, "-p", policy, "--"] + sandbox_command
+        define_args = [f"-D{key}={value}" for key, value in params]
+        sandboxed_cmd = [_SEATBELT_EXECUTABLE, "-p", policy, *define_args, "--", *sandbox_command]
         return _RAW_POPEN(
             sandboxed_cmd,
             cwd=cwd,

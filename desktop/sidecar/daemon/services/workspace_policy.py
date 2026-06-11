@@ -169,6 +169,13 @@ def resolve_path(
                 reason=f"parent directory does not exist or cannot be resolved: {exc}",
             )
         canonical = canonical_parent / filename
+        # The final path component may itself be a (possibly dangling) symlink.
+        # ``Path.resolve()`` / ``open()`` in the downstream handler would FOLLOW
+        # it, so ``<ws>/link -> <outside>`` must be resolved to its real target
+        # and re-checked for containment below; otherwise a write through the
+        # link escapes the workspace (silent in ``full`` permission mode).
+        if raw.is_symlink():
+            canonical = raw.resolve()
 
     # Enforce workspace containment
     try:
@@ -182,6 +189,22 @@ def resolve_path(
                 f"({canonical} not under {snapshot.workspace_root})"
             ),
         )
+
+    # .git/hooks and .git/config are an unsandboxed code-execution surface: a
+    # hook runs on the next git operation, and config can set core.hooksPath,
+    # core.fsmonitor, core.pager or `!`-aliases. Deny WRITES there (any nested
+    # repo too) while leaving other .git internals and all reads working so
+    # normal git operations are unaffected.
+    if access == "write":
+        rel_parts = canonical.relative_to(snapshot.workspace_root).parts
+        if ".git" in rel_parts:
+            tail = rel_parts[rel_parts.index(".git") + 1:]
+            if tail[:1] in (("hooks",), ("config",)):
+                return PolicyDecision(
+                    allowed=False,
+                    requires_approval=False,
+                    reason=".git/hooks and .git/config are read-only inside the workspace",
+                )
 
     approval_key = _make_approval_key(snapshot, access, canonical)
     return PolicyDecision(
