@@ -204,6 +204,13 @@ def _install_wrappers(registry) -> None:
     def _fail_closed(tool_name: str, args: Any) -> str:
         return json.dumps({"error": f"desktop policy: no workspace snapshot active for {tool_name}", "code": "POLICY_MISSING"})
 
+    # Boundary note: file tools (read_file/write_file/patch/search_files) are
+    # confined by workspace_policy.resolve_path — the Python path boundary, which
+    # canonicalizes (incl. final-component symlinks) and enforces workspace
+    # containment. Unlike terminal/execute_code, their disk I/O does NOT yet run
+    # under the OS sandbox. Kernel-level enforcement for file I/O (sandbox-exec
+    # helper, codex parity) is tracked follow-up "#4b"; resolve_path is the sole
+    # boundary here, so its symlink/containment invariants must hold.
     # -----------------------------------------------------------------------
     # read_file / search_files: resolve path with "read" access
     # -----------------------------------------------------------------------

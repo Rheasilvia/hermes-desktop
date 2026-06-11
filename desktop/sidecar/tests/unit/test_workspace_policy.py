@@ -179,6 +179,79 @@ class TestResolvePathDenied:
         decision = resolve_path(snap, str(outside_dir / "evil.txt"), "write")
         assert not decision.allowed
 
+    def test_dangling_symlink_final_component_escaping_workspace_denied(self, tmp_path):
+        """A symlink whose target does NOT yet exist must be denied for writes.
+
+        The non-existing branch canonicalizes only the parent; without a
+        final-component symlink guard, ``<ws>/link -> <outside-nonexisting>`` is
+        classified in-workspace, and the downstream handler's ``open()`` follows
+        the link and writes OUTSIDE the workspace (silent in ``full`` mode).
+        """
+        outside_target = tmp_path.parent / "escape_target_does_not_exist.txt"
+        assert not outside_target.exists()
+        link = tmp_path / "link.txt"
+        os.symlink(str(outside_target), str(link))  # dangling symlink inside workspace
+
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, str(link), "write")
+        assert not decision.allowed
+        assert decision.resolved_path is None
+
+    def test_dangling_symlink_to_inside_workspace_allowed(self, tmp_path):
+        """A symlink to a not-yet-existing target INSIDE the workspace is allowed,
+        and resolves to the real in-workspace target."""
+        inside_target = tmp_path / "real" / "target.txt"
+        inside_target.parent.mkdir()
+        link = tmp_path / "link.txt"
+        os.symlink(str(inside_target), str(link))  # dangling, but points inside
+
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, str(link), "write")
+        assert decision.allowed
+        assert decision.resolved_path == inside_target
+
+
+# ---------------------------------------------------------------------------
+# resolve_path — .git write protection
+# ---------------------------------------------------------------------------
+
+
+class TestResolvePathGitProtection:
+    """Writes to .git/hooks and .git/config are denied (code execution surface);
+    other .git internals and reads stay allowed so normal git keeps working."""
+
+    def test_write_git_hook_denied(self, tmp_path):
+        (tmp_path / ".git" / "hooks").mkdir(parents=True)
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, ".git/hooks/pre-commit", "write")
+        assert not decision.allowed
+        assert ".git" in decision.reason
+
+    def test_write_git_config_denied(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, ".git/config", "write")
+        assert not decision.allowed
+
+    def test_write_nested_repo_git_hook_denied(self, tmp_path):
+        (tmp_path / "sub" / ".git" / "hooks").mkdir(parents=True)
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, "sub/.git/hooks/post-checkout", "write")
+        assert not decision.allowed
+
+    def test_write_git_objects_allowed(self, tmp_path):
+        (tmp_path / ".git" / "objects" / "ab").mkdir(parents=True)
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, ".git/objects/ab/cdef", "write")
+        assert decision.allowed
+
+    def test_read_git_config_allowed(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git" / "config").write_text("[core]\n")
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, ".git/config", "read")
+        assert decision.allowed
+
 
 # ---------------------------------------------------------------------------
 # Approval key

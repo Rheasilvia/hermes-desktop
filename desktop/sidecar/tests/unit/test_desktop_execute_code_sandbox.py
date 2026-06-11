@@ -222,31 +222,41 @@ class TestGetSandboxRunnerNonMacOS:
 
 
 class TestBuildSeatbeltPolicy:
-    def test_policy_contains_workspace_root(self, tmp_path):
-        """_build_seatbelt_policy embeds the workspace_root path in the policy."""
+    def test_policy_uses_workspace_param_not_literal(self, tmp_path):
+        """Paths are passed as -D params (referenced via (param …)), never
+        interpolated into the policy text — mirrors codex, removes escaping risk."""
         from daemon.services.sandbox_runner import _build_seatbelt_policy
 
         workspace_root = str(tmp_path)
-        policy = _build_seatbelt_policy(workspace_root)
+        policy, params = _build_seatbelt_policy(workspace_root)
 
-        assert workspace_root in policy
+        assert '(subpath (param "WORKSPACE_ROOT"))' in policy
+        assert workspace_root not in policy  # the literal path must not appear in policy text
+        assert ("WORKSPACE_ROOT", workspace_root) in params
 
-    def test_policy_denies_hermes_env_path(self, tmp_path):
-        """_build_seatbelt_policy includes a subpath deny rule for the entire hermes home dir."""
+    def test_policy_denies_hermes_home_via_param(self, tmp_path):
+        """The hermes home deny uses a (param …) and appears after the workspace allow."""
         from daemon.services.sandbox_runner import _build_seatbelt_policy
 
         hermes_home = str(tmp_path / ".hermes")
-        policy = _build_seatbelt_policy(str(tmp_path), hermes_home=hermes_home)
+        policy, params = _build_seatbelt_policy(str(tmp_path), hermes_home=hermes_home)
 
-        # The deny rule must use subpath to cover the entire hermes home directory,
-        # not just a literal .env file.
-        assert f'(subpath "{hermes_home}")' in policy
-        # The deny must be a file-read* AND file-write* deny
-        assert '(deny file-read* file-write* (subpath "' in policy
-        # The deny rule must come after the workspace allow rule
-        deny_pos = policy.find('(deny file-read* file-write*')
+        assert ("HERMES_HOME", hermes_home) in params
+        assert '(deny file-read* file-write* (subpath (param "HERMES_HOME")))' in policy
+        deny_pos = policy.find('(deny file-read* file-write* (subpath (param "HERMES_HOME"))')
         allow_pos = policy.find('(allow file-read* file-write* file-test-existence')
-        assert deny_pos > allow_pos, "deny rule for hermes home should appear after the workspace allow rule"
+        assert deny_pos > allow_pos, "hermes home deny must appear after the workspace allow"
+
+    def test_policy_denies_git_hooks_and_config(self, tmp_path):
+        """.git/hooks and .git/config are denied for writes (code-exec surface)."""
+        from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        policy, params = _build_seatbelt_policy(str(tmp_path))
+
+        assert ("WS_GIT_HOOKS", str(tmp_path / ".git" / "hooks")) in params
+        assert ("WS_GIT_CONFIG", str(tmp_path / ".git" / "config")) in params
+        assert '(deny file-write* (subpath (param "WS_GIT_HOOKS")))' in policy
+        assert '(deny file-write* (literal (param "WS_GIT_CONFIG")))' in policy
 
     def test_policy_does_not_allow_arbitrary_tmp_read_write(self, tmp_path):
         """The process sandbox must not allow symlink escapes into world temp dirs.
@@ -258,7 +268,7 @@ class TestBuildSeatbeltPolicy:
         """
         from daemon.services.sandbox_runner import _build_seatbelt_policy
 
-        policy = _build_seatbelt_policy(str(tmp_path))
+        policy, _params = _build_seatbelt_policy(str(tmp_path))
 
         for temp_dir in ("/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"):
             assert f'(allow file-read* file-test-existence file-write* (subpath "{temp_dir}"))' not in policy
@@ -463,15 +473,15 @@ class TestSandboxRunnerPopen:
         from daemon.services.sandbox_runner import _build_seatbelt_policy
 
         executable_root = tmp_path / "uv-python-runtime"
-        policy = _build_seatbelt_policy(
+        policy, params = _build_seatbelt_policy(
             "/workspace",
             executable_roots=[str(executable_root)],
         )
 
-        assert f'(subpath "{executable_root}")' in policy
-        assert f'(allow file-read* file-test-existence (subpath "{executable_root}")' in policy
-        assert f'(allow file-map-executable (subpath "{executable_root}")' in policy
-        assert f'(allow file-write* (subpath "{executable_root}")' not in policy
+        assert ("EXEC_ROOT_0", str(executable_root)) in params
+        assert '(allow file-read* file-test-existence (subpath (param "EXEC_ROOT_0")))' in policy
+        assert '(allow file-map-executable (subpath (param "EXEC_ROOT_0")))' in policy
+        assert '(allow file-write* (subpath (param "EXEC_ROOT_0")' not in policy
 
     def test_runner_popen_uses_raw_popen_and_forwards_kwargs(self, monkeypatch, tmp_path):
         """runner.popen must bypass any temporary subprocess proxy and forward Popen kwargs."""
@@ -486,7 +496,10 @@ class TestSandboxRunnerPopen:
             return MagicMock()
 
         monkeypatch.setattr(sr, "_RAW_POPEN", fake_raw_popen)
-        monkeypatch.setattr(sr, "_build_seatbelt_policy", lambda workspace_root, hermes_home=None: "POLICY")
+        monkeypatch.setattr(
+            sr, "_build_seatbelt_policy",
+            lambda workspace_root, hermes_home=None: ("POLICY", [("WORKSPACE_ROOT", str(tmp_path))]),
+        )
 
         snapshot = MagicMock()
         snapshot.workspace_root = tmp_path
@@ -510,7 +523,7 @@ class TestSandboxRunnerPopen:
         assert result is not None
         assert len(calls) == 1
         argv, kwargs = calls[0]
-        assert argv == [sr._SEATBELT_EXECUTABLE, "-p", "POLICY", "--", "python", "script.py"]
+        assert argv == [sr._SEATBELT_EXECUTABLE, "-p", "POLICY", f"-DWORKSPACE_ROOT={tmp_path}", "--", "python", "script.py"]
         assert kwargs["cwd"] == str(tmp_path)
         assert kwargs["env"] == {"A": "B"}
         assert kwargs["stdin"] == "stdin-sentinel"
@@ -553,7 +566,7 @@ class TestSandboxRunnerPopen:
                 "workspace_root": workspace_root,
                 "executable_roots": executable_roots,
             })
-            return "POLICY"
+            return "POLICY", [("WORKSPACE_ROOT", workspace_root)]
 
         monkeypatch.setattr(sr, "_RAW_POPEN", fake_raw_popen)
         monkeypatch.setattr(sr, "_build_seatbelt_policy", fake_build_policy)
@@ -564,7 +577,8 @@ class TestSandboxRunnerPopen:
         runner = sr.MacOSSandboxRunner()
         runner.popen([str(venv_python), "script.py"], snapshot=snapshot, allow_command_executable=True)
 
-        assert calls == [[sr._SEATBELT_EXECUTABLE, "-p", "POLICY", "--", str(real_python), "script.py"]]
+        assert calls == [[sr._SEATBELT_EXECUTABLE, "-p", "POLICY",
+                          f"-DWORKSPACE_ROOT={workspace}", "--", str(real_python), "script.py"]]
         assert policies == [{
             "workspace_root": str(workspace),
             "executable_roots": [str(runtime_root)],

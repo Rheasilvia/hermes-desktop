@@ -175,6 +175,24 @@ class TestWriteFileWrapper:
         assert result.get("code") == "WORKSPACE_VIOLATION"
         entries["write_file"].handler.assert_not_called()
 
+    def test_write_file_through_dangling_symlink_escape_is_denied(self, installed_wrappers):
+        """write_file targeting an in-workspace symlink to a non-existing OUTSIDE
+        target must be denied — the handler's open() would otherwise follow the
+        link and write outside the workspace."""
+        import os
+        wrappers, entries, tmp_path = installed_wrappers
+        outside_target = tmp_path.parent / "escape_via_symlink.txt"
+        assert not outside_target.exists()
+        link = tmp_path / "link.txt"
+        os.symlink(str(outside_target), str(link))  # dangling symlink inside workspace
+
+        wrapper = wrappers["write_file"]
+        result = json.loads(wrapper({"path": str(link), "content": "bad"}))
+
+        assert result.get("code") == "WORKSPACE_VIOLATION"
+        entries["write_file"].handler.assert_not_called()
+        assert not outside_target.exists()
+
 
 # ---------------------------------------------------------------------------
 # Tests 5-6: search_files
