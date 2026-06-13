@@ -51,10 +51,17 @@
 
 .workTracePanel {
   border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
-  margin-bottom: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  margin: var(--space-1) 0 var(--space-2);
   overflow: hidden;
+}
+
+/* Restore the framed container when the trace is expanded (inspecting tool
+   activity). Collapsed stays a quiet hairline affordance. */
+.workTraceExpanded {
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-md);
 }
 
 .workTraceHeader {
@@ -83,7 +90,7 @@
 }
 
 .workTraceIcon {
-  color: var(--color-terracotta);
+  color: var(--color-on-surface-muted);
   flex-shrink: 0;
 }
 

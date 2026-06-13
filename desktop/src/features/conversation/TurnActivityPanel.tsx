@@ -78,44 +78,6 @@ const SummaryLeadIcon: Component = () => (
   </span>
 );
 
-const DetailsAffordance: Component<{
-  hidden?: boolean;
-  passive?: boolean;
-  onClick?: () => void;
-}> = (props) => (
-  <span
-    class={`${styles.summaryActions} ${props.hidden ? styles.summaryActionsPlaceholder : ''}`}
-    data-testid="tool-summary-actions"
-    aria-hidden={props.hidden ? 'true' : undefined}
-  >
-    <span class={styles.pillSep} />
-    <Show
-      when={!props.hidden}
-      fallback={
-        <span class={styles.pillBtn}>
-          <span>Details</span>
-          <Icon name="chevron-down" size={11} />
-        </span>
-      }
-    >
-      <Show
-        when={!props.passive}
-        fallback={
-          <span class={styles.pillBtn}>
-            <span>Details</span>
-            <Icon name="chevron-down" size={11} />
-          </span>
-        }
-      >
-        <button class={styles.pillBtn} type="button" onClick={props.onClick}>
-          <span>Details</span>
-          <Icon name="chevron-down" size={11} />
-        </button>
-      </Show>
-    </Show>
-  </span>
-);
-
 // ── TurnActivityPanel ────────────────────────────────────────────────────────
 export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
   const [panelExpanded, setPanelExpanded] = createSignal(false);
@@ -167,7 +129,6 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
             <span class={styles.summaryLabel}>
               <ToolCompletedLabel count={completedToolCount()} />
             </span>
-            <DetailsAffordance hidden />
           </div>
         </Show>
       </div>
@@ -187,7 +148,7 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
         <span class={styles.summaryLabel}>
           <SummaryLabel toolCount={completedToolCount()} />
         </span>
-        <DetailsAffordance passive />
+        <Icon name="chevron-right" size={11} class={styles.summaryChevron} aria-hidden="true" />
       </button>
 
       {/* ── EXPANDED VIEW ───────────────────────────────────────────────── */}
@@ -196,91 +157,86 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
         style={{ display: !isActive() && panelExpanded() ? 'flex' : 'none' }}
         aria-hidden={!isActive() && panelExpanded() ? undefined : 'true'}
       >
-        <div class={`${styles.summaryRow} ${styles.expandedHeader}`}>
+        {/* Header doubles as the collapse toggle — click the row to collapse. */}
+        <button
+          type="button"
+          class={`${styles.summaryRow} ${styles.expandedHeader}`}
+          aria-label="Collapse tool details"
+          onClick={() => setPanelExpanded(false)}
+        >
           <SummaryLeadIcon />
           <span class={styles.summaryLabel}>
             <SummaryLabel toolCount={completedToolCount()} />
           </span>
-          <button
-            class={styles.collapseBtn}
-            type="button"
-            aria-label="Collapse details"
-            onClick={() => setPanelExpanded(false)}
-          >
-            <Icon name="chevron-left" size={11} />
-          </button>
-        </div>
+          <Icon name="chevron-down" size={11} class={styles.summaryChevron} aria-hidden="true" />
+        </button>
 
-        {/* Tools section — name/status/duration visible; result behind ▶ */}
+        {/* Tools — name/status/duration visible; result behind ▶ */}
         <Show when={hasTools()}>
-          <div class={styles.section}>
-            <div class={styles.sectionLabel}>Tools</div>
-            <div class={styles.toolList}>
-              <Index each={props.toolRows ?? []}>
-                {(row) => {
-                  const isOpen = () => expandedTools().has(row().id);
-                  return (
-                    <div class={styles.toolRow}>
-                      <span class={styles.connector} aria-hidden="true">└</span>
-                      <div class={styles.toolRowContent}>
-                        <button
-                          class={styles.toolRowMain}
-                          classList={{
-                            [styles.toolRowMain]: true,
-                            [styles.toolRowClickable]: !!row().resultSummary,
-                          }}
-                          type="button"
-                          onClick={() => {
-                            if (row().resultSummary) toggleTool(row().id);
-                          }}
-                          aria-expanded={row().resultSummary ? isOpen() : undefined}
-                          aria-label={
-                            row().resultSummary
-                              ? `${row().name}: ${isOpen() ? 'Hide result' : 'Show result'}`
-                              : row().name
-                          }
-                          disabled={!row().resultSummary}
-                        >
-                          <span class={styles.toolStatusIconSlot} data-testid="tool-status-icon-slot">
-                            <Icon
-                              name={
-                                row().status === 'complete' ? 'check' :
-                                row().status === 'error' ? 'alert-circle' :
-                                'clock'
-                              }
-                              size={12}
-                              class={
-                                row().status === 'complete' ? styles.doneIcon :
-                                row().status === 'error' ? styles.errorIcon :
-                                styles.neutralIcon
-                              }
-                            />
-                          </span>
-                          <span class={styles.toolName}>{row().name}</span>
-                          <Show when={row().argumentPreview}>
-                            <span class={styles.argPreview}>{row().argumentPreview}</span>
-                          </Show>
-                          <Show when={row().durationMs != null}>
-                            <span class={styles.duration}>{formatDuration(row().durationMs!)}</span>
-                          </Show>
-                          {/* ▶/▼ visual indicator for expandable rows */}
-                          <Show when={row().resultSummary}>
-                            <Icon
-                              name={isOpen() ? 'chevron-down' : 'chevron-right'}
-                              size={11}
-                              class={styles.chevronIndicator}
-                            />
-                          </Show>
-                        </button>
-                        <Show when={isOpen() && row().resultSummary}>
-                          <pre class={styles.toolResult}>{row().resultSummary}</pre>
+          <div class={styles.toolList}>
+            <Index each={props.toolRows ?? []}>
+              {(row) => {
+                const isOpen = () => expandedTools().has(row().id);
+                return (
+                  <div class={styles.toolRow}>
+                    <div class={styles.toolRowContent}>
+                      <button
+                        class={styles.toolRowMain}
+                        classList={{
+                          [styles.toolRowMain]: true,
+                          [styles.toolRowClickable]: !!row().resultSummary,
+                        }}
+                        type="button"
+                        onClick={() => {
+                          if (row().resultSummary) toggleTool(row().id);
+                        }}
+                        aria-expanded={row().resultSummary ? isOpen() : undefined}
+                        aria-label={
+                          row().resultSummary
+                            ? `${row().name}: ${isOpen() ? 'Hide result' : 'Show result'}`
+                            : row().name
+                        }
+                        disabled={!row().resultSummary}
+                      >
+                        <span class={styles.toolStatusIconSlot} data-testid="tool-status-icon-slot">
+                          <Icon
+                            name={
+                              row().status === 'complete' ? 'check' :
+                              row().status === 'error' ? 'alert-circle' :
+                              'clock'
+                            }
+                            size={12}
+                            class={
+                              row().status === 'complete' ? styles.doneIcon :
+                              row().status === 'error' ? styles.errorIcon :
+                              styles.neutralIcon
+                            }
+                          />
+                        </span>
+                        <span class={styles.toolName}>{row().name}</span>
+                        <Show when={row().argumentPreview}>
+                          <span class={styles.argPreview}>{row().argumentPreview}</span>
                         </Show>
-                      </div>
+                        <Show when={row().durationMs != null}>
+                          <span class={styles.duration}>{formatDuration(row().durationMs!)}</span>
+                        </Show>
+                        {/* ▶/▼ visual indicator for expandable rows */}
+                        <Show when={row().resultSummary}>
+                          <Icon
+                            name={isOpen() ? 'chevron-down' : 'chevron-right'}
+                            size={11}
+                            class={styles.chevronIndicator}
+                          />
+                        </Show>
+                      </button>
+                      <Show when={isOpen() && row().resultSummary}>
+                        <pre class={styles.toolResult}>{row().resultSummary}</pre>
+                      </Show>
                     </div>
-                  );
-                }}
-              </Index>
-            </div>
+                  </div>
+                );
+              }}
+            </Index>
           </div>
         </Show>
       </div>
