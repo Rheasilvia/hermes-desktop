@@ -8,7 +8,7 @@ import { Button } from '@/ui/atoms/Button.js';
 import { Select } from '@/ui/atoms/Select.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { auxiliaryModelStore, modelsStore } from '@/stores/models.js';
-import type { AuxTaskEntry } from '@/services/api/transports/http/model.js';
+import type { AuxTaskEntry } from '@/services/api';
 import styles from './MultimodalModelsView.module.css';
 
 const AUX_TASK_LABELS: Record<string, { label: string; hint: string }> = {

@@ -11,10 +11,17 @@ export default [
     },
   },
 
-  // Restricted imports -- forbid gateway and direct transport access
+  // Restricted imports -- keep management surfaces on the API registry while
+  // allowing the app bootstrap and conversation/live path to own the gateway.
   {
-    files: ["src/**/*.{ts,tsx}"],
-    ignores: ["src/services/api/**"],
+    files: [
+      "src/stores/{analytics,config,cron,desktop-settings,memory,models,settings,usage}.{ts,tsx}",
+      "src/features/{analytics,cron,memory,model,plugins,settings,skills}/**/*.{ts,tsx}",
+    ],
+    ignores: [
+      "src/**/*.{test,spec}.{ts,tsx}",
+      "src/**/__tests__/**",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -25,11 +32,27 @@ export default [
               message: "Model/Cron stores must use @/services/api (D7).",
             },
           ],
+          patterns: [{
+            group: ["@/services/gateway/*"],
+            message: "Model/Cron stores must use @/services/api (D7).",
+          }],
+        },
+      ],
+    },
+  },
+
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/services/api/**",
+      "src/**/*.{test,spec}.{ts,tsx}",
+      "src/**/__tests__/**",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
           patterns: [
-            {
-              group: ["@/services/gateway/*"],
-              message: "Model/Cron stores must use @/services/api (D7).",
-            },
             {
               group: [
                 "@/services/api/transports/*",

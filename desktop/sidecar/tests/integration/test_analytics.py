@@ -21,18 +21,33 @@ def _seed_db(path: Path):
     """)
     # 5 days ago — outside any reasonable short window
     conn.execute(
-        "INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?)",
-        ("s1", "anthropic", "claude-sonnet-4-6", 1000, 500, 0.015, None, _NOW - 5 * 86400),
+        """
+        INSERT INTO sessions (
+            id, source, billing_provider, model, input_tokens, output_tokens,
+            estimated_cost_usd, actual_cost_usd, started_at
+        ) VALUES (?,?,?,?,?,?,?,?,?)
+        """,
+        ("s1", "desktop", "anthropic", "claude-sonnet-4-6", 1000, 500, 0.015, None, _NOW - 5 * 86400),
     )
     # 2 days ago — outside days=1 window, inside days=30 window
     conn.execute(
-        "INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?)",
-        ("s2", "anthropic", "claude-opus-4-7", 800, 400, 0.048, None, _NOW - 2 * 86400),
+        """
+        INSERT INTO sessions (
+            id, source, billing_provider, model, input_tokens, output_tokens,
+            estimated_cost_usd, actual_cost_usd, started_at
+        ) VALUES (?,?,?,?,?,?,?,?,?)
+        """,
+        ("s2", "desktop", "anthropic", "claude-opus-4-7", 800, 400, 0.048, None, _NOW - 2 * 86400),
     )
     # Recent (today) — inside days=1 window
     conn.execute(
-        "INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?)",
-        ("s3", "anthropic", "claude-haiku-4-5", 200, 100, 0.003, None, _NOW - 3600),
+        """
+        INSERT INTO sessions (
+            id, source, billing_provider, model, input_tokens, output_tokens,
+            estimated_cost_usd, actual_cost_usd, started_at
+        ) VALUES (?,?,?,?,?,?,?,?,?)
+        """,
+        ("s3", "desktop", "anthropic", "claude-haiku-4-5", 200, 100, 0.003, None, _NOW - 3600),
     )
     conn.commit()
     conn.close()

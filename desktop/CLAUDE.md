@@ -47,9 +47,9 @@ Playwright E2E tests automatically start the Vite dev server (`npm run dev`) as 
 
 The frontend does not call APIs directly. All communication with the Python backend goes through the `GatewayAdapter` interface defined in `src/services/gateway/types.ts`. This interface exposes typed method groups (session, prompt, config, tools, model, approval, clarify, sudo, secret, cron, mcp, memory, skills, complete, slash, command, **analytics**) and an event emitter for streaming events (message deltas, tool calls, reasoning, errors, etc.).
 
-There are two implementations:
-- `GatewayClient` — wraps a real `Transport` for JSON-RPC communication with the Python gateway.
-- `MockGatewayAdapter` — fully functional mock with realistic data, used for frontend development when the backend is not running.
+The desktop app uses `createHttpGateway()` to talk to the FastAPI sidecar over HTTP/SSE.
+Browser development and E2E tests should mock HTTP routes at the API boundary rather than
+installing a second `GatewayAdapter` implementation.
 
 The newer **API Transport Pattern** (`src/services/api/`) provides HTTP-based communication for specific features:
 - **Analytics Transport** — fetches model usage statistics and cost data

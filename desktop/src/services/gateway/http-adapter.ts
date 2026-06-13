@@ -10,16 +10,11 @@
  */
 
 import type {
-  DesktopPermissionMode,
   GatewayAdapter,
   ConnectionState,
   GatewayEventEnvelope,
   GatewayEventMap,
-  SessionListItem,
   SessionMessage,
-  SessionTranscript,
-  SessionMeta,
-  SessionInfoPayload,
   HermesConfig,
   ToolEntry,
   CronJob,
@@ -33,67 +28,30 @@ import type {
   MemorySearchHit,
   MemoryScope,
   WellKnownMemoryName,
-  ConfigSetInput,
-  UpsertProviderInput,
-  DeleteProviderInput,
-  ModelOptionsResult,
   SkillInfo,
-  ModelOption,
-  CommandResult,
-  CommandAction,
-  CompletionEntry,
-  WorkspaceChildrenResult,
-  WorkspaceFileResult,
-  GitDiffResult,
-  GitBranchInfo,
 } from './types.js';
 import type { ParsedToolCall } from '@/types/index.js';
-import type { CardType } from '@/types/command-card.js';
 import { httpClient, type HttpClient } from '@/services/api/http-client.js';
-import type { ConfigReadResponse, HermesConfigRecord } from '@/services/api/types.js';
+import type { ConfigReadResponse } from '@/services/api/types.js';
+import {
+  makeCommandGateway,
+  makeCompleteGateway,
+  makeSlashGateway,
+  mapCommandResult,
+} from './http/commands.js';
+import {
+  makeImageGateway,
+  makePromptGateway,
+  makeSessionGateway,
+  makeSessionProviderSetter,
+} from './http/session-prompt.js';
+import { openEventSource, resolveEventSourceUrl } from './http/sse-lifecycle.js';
+import { API_PREFIX, cloneConfig, setDotPath } from './http/shared.js';
+import { makeGitGateway, makeWorkspaceGateway } from './http/workspace-git.js';
 
-const API_PREFIX = '/desktop/api';
-
-/**
- * Normalize the raw command-exec JSON from the backend into the frontend
- * `CommandResult` union. The backend (`daemon/schemas/commands.py`)
- * emits snake_case `card_type` and stuffs all text into `message`; the frontend
- * card union reads `cardType` + `text`. Without this remap the fields land as
- * `undefined`, so every card command fell back to an empty "No output." card.
- */
-export function mapCommandResult(r: Record<string, unknown>): CommandResult {
-  const kind = String(r.kind ?? 'error');
-  const name = typeof r.name === 'string' ? r.name : undefined;
-  const message = typeof r.message === 'string' ? r.message : '';
-  if (kind === 'card') {
-    return { kind: 'card', cardType: r.card_type as CardType, text: message || undefined, name };
-  }
-  if (kind === 'action') {
-    return { kind: 'action', action: r.action as CommandAction, message, name };
-  }
-  // output | send | skill | unsupported | error
-  return { kind: kind as 'output' | 'send' | 'skill' | 'unsupported' | 'error', message, name };
-}
+export { mapCommandResult };
 
 type EventHandler<K extends keyof GatewayEventMap> = (payload: GatewayEventMap[K]) => void;
-
-function permissionModeOf(value: unknown): DesktopPermissionMode {
-  return value === 'ask' || value === 'full' ? value : 'auto';
-}
-
-function setDotPath(target: HermesConfigRecord, path: string, value: unknown): void {
-  const parts = path.split('.').filter(Boolean);
-  if (!parts.length) return;
-  let current: HermesConfigRecord = target;
-  for (const part of parts.slice(0, -1)) {
-    const child = current[part];
-    if (!child || typeof child !== 'object' || Array.isArray(child)) {
-      current[part] = {};
-    }
-    current = current[part] as HermesConfigRecord;
-  }
-  current[parts[parts.length - 1]] = value;
-}
 
 /** SSE event shape from the backend. */
 interface SseEvent {
@@ -139,226 +97,23 @@ export class HttpGatewayAdapter implements GatewayAdapter {
   constructor(http?: HttpClient) {
     this.http = http ?? httpClient;
 
-    // ── session methods (REAL) ──────────────────────────────────────────
-    this.session = {
-      list: async (): Promise<SessionListItem[]> => {
-        const rows = await this.http.get<Array<Record<string, unknown>>>(`${API_PREFIX}/sessions`);
-        return rows.map((r) => ({
-          id: String(r.id ?? ''),
-          source: String(r.source ?? 'desktop'),
-          model: String(r.model ?? ''),
-          provider: (r.provider as string | null) ?? null,
-          title: String(r.title ?? 'Untitled'),
-          started_at: String(r.started_at ?? new Date().toISOString()),
-          message_count: Number(r.message_count ?? 0),
-          tool_call_count: 0,
-          cwd: (r.cwd as string) ?? null,
-          permissionMode: permissionModeOf(r.permissionMode),
-        }));
+    this.session = makeSessionGateway({
+      http: this.http,
+      aggregateEventRows: (sessionId, rows) => this.aggregateEventRows(sessionId, rows),
+      rememberSession: (sessionId, seq) => {
+        this.knownSessionIds.add(sessionId);
+        if (seq !== undefined) this.lastSeq.set(sessionId, seq);
       },
-
-      info: async (sessionId: string): Promise<SessionInfoPayload> => {
-        const r = await this.http.get<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}`);
-        return {
-          model: String(r.model ?? ''),
-          skills: {},
-          tools: { web: [], terminal: [] },
-          usage: { calls: 0, input: 0, output: 0, total: 0, cost_usd: 0 },
-        };
-      },
-
-      create: async (params): Promise<SessionMeta> => {
-        const r = await this.http.post<Record<string, unknown>>(`${API_PREFIX}/sessions`, {
-          model: params.model,
-          provider: params.provider,
-          system_prompt: params.system_prompt,
-          cwd: params.cwd,
-        });
-        const sid = String(r.session_id ?? r.id ?? '');
-        this.knownSessionIds.add(sid);
-        this.lastSeq.set(sid, 0);
-        return {
-          id: sid,
-          source: 'desktop',
-          model: String(r.model ?? params.model ?? ''),
-          title: 'New Session',
-          started_at: String(r.started_at ?? new Date().toISOString()),
-          ended_at: null,
-          message_count: 0,
-          tool_call_count: 0,
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_read_tokens: 0,
-          cache_write_tokens: 0,
-          reasoning_tokens: 0,
-          billing_provider: null,
-          billing_base_url: null,
-          billing_mode: 'auto',
-          estimated_cost_usd: 0,
-          actual_cost_usd: null,
-          cost_status: null,
-          cost_source: null,
-          pricing_version: null,
-          user_id: null,
-          model_config: null,
-          system_prompt: params.system_prompt ?? null,
-          parent_session_id: null,
-          end_reason: null,
-          cwd: (r.cwd as string) ?? params.cwd ?? null,
-          permissionMode: permissionModeOf(r.permissionMode),
-        };
-      },
-
-      delete: async (sessionId: string): Promise<void> => {
-        await this.http.delete(`${API_PREFIX}/sessions/${sessionId}`);
+      forgetSession: (sessionId) => {
         this.knownSessionIds.delete(sessionId);
         this.lastSeq.delete(sessionId);
       },
-
-      rename: async (sessionId: string, title: string): Promise<void> => {
-        await this.http.patch(`${API_PREFIX}/sessions/${sessionId}`, { title });
-      },
-
-      updateCwd: async (sessionId: string, cwd: string): Promise<{ cwd: string }> => {
-        const r = await this.http.patch<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}`, { cwd });
-        return { cwd: String(r.cwd ?? cwd) };
-      },
-
-      setPermissionMode: async (sessionId: string, mode: DesktopPermissionMode) => {
-        const r = await this.http.put<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}/permission-mode`, { mode });
-        return {
-          id: String(r.id ?? sessionId),
-          source: String(r.source ?? 'desktop'),
-          model: String(r.model ?? ''),
-          title: String(r.title ?? 'New Session'),
-          started_at: String(r.started_at ?? new Date().toISOString()),
-          ended_at: null,
-          message_count: Number(r.message_count ?? 0),
-          tool_call_count: 0,
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_read_tokens: 0,
-          cache_write_tokens: 0,
-          reasoning_tokens: 0,
-          billing_provider: null,
-          billing_base_url: null,
-          billing_mode: 'auto',
-          estimated_cost_usd: 0,
-          actual_cost_usd: null,
-          cost_status: null,
-          cost_source: null,
-          pricing_version: null,
-          user_id: null,
-          model_config: null,
-          system_prompt: null,
-          parent_session_id: null,
-          end_reason: null,
-          cwd: (r.cwd as string) ?? null,
-          permissionMode: permissionModeOf(r.permissionMode),
-          appliedToActiveTurn: Boolean(r.appliedToActiveTurn),
-          appliesNextTurn: Boolean(r.appliesNextTurn),
-        };
-      },
-
-      branch: async (sessionId: string): Promise<SessionMeta> => {
-        const r = await this.http.post<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}/branch`, {});
-        const sid = String(r.session_id ?? r.id ?? '');
-        this.knownSessionIds.add(sid);
-        this.lastSeq.set(sid, 0);
-        return {
-          id: sid,
-          source: 'desktop',
-          model: String(r.model ?? ''),
-          title: 'New Session',
-          started_at: String(r.started_at ?? new Date().toISOString()),
-          ended_at: null,
-          message_count: 0,
-          tool_call_count: 0,
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_read_tokens: 0,
-          cache_write_tokens: 0,
-          reasoning_tokens: 0,
-          billing_provider: null,
-          billing_base_url: null,
-          billing_mode: 'auto',
-          estimated_cost_usd: 0,
-          actual_cost_usd: null,
-          cost_status: null,
-          cost_source: null,
-          pricing_version: null,
-          user_id: null,
-          model_config: null,
-          system_prompt: null,
-          parent_session_id: sessionId,
-          end_reason: null,
-          cwd: (r.cwd as string) ?? null,
-          permissionMode: permissionModeOf(r.permissionMode),
-        };
-      },
-
-      resume: async (_sessionId: string): Promise<void> => {
-        // No-op: session is always "resumed" on the backend
-      },
-
-      interrupt: async (sessionId: string): Promise<void> => {
-        await this.http.post(`${API_PREFIX}/sessions/${sessionId}/interrupt`, {});
-      },
-
-      undo: async (sessionId: string): Promise<{ removed: number }> => {
-        const r = await this.http.post<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}/undo`, {});
-        return { removed: Number(r.removed ?? 0) };
-      },
-
-      messages: async (sessionId: string): Promise<SessionMessage[]> => {
-        const rows = await this.http.get<Array<Record<string, unknown>>>(`${API_PREFIX}/sessions/${sessionId}/messages`);
-        return this.aggregateEventRows(sessionId, rows);
-      },
-
-      transcript: async (sessionId: string): Promise<SessionTranscript> => {
-        const transcript = await this.http.get<SessionTranscript>(`${API_PREFIX}/sessions/${sessionId}/transcript`);
-        this.knownSessionIds.add(sessionId);
-        const current = this.lastSeq.get(sessionId) ?? 0;
-        if (transcript.max_seq > current) {
-          this.lastSeq.set(sessionId, transcript.max_seq);
-        }
-        return transcript;
-      },
-    };
-
-    // ── prompt.execute (REAL) ───────────────────────────────────────────
-    this.prompt = {
-      execute: async (params) => {
-        const body: Record<string, unknown> = {
-          message: params.message,
-          session_id: params.session_id,
-          provider: params.provider,
-          model: params.model,
-        };
-        if (params.context !== undefined) body.context = params.context;
-        if (params.slash_command !== undefined) body.slash_command = params.slash_command;
-        if (params.display_parts !== undefined) body.display_parts = params.display_parts;
-        return this.http.post(`${API_PREFIX}/prompt/execute`, body);
-      },
-    };
-
-    // ── image attachments (REAL) ───────────────────────────────────────
-    this.image = {
-      attach: async (params) => {
-        return this.http.post(`${API_PREFIX}/image/attach`, params);
-      },
-      detach: async (params) => {
-        return this.http.post(`${API_PREFIX}/image/detach`, params);
-      },
-    };
-
-    // ── setSessionProvider (REAL) ────────────────────────────────────────
-    this.setSessionProvider = async (sessionId: string, provider: string, model?: string): Promise<void> => {
-      await this.http.put(`${API_PREFIX}/sessions/${sessionId}/provider`, {
-        provider,
-        model,
-      });
-    };
+      updateLastSeq: (sessionId, seq) => this.lastSeq.set(sessionId, seq),
+      getLastSeq: (sessionId) => this.lastSeq.get(sessionId) ?? 0,
+    });
+    this.prompt = makePromptGateway(this.http);
+    this.image = makeImageGateway(this.http);
+    this.setSessionProvider = makeSessionProviderSetter(this.http);
 
     // ── approval / clarify (REAL) ───────────────────────────────────────
     this.approval = {
@@ -421,7 +176,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         }
         if (/^(tts|stt|voice)\./.test(input.key)) {
           const current = await this.http.get<ConfigReadResponse>(`${API_PREFIX}/config`);
-          const nextConfig = { ...current.config };
+          const nextConfig = cloneConfig(current.config as HermesConfig);
           setDotPath(nextConfig, input.key, input.value);
           await this.http.put(`${API_PREFIX}/config`, {
             config: nextConfig,
@@ -536,70 +291,11 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       },
     };
     this.skills = { list: notImplemented('skills.list') };
-    this.complete = {
-      slash: async (params): Promise<{ command: string; description: string; category?: string; icon?: string }[]> => {
-        const r = await this.http.post<{ items: Array<{ command: string; description: string; category?: string; icon?: string }> }>(
-          `${API_PREFIX}/commands/complete/slash`,
-          { partial: params.partial },
-        );
-        return r.items ?? [];
-      },
-      path: async (params): Promise<CompletionEntry[]> => {
-        const body: Record<string, unknown> = {
-          word: params.partial,
-          session_id: params.sessionId,
-        };
-        const r = await this.http.post<{ items?: CompletionEntry[] }>(
-          `${API_PREFIX}/commands/complete/path`,
-          body,
-        );
-        return Array.isArray(r.items) ? r.items : [];
-      },
-    };
-    this.workspace = {
-      children: async (sessionId: string, path: string): Promise<WorkspaceChildrenResult> =>
-        this.http.get<WorkspaceChildrenResult>(
-          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/workspace/children?path=${encodeURIComponent(path)}`,
-        ),
-      readFile: async (sessionId: string, path: string): Promise<WorkspaceFileResult> =>
-        this.http.get<WorkspaceFileResult>(
-          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/workspace/file?path=${encodeURIComponent(path)}`,
-        ),
-      reveal: async (sessionId: string, path: string): Promise<void> => {
-        await this.http.post(
-          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/workspace/reveal`,
-          { path },
-        );
-      },
-    };
-    this.git = {
-      diff: async (sessionId: string): Promise<GitDiffResult> =>
-        this.http.get<GitDiffResult>(
-          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/git/diff`,
-        ),
-      branches: async (sessionId: string): Promise<GitBranchInfo> =>
-        this.http.get<GitBranchInfo>(
-          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/git/branches`,
-        ),
-      checkout: async (sessionId: string, branch: string): Promise<void> => {
-        await this.http.post(
-          `${API_PREFIX}/sessions/${encodeURIComponent(sessionId)}/git/checkout`,
-          { branch },
-        );
-      },
-    };
-    this.slash = {
-      exec: async (params): Promise<CommandResult> =>
-        mapCommandResult(
-          await this.http.post<Record<string, unknown>>(`${API_PREFIX}/commands/slash/exec`, params),
-        ),
-    };
-    this.command = {
-      dispatch: async (params): Promise<CommandResult> =>
-        mapCommandResult(
-          await this.http.post<Record<string, unknown>>(`${API_PREFIX}/commands/dispatch`, params),
-        ),
-    };
+    this.complete = makeCompleteGateway(this.http);
+    this.workspace = makeWorkspaceGateway(this.http);
+    this.git = makeGitGateway(this.http);
+    this.slash = makeSlashGateway(this.http);
+    this.command = makeCommandGateway(this.http);
     this.delegation = {
       status: async () => {
         console.warn('delegation.status RPC not implemented — returning empty status');
@@ -1115,56 +811,23 @@ export class HttpGatewayAdapter implements GatewayAdapter {
 
   async connect(): Promise<void> {
     this.state = 'connecting';
-
-    // Resolve the EventSource URL (token in query string)
-    try {
-      const info = await (this.http as unknown as { info: () => Promise<{ base_url: string; token: string }> }).info?.();
-      if (info) {
-        this.eventSourceUrl = `${info.base_url}${API_PREFIX}/events/stream?token=${encodeURIComponent(info.token)}`;
-      }
-    } catch {
-      // Fallback: use env var
-      const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? 'http://127.0.0.1:18080';
-      const token = import.meta.env.VITE_SIDECAR_TOKEN ?? '';
-      this.eventSourceUrl = `${baseUrl}${API_PREFIX}/events/stream?token=${encodeURIComponent(token)}`;
-    }
-
-    // Create EventSource and register onmessage/onerror BEFORE awaiting onopen.
-    // The sidecar pushes pending_approval replay immediately on connection open,
-    // so onmessage must be live before the onopen promise resolves — otherwise
-    // those first frames are lost.
-    const eventSource = new EventSource(this.eventSourceUrl);
-    this.eventSource = eventSource;
-
-    eventSource.onmessage = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.type) {
+    this.eventSourceUrl = await resolveEventSourceUrl(this.http);
+    this.eventSource = await openEventSource(this.eventSourceUrl, {
+      onMessage: (data) => {
+        if (data && typeof data === 'object' && 'type' in data) {
           this.dispatchSseEvent(data as SseEvent);
         }
-      } catch { /* ignore non-JSON frames (keepalives) */ }
-    };
-
-    eventSource.onerror = () => {
-      if (this.state === 'connected') {
-        this.state = 'reconnecting';
-      }
-      // EventSource auto-reconnects; onopen will trigger replay
-    };
-
-    // Wait for onopen so callers know the stream is live.
-    // 5-second timeout prevents blocking boot if SSE handshake stalls.
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 5_000);
-
-      eventSource.onopen = () => {
-        clearTimeout(timer);
+      },
+      onError: () => {
+        if (this.state === 'connected') {
+          this.state = 'reconnecting';
+        }
+      },
+      onOpen: () => {
         this.state = 'connected';
-        // Replay missed events for all known sessions
         this._replayAllSessions();
         this.emit('gateway.ready', { skin: undefined });
-        resolve();
-      };
+      },
     });
   }
 

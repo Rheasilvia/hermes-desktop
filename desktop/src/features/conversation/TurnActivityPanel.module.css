@@ -82,7 +82,7 @@
   min-width: 0;
 }
 
-/* Quiet expand/collapse affordance on the summary row (▸ collapsed / ▾ expanded). */
+/* Quiet collapse affordance on the expanded summary header. */
 .summaryChevron {
   color: var(--color-on-surface-dim);
   margin-left: auto;

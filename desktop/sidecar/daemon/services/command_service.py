@@ -132,6 +132,7 @@ _DESKTOP_TRIMMED = frozenset({
     "status", "help", "platforms", "agents",
     "profile", "gquota", "insights", "debug", "save",
     "rollback", "curator", "kanban", "update", "version",
+    "suggestions", "blueprint", "credits",
 })
 
 # Catalog/help "supported" flag derives from this union — single source of truth,

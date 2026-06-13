@@ -1,6 +1,31 @@
 """Integration tests for /model endpoints — SQLite-backed overlays (v3)."""
 
+import pytest
+
+from daemon.readers import model_catalog
 from daemon.overlays.loader import update as overlay_update
+from daemon.services import model_service
+
+
+@pytest.fixture(autouse=True)
+def deterministic_model_inventory(monkeypatch: pytest.MonkeyPatch, hermes_home):
+    def _fixture_payload() -> dict:
+        providers = []
+        for provider in model_catalog.get_providers(hermes_home):
+            models = [
+                model.get("id") if isinstance(model, dict) else str(model)
+                for model in provider.get("models", [])
+            ]
+            providers.append({
+                "slug": provider.get("id"),
+                "name": provider.get("name"),
+                "auth_type": provider.get("auth"),
+                "authenticated": False,
+                "models": models,
+            })
+        return {"providers": providers}
+
+    monkeypatch.setattr(model_service, "_load_models_payload", _fixture_payload)
 
 
 def test_get_catalog(client, auth):

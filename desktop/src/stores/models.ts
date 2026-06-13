@@ -4,9 +4,9 @@
 
 import { createSignal } from 'solid-js';
 import type { ProviderEntry, ModelOption } from '@/types/index.js';
+import type { AuxiliaryModelsResponse, StaleAuxEntry } from '@/services/api';
 import { api } from '../services/api/router';
 import type { Provider } from '../services/api/types';
-import type { AuxiliaryModelsResponse, StaleAuxEntry } from '../services/api/transports/http/model.js';
 
 const MODEL_PROVIDER_CACHE_KEY = 'hermes.desktop.model.providers.v2';
 
@@ -569,4 +569,3 @@ export function createModelsStore() {
 
 /** Singleton instance used by the model module views. */
 export const modelsStore = createModelsStore();
-

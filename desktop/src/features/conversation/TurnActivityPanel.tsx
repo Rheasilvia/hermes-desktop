@@ -148,7 +148,6 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
         <span class={styles.summaryLabel}>
           <SummaryLabel toolCount={completedToolCount()} />
         </span>
-        <Icon name="chevron-right" size={11} class={styles.summaryChevron} aria-hidden="true" />
       </button>
 
       {/* ── EXPANDED VIEW ───────────────────────────────────────────────── */}
