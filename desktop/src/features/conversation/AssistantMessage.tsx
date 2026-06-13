@@ -359,7 +359,11 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
           </Show>
           <Show when={traceSplit()}>
             {(split) => (
-              <div class={styles.workTracePanel}>
+              <div
+                class={`${styles.workTracePanel} ${
+                  traceExpanded() ? styles.workTraceExpanded : ''
+                }`}
+              >
                 <button
                   class={styles.workTraceHeader}
                   type="button"

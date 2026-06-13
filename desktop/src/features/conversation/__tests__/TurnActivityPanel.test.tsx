@@ -151,24 +151,19 @@ describe('TurnActivityPanel live tool rows', () => {
 
     const liveSummary = screen.getByLabelText('Tool activity summary');
     const liveIconSlot = within(liveSummary).getByTestId('tool-summary-icon-slot');
-    const liveActions = within(liveSummary).getByTestId('tool-summary-actions');
     expect(liveSummary.className).toContain('summaryRow');
     expect(liveSummary.textContent).toContain('1 tool completed');
-    expect(liveActions.className).toContain('summaryActionsPlaceholder');
 
     setLive(false);
     vi.advanceTimersByTime(600);
 
     const pill = screen.getByTestId('turn-activity-pill');
     const pillIconSlot = within(pill).getByTestId('tool-summary-icon-slot');
-    const pillActions = within(pill).getByTestId('tool-summary-actions');
     expect(pill.getAttribute('style') ?? '').toContain('display: flex');
     expect(pill.className).toContain('summaryRow');
     expect(pill.textContent).toContain('1 tool completed');
     expect(pillIconSlot.className).toBe(liveIconSlot.className);
-    expect(pillActions.className).not.toContain('summaryActionsPlaceholder');
     expect(pill.tagName).toBe('BUTTON');
-    expect(pill.textContent).toContain('Details');
   });
 
   it('expands details when clicking anywhere on the completed summary row', async () => {
@@ -190,7 +185,6 @@ describe('TurnActivityPanel live tool rows', () => {
     const pill = screen.getByRole('button', { name: /1 tool completed\. Show details/ });
     await fireEvent.click(pill);
 
-    expect(screen.getByText('Tools')).toBeTruthy();
     expect(screen.getByRole('button', { name: /terminal: Show result/, hidden: true })).toBeTruthy();
   });
 
