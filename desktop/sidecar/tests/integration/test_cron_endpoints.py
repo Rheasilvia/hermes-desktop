@@ -1,4 +1,4 @@
-import json
+from daemon.overlays.loader import update as overlay_update
 
 
 def test_list_jobs_default_overlay(client, auth):
@@ -10,11 +10,7 @@ def test_list_jobs_default_overlay(client, auth):
 
 
 def test_list_jobs_applies_overlay(client, auth, hermes_home):
-    overlay_dir = hermes_home / "desktop" / "overlays"
-    overlay_dir.mkdir(parents=True, exist_ok=True)
-    (overlay_dir / "cron.json").write_text(
-        json.dumps({"job_test_001": {"pinned": True}})
-    )
+    overlay_update(hermes_home, "cron", "job_test_001", {"pinned": True})
     r = client.get("/desktop/api/cron/jobs", headers=auth)
     items = {j["id"]: j for j in r.json()["items"]}
     assert items["job_test_001"]["desktop"]["pinned"] is True
@@ -41,11 +37,8 @@ def test_corrupt_l1_returns_503(client, auth, hermes_home):
     assert body["path"].endswith("jobs.json")
 
 
-def test_corrupt_l2_does_not_block_l1(client, auth, hermes_home):
-    overlay_dir = hermes_home / "desktop" / "overlays"
-    overlay_dir.mkdir(parents=True, exist_ok=True)
-    (overlay_dir / "cron.json").write_text("garbage")
+def test_sqlite_l2_overlay_does_not_use_json_file(client, auth, hermes_home):
+    overlay_update(hermes_home, "cron", "job_test_001", {"pinned": True})
     r = client.get("/desktop/api/cron/jobs", headers=auth)
     assert r.status_code == 200
-    backups = list(overlay_dir.glob("cron.json.corrupt-*"))
-    assert len(backups) == 1
+    assert not (hermes_home / "desktop" / "overlays" / "cron.json").exists()

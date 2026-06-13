@@ -326,20 +326,30 @@ def _finalize_assistant_blocks(blocks: list[dict[str, Any]], final_text: str, se
 
     # message.complete.text is the final snapshot for assistant_content, not a
     # second renderable text event. Only synthesize a text block when no
-    # message.delta has supplied the assistant text for this turn.
+    # message.delta has supplied the assistant text for this turn, or append a
+    # missing suffix when the final snapshot is a strict extension of streamed
+    # text. Do not replace existing text blocks: their positions encode the
+    # text/tool ordering contract.
     if final_text and not streamed_text:
         next_blocks = _append_text_block(next_blocks, final_text, seq)
     elif final_text and streamed_text != final_text:
-        replaced = False
-        normalized_blocks: list[dict[str, Any]] = []
-        for block in next_blocks:
-            if block.get("type") != "text":
-                normalized_blocks.append(block)
-                continue
-            if not replaced:
-                normalized_blocks.append({**block, "content": final_text, "seq": seq})
-                replaced = True
-        next_blocks = normalized_blocks
+        has_tool_blocks = any(
+            block.get("type") in {"tool_call", "todo_list"}
+            for block in next_blocks
+        )
+        if final_text.startswith(streamed_text):
+            next_blocks = _append_text_block(next_blocks, final_text[len(streamed_text):], seq)
+        elif not has_tool_blocks and streamed_text.lstrip() != final_text:
+            replaced = False
+            normalized_blocks: list[dict[str, Any]] = []
+            for block in next_blocks:
+                if block.get("type") != "text":
+                    normalized_blocks.append(block)
+                    continue
+                if not replaced:
+                    normalized_blocks.append({**block, "content": final_text})
+                    replaced = True
+            next_blocks = normalized_blocks
 
     finalized: list[dict[str, Any]] = []
     for block in next_blocks:

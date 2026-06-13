@@ -10,7 +10,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -48,6 +48,15 @@ def _hermes_home_env(hermes_home: Path):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _load_models_payload() -> dict[str, Any]:
+    from hermes_cli.inventory import build_models_payload, load_picker_context
+
+    ctx = load_picker_context()
+    return build_models_payload(
+        ctx, include_unconfigured=True, picker_hints=True, canonical_order=True,
+    )
 
 
 def _provider_env_vars(provider_id: str) -> list[str]:
@@ -101,9 +110,15 @@ def is_provider_default_base_url(provider_id: str, base_url: str | None) -> bool
 class ModelService:
     """Provider CRUD, env sync, API key resolution, and catalog merging."""
 
-    def __init__(self, hermes_home: Path, event_bus: Any = None) -> None:
+    def __init__(
+        self,
+        hermes_home: Path,
+        event_bus: Any = None,
+        models_payload_loader: Callable[[], dict[str, Any]] | None = None,
+    ) -> None:
         self._hermes_home = hermes_home
         self._bus = event_bus
+        self._models_payload_loader = models_payload_loader or _load_models_payload
 
     def get_active_model(self) -> dict:
         from ..readers.hermes_config import read_active_model
@@ -172,16 +187,12 @@ class ModelService:
         }
 
     def list_providers(self, configured_only: bool = True) -> dict:
-        from hermes_cli.inventory import build_models_payload, load_picker_context
         from ..overlays import loader as overlays_loader
         from ..services.merger import filter_configured
 
-        ctx = load_picker_context()
-        payload = build_models_payload(
-            ctx, include_unconfigured=True, picker_hints=True, canonical_order=True,
-        )
+        payload = self._models_payload_loader()
         overlay = overlays_loader.load(self._hermes_home, "model")
-        merged = self._map_payload_to_merged(payload["providers"], overlay)
+        merged = self._map_payload_to_merged(payload.get("providers", []), overlay)
         self._apply_resolved_credentials(merged)
         if configured_only:
             merged = filter_configured(merged)

@@ -23,7 +23,7 @@ from daemon.schemas.memory import (
     MemorySearchHit,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 TS_TYPES = REPO_ROOT / "desktop" / "src" / "types" / "memory.ts"
 
 

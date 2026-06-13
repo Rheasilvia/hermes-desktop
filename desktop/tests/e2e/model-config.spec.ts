@@ -34,10 +34,4 @@ test.describe('Model config — real adapter wiring', () => {
     await expect(page).toHaveURL(/\//);
   });
 
-  test('6. mock gateway hook is available', async ({ page }) => {
-    const hasMock = await page.evaluate(() => {
-      return typeof (window as unknown as { __HERMES_MOCK?: unknown }).__HERMES_MOCK !== 'undefined';
-    });
-    expect(typeof hasMock).toBe('boolean');
-  });
 });

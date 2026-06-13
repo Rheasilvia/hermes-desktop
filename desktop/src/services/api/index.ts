@@ -42,6 +42,15 @@ export type {
 } from './types';
 export { api } from './router';
 export { isApiError } from './types';
+export type {
+  AuxMainEntry,
+  AuxTaskEntry,
+  AuxiliaryModelsResponse,
+  ModelAssignmentRequest,
+  ModelAssignmentResponse,
+  ModelTransport,
+  StaleAuxEntry,
+} from './transports/http/model';
 
 export function bootstrapApi(): void {
   api.register('cron', makeCronTransport(httpClient));

@@ -12,17 +12,15 @@ import { test, expect, type Page } from '@playwright/test';
  *   mapModelOption sets both name and display_name = raw.id ?? raw.name
  *   → button text = the "id" field in each raw model object
  *
- * NOTE: In browser (non-Tauri) dev mode, App.tsx wires up a MockGatewayAdapter
- * which also sets activeProvider='openai' and activeModel='gpt-4o' via the
- * gateway path (modelStore.loadActiveModel). The sidecar path (modelsStore.loadActive)
- * uses the intercepted HTTP routes below. Both paths share the same signals, so
- * tests that need to assert the active model in MainModelCard must use
+ * NOTE: Browser-mode E2E uses intercepted HTTP routes below, matching the sidecar
+ * contract that App.tsx reaches through createHttpGateway() and the API registry.
+ * Tests that need to assert the active model in MainModelCard must use
  * data-testid="main-model-change-btn" to click it unambiguously, and
  * data-testid="main-model-display" to read the displayed text.
  *
  * For the MainModelCard text assertions, we verify the card shows *something*
- * (the gateway mock's openai/gpt-4o defaults) and use the modal to verify the
- * sidecar mock data is wired correctly into the provider/model picker.
+ * and use the modal to verify the sidecar mock data is wired correctly into the
+ * provider/model picker.
  */
 const MOCK_PROVIDERS = [
   {
