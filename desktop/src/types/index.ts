@@ -59,6 +59,9 @@ export type { DbMessage } from './db/message.js';
 export type {
   SessionMeta,
   DesktopPermissionMode,
+  ReasoningEffort,
+  SessionRuntime,
+  SessionRuntimeUpdateResult,
   SessionMessage,
   SessionUsage,
   SessionInfo,

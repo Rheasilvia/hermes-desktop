@@ -1,10 +1,25 @@
-import type { DesktopPermissionMode, HermesConfig } from '../types.js';
+import type { DesktopPermissionMode, HermesConfig, ReasoningEffort, SessionRuntime } from '../types.js';
 import type { HermesConfigRecord } from '@/services/api/types.js';
 
 export const API_PREFIX = '/desktop/api';
 
 export function permissionModeOf(value: unknown): DesktopPermissionMode {
   return value === 'ask' || value === 'full' ? value : 'auto';
+}
+
+export function reasoningEffortOf(value: unknown): ReasoningEffort {
+  return value === 'none'
+    || value === 'minimal'
+    || value === 'low'
+    || value === 'high'
+    || value === 'xhigh'
+    ? value
+    : 'medium';
+}
+
+export function sessionRuntimeOf(value: unknown): SessionRuntime {
+  const runtime = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return { reasoningEffort: reasoningEffortOf(runtime.reasoningEffort) };
 }
 
 export function setDotPath(target: HermesConfigRecord, path: string, value: unknown): void {

@@ -15,3 +15,11 @@ def test_wrong_token_rejected(client):
 def test_correct_token_accepted(client, auth):
     r = client.get("/desktop/api/cron/jobs", headers=auth)
     assert r.status_code == 200
+
+
+def test_session_runtime_endpoint_requires_token(client):
+    r = client.patch(
+        "/desktop/api/sessions/session-1/runtime",
+        json={"reasoningEffort": "medium"},
+    )
+    assert r.status_code == 401

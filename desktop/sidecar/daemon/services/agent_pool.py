@@ -233,6 +233,34 @@ class AgentPool:
                 return True
             return False
 
+    def apply_runtime(self, session_id: str, runtime: dict[str, Any]) -> bool:
+        """Apply persisted runtime settings to an idle pooled agent.
+
+        Returns True only when a cached, non-running agent was updated. Running
+        agents keep their in-flight request state; sessions without a cached
+        agent pick the runtime up on the next build.
+        """
+        effort = runtime.get("reasoningEffort")
+        if effort is None:
+            return False
+        try:
+            from hermes_constants import parse_reasoning_effort
+            from .desktop_meta_service import normalize_reasoning_effort
+
+            normalized = normalize_reasoning_effort(str(effort))
+            parsed = parse_reasoning_effort(normalized)
+        except Exception:
+            log.debug("invalid runtime patch ignored for %s: %r", session_id, runtime, exc_info=True)
+            return False
+
+        with self._lock:
+            entry = self._agents.get(session_id)
+            if entry is None or entry.running:
+                return False
+            entry.agent.reasoning_config = parsed
+            entry.last_used = time.time()
+            return True
+
     def shutdown(self) -> None:
         """Interrupt all running agents and clear the pool."""
         with self._lock:
@@ -275,18 +303,28 @@ class AgentPool:
         from ..overlays import loader as overlays_loader
         from ..db.connection import connect as desktop_connect, ensure_schema
 
-        # Step 1: Read provider from desktop meta; cwd is canonical in state.db.
+        # Step 1: Read provider/runtime from desktop meta; cwd is canonical in state.db.
         provider = None
+        reasoning_effort = "medium"
         _t0 = time.time()
         try:
             conn = desktop_connect(self._hermes_home)
             ensure_schema(conn)
             row = conn.execute(
-                "SELECT provider FROM session_desktop_meta WHERE session_id = ?",
+                "SELECT provider, reasoning_effort FROM session_desktop_meta WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
             if row:
                 provider = row["provider"]
+                try:
+                    from .desktop_meta_service import normalize_reasoning_effort
+
+                    reasoning_effort = normalize_reasoning_effort(
+                        row["reasoning_effort"],
+                        strict=False,
+                    )
+                except Exception:
+                    reasoning_effort = "medium"
             conn.close()
         except Exception as e:
             log.debug(f"Failed to read session_desktop_meta: {e}")
@@ -416,6 +454,8 @@ class AgentPool:
             init_cwd_context.callback(reset_terminal_cwd, set_terminal_cwd(cwd))
             init_cwd_context.callback(reset_session_cwd, set_session_cwd(cwd))
         with init_cwd_context:
+            from hermes_constants import parse_reasoning_effort
+
             init_agent(
                 agent,
                 session_id=session_id,
@@ -432,6 +472,7 @@ class AgentPool:
                 reasoning_callback=self._make_reasoning_cb(session_id),
                 tool_gen_callback=self._make_tool_gen_cb(session_id),
                 tool_progress_callback=self._make_tool_progress_cb(session_id),
+                reasoning_config=parse_reasoning_effort(reasoning_effort),
                 platform="desktop",
             )
 

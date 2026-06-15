@@ -69,6 +69,7 @@ class DesktopMetaStore(Protocol):
         session_id: str,
         provider: str | None = None,
         permission_mode: str = "auto",
+        reasoning_effort: str = "medium",
     ) -> None:
         """Insert or update a session_desktop_meta row."""
         ...
@@ -99,6 +100,18 @@ class DesktopMetaStore(Protocol):
 
     def get_permission_modes(self, session_ids: list[str]) -> dict[str, str]:
         """Batch fetch permission modes for multiple sessions."""
+        ...
+
+    def set_reasoning_effort(self, session_id: str, effort: str) -> str:
+        """Persist the conversation reasoning effort and return the normalized value."""
+        ...
+
+    def get_reasoning_effort(self, session_id: str) -> str:
+        """Return the stored reasoning effort for a session, defaulting to medium."""
+        ...
+
+    def get_reasoning_efforts(self, session_ids: list[str]) -> dict[str, str]:
+        """Batch fetch reasoning efforts for multiple sessions."""
         ...
 
 

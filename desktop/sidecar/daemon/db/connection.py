@@ -122,6 +122,24 @@ def _migrate(conn: sqlite3.Connection, current_version: int) -> None:
             "WHERE permission_mode IS NULL OR permission_mode NOT IN ('ask', 'auto', 'full')"
         )
         conn.execute("UPDATE schema_version SET version = ?", (7,))
+        current_version = 7
+
+    if current_version < 8:
+        try:
+            conn.execute(
+                "ALTER TABLE session_desktop_meta "
+                "ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'medium'"
+            )
+        except Exception:
+            pass  # column already exists
+        conn.execute(
+            "UPDATE session_desktop_meta "
+            "SET reasoning_effort = 'medium' "
+            "WHERE reasoning_effort IS NULL "
+            "OR TRIM(reasoning_effort) = '' "
+            "OR LOWER(reasoning_effort) NOT IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')"
+        )
+        conn.execute("UPDATE schema_version SET version = ?", (8,))
 
 
 def _overlay_json_path(hermes_home: str, domain: str) -> Path:

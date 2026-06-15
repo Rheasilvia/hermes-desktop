@@ -1107,7 +1107,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
               </div>
             </Show>
             <Show when={props.modelSlot}>
-              <div class={styles.modelPill}>{props.modelSlot!(Boolean(props.disabled && !props.isStreaming), Boolean(props.isStreaming))}</div>
+              <div class={styles.modelPill}>{props.modelSlot!(Boolean(props.disabled && !props.isStreaming), false)}</div>
             </Show>
             <WorkspacePicker
               sessionId={props.sessionId}

@@ -13,7 +13,15 @@ from unittest.mock import MagicMock
 from daemon.services.agent_pool import AgentPool
 
 
-def _drive_build_agent(tmp_path, monkeypatch, *, provider: str, resolved_base_url: str, cwd: str | None = None) -> dict:
+def _drive_build_agent(
+    tmp_path,
+    monkeypatch,
+    *,
+    provider: str,
+    resolved_base_url: str,
+    cwd: str | None = None,
+    reasoning_effort: str = "medium",
+) -> dict:
     """Run _build_agent with all heavy deps mocked; return the kwargs init_agent received."""
     captured: dict = {}
 
@@ -36,7 +44,10 @@ def _drive_build_agent(tmp_path, monkeypatch, *, provider: str, resolved_base_ur
 
     # session_desktop_meta read → provider
     fake_conn = MagicMock()
-    fake_conn.execute.return_value.fetchone.return_value = {"provider": provider}
+    fake_conn.execute.return_value.fetchone.return_value = {
+        "provider": provider,
+        "reasoning_effort": reasoning_effort,
+    }
     monkeypatch.setattr("daemon.db.connection.connect", lambda home: fake_conn)
     monkeypatch.setattr("daemon.db.connection.ensure_schema", lambda c: None)
 
@@ -94,3 +105,15 @@ def test_build_agent_binds_session_cwd_during_init(tmp_path, monkeypatch):
     assert kw["init_terminal_cwd"] == str(cwd)
     assert kw["init_agent_cwd"] == str(cwd)
     assert kw["init_context_cwd"] == str(cwd)
+
+
+def test_build_agent_passes_session_reasoning_effort(tmp_path, monkeypatch):
+    kw = _drive_build_agent(
+        tmp_path,
+        monkeypatch,
+        provider="customx",
+        resolved_base_url="https://api.example.com/v1",
+        reasoning_effort="none",
+    )
+
+    assert kw["reasoning_config"] == {"enabled": False}

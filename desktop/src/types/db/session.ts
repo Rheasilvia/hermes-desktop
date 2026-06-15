@@ -36,4 +36,5 @@ export interface DbDesktopSessionMeta {
   created_at: number;
   provider: string | null;
   permission_mode: 'ask' | 'auto' | 'full';
+  reasoning_effort: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 }

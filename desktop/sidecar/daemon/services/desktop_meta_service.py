@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 
 PERMISSION_MODES = frozenset({"ask", "auto", "full"})
+REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
+DEFAULT_REASONING_EFFORT = "medium"
 
 
 def normalize_permission_mode(mode: str | None) -> str:
@@ -16,6 +18,15 @@ def normalize_permission_mode(mode: str | None) -> str:
     if value not in PERMISSION_MODES:
         raise ValueError(f"invalid permission mode: {mode}")
     return value
+
+
+def normalize_reasoning_effort(effort: str | None, *, strict: bool = True) -> str:
+    value = str(effort or "").strip().lower()
+    if value in REASONING_EFFORTS:
+        return value
+    if strict:
+        raise ValueError(f"invalid reasoning effort: {effort}")
+    return DEFAULT_REASONING_EFFORT
 
 
 class DesktopMetaService:
@@ -35,7 +46,7 @@ class DesktopMetaService:
         try:
             row = conn.execute(
                 "SELECT session_id, pinned, archived, "
-                "last_opened_at, created_at, provider, permission_mode "
+                "last_opened_at, created_at, provider, permission_mode, reasoning_effort "
                 "FROM session_desktop_meta WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
@@ -48,22 +59,25 @@ class DesktopMetaService:
         session_id: str,
         provider: str = "",
         permission_mode: str = "auto",
+        reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     ) -> None:
         now = time.time()
         mode = normalize_permission_mode(permission_mode)
+        effort = normalize_reasoning_effort(reasoning_effort)
         conn = self._connect()
         try:
             conn.execute(
                 """
                 INSERT INTO session_desktop_meta
-                    (session_id, pinned, archived, last_opened_at, created_at, provider, permission_mode)
-                VALUES (?, 0, 0, ?, ?, ?, ?)
+                    (session_id, pinned, archived, last_opened_at, created_at, provider, permission_mode, reasoning_effort)
+                VALUES (?, 0, 0, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     last_opened_at = excluded.last_opened_at,
                     provider = excluded.provider,
-                    permission_mode = excluded.permission_mode
+                    permission_mode = excluded.permission_mode,
+                    reasoning_effort = excluded.reasoning_effort
                 """,
-                (session_id, now, now, provider, mode),
+                (session_id, now, now, provider, mode, effort),
             )
             conn.commit()
         finally:
@@ -164,6 +178,57 @@ class DesktopMetaService:
             for row in rows:
                 value = str(row["permission_mode"] or "auto").strip().lower()
                 result[row["session_id"]] = value if value in PERMISSION_MODES else "auto"
+            return result
+        finally:
+            conn.close()
+
+    def set_reasoning_effort(self, session_id: str, effort: str) -> str:
+        value = normalize_reasoning_effort(effort)
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                INSERT INTO session_desktop_meta (session_id, reasoning_effort)
+                VALUES (?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    reasoning_effort = excluded.reasoning_effort
+                """,
+                (session_id, value),
+            )
+            conn.commit()
+            return value
+        finally:
+            conn.close()
+
+    def get_reasoning_effort(self, session_id: str) -> str:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT reasoning_effort FROM session_desktop_meta WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if not row:
+                return DEFAULT_REASONING_EFFORT
+            return normalize_reasoning_effort(row["reasoning_effort"], strict=False)
+        finally:
+            conn.close()
+
+    def get_reasoning_efforts(self, session_ids: list[str]) -> dict[str, str]:
+        if not session_ids:
+            return {}
+        conn = self._connect()
+        try:
+            placeholders = ",".join("?" for _ in session_ids)
+            rows = conn.execute(
+                f"SELECT session_id, reasoning_effort FROM session_desktop_meta WHERE session_id IN ({placeholders})",
+                tuple(session_ids),
+            ).fetchall()
+            result = {sid: DEFAULT_REASONING_EFFORT for sid in session_ids}
+            for row in rows:
+                result[row["session_id"]] = normalize_reasoning_effort(
+                    row["reasoning_effort"],
+                    strict=False,
+                )
             return result
         finally:
             conn.close()

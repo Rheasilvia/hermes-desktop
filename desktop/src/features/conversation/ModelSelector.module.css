@@ -66,7 +66,7 @@
   position: absolute;
   bottom: calc(100% + 4px);
   left: 0;
-  min-width: 220px;
+  min-width: 272px;
   max-height: 320px;
   overflow-y: auto;
   background-color: var(--color-surface);
@@ -77,12 +77,93 @@
   padding: 4px 0;
 }
 
-.providerGroup {
-  padding: 4px 0;
+.runtimePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.thinkingToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-background-alt);
+  color: var(--color-on-surface-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.thinkingToggle:hover {
+  background: var(--color-hover-overlay);
+}
+
+.thinkingToggleOn {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.effortRail {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.effortButton {
+  min-width: 0;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-on-surface-muted);
+  font-size: 10px;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.effortButton:hover {
+  background: var(--color-hover-overlay);
+}
+
+.effortButtonActive {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.thinkingToggle:disabled,
+.effortButton:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.nextTurnBadge {
+  align-self: flex-end;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-background-alt);
+  color: var(--color-on-surface-muted);
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .providerLabel {
-  padding: 4px 12px;
+  padding: 8px 12px 4px;
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
   color: var(--color-on-surface-muted);
@@ -106,6 +187,10 @@
 }
 
 .modelItem:hover {
+  background-color: var(--color-hover-overlay);
+}
+
+.modelItemHighlighted {
   background-color: var(--color-hover-overlay);
 }
 

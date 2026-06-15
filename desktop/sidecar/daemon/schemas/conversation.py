@@ -42,6 +42,10 @@ class SetPermissionModeRequest(BaseModel):
     mode: str
 
 
+class UpdateSessionRuntimeRequest(BaseModel):
+    reasoningEffort: Optional[str] = None
+
+
 class PromptExecuteRequest(BaseModel):
     message: str
     session_id: str
