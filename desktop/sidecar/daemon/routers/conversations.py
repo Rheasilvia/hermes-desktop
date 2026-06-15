@@ -24,6 +24,7 @@ from ..schemas.conversation import (
     SecretRespondRequest,
     SetPermissionModeRequest,
     UpdateSessionRequest,
+    UpdateSessionRuntimeRequest,
     SetSessionProviderRequest,
     SudoRespondRequest,
 )
@@ -212,6 +213,37 @@ async def set_permission_mode(
     except Exception:
         log.exception("failed to append permission mode audit event for %s", session_id)
     return result
+
+
+@router.patch("/sessions/{session_id}/runtime")
+async def update_session_runtime(
+    session_id: str,
+    body: UpdateSessionRuntimeRequest,
+    svc=Depends(get_session_service),
+    pool=Depends(get_agent_pool),
+):
+    try:
+        patch = body.model_dump(exclude_unset=True)
+        if not patch:
+            raise ValueError("runtime patch must include at least one field")
+        running = pool.is_running(session_id)
+        result = svc.update_runtime(session_id, patch)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    runtime = result.get("runtime") or {}
+    if not running:
+        pool.apply_runtime(session_id, runtime)
+    result["appliedToActiveTurn"] = not running
+    result["appliesNextTurn"] = running
+    return {
+        "id": result["id"],
+        "runtime": runtime,
+        "appliedToActiveTurn": result["appliedToActiveTurn"],
+        "appliesNextTurn": result["appliesNextTurn"],
+    }
 
 
 # ── Messages replay (ui_messages) ─────────────────────────────────────────────

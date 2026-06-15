@@ -9,6 +9,18 @@ import type { MessageBlock } from './ui/blocks.js';
 import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
 export type DesktopPermissionMode = 'ask' | 'auto' | 'full';
+export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
+export interface SessionRuntime {
+  reasoningEffort: ReasoningEffort;
+}
+
+export interface SessionRuntimeUpdateResult {
+  id: string;
+  runtime: SessionRuntime;
+  appliedToActiveTurn?: boolean;
+  appliesNextTurn?: boolean;
+}
 
 /** Session database row - mirrors sessions table. */
 export interface SessionMeta {
@@ -40,6 +52,7 @@ export interface SessionMeta {
   end_reason: string | null;
   cwd: string | null;
   permissionMode: DesktopPermissionMode;
+  runtime: SessionRuntime;
 }
 
 /** Message database row - mirrors messages table. */
@@ -104,6 +117,7 @@ export interface SessionListItem {
   last_message?: string;
   cwd?: string | null;
   permissionMode: DesktopPermissionMode;
+  runtime: SessionRuntime;
 }
 
 /** @source hermes_state.py */

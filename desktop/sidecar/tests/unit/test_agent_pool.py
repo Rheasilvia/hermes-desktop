@@ -16,6 +16,7 @@ class _FakeAIAgent:
     def __init__(self, session_id: str = ""):
         self.session_id = session_id
         self._interrupted = False
+        self.reasoning_config = None
 
     def interrupt(self):
         self._interrupted = True
@@ -116,6 +117,24 @@ class TestAgentPoolEviction:
 
         with pool._lock:
             assert len(pool._agents) == 0
+
+    def test_apply_runtime_updates_idle_agent_reasoning_config(self, pool):
+        entry = pool.get_or_create("s1")
+
+        applied = pool.apply_runtime("s1", {"reasoningEffort": "high"})
+
+        assert applied is True
+        assert entry.agent.reasoning_config == {"enabled": True, "effort": "high"}
+
+    def test_apply_runtime_leaves_running_agent_for_next_turn(self, pool):
+        entry = pool.get_or_create("s1")
+        entry.agent.reasoning_config = {"enabled": True, "effort": "low"}
+        pool.mark_running("s1")
+
+        applied = pool.apply_runtime("s1", {"reasoningEffort": "none"})
+
+        assert applied is False
+        assert entry.agent.reasoning_config == {"enabled": True, "effort": "low"}
 
 
 class TestToolCallbacks:

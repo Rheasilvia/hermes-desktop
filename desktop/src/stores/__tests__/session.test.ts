@@ -16,6 +16,7 @@ function row(overrides: Partial<SessionListItem> = {}): SessionListItem {
     tool_call_count: 0,
     cwd: '/tmp/workspace',
     permissionMode: 'auto',
+    runtime: { reasoningEffort: 'medium' },
     ...overrides,
   };
 }
@@ -50,6 +51,7 @@ function meta(overrides: Partial<SessionMeta> = {}): SessionMeta {
     end_reason: null,
     cwd: '/tmp/workspace',
     permissionMode: 'auto',
+    runtime: { reasoningEffort: 'medium' },
     ...overrides,
   };
 }
@@ -79,6 +81,12 @@ function gatewayWithSessions(initial: SessionListItem[]) {
         setPermissionMode: vi.fn(async (sessionId: string, mode: SessionMeta['permissionMode']) =>
           meta({ id: sessionId, permissionMode: mode })
         ),
+        updateRuntime: vi.fn(async (sessionId, patch) => ({
+          id: sessionId,
+          runtime: { reasoningEffort: patch.reasoningEffort ?? 'medium' },
+          appliedToActiveTurn: true,
+          appliesNextTurn: false,
+        })),
         branch: vi.fn(),
         resume: vi.fn(),
         interrupt: vi.fn(),
@@ -110,6 +118,43 @@ describe('sessionStore permission mode', () => {
 
     expect(updated?.permissionMode).toBe('full');
     expect(sessionStore.sessions[0]?.permissionMode).toBe('full');
+  });
+});
+
+describe('sessionStore runtime', () => {
+  beforeEach(() => {
+    initializeStores(null as unknown as GatewayAdapter);
+    sessionStore.setActiveSession(null);
+  });
+
+  it('hydrates reasoning effort per session from the backend list', async () => {
+    const { gateway } = gatewayWithSessions([
+      row({ id: 'session-low', runtime: { reasoningEffort: 'low' } }),
+      row({ id: 'session-high', runtime: { reasoningEffort: 'high' } }),
+    ]);
+    initializeStores(gateway);
+
+    await sessionStore.loadSessions();
+
+    expect(sessionStore.getSessionReasoningEffort('session-low')).toBe('low');
+    expect(sessionStore.getSessionReasoningEffort('session-high')).toBe('high');
+  });
+
+  it('optimistically updates runtime and rolls back on backend failure', async () => {
+    const { gateway } = gatewayWithSessions([
+      row({ id: 'session-1', runtime: { reasoningEffort: 'medium' } }),
+    ]);
+    vi.mocked(gateway.session.updateRuntime).mockRejectedValueOnce(new Error('SESSION_RUNTIME_FAILED'));
+    initializeStores(gateway);
+    await sessionStore.loadSessions();
+
+    const promise = sessionStore.updateRuntime('session-1', { reasoningEffort: 'xhigh' });
+
+    expect(sessionStore.getSessionReasoningEffort('session-1')).toBe('xhigh');
+    const result = await promise;
+    expect(result).toBeNull();
+    expect(sessionStore.getSessionReasoningEffort('session-1')).toBe('medium');
+    expect(sessionStore.error).toBe('SESSION_RUNTIME_FAILED');
   });
 });
 

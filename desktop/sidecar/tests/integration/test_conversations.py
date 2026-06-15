@@ -46,6 +46,7 @@ class TestSessionCRUD:
         assert "session_id" in data
         assert data["session_id"].startswith("desktop_")
         assert data["permissionMode"] == "auto"
+        assert data["runtime"]["reasoningEffort"] == "medium"
 
     def test_create_session_without_workspace_creates_default_workspace(
         self, client, monkeypatch, tmp_path
@@ -323,6 +324,92 @@ class TestSessionCRUD:
         assert data["appliesNextTurn"] is False
         assert client.get(f"/desktop/api/sessions/{sid}").json()["permissionMode"] == "ask"
         assert client.get("/desktop/api/sessions").json()[0]["permissionMode"] == "ask"
+
+    def test_session_runtime_patch_persists_and_returns_normalized_summary(self, client):
+        created = client.post("/desktop/api/sessions", json={})
+        sid = created.json()["id"]
+
+        resp = client.patch(
+            f"/desktop/api/sessions/{sid}/runtime",
+            json={"reasoningEffort": "high"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data == {
+            "id": sid,
+            "runtime": {"reasoningEffort": "high"},
+            "appliedToActiveTurn": True,
+            "appliesNextTurn": False,
+        }
+        assert client.get(f"/desktop/api/sessions/{sid}").json()["runtime"] == {
+            "reasoningEffort": "high"
+        }
+        assert client.get("/desktop/api/sessions").json()[0]["runtime"] == {
+            "reasoningEffort": "high"
+        }
+
+    def test_session_runtime_patch_rejects_empty_and_invalid_values(self, client):
+        created = client.post("/desktop/api/sessions", json={})
+        sid = created.json()["id"]
+
+        empty = client.patch(f"/desktop/api/sessions/{sid}/runtime", json={})
+        invalid = client.patch(
+            f"/desktop/api/sessions/{sid}/runtime",
+            json={"reasoningEffort": "turbo"},
+        )
+
+        assert empty.status_code == 422
+        assert invalid.status_code == 422
+        assert client.get(f"/desktop/api/sessions/{sid}").json()["runtime"] == {
+            "reasoningEffort": "medium"
+        }
+
+    def test_session_runtime_patch_returns_404_for_unknown_session(self, client):
+        resp = client.patch(
+            "/desktop/api/sessions/desktop_missing/runtime",
+            json={"reasoningEffort": "low"},
+        )
+
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "SESSION_NOT_FOUND"
+
+    def test_branch_session_copies_runtime(self, client):
+        created = client.post("/desktop/api/sessions", json={})
+        sid = created.json()["id"]
+        client.patch(
+            f"/desktop/api/sessions/{sid}/runtime",
+            json={"reasoningEffort": "xhigh"},
+        )
+
+        branched = client.post(f"/desktop/api/sessions/{sid}/branch")
+
+        assert branched.status_code == 200
+        assert branched.json()["runtime"] == {"reasoningEffort": "xhigh"}
+
+    def test_session_runtime_patch_does_not_mutate_running_agent(self, client):
+        created = client.post("/desktop/api/sessions", json={})
+        sid = created.json()["id"]
+
+        from daemon.services.agent_pool import AgentPool
+
+        class _FakeAgent:
+            reasoning_config = {"enabled": True, "effort": "low"}
+
+        with patch.object(AgentPool, "_build_agent", return_value=(_FakeAgent(), "gpt-4", "openai")):
+            entry = client.app.state.agent_pool.get_or_create(sid)
+            client.app.state.agent_pool.mark_running(sid)
+
+            resp = client.patch(
+                f"/desktop/api/sessions/{sid}/runtime",
+                json={"reasoningEffort": "none"},
+            )
+
+            assert resp.status_code == 200
+            assert resp.json()["appliedToActiveTurn"] is False
+            assert resp.json()["appliesNextTurn"] is True
+            assert entry.agent.reasoning_config == {"enabled": True, "effort": "low"}
+            client.app.state.agent_pool.mark_idle(sid)
 
     def test_set_permission_mode_rejects_invalid_value(self, client):
         created = client.post("/desktop/api/sessions", json={})

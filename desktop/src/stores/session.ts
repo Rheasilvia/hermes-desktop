@@ -3,7 +3,14 @@
  */
 
 import { createSignal, createMemo } from 'solid-js';
-import type { DesktopPermissionMode, SessionListItem, SessionMeta } from '@/types/index.js';
+import type {
+  DesktopPermissionMode,
+  ReasoningEffort,
+  SessionListItem,
+  SessionMeta,
+  SessionRuntime,
+  SessionRuntimeUpdateResult,
+} from '@/types/index.js';
 import { getGateway } from './context.js';
 
 const [sessions, setSessions] = createSignal<SessionListItem[]>([]);
@@ -13,7 +20,23 @@ const [error, setError] = createSignal<string | null>(null);
 const [sessionModels, setSessionModels] = createSignal<
   Record<string, { provider: string; model: string }>
 >({});
+const [sessionRuntimes, setSessionRuntimes] = createSignal<Record<string, SessionRuntime>>({});
 let resumeRequestEpoch = 0;
+
+function normalizeReasoningEffort(value: unknown): ReasoningEffort {
+  return value === 'none'
+    || value === 'minimal'
+    || value === 'low'
+    || value === 'high'
+    || value === 'xhigh'
+    ? value
+    : 'medium';
+}
+
+function normalizeRuntime(value: unknown): SessionRuntime {
+  const runtime = value && typeof value === 'object' ? value as Partial<SessionRuntime> : {};
+  return { reasoningEffort: normalizeReasoningEffort(runtime.reasoningEffort) };
+}
 
 const activeSession = createMemo(() => {
   const id = activeSessionId();
@@ -65,6 +88,14 @@ export const sessionStore = {
     ));
   },
 
+  applyRuntime(sessionId: string, runtime: SessionRuntime): void {
+    const normalized = normalizeRuntime(runtime);
+    setSessionRuntimes(prev => ({ ...prev, [sessionId]: normalized }));
+    setSessions(prev => prev.map(s =>
+      s.id === sessionId ? { ...s, runtime: normalized } : s
+    ));
+  },
+
   async setPermissionMode(sessionId: string, mode: DesktopPermissionMode): Promise<SessionMeta | null> {
     const gateway = getGateway();
     if (!gateway) return null;
@@ -80,6 +111,7 @@ export const sessionStore = {
           provider: (updated as unknown as { provider?: string | null }).provider ?? s.provider,
           title: updated.title ?? s.title,
           message_count: updated.message_count ?? s.message_count,
+          runtime: normalizeRuntime(updated.runtime ?? s.runtime),
         } : s
       ));
       return updated;
@@ -95,12 +127,16 @@ export const sessionStore = {
     const gateway = getGateway();
     if (!gateway) {
       setSessions([]);
+      setSessionRuntimes({});
       return;
     }
     setIsLoading(true);
     setError(null);
     try {
       const list = await gateway.session.list();
+      setSessionRuntimes(Object.fromEntries(
+        list.map(s => [s.id, normalizeRuntime(s.runtime)]),
+      ));
       setSessions(list);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load sessions');
@@ -124,6 +160,7 @@ export const sessionStore = {
       // defeat the backend reuse guard.
       const meta = await gateway.session.create(params);
       await this.loadSessions();
+      this.applyRuntime(meta.id, normalizeRuntime(meta.runtime));
       setActiveSessionId(meta.id);
       return meta;
     } catch (e) {
@@ -182,6 +219,7 @@ export const sessionStore = {
     try {
       const meta = await gateway.session.branch(id);
       await this.loadSessions();
+      this.applyRuntime(meta.id, normalizeRuntime(meta.runtime));
       setActiveSessionId(meta.id);
       return meta;
     } catch (e) {
@@ -235,6 +273,39 @@ export const sessionStore = {
 
   setSessionModel(sessionId: string, provider: string, model: string) {
     setSessionModels(prev => ({ ...prev, [sessionId]: { provider, model } }));
+  },
+
+  getSessionRuntime(sessionId: string): SessionRuntime {
+    return sessionRuntimes()[sessionId] ?? normalizeRuntime(
+      sessions().find(s => s.id === sessionId)?.runtime,
+    );
+  },
+
+  getSessionReasoningEffort(sessionId: string): ReasoningEffort {
+    return this.getSessionRuntime(sessionId).reasoningEffort;
+  },
+
+  async updateRuntime(
+    sessionId: string,
+    patch: Partial<SessionRuntime>,
+  ): Promise<SessionRuntimeUpdateResult | null> {
+    const gateway = getGateway();
+    if (!gateway) return null;
+    const prevRuntime = this.getSessionRuntime(sessionId);
+    const optimistic = normalizeRuntime({ ...prevRuntime, ...patch });
+    this.applyRuntime(sessionId, optimistic);
+    setError(null);
+    try {
+      const updated = await gateway.session.updateRuntime(sessionId, patch);
+      this.applyRuntime(sessionId, updated.runtime);
+      return updated;
+    } catch (e) {
+      this.applyRuntime(sessionId, prevRuntime);
+      const message = e instanceof Error ? e.message : 'Failed to update session runtime';
+      setError(message);
+      console.error('[sessionStore] failed to persist session runtime:', e);
+      return null;
+    }
   },
 
   clearError() {

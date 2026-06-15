@@ -6,9 +6,11 @@ import type {
   SessionListItem,
   SessionMessage,
   SessionMeta,
+  SessionRuntime,
+  SessionRuntimeUpdateResult,
   SessionTranscript,
 } from '../types.js';
-import { API_PREFIX, permissionModeOf } from './shared.js';
+import { API_PREFIX, permissionModeOf, sessionRuntimeOf } from './shared.js';
 
 interface SessionGatewayDeps {
   http: HttpClient;
@@ -52,7 +54,17 @@ function emptySessionMeta(
     end_reason: null,
     cwd: null,
     permissionMode: 'auto',
+    runtime: { reasoningEffort: 'medium' },
     ...overrides,
+  };
+}
+
+function mapRuntimeUpdate(sessionId: string, r: Record<string, unknown>): SessionRuntimeUpdateResult {
+  return {
+    id: String(r.id ?? sessionId),
+    runtime: sessionRuntimeOf(r.runtime),
+    appliedToActiveTurn: Boolean(r.appliedToActiveTurn),
+    appliesNextTurn: Boolean(r.appliesNextTurn),
   };
 }
 
@@ -72,6 +84,7 @@ export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['se
         tool_call_count: 0,
         cwd: (r.cwd as string) ?? null,
         permissionMode: permissionModeOf(r.permissionMode),
+        runtime: sessionRuntimeOf(r.runtime),
       }));
     },
 
@@ -100,6 +113,7 @@ export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['se
         system_prompt: params.system_prompt ?? null,
         cwd: (r.cwd as string) ?? params.cwd ?? null,
         permissionMode: permissionModeOf(r.permissionMode),
+        runtime: sessionRuntimeOf(r.runtime),
       });
     },
 
@@ -127,12 +141,21 @@ export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['se
         message_count: Number(r.message_count ?? 0),
         cwd: (r.cwd as string) ?? null,
         permissionMode: permissionModeOf(r.permissionMode),
+        runtime: sessionRuntimeOf(r.runtime),
       });
       return {
         ...meta,
         appliedToActiveTurn: Boolean(r.appliedToActiveTurn),
         appliesNextTurn: Boolean(r.appliesNextTurn),
       };
+    },
+
+    updateRuntime: async (
+      sessionId: string,
+      patch: Partial<SessionRuntime>,
+    ): Promise<SessionRuntimeUpdateResult> => {
+      const r = await http.patch<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}/runtime`, patch);
+      return mapRuntimeUpdate(sessionId, r);
     },
 
     branch: async (sessionId: string): Promise<SessionMeta> => {
@@ -145,6 +168,7 @@ export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['se
         parent_session_id: sessionId,
         cwd: (r.cwd as string) ?? null,
         permissionMode: permissionModeOf(r.permissionMode),
+        runtime: sessionRuntimeOf(r.runtime),
       });
     },
 

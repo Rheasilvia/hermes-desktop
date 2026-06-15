@@ -122,6 +122,8 @@ export class GatewayClient {
       this.call('session.cwd.set', { session_id: sessionId, cwd }),
     setPermissionMode: (sessionId: string, mode: SessionMeta['permissionMode']) =>
       this.call('session.permission_mode.set', { session_id: sessionId, mode }),
+    updateRuntime: (sessionId: string, patch: Partial<import('./types.js').SessionRuntime>) =>
+      this.call('session.runtime.update', { session_id: sessionId, ...patch }),
     branch: (sessionId: string): Promise<SessionMeta> =>
       this.call('session.branch', { session_id: sessionId }),
     resume: (sessionId: string): Promise<void> =>
