@@ -1,4 +1,4 @@
-import { createStore } from 'solid-js/store';
+import { createStore, reconcile } from 'solid-js/store';
 import { createMemo } from 'solid-js';
 import type {
   SubagentStartPayload,
@@ -41,6 +41,7 @@ export const delegationStore = {
 
   handleStart(payload: SubagentStartPayload) {
     setState('subagents', payload.subagent_id, {
+      session_id: payload.session_id,
       subagent_id: payload.subagent_id,
       parent_id: payload.parent_id,
       depth: payload.depth ?? 0,
@@ -50,6 +51,38 @@ export const delegationStore = {
       task_count: payload.task_count,
       task_index: payload.task_index,
     });
+  },
+
+  hydrateStatus(status: { active: SubagentRecord[]; paused: boolean }) {
+    setState('paused', status.paused);
+    for (const record of status.active) {
+      if (!record.session_id || !record.subagent_id) continue;
+      const existing = state.subagents[record.subagent_id];
+      if (existing?.status === 'complete' || existing?.status === 'error') continue;
+      setState('subagents', record.subagent_id, {
+        ...existing,
+        ...record,
+        session_id: record.session_id,
+        subagent_id: record.subagent_id,
+        depth: record.depth ?? existing?.depth ?? 0,
+        goal: record.goal ?? existing?.goal ?? 'Subagent',
+        status: record.status === 'paused' ? 'paused' : 'running',
+      });
+    }
+  },
+
+  async refreshStatus(): Promise<void> {
+    const gateway = getGateway();
+    if (!gateway) return;
+    try {
+      const status = await gateway.delegation.status();
+      this.hydrateStatus({
+        active: status.active,
+        paused: status.paused,
+      });
+    } catch (err) {
+      setState('error', err instanceof Error ? err.message : 'Delegation status failed');
+    }
   },
 
   handleProgress(payload: SubagentProgressPayload) {
@@ -140,12 +173,17 @@ export const delegationStore = {
   },
 
   clear() {
-    setState('subagents', {});
+    setState('subagents', reconcile({}));
     setState('paused', false);
     setState('pausePending', false);
-    setState('interruptPendingById', {});
+    setState('interruptPendingById', reconcile({}));
     setState('error', null);
   },
 };
 
 export const subagentList = createMemo(() => Object.values(state.subagents));
+
+export function subagentListForSession(sessionId: string | null | undefined): SubagentRecord[] {
+  if (!sessionId) return [];
+  return Object.values(state.subagents).filter((subagent) => subagent.session_id === sessionId);
+}

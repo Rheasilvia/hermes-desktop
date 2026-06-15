@@ -76,7 +76,7 @@ export const WorkspaceSidePanel: Component<WorkspaceSidePanelProps> = (props) =>
             />
           </Match>
           <Match when={sidePanelStore.activeTab() === 'delegation'}>
-            <DelegationSidePanel />
+            <DelegationSidePanel sessionId={props.sessionId} />
           </Match>
         </Switch>
       </div>

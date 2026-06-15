@@ -297,20 +297,14 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     this.slash = makeSlashGateway(this.http);
     this.command = makeCommandGateway(this.http);
     this.delegation = {
-      status: async () => {
-        console.warn('delegation.status RPC not implemented — returning empty status');
-        return { active: [], paused: false, max_spawn_depth: 0 };
-      },
-      pause: async (params) => {
-        console.warn('delegation.pause RPC not implemented — pause is UI-only');
-        return { paused: params.paused };
-      },
+      status: async () => this.http.get(`${API_PREFIX}/delegation/status`),
+      pause: async (params) => this.http.post(`${API_PREFIX}/delegation/pause`, params),
     };
     this.subagent = {
-      interrupt: async () => {
-        console.warn('subagent.interrupt RPC not implemented — interrupt unavailable');
-        return { found: false, subagent_id: '' };
-      },
+      interrupt: async (params) => this.http.post(
+        `${API_PREFIX}/subagents/${encodeURIComponent(params.subagent_id)}/interrupt`,
+        {},
+      ),
     };
   }
 

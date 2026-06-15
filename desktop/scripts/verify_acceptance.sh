@@ -6,13 +6,13 @@ echo "== A1: backend boundaries =="
 bash "$REPO/desktop/sidecar/scripts/check_boundaries.sh"
 
 echo "== A2: backend dependencies =="
-( cd "$REPO/desktop/backend" && uv sync --frozen --extra dev )
+( cd "$REPO/desktop/sidecar" && uv sync --frozen --extra dev )
 
 echo "== A3: backend tests =="
-( cd "$REPO/desktop/backend" && uv run --frozen pytest -q )
+( cd "$REPO/desktop/sidecar" && uv run --frozen --extra dev pytest -q )
 
 echo "== A4: frontend lint =="
-( cd "$REPO/desktop" && npm run lint ) || echo "WARNING: lint issues (expected until all violations fixed)"
+( cd "$REPO/desktop" && npm run lint )
 
 echo "== A5: frontend tests =="
 ( cd "$REPO/desktop" && npm run test -- --run )

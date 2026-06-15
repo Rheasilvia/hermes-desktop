@@ -152,6 +152,18 @@ def test_unavailable_commands_hidden_from_autocomplete(tmp_path):
     assert result.card_type is None
 
 
+@pytest.mark.parametrize("command", ["background", "compress", "retry", "undo", "goal", "subgoal"])
+def test_agentic_deferred_commands_are_explicitly_unsupported(tmp_path, command):
+    svc = _make_service(tmp_path)
+    suggested = {item.command for item in svc.complete_slash("")}
+
+    assert command not in suggested
+    result = svc.exec(session_id="s1", command=command, args="")
+    assert result.kind == "unsupported"
+    assert result.card_type is None
+    assert "not available in Desktop yet" in result.message
+
+
 def test_complete_slash_hides_unsupported_commands(tmp_path):
     svc = _make_service(tmp_path)
     suggested = {item.command for item in svc.complete_slash("")}

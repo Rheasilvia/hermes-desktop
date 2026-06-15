@@ -35,6 +35,7 @@ pub fn state() -> Arc<SidecarState> {
 }
 
 /// Kill any existing daemon process to ensure a clean start.
+#[cfg(debug_assertions)]
 fn kill_backend_process() {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
@@ -103,6 +104,7 @@ pub(crate) fn build_sidecar_env(
 /// Dev mode: spawn the backend via `uv run` if not already running.
 /// Reads HERMES_BACKEND_URL (default: http://127.0.0.1:18080)
 /// and HERMES_BACKEND_TOKEN from env vars.
+#[cfg(debug_assertions)]
 pub async fn spawn_dev() -> Result<SidecarInfo> {
     let base_url = std::env::var("HERMES_BACKEND_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:18080".into());

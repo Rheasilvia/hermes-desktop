@@ -243,6 +243,56 @@ describe('commands HTTP methods', () => {
   });
 });
 
+describe('delegation HTTP methods', () => {
+  it('maps delegation.status and pause to sidecar endpoints', async () => {
+    const mockHttp = {
+      get: vi.fn().mockResolvedValue({
+        active: [],
+        paused: true,
+        max_spawn_depth: 2,
+        max_concurrent_children: 3,
+      }),
+      post: vi.fn().mockResolvedValue({ paused: false }),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    };
+    const adapter = new HttpGatewayAdapter(mockHttp as any);
+
+    const status = await adapter.delegation.status();
+    const pause = await adapter.delegation.pause({ paused: false });
+
+    expect(mockHttp.get).toHaveBeenCalledWith('/desktop/api/delegation/status');
+    expect(mockHttp.post).toHaveBeenCalledWith('/desktop/api/delegation/pause', { paused: false });
+    expect(status).toEqual({
+      active: [],
+      paused: true,
+      max_spawn_depth: 2,
+      max_concurrent_children: 3,
+    });
+    expect(pause).toEqual({ paused: false });
+  });
+
+  it('maps subagent.interrupt to the encoded sidecar endpoint', async () => {
+    const mockHttp = {
+      get: vi.fn(),
+      post: vi.fn().mockResolvedValue({ found: true, subagent_id: 'subagent/one' }),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    };
+    const adapter = new HttpGatewayAdapter(mockHttp as any);
+
+    const result = await adapter.subagent.interrupt({ subagent_id: 'subagent/one' });
+
+    expect(mockHttp.post).toHaveBeenCalledWith(
+      '/desktop/api/subagents/subagent%2Fone/interrupt',
+      {},
+    );
+    expect(result).toEqual({ found: true, subagent_id: 'subagent/one' });
+  });
+});
+
 describe('session.transcript', () => {
   it('fetches the canonical transcript endpoint and advances replay cursor', async () => {
     const mockHttp = {

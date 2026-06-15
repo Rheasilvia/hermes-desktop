@@ -444,6 +444,10 @@ export const Sidebar: Component = () => {
       {/* ── Bottom: Tools + Settings ────────────────────────────────────── */}
       <div class={styles.bottomBar}>
         <div class={styles.toolGroupLabel}>Tools</div>
+        <A href={ROUTES.SESSIONS} class={`${styles.navRow} ${isActive(ROUTES.SESSIONS) ? styles.navRowActive : ''}`}>
+          <Icon name="clipboard-list" size={16} />
+          <span>Sessions</span>
+        </A>
         <A href={ROUTES.MODEL} class={`${styles.navRow} ${isActive(ROUTES.MODEL) ? styles.navRowActive : ''}`}>
           <Icon name="bot" size={16} />
           <span>Model</span>

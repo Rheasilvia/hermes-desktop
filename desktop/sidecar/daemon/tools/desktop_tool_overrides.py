@@ -686,11 +686,26 @@ def _install_delegate_patch() -> None:
     try:
         import tools.delegate_tool as _dt
         _orig_build_child = _dt._build_child_agent
+        _orig_register_subagent = getattr(_dt, "_register_subagent", None)
+
+        if callable(_orig_register_subagent):
+            def _desktop_register_subagent(record):
+                if isinstance(record, dict) and not record.get("session_id"):
+                    child = record.get("agent")
+                    session_id = getattr(child, "_desktop_parent_session_id", None)
+                    if session_id:
+                        record = {**record, "session_id": str(session_id)}
+                return _orig_register_subagent(record)
+
+            _dt._register_subagent = _desktop_register_subagent
 
         def _policy_build_child_agent(task_index, goal, context, toolsets, model,
                                        max_iterations, task_count, parent_agent, **kwargs):
             child = _orig_build_child(task_index, goal, context, toolsets, model,
                                       max_iterations, task_count, parent_agent, **kwargs)
+            parent_session_id = getattr(parent_agent, "session_id", None)
+            if parent_session_id:
+                child._desktop_parent_session_id = str(parent_session_id)
             snap = getattr(parent_agent, "_desktop_workspace_policy_snapshot", None)
             if snap is not None:
                 child._desktop_workspace_policy_snapshot = snap

@@ -29,6 +29,16 @@ TURN_SCOPED_UI_MESSAGE_TYPES = {
     "tool.error",
 }
 
+_SUBAGENT_EVENT_TYPES = {
+    "subagent.start",
+    "subagent.progress",
+    "subagent.complete",
+    "subagent.tool",
+    "subagent.error",
+}
+
+_SUBAGENT_ERROR_STATUSES = {"error", "failed", "timeout"}
+
 
 @dataclass
 class PooledAgent:
@@ -421,6 +431,7 @@ class AgentPool:
                 tool_complete_callback=self._make_tool_complete_cb(session_id, _tool_start_cb),
                 reasoning_callback=self._make_reasoning_cb(session_id),
                 tool_gen_callback=self._make_tool_gen_cb(session_id),
+                tool_progress_callback=self._make_tool_progress_cb(session_id),
                 platform="desktop",
             )
 
@@ -521,6 +532,7 @@ class AgentPool:
             ),
             "reasoning_callback": self._make_reasoning_cb(session_id, turn_id=turn_id),
             "tool_gen_callback": self._make_tool_gen_cb(session_id, turn_id=turn_id),
+            "tool_progress_callback": self._make_tool_progress_cb(session_id, turn_id=turn_id),
         }
 
     def _resolve_turn_id(
@@ -635,3 +647,142 @@ class AgentPool:
                 payload["tool_id"] = tool_id
             self._emit_ui_message(session_id, "tool.generating", payload, turn_id=turn_id)
         return cb
+
+    def _make_tool_progress_cb(
+        self,
+        session_id: str,
+        *,
+        turn_id: str | None = None,
+    ) -> Callable:
+        def cb(
+            event_type: str,
+            tool_name: str | None = None,
+            preview: str | None = None,
+            args: Any = None,
+            **kwargs: Any,
+        ) -> None:
+            msg_type = "subagent.progress" if event_type == "subagent_progress" else str(event_type or "")
+            if msg_type == "subagent.complete":
+                status = str(kwargs.get("status") or "").lower()
+                if status in _SUBAGENT_ERROR_STATUSES:
+                    msg_type = "subagent.error"
+
+            if msg_type not in _SUBAGENT_EVENT_TYPES:
+                log.debug("dropping non-desktop subagent progress event %r", event_type)
+                return
+
+            subagent_id = str(kwargs.get("subagent_id") or "").strip()
+            if not subagent_id:
+                log.debug("dropping %s without subagent_id", msg_type)
+                return
+
+            payload = self._build_subagent_payload(
+                msg_type=msg_type,
+                session_id=session_id,
+                subagent_id=subagent_id,
+                tool_name=tool_name,
+                preview=preview,
+                kwargs=kwargs,
+            )
+            self._emit_ui_message(session_id, msg_type, payload, turn_id=turn_id)
+
+        return cb
+
+    def _build_subagent_payload(
+        self,
+        *,
+        msg_type: str,
+        session_id: str,
+        subagent_id: str,
+        tool_name: str | None,
+        preview: str | None,
+        kwargs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "session_id": session_id,
+            "subagent_id": subagent_id,
+        }
+        for key in ("parent_id", "model", "status"):
+            value = kwargs.get(key)
+            if value is not None:
+                payload[key] = str(value)
+        for key in ("depth", "task_count", "task_index", "tool_count", "api_calls"):
+            value = self._coerce_optional_int(kwargs.get(key))
+            if value is not None:
+                payload[key] = value
+        if isinstance(kwargs.get("toolsets"), list):
+            payload["toolsets"] = [str(item) for item in kwargs["toolsets"]]
+
+        if msg_type == "subagent.start":
+            payload["goal"] = str(kwargs.get("goal") or preview or tool_name or "")
+            child_session_id = kwargs.get("child_session_id")
+            if child_session_id is not None:
+                payload["child_session_id"] = str(child_session_id)
+            return payload
+
+        if msg_type == "subagent.tool":
+            if tool_name is not None:
+                payload["tool_name"] = str(tool_name)
+            if preview is not None:
+                payload["tool_preview"] = str(preview)
+                payload["text"] = str(preview)
+            return payload
+
+        if msg_type == "subagent.progress":
+            text = preview or tool_name
+            if text is not None:
+                payload["text"] = str(text)
+            return payload
+
+        if msg_type == "subagent.error":
+            payload["status"] = str(kwargs.get("status") or "error")
+            payload["text"] = str(kwargs.get("summary") or preview or tool_name or "Subagent failed")
+            duration = self._coerce_optional_float(kwargs.get("duration_seconds"))
+            if duration is not None:
+                payload["duration_seconds"] = duration
+            return payload
+
+        if msg_type == "subagent.complete":
+            for key in ("summary",):
+                value = kwargs.get(key)
+                if value is not None:
+                    payload[key] = str(value)
+            if "summary" not in payload and preview is not None:
+                payload["summary"] = str(preview)
+            for key in ("duration_seconds", "cost_usd"):
+                value = self._coerce_optional_float(kwargs.get(key))
+                if value is not None:
+                    payload[key] = value
+            for key in ("input_tokens", "output_tokens", "reasoning_tokens"):
+                value = self._coerce_optional_int(kwargs.get(key))
+                if value is not None:
+                    payload[key] = value
+            for key in ("files_read", "files_written"):
+                value = kwargs.get(key)
+                if isinstance(value, list):
+                    payload[key] = len(value)
+                else:
+                    count = self._coerce_optional_int(value)
+                    if count is not None:
+                        payload[key] = count
+            return payload
+
+        return payload
+
+    @staticmethod
+    def _coerce_optional_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coerce_optional_float(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None

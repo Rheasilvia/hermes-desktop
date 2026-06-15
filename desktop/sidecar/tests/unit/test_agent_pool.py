@@ -215,6 +215,99 @@ class TestToolCallbacks:
             )
         ]
 
+    def test_turn_callbacks_include_subagent_progress_bridge(self, pool_with_captured_emissions):
+        pool, _ = pool_with_captured_emissions
+
+        callbacks = pool.make_turn_callbacks("sess_1", "turn_a")
+
+        assert "tool_progress_callback" in callbacks
+
+    def test_subagent_start_event_emits_desktop_payload(self, pool_with_captured_emissions):
+        pool, emitted = pool_with_captured_emissions
+        cb = pool._make_tool_progress_cb("sess_1", turn_id="turn_a")
+
+        cb(
+            "subagent.start",
+            preview="Inspect repo",
+            subagent_id="sa-1",
+            parent_id="sa-parent",
+            depth=1,
+            model="gpt-test",
+            task_count=2,
+            task_index=1,
+            toolsets=["file", "terminal"],
+        )
+
+        assert emitted == [
+            (
+                "sess_1",
+                "subagent.start",
+                {
+                    "session_id": "sess_1",
+                    "subagent_id": "sa-1",
+                    "parent_id": "sa-parent",
+                    "model": "gpt-test",
+                    "depth": 1,
+                    "task_count": 2,
+                    "task_index": 1,
+                    "toolsets": ["file", "terminal"],
+                    "goal": "Inspect repo",
+                },
+                "turn_a",
+            )
+        ]
+
+    def test_subagent_complete_converts_file_lists_to_counts(self, pool_with_captured_emissions):
+        pool, emitted = pool_with_captured_emissions
+        cb = pool._make_tool_progress_cb("sess_1", turn_id="turn_a")
+
+        cb(
+            "subagent.complete",
+            subagent_id="sa-1",
+            summary="done",
+            duration_seconds=1.25,
+            cost_usd=0.01,
+            input_tokens=10,
+            output_tokens=5,
+            reasoning_tokens=2,
+            api_calls=3,
+            files_read=["a.py", "b.py"],
+            files_written=["c.py"],
+        )
+
+        _, typ, payload, turn_id = emitted[0]
+        assert typ == "subagent.complete"
+        assert turn_id == "turn_a"
+        assert payload["files_read"] == 2
+        assert payload["files_written"] == 1
+        assert payload["summary"] == "done"
+
+    def test_subagent_failed_complete_emits_error_event(self, pool_with_captured_emissions):
+        pool, emitted = pool_with_captured_emissions
+        cb = pool._make_tool_progress_cb("sess_1")
+
+        cb(
+            "subagent.complete",
+            preview="timed out",
+            subagent_id="sa-1",
+            status="timeout",
+            duration_seconds=30,
+        )
+
+        _, typ, payload, _ = emitted[0]
+        assert typ == "subagent.error"
+        assert payload["status"] == "timeout"
+        assert payload["text"] == "timed out"
+
+    def test_subagent_bridge_drops_unknown_or_idless_events(self, pool_with_captured_emissions):
+        pool, emitted = pool_with_captured_emissions
+        cb = pool._make_tool_progress_cb("sess_1")
+
+        cb("subagent.start", preview="missing id")
+        cb("subagent.thinking", subagent_id="sa-1", preview="thinking")
+
+        assert emitted == []
+
 
 class TestTurnBoundCallbackPersistence:
     """Turn-bound callbacks must attribute events without ambient turn context."""

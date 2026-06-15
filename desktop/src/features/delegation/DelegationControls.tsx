@@ -35,10 +35,11 @@ export const DelegationControls: Component<DelegationControlsProps> = (props) =>
         class={`${styles.pauseBtn} ${delegationStore.paused ? styles.pauseBtnActive : ''}`}
         onClick={() => void delegationStore.setPaused(!delegationStore.paused)}
         disabled={delegationStore.pausePending}
-        title={delegationStore.paused ? 'Resume delegation' : 'Pause delegation'}
+        title={delegationStore.paused ? 'Resume global subagent spawning' : 'Pause global subagent spawning'}
+        aria-label={delegationStore.paused ? 'Resume global subagent spawning' : 'Pause global subagent spawning'}
       >
         <Icon name={delegationStore.pausePending ? 'loader' : delegationStore.paused ? 'play' : 'square'} size={14} />
-        <span>{delegationStore.paused ? 'Resume' : 'Pause'}</span>
+        <span>{delegationStore.paused ? 'Global Resume' : 'Global Pause'}</span>
       </button>
     </div>
 
