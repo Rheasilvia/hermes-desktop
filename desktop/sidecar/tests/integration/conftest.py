@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 from daemon.app import build_app
 from daemon.config import Config
+from daemon.readers import model_catalog
+from daemon.services.model_service import ModelService
 
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "hermes_home"
@@ -31,7 +33,30 @@ def cfg(hermes_home: Path) -> Config:
 
 @pytest.fixture
 def client(cfg: Config) -> TestClient:
-    return TestClient(build_app(cfg))
+    app = build_app(cfg)
+
+    def _fixture_models_payload() -> dict:
+        providers = []
+        for provider in model_catalog.get_providers(cfg.hermes_home):
+            models = [
+                model.get("id") if isinstance(model, dict) else str(model)
+                for model in provider.get("models", [])
+            ]
+            providers.append({
+                "slug": provider.get("id"),
+                "name": provider.get("name"),
+                "auth_type": provider.get("auth"),
+                "authenticated": False,
+                "models": models,
+            })
+        return {"providers": providers}
+
+    app.state.model_svc = ModelService(
+        cfg.hermes_home,
+        event_bus=app.state.event_bus,
+        models_payload_loader=_fixture_models_payload,
+    )
+    return TestClient(app)
 
 
 @pytest.fixture

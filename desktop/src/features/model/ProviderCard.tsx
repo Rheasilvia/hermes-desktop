@@ -24,6 +24,7 @@ export const ProviderCard: Component<ProviderCardProps> = (props) => {
       type="button"
       onClick={props.onClick}
       aria-pressed={props.isActive}
+      data-testid={`provider-row-${props.provider.name}`}
     >
       <div class={styles.header}>
         <span class={styles.name}>

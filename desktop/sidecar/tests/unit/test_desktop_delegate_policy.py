@@ -33,6 +33,12 @@ def _make_fake_delegate_tool_module():
         return child
 
     mod._build_child_agent = _fake_build_child_agent
+    mod._registered_subagents = []
+
+    def _fake_register_subagent(record):
+        mod._registered_subagents.append(record)
+
+    mod._register_subagent = _fake_register_subagent
     return mod
 
 
@@ -182,7 +188,48 @@ class TestNoSnapshotOnParent:
 
 
 # ---------------------------------------------------------------------------
-# Test 3: patch is idempotent
+# Test 3: active registry records inherit the parent desktop session
+# ---------------------------------------------------------------------------
+
+
+class TestActiveRegistrySession:
+    def test_register_subagent_gets_parent_session_id(self):
+        fake_dt = _make_fake_delegate_tool_module()
+
+        overrides = _fresh_overrides_module(fake_dt)
+        overrides._DELEGATE_PATCHED = False
+
+        with patch.dict(sys.modules, {
+            "tools": _make_fake_tools_package(),
+            "tools.delegate_tool": fake_dt,
+        }):
+            overrides._install_delegate_patch()
+
+        parent_agent = MagicMock()
+        parent_agent.session_id = "desktop-parent-session"
+        child = fake_dt._build_child_agent(
+            task_index=0,
+            goal="do something",
+            context="ctx",
+            toolsets=[],
+            model="claude-opus-4-5",
+            max_iterations=10,
+            task_count=1,
+            parent_agent=parent_agent,
+        )
+        fake_dt._register_subagent({"subagent_id": "sub-1", "agent": child})
+
+        assert fake_dt._registered_subagents == [
+            {
+                "subagent_id": "sub-1",
+                "agent": child,
+                "session_id": "desktop-parent-session",
+            }
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Test 4: patch is idempotent
 # ---------------------------------------------------------------------------
 
 
@@ -217,7 +264,7 @@ class TestPatchIsIdempotent:
 
 
 # ---------------------------------------------------------------------------
-# Test 4: wrapper does not bypass toolset intersection (upstream concern)
+# Test 5: wrapper does not bypass toolset intersection (upstream concern)
 # ---------------------------------------------------------------------------
 
 
@@ -269,7 +316,7 @@ class TestWrapperDoesNotBypassIntersection:
 
 
 # ---------------------------------------------------------------------------
-# Test 5: import failure of tools.delegate_tool is handled gracefully
+# Test 6: import failure of tools.delegate_tool is handled gracefully
 # ---------------------------------------------------------------------------
 
 

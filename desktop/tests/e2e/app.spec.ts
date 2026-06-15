@@ -10,13 +10,13 @@ test.describe('Hermes Desktop App', () => {
   });
 
   test('sidebar navigation items are visible', async ({ page }) => {
-    await expect(page.getByText('Chat')).toBeVisible();
-    await expect(page.getByText('Sessions')).toBeVisible();
-    await expect(page.getByText('Settings')).toBeVisible();
+    await expect(page.getByRole('button', { name: /New Chat/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Sessions' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
   });
 
   test('navigating to Sessions changes URL', async ({ page }) => {
-    await page.getByText('Sessions').click();
+    await page.getByRole('link', { name: 'Sessions' }).click();
     await expect(page).toHaveURL(/\/sessions/);
   });
 });

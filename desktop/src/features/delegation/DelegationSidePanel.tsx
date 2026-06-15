@@ -1,14 +1,26 @@
 import type { Component } from 'solid-js';
-import { Show, For, createMemo } from 'solid-js';
-import { delegationStore, subagentList } from '@/stores/delegation.js';
+import { Show, For, createEffect, createMemo, on } from 'solid-js';
+import { delegationStore, subagentListForSession } from '@/stores/delegation.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { DelegationControls } from './DelegationControls.js';
 import { SubagentRow } from './SubagentRow.js';
 import styles from './DelegationSidePanel.module.css';
 
-export const DelegationSidePanel: Component = () => {
+interface DelegationSidePanelProps {
+  sessionId: string | null;
+}
+
+export const DelegationSidePanel: Component<DelegationSidePanelProps> = (props) => {
+  createEffect(on(
+    () => props.sessionId,
+    () => void delegationStore.refreshStatus(),
+    { defer: false },
+  ));
+
+  const sessionSubagents = createMemo(() => subagentListForSession(props.sessionId));
+
   const filteredList = createMemo(() => {
-    const list = subagentList();
+    const list = sessionSubagents();
     const mode = delegationStore.filterMode;
     if (mode === 'all') return list;
     if (mode === 'running') return list.filter((s) => s.status === 'running');
@@ -30,11 +42,11 @@ export const DelegationSidePanel: Component = () => {
     return list;
   });
 
-  const runningCount = createMemo(() => subagentList().filter((s) => s.status === 'running').length);
+  const runningCount = createMemo(() => sessionSubagents().filter((s) => s.status === 'running').length);
 
   const parentIds = createMemo(() => {
     const ids = new Set<string>();
-    for (const s of subagentList()) {
+    for (const s of sessionSubagents()) {
       if (s.parent_id) ids.add(s.parent_id);
     }
     return ids;
@@ -42,7 +54,7 @@ export const DelegationSidePanel: Component = () => {
 
   return (
     <div class={styles.panel}>
-      <DelegationControls subagentCount={subagentList().length} />
+      <DelegationControls subagentCount={sessionSubagents().length} />
 
       <Show when={runningCount() > 0}>
         <div class={styles.runningBanner}>

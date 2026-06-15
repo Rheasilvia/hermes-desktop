@@ -11,7 +11,7 @@ test.describe('Model config — real adapter wiring', () => {
   });
 
   test('2. sidebar navigation links are visible', async ({ page }) => {
-    await expect(page.getByRole('link', { name: 'Chat' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /New Chat/ })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Sessions' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
   });
@@ -28,10 +28,10 @@ test.describe('Model config — real adapter wiring', () => {
     await expect(page.locator('body')).toBeVisible();
   });
 
-  test('5. returns to home from Sessions', async ({ page }) => {
+  test('5. starts a new chat from Sessions', async ({ page }) => {
     await page.getByRole('link', { name: 'Sessions' }).click();
-    await page.getByRole('link', { name: 'Chat' }).click();
-    await expect(page).toHaveURL(/\//);
+    await page.getByRole('button', { name: /New Chat/ }).click();
+    await expect(page).toHaveURL(/\/conversation\//);
   });
 
 });

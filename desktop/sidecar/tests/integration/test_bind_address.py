@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import select
 import socket
 import subprocess
 import sys
@@ -24,6 +25,15 @@ def _setup_home(tmp_path: Path) -> Path:
     return home
 
 
+def _free_loopback_port() -> int:
+    sock = socket.socket()
+    try:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+    finally:
+        sock.close()
+
+
 def test_sidecar_binds_loopback_only(tmp_path: Path) -> None:
     """Verify the sidecar prints READY <port>, accepts 127.0.0.1, and
     refuses connections on external interfaces."""
@@ -32,6 +42,7 @@ def test_sidecar_binds_loopback_only(tmp_path: Path) -> None:
         **os.environ,
         "HERMES_HOME": str(home),
         "DESKTOP_BACKEND_TOKEN": "integration-token",
+        "DESKTOP_BACKEND_PORT": str(_free_loopback_port()),
     }
     proc = subprocess.Popen(
         [sys.executable, "-m", "daemon"],
@@ -44,11 +55,22 @@ def test_sidecar_binds_loopback_only(tmp_path: Path) -> None:
         deadline = time.time() + 5
         port = None
         while time.time() < deadline:
+            ready, _, _ = select.select([proc.stdout], [], [], 0.1)
+            if not ready:
+                if proc.poll() is not None:
+                    break
+                continue
             line = proc.stdout.readline()
             if line.startswith("READY "):
                 port = int(line.split()[1])
                 break
-        assert port is not None, "sidecar did not announce READY <port>"
+        if port is None:
+            stderr = ""
+            if proc.stderr is not None:
+                ready_err, _, _ = select.select([proc.stderr], [], [], 0)
+                if ready_err:
+                    stderr = os.read(proc.stderr.fileno(), 4096).decode(errors="replace")
+            raise AssertionError(f"sidecar did not announce READY <port>\n{stderr}")
 
         # Loopback works
         r = httpx.get(f"http://127.0.0.1:{port}/desktop/api/health", timeout=2)

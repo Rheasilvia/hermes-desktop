@@ -1,3 +1,13 @@
+# SNAPSHOT:
+#   source: auth.json credential_pool written by Hermes CLI/TUI setup
+#   upstream_sha: runtime data contract, not copied source
+#   copied_at: 2026-06-15
+#   stripped:
+#     - credential mutation and setup flows
+#     - secret validation and provider probing
+#   resync_when:
+#     - auth.json `credential_pool` shape changes
+#     - credential entries rename `access_token`, `agent_key`, `base_url`, or `source`
 """Reads auth.json credential_pool to surface providers configured via TUI setup."""
 from __future__ import annotations
 

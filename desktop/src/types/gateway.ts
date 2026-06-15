@@ -169,6 +169,7 @@ export interface SubagentErrorPayload {
 
 /** Subagent record for delegation tree viewer. */
 export interface SubagentRecord {
+  session_id: string;
   subagent_id: string;
   parent_id?: string;
   depth: number;

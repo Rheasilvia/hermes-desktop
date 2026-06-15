@@ -33,5 +33,5 @@ exe = EXE(
     pyz, a.scripts, a.binaries, a.zipfiles, a.datas,
     name="daemon",
     debug=False, bootloader_ignore_signals=False,
-    strip=False, upx=False, console=True,
+    strip=True, upx=False, console=True,
 )

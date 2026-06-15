@@ -371,7 +371,12 @@ export interface CommandMethods {
 
 /** Delegation method group. */
 export interface DelegationMethods {
-  status(): Promise<{ active: import('@/types/index.js').SubagentRecord[]; paused: boolean; max_spawn_depth: number }>;
+  status(): Promise<{
+    active: import('@/types/index.js').SubagentRecord[];
+    paused: boolean;
+    max_spawn_depth: number;
+    max_concurrent_children: number;
+  }>;
   pause(params: { paused: boolean }): Promise<{ paused: boolean }>;
 }
 
