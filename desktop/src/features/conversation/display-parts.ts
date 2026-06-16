@@ -15,7 +15,14 @@ export interface UserFileRefDisplayPart {
   lineEnd?: number;
 }
 
-export type UserDisplayPart = UserTextDisplayPart | UserFileRefDisplayPart;
+export interface UserImageDisplayPart {
+  type: 'image';
+  /** Persisted (durable) filesystem path under HERMES_HOME/sessions/<id>/assets. */
+  path: string;
+  name: string;
+}
+
+export type UserDisplayPart = UserTextDisplayPart | UserFileRefDisplayPart | UserImageDisplayPart;
 
 const FILE_REF_RE = /^@file:(?<target>.+?)(?::(?<start>\d+)(?:-(?<end>\d+))?)?$/;
 
@@ -31,6 +38,7 @@ export function compactDisplayParts(parts: UserDisplayPart[]): UserDisplayPart[]
         next.push({ ...part });
       }
     } else {
+      // file_ref and image parts pass through unchanged.
       next.push({ ...part });
     }
   }
@@ -76,16 +84,30 @@ function displayPartToAttachment(part: UserFileRefDisplayPart): AttachmentChip {
 }
 
 export function attachmentsFromDisplayParts(parts: UserDisplayPart[]): AttachmentChip[] {
-  return parts
-    .filter((part): part is UserFileRefDisplayPart => part.type === 'file_ref')
-    .map(displayPartToAttachment);
+  const chips: AttachmentChip[] = [];
+  for (const part of parts) {
+    if (part.type === 'file_ref') {
+      chips.push(displayPartToAttachment(part));
+    } else if (part.type === 'image') {
+      chips.push({
+        id: `image:${part.path}`,
+        kind: 'image',
+        name: part.name,
+        path: part.path,
+        size: 0,
+      });
+    }
+  }
+  return chips;
 }
 
 export function llmMessageFromDisplayParts(parts: UserDisplayPart[]): string {
   return compactDisplayParts(parts)
     .map((part) => {
       if (part.type === 'text') return part.text;
-      return `[${part.anchor}: ${fileRefLabel(part)}]`;
+      if (part.type === 'file_ref') return `[${part.anchor}: ${fileRefLabel(part)}]`;
+      // image parts are delivered as multimodal content, not as text anchors.
+      return '';
     })
     .join('')
     .replace(/[ \t]+/g, ' ')
@@ -95,7 +117,7 @@ export function llmMessageFromDisplayParts(parts: UserDisplayPart[]): string {
 export function normalizeDisplayPartAnchors(parts: UserDisplayPart[]): UserDisplayPart[] {
   let fileIndex = 0;
   return compactDisplayParts(parts).map((part) => {
-    if (part.type === 'text') return part;
+    if (part.type === 'text' || part.type === 'image') return part;
     fileIndex += 1;
     return { ...part, anchor: `File ${fileIndex}` };
   });

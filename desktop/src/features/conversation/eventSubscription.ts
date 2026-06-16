@@ -15,6 +15,7 @@ import { chatStore } from '@/stores/chat.js';
 import { backgroundTaskStore } from '@/stores/background-tasks.js';
 import { delegationStore } from '@/stores/delegation.js';
 import { sessionStore } from '@/stores/session.js';
+import { nativeNotifications } from '@/services/notifications/native-notifications.js';
 
 // Error codes emitted by B1 classifier that map to a provider-setup action
 const PROVIDER_SETUP_CODES = new Set(['provider_auth', 'model_not_found']);
@@ -41,18 +42,27 @@ export function useGatewayEvents(opts: {
   // session from the component. This ensures events are routed to the correct
   // session even when the user has multiple sessions open or switches between them.
   const onMessageDelta = (p: MessageDeltaPayload) => chatStore.handleDelta(p.session_id, p);
-  const onMessageComplete = (p: MessageCompletePayload) => chatStore.handleMessageComplete(p.session_id, p);
+  const onMessageComplete = (p: MessageCompletePayload) => {
+    chatStore.handleMessageComplete(p.session_id, p);
+    nativeNotifications.turnDone(p.session_id);
+  };
   const onReasoningDelta = (p: ReasoningDeltaPayload) => chatStore.handleReasoningDelta(p.session_id, p);
   const onToolStart = (p: ToolStartPayload) => chatStore.handleToolStart(p.session_id, p);
   const onToolProgress = (p: ToolProgressPayload) => chatStore.handleToolProgress(p.session_id, p);
   const onToolComplete = (p: ToolCompletePayload) => chatStore.handleToolComplete(p.session_id, p);
   const onToolGenerating = (p: ToolGeneratingPayload) => chatStore.handleToolGenerating(p.session_id, p);
   const onToolError = (p: ToolErrorPayload) => chatStore.handleToolError(p.session_id, p);
-  const onApprovalRequest = (p: ApprovalRequestPayload) => chatStore.handleApprovalRequest(p.session_id, p);
+  const onApprovalRequest = (p: ApprovalRequestPayload) => {
+    chatStore.handleApprovalRequest(p.session_id, p);
+    nativeNotifications.approval(p.session_id, p.command, p.description);
+  };
   const onSudoRequest = (p: SudoRequestPayload) => chatStore.handleSudoRequest(p.session_id, p);
   const onSecretRequest = (p: SecretRequestPayload) => chatStore.handleSecretRequest(p.session_id, p);
   const onClarifyRequest = (p: ClarifyRequestPayload) => chatStore.handleClarifyRequest(p.session_id, p);
-  const onBackgroundComplete = (p: BackgroundCompletePayload) => backgroundTaskStore.handleComplete(p);
+  const onBackgroundComplete = (p: BackgroundCompletePayload) => {
+    backgroundTaskStore.handleComplete(p);
+    nativeNotifications.backgroundDone(undefined, 'Background task complete');
+  };
   const onBtwComplete = (p: BtwCompletePayload) => backgroundTaskStore.handleBtwComplete(p);
   const onSubagentStart = (p: SubagentStartPayload) => delegationStore.handleStart(p);
   const onSubagentProgress = (p: SubagentProgressPayload) => delegationStore.handleProgress(p);
@@ -71,6 +81,7 @@ export function useGatewayEvents(opts: {
       ? `${buildErrorMessage(p)}\n${p.hint}`
       : buildErrorMessage(p);
     chatStore.handleError(sid, { ...p, message: displayMessage }, action);
+    nativeNotifications.turnError(sid, displayMessage);
   };
 
   onMount(() => {

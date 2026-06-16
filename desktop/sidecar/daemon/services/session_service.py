@@ -7,6 +7,8 @@ It orchestrates both data stores (state.db and desktop.db) behind one API.
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import threading
 import uuid
 from pathlib import Path
@@ -29,6 +31,45 @@ def ensure_default_workspace() -> Path:
     """Return the desktop default workspace, creating it on first use."""
     DEFAULT_WORKSPACE.mkdir(parents=True, exist_ok=True)
     return DEFAULT_WORKSPACE
+
+
+def _resolve_image_path(path: str, cwd: str) -> Path:
+    """Resolve an image attachment path.
+
+    Workspace-sourced images are scoped to the session cwd (the existing
+    security boundary). Two app-managed locations are also trusted (with
+    path-component comparison, not string prefix, to avoid admitting sibling
+    directories whose names merely share a prefix):
+
+    - the system temp dir — clipboard-pasted images land there
+    - ``<HERMES_HOME>/sessions/<id>/assets/`` — the durable per-session asset
+      dir the Rust layer copies images into so attachments survive a restart
+    """
+    raw = str(path or "").strip()
+    candidate = Path(raw).expanduser()
+    if candidate.is_absolute():
+        try:
+            resolved_abs = candidate.resolve()
+        except OSError:
+            resolved_abs = candidate
+        # Trusted app-managed roots.
+        trusted_roots: list[Path] = [Path(tempfile.gettempdir()).resolve()]
+        # Resolve HERMES_HOME the same way the Rust layer does: env override,
+        # else default to ~/.hermes. The Rust `persist_session_image` command
+        # writes durable attachments here, so this dir is app-managed/trusted.
+        hermes_home_env = os.environ.get("HERMES_HOME")
+        if hermes_home_env:
+            hermes_home = Path(hermes_home_env).expanduser()
+        else:
+            hermes_home = Path.home() / ".hermes"
+        try:
+            trusted_roots.append(hermes_home.resolve())
+        except OSError:
+            trusted_roots.append(hermes_home)
+        for root in trusted_roots:
+            if resolved_abs == root or root in resolved_abs.parents:
+                return resolved_abs
+    return resolve_under_cwd(raw, cwd)
 
 
 def _is_reusable_empty_session(row: dict[str, Any]) -> bool:
@@ -316,7 +357,11 @@ class SessionService:
         session = self.get_session_or_404(session_id)
         from agent.image_attachments import validate_local_image_path
 
-        image_path = validate_local_image_path(resolve_under_cwd(path, session.get("cwd") or ""))
+        # Clipboard-pasted images land in the system temp dir (outside the
+        # session cwd). Allow those through the cwd gate; workspace-sourced
+        # images continue to be scoped to the cwd as before.
+        resolved = _resolve_image_path(path, session.get("cwd") or "")
+        image_path = validate_local_image_path(resolved)
         with self._image_lock:
             images = self._attached_images.setdefault(session_id, [])
             images.append(str(image_path))

@@ -5,6 +5,8 @@
   "permissions": [
     "core:default",
     "dialog:default",
+    "notification:default",
+    "clipboard-manager:default",
     "window-state:default",
     "updater:default"
   ]

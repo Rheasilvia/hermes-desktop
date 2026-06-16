@@ -8,6 +8,7 @@ import {
   type ComposerCommandPrefix,
 } from '@/stores/composer-drafts.js';
 import { open } from '@tauri-apps/plugin-dialog';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { Icon, type IconName } from '@/ui/atoms/Icon';
 import { WorkspacePicker } from './WorkspacePicker';
 import { GitBranchPicker } from './GitBranchPicker';
@@ -917,6 +918,26 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     setAttachments((prev) => prev.filter((chip) => chip.id !== id));
   };
 
+  /**
+   * Paste handler: when the clipboard holds an image, read it via the Rust
+   * command (which writes it to a temp file), then attach via the existing
+   * path-based `image` chip flow — zero backend changes. Text paste falls
+   * through to the default textarea behavior.
+   */
+  const handlePaste = (e: ClipboardEvent) => {
+    if (!isTauri()) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const hasImage = Array.from(items).some((item) => item.kind === 'file' && item.type.startsWith('image/'));
+    if (!hasImage) return;
+    e.preventDefault();
+    void invoke<string | null>('read_clipboard_image').then((path) => {
+      if (path) addPaths('image', [path]);
+    }).catch(() => {
+      /* best-effort — paste silently no-ops on failure */
+    });
+  };
+
   const isWorkspaceBound = (chip: AttachmentChip): boolean =>
     chip.kind === 'file' || chip.kind === 'folder' ||
     Boolean(
@@ -1087,6 +1108,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
             value={text()}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             placeholder={props.placeholder ?? 'Message Hermes...'}

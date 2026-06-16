@@ -118,6 +118,13 @@ The Rust layer in `src-tauri/` provides:
 - Auto-updater via GitHub Releases
 - Single-instance enforcement
 - Sidecar management: dev mode connects to pre-running backend, prod mode spawns bundled binary
+- **Native notifications** (`tauri-plugin-notification`): the JS plugin is driven entirely from the frontend (`src/services/notifications/native-notifications.ts`); the Rust layer only registers the plugin + grants the `notification:default` capability. Action buttons (Approve/Reject) are registered via `onAction` and resolve straight to the sidecar's `approval/respond`. Inline approval cards remain the always-present primary surface.
+- **Clipboard images** (`tauri-plugin-clipboard-manager`): two Rust commands — `read_clipboard_image` (clipboard → temp PNG file → returns absolute path) and `write_clipboard_image_from_url` (URL/local-path → bytes → clipboard). The path model matches the existing attachment pipeline: the frontend reuses `image.attach` with the temp path, so no new base64 transport exists.
+
+#### Attachment path resolution
+
+- File/folder attachments collected via the JS dialog (`@tauri-apps/plugin-dialog` `open({multiple, filters})`) flow as `@file:`/`@folder:` refs in `display_parts` — they are **not** cwd-scoped server-side.
+- Image attachments (`image.attach`) are resolved by `_resolve_image_path` in `session_service.py`. Workspace-sourced images are scoped to the session cwd (the security boundary); clipboard-pasted images land in the system temp dir and are allowed through the cwd gate so the paste flow works without copying images into the project. `validate_local_image_path` then checks existence + extension.
 
 ### Python Backend
 
