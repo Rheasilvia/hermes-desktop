@@ -10,6 +10,8 @@ import { clearAllComposerDrafts } from '@/stores/composer-drafts.js';
 const mocks = vi.hoisted(() => ({
   completeSlash: vi.fn(),
   completePath: vi.fn(),
+  gitBranches: vi.fn(),
+  gitCheckout: vi.fn(),
   openDialog: vi.fn(),
   transcribe: vi.fn(),
 }));
@@ -17,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/stores/context.js', () => ({
   getGateway: () => ({
     complete: { slash: mocks.completeSlash, path: mocks.completePath },
+    git: { branches: mocks.gitBranches, checkout: mocks.gitCheckout },
   }),
 }));
 
@@ -41,6 +44,13 @@ describe('MessageInput slash commands', () => {
     ]);
     mocks.completePath.mockReset();
     mocks.completePath.mockResolvedValue([]);
+    mocks.gitBranches.mockReset();
+    mocks.gitBranches.mockResolvedValue({
+      current: 'dev/hermes-agent',
+      branches: ['dev/hermes-agent', 'main'],
+    });
+    mocks.gitCheckout.mockReset();
+    mocks.gitCheckout.mockResolvedValue(undefined);
     mocks.openDialog.mockReset();
     mocks.transcribe.mockReset();
   });
@@ -756,6 +766,48 @@ describe('MessageInput slash commands', () => {
     });
   });
 
+  test('places workspace and git branch in the composer status row while permission stays near send', async () => {
+    render(() => (
+      <MessageInput
+        onSend={vi.fn()}
+        sessionId="session-layout"
+        cwd="/Users/mengjiechen/Documents/Repos/hermes-agent"
+        permissionMode="auto"
+        onPermissionModeChange={vi.fn()}
+      />
+    ));
+
+    const statusRow = screen.getByLabelText('Composer context');
+    const workspace = screen.getByRole('button', { name: 'Show full workspace path' });
+    const branch = await screen.findByRole('button', { name: 'Switch git branch' });
+    const permission = screen.getByRole('button', { name: /Permission mode: Approve for me/ });
+    const send = screen.getByRole('button', { name: 'Send message' });
+
+    expect(statusRow.contains(workspace)).toBe(true);
+    expect(statusRow.contains(branch)).toBe(true);
+    expect(statusRow.contains(permission)).toBe(false);
+    expect(permission.parentElement?.parentElement?.contains(send)).toBe(true);
+
+    fireEvent.click(permission);
+    expect(screen.getByRole('menuitemradio', { name: /Full file access/ })).toBeDefined();
+  });
+
+  test('opens status-row workspace and branch controls after moving them below the toolbar', async () => {
+    render(() => (
+      <MessageInput
+        onSend={vi.fn()}
+        sessionId="session-status-controls"
+        cwd="/Users/mengjiechen/Documents/Repos/hermes-agent"
+      />
+    ));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show full workspace path' }));
+    expect(screen.getByText('/Users/mengjiechen/Documents/Repos/hermes-agent')).toBeDefined();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Switch git branch' }));
+    expect(screen.getByRole('button', { name: 'main' })).toBeDefined();
+  });
+
   test('shows dictation trigger by default when settings config is not loaded', () => {
     render(() => <MessageInput onSend={vi.fn()} />);
 
@@ -1149,7 +1201,7 @@ describe('MessageInput slash commands', () => {
     expect(composerCss).toContain('.voiceStopGlyph');
     expect(composerCss).toContain('.voiceActivityInline');
     expect(composerCss).toContain('voiceProcessSpin 1.8s linear infinite');
-    expect(composerCss).not.toContain('padding: 0 16px 8px');
+    expect(composerCss).toContain('.composerStatusRow');
     expect(composerCss).not.toContain('#0053fd');
     expect(voiceCss).toContain('.waveSpinner');
     expect(voiceCss).toContain('max-width');

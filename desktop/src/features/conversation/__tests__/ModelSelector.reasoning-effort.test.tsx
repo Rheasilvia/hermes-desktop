@@ -56,6 +56,12 @@ async function renderSelector(gateway = makeGateway()) {
   return gateway;
 }
 
+function blurActiveElement() {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+}
+
 describe('ModelSelector reasoning effort', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -73,7 +79,56 @@ describe('ModelSelector reasoning effort', () => {
         reasoningEffort: 'high',
       });
     });
-    expect(screen.getByRole('button', { name: 'Select model' }).textContent).toContain('High');
+    expect(screen.getByTestId('model-effort-trigger').textContent).toContain('High');
+  });
+
+  it('opens the full model picker from the model segment', async () => {
+    await renderSelector();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select model' }));
+
+    expect(screen.getByText('Anthropic')).toBeDefined();
+    expect(screen.getByText('Claude Sonnet')).toBeDefined();
+  });
+
+  it('cycles effort directly from the effort segment without opening the model picker', async () => {
+    const gateway = await renderSelector();
+
+    fireEvent.click(screen.getByTestId('model-effort-trigger'));
+
+    await waitFor(() => {
+      expect(gateway.session.updateRuntime).toHaveBeenCalledWith('session-1', {
+        reasoningEffort: 'high',
+      });
+    });
+    expect(screen.queryByText('Claude Sonnet')).toBeNull();
+    expect(screen.queryByText('Left / Right to adjust reasoning')).toBeNull();
+  });
+
+  it('uses right arrow on the effort segment to increase effort without opening the model picker', async () => {
+    const gateway = await renderSelector();
+
+    fireEvent.keyDown(screen.getByTestId('model-effort-trigger'), { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      expect(gateway.session.updateRuntime).toHaveBeenCalledWith('session-1', {
+        reasoningEffort: 'high',
+      });
+    });
+    expect(screen.queryByText('Claude Sonnet')).toBeNull();
+  });
+
+  it('uses left arrow on the effort segment to decrease effort without opening the model picker', async () => {
+    const gateway = await renderSelector();
+
+    fireEvent.keyDown(screen.getByTestId('model-effort-trigger'), { key: 'ArrowLeft' });
+
+    await waitFor(() => {
+      expect(gateway.session.updateRuntime).toHaveBeenCalledWith('session-1', {
+        reasoningEffort: 'low',
+      });
+    });
+    expect(screen.queryByText('Claude Sonnet')).toBeNull();
   });
 
   it('uses left and right arrows to cycle effort while the dropdown is open', async () => {
@@ -90,6 +145,21 @@ describe('ModelSelector reasoning effort', () => {
     });
   });
 
+  it('uses document arrow keys to cycle effort when focus leaves the dropdown', async () => {
+    const gateway = await renderSelector();
+    const trigger = screen.getByRole('button', { name: 'Select model' });
+
+    fireEvent.click(trigger);
+    blurActiveElement();
+    fireEvent.keyDown(document, { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      expect(gateway.session.updateRuntime).toHaveBeenCalledWith('session-1', {
+        reasoningEffort: 'high',
+      });
+    });
+  });
+
   it('uses up and down arrows plus enter to choose models without changing effort', async () => {
     const gateway = await renderSelector();
     const trigger = screen.getByRole('button', { name: 'Select model' });
@@ -97,6 +167,26 @@ describe('ModelSelector reasoning effort', () => {
     fireEvent.click(trigger);
     fireEvent.keyDown(trigger, { key: 'ArrowDown' });
     fireEvent.keyDown(trigger, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(gateway.setSessionProvider).toHaveBeenCalledWith(
+        'session-1',
+        'anthropic',
+        'claude-sonnet',
+      );
+    });
+    expect(gateway.session.updateRuntime).not.toHaveBeenCalled();
+    expect(sessionStore.getSessionReasoningEffort('session-1')).toBe('medium');
+  });
+
+  it('uses document up and down arrows plus enter to choose models when focus leaves the dropdown', async () => {
+    const gateway = await renderSelector();
+    const trigger = screen.getByRole('button', { name: 'Select model' });
+
+    fireEvent.click(trigger);
+    blurActiveElement();
+    fireEvent.keyDown(document, { key: 'ArrowDown' });
+    fireEvent.keyDown(document, { key: 'Enter' });
 
     await waitFor(() => {
       expect(gateway.setSessionProvider).toHaveBeenCalledWith(
