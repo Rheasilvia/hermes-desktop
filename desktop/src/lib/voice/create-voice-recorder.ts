@@ -95,7 +95,7 @@ export function createVoiceRecorder(opts: VoiceRecorderOptions): VoiceRecorderRe
       const resp = await withTimeout(api.audio().transcribe(dataUrl, mimeType), TRANSCRIPTION_TIMEOUT_MS);
       const transcript = resp.transcript.trim();
       if (!transcript) {
-        opts.onError?.('No speech detected. Try recording again.');
+        opts.onError?.('No speech detected');
       } else {
         opts.onTranscript(transcript);
       }

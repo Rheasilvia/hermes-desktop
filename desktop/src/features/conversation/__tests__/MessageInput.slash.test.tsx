@@ -880,7 +880,7 @@ describe('MessageInput slash commands', () => {
     fireEvent.click(screen.getByLabelText('Dictate'));
 
     await waitFor(() => {
-      expect(screen.getByText('Speech to text is disabled in Voice settings.')).toBeDefined();
+      expect(screen.getByText('Speech to text disabled')).toBeDefined();
     });
     expect(getUserMedia).not.toHaveBeenCalled();
     expect(mocks.transcribe).not.toHaveBeenCalled();
@@ -1037,6 +1037,50 @@ describe('MessageInput slash commands', () => {
 
     await waitFor(() => expect(screen.getByText('Local transcription failed: model not found')).toBeDefined());
     expect(screen.getByLabelText('Dictate')).toBeDefined();
+  });
+
+  test('shows concise no-speech errors briefly and clears them automatically', async () => {
+    const tracks = [{ stop: vi.fn() }];
+    const stream = { getTracks: () => tracks };
+
+    class FakeMediaRecorder extends EventTarget {
+      static isTypeSupported = vi.fn(() => true);
+      state = 'inactive';
+      mimeType = 'audio/webm';
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onstop: (() => void) | null = null;
+
+      constructor(_stream: unknown, _options?: unknown) {
+        super();
+      }
+
+      start() {
+        this.state = 'recording';
+        this.ondataavailable?.({ data: new Blob(['silence'], { type: 'audio/webm' }) } as BlobEvent);
+      }
+
+      stop() {
+        this.state = 'inactive';
+        this.onstop?.();
+      }
+    }
+
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue(stream) },
+    });
+    mocks.transcribe.mockResolvedValue({ transcript: '   ' });
+
+    render(() => <MessageInput onSend={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText('Dictate'));
+    await waitFor(() => expect(screen.getByLabelText('Stop recording')).toBeDefined());
+    fireEvent.click(screen.getByLabelText('Stop recording'));
+
+    await waitFor(() => expect(screen.getByText('No speech detected')).toBeDefined());
+    expect(screen.queryByText('No speech detected. Try recording again.')).toBeNull();
+
+    await waitFor(() => expect(screen.queryByText('No speech detected')).toBeNull(), { timeout: 4500 });
   });
 
   test('times out stuck transcription and restores dictation trigger', async () => {
