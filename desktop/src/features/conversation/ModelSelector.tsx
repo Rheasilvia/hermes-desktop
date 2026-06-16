@@ -6,6 +6,7 @@ import { chatStore } from '@/stores/chat.js';
 import { getGateway } from '@/stores/context.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import type { ReasoningEffort } from '@/types/index.js';
+import { effortLabel, nextReasoningEffort, REASONING_EFFORT_OPTIONS } from './reasoning-effort.js';
 import styles from './ModelSelector.module.css';
 
 interface ModelSelectorProps {
@@ -22,25 +23,13 @@ interface ModelRow {
   modelLabel: string;
 }
 
-const EFFORT_OPTIONS: Array<{ value: ReasoningEffort; label: string }> = [
-  { value: 'none', label: 'Off' },
-  { value: 'minimal', label: 'Min' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Med' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'XHigh' },
-];
-
-function effortLabel(effort: ReasoningEffort): string {
-  return EFFORT_OPTIONS.find(option => option.value === effort)?.label ?? 'Med';
-}
-
 export const ModelSelector: Component<ModelSelectorProps> = (props) => {
-  const [isOpen, setIsOpen] = createSignal(false);
+  const [openPanel, setOpenPanel] = createSignal<'model' | null>(null);
   const [highlightedIndex, setHighlightedIndex] = createSignal(0);
   const [runtimePending, setRuntimePending] = createSignal(false);
   const [runtimeAppliesNextTurn, setRuntimeAppliesNextTurn] = createSignal(false);
   let wrapperRef: HTMLDivElement | undefined;
+  const isModelOpen = () => openPanel() === 'model';
 
   // Per-session model — isolated from the global default
   const sessionModel = createMemo(() => sessionStore.getSessionModel(props.sessionId));
@@ -57,11 +46,6 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
     const modelOption = providerEntry?.models?.find(m => m.name === sm.model);
     const displayName = modelOption?.display_name ?? sm.model;
     return displayName.length > 24 ? `${displayName.slice(0, 24)}…` : displayName;
-  });
-
-  const activeLabel = createMemo(() => {
-    if (!hasModel()) return modelLabel();
-    return `${modelLabel()} · ${effortLabel(currentEffort())}`;
   });
 
   const providers = () => modelsStore.providers();
@@ -91,13 +75,13 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
   });
 
   createEffect(() => {
-    if (isOpen()) {
+    if (isModelOpen()) {
       setHighlightedIndex(activeModelIndex());
     }
   });
 
   createEffect(() => {
-    if (!isOpen() || !wrapperRef) return;
+    if (!isModelOpen() || !wrapperRef) return;
     const el = wrapperRef.querySelector<HTMLElement>(`[data-model-index="${highlightedIndex()}"]`);
     requestAnimationFrame(() => {
       if (typeof el?.scrollIntoView === 'function') {
@@ -106,7 +90,9 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
     });
   });
 
-  const toggleDropdown = () => { if (!props.disabled) setIsOpen(!isOpen()); };
+  const toggleModelPanel = () => {
+    if (!props.disabled) setOpenPanel(isModelOpen() ? null : 'model');
+  };
 
   const updateEffort = async (effort: ReasoningEffort) => {
     if (props.disabled || runtimePending()) return;
@@ -125,10 +111,7 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
   };
 
   const cycleEffort = (direction: 1 | -1) => {
-    const current = currentEffort();
-    const index = EFFORT_OPTIONS.findIndex(option => option.value === current);
-    const nextIndex = (index + direction + EFFORT_OPTIONS.length) % EFFORT_OPTIONS.length;
-    void updateEffort(EFFORT_OPTIONS[nextIndex].value);
+    void updateEffort(nextReasoningEffort(currentEffort(), direction));
   };
 
   const toggleThinking = () => {
@@ -136,7 +119,7 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
   };
 
   const handleModelSelect = async (providerName: string, modelName: string) => {
-    setIsOpen(false);
+    setOpenPanel(null);
     // Block switching while agent is responding
     if (chatStore.isStreaming(props.sessionId)) {
       return;
@@ -162,24 +145,18 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
     }
   };
 
-  const handleKeyDown = (event: KeyboardEvent) => {
-    if (props.disabled) return;
-    if (!isOpen()) {
-      if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
-        event.preventDefault();
-        setIsOpen(true);
-      }
-      return;
-    }
-
+  const handleOpenPickerKeyDown = (event: KeyboardEvent) => {
+    if (props.disabled || !isModelOpen()) return;
     if (event.key === 'Escape') {
       event.preventDefault();
-      setIsOpen(false);
+      event.stopPropagation();
+      setOpenPanel(null);
       return;
     }
 
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
+      event.stopPropagation();
       const rows = modelRows();
       if (!rows.length) return;
       const delta = event.key === 'ArrowDown' ? 1 : -1;
@@ -189,12 +166,14 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
 
     if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
       event.preventDefault();
+      event.stopPropagation();
       cycleEffort(event.key === 'ArrowRight' ? 1 : -1);
       return;
     }
 
     if (event.key === 'Enter') {
       event.preventDefault();
+      event.stopPropagation();
       const row = modelRows()[highlightedIndex()];
       if (row) {
         void handleModelSelect(row.providerName, row.modelName);
@@ -202,10 +181,35 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
     }
   };
 
+  const handleTriggerKeyDown = (event: KeyboardEvent) => {
+    if (props.disabled || isModelOpen()) return;
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpenPanel('model');
+    }
+  };
+
+  const handleEffortKeyDown = (event: KeyboardEvent) => {
+    if (props.disabled) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      cycleEffort(1);
+      return;
+    }
+    if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      event.preventDefault();
+      event.stopPropagation();
+      cycleEffort(event.key === 'ArrowRight' ? 1 : -1);
+      return;
+    }
+  };
+
   const handleClickOutside = (e: MouseEvent) => {
     if (!wrapperRef) return;
     if (!wrapperRef.contains(e.target as Node)) {
-      setIsOpen(false);
+      setOpenPanel(null);
     }
   };
 
@@ -215,26 +219,53 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
     document.addEventListener('click', handleClickOutside, true);
   });
 
+  createEffect(() => {
+    if (!isModelOpen()) return;
+    document.addEventListener('keydown', handleOpenPickerKeyDown, true);
+    onCleanup(() => {
+      document.removeEventListener('keydown', handleOpenPickerKeyDown, true);
+    });
+  });
+
   onCleanup(() => {
     document.removeEventListener('click', handleClickOutside, true);
   });
 
   return (
-    <div class={styles.wrapper} ref={wrapperRef} onKeyDown={handleKeyDown}>
-      <button
-        class={`${styles.trigger} ${isOpen() ? styles.triggerActive : ''} ${props.dimmed ? styles.triggerDimmed : ''}`}
-        onClick={toggleDropdown}
-        type="button"
-        aria-label="Select model"
-        aria-expanded={isOpen()}
-        disabled={props.disabled}
-        data-testid="model-selector-trigger"
-      >
-        <Icon name="cpu" size={12} class={`${styles.triggerIcon} ${props.dimmed ? styles.triggerIconDimmed : ''}`} />
-        <span class={styles.triggerText}>{activeLabel()}</span>
-        <Icon name="chevron-down" size={10} class={`${styles.chevronIcon} ${props.dimmed ? styles.chevronIconDimmed : ''}`} />
-      </button>
-      <Show when={isOpen()}>
+    <div class={styles.wrapper} ref={wrapperRef}>
+      <div class={`${styles.trigger} ${openPanel() ? styles.triggerActive : ''} ${props.dimmed ? styles.triggerDimmed : ''}`}>
+        <button
+          class={styles.modelSegment}
+          onClick={toggleModelPanel}
+          onKeyDown={handleTriggerKeyDown}
+          type="button"
+          aria-label="Select model"
+          aria-expanded={isModelOpen()}
+          disabled={props.disabled}
+          data-testid="model-selector-trigger"
+        >
+          <Icon name="cpu" size={12} class={`${styles.triggerIcon} ${props.dimmed ? styles.triggerIconDimmed : ''}`} />
+          <span class={styles.triggerText}>{modelLabel()}</span>
+          <Icon name="chevron-down" size={10} class={`${styles.chevronIcon} ${props.dimmed ? styles.chevronIconDimmed : ''}`} />
+        </button>
+        <button
+          class={styles.effortSegment}
+          onClick={() => cycleEffort(1)}
+          onKeyDown={handleEffortKeyDown}
+          type="button"
+          aria-label={`Reasoning effort: ${effortLabel(currentEffort())}. Click or use Left/Right to adjust.`}
+          aria-keyshortcuts="ArrowLeft ArrowRight"
+          title={`Reasoning effort: ${effortLabel(currentEffort())}. Click or use Left/Right to adjust.`}
+          disabled={props.disabled || !hasModel()}
+          data-testid="model-effort-trigger"
+        >
+          <span>{effortLabel(currentEffort())}</span>
+          <Show when={runtimeAppliesNextTurn()}>
+            <span class={styles.nextTurnInline}>Next</span>
+          </Show>
+        </button>
+      </div>
+      <Show when={isModelOpen()}>
         <div class={styles.dropdown} role="group" aria-label="Model and effort">
           <div class={styles.runtimePanel}>
             <button
@@ -249,7 +280,7 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
               <span>Thinking</span>
             </button>
             <div class={styles.effortRail} role="group" aria-label="Reasoning effort">
-              <For each={EFFORT_OPTIONS}>
+              <For each={REASONING_EFFORT_OPTIONS}>
                 {(option) => (
                   <button
                     type="button"

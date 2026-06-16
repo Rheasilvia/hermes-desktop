@@ -44,6 +44,7 @@ describe('ContextUsageBar', () => {
 
     expect(screen.getByText('1.2k tokens')).toBeDefined();
     expect(screen.getByText('8.4k / 200k context')).toBeDefined();
+    expect(screen.getByText('$0.42')).toBeDefined();
     expect(container.querySelector('[style*="width"]')).toBeNull();
   });
 });

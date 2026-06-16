@@ -5,10 +5,10 @@
 }
 
 .trigger {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  gap: 2px;
+  padding: 2px;
   border: none;
   border-radius: 8px;
   background: var(--color-background-alt);
@@ -16,7 +16,6 @@
   font-family: var(--font-sans);
   font-size: 11px;
   font-weight: normal;
-  cursor: pointer;
   transition: background-color var(--transition-fast);
   user-select: none;
   flex-shrink: 0;
@@ -33,7 +32,55 @@
 .triggerDimmed {
   background: var(--color-background-alt);
   color: var(--color-on-surface-dim);
+}
+
+.modelSegment,
+.effortSegment {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.modelSegment {
+  min-width: 0;
+  gap: 4px;
+  min-height: 22px;
+  padding: 2px 5px 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.modelSegment:hover,
+.modelSegment:focus-visible {
+  background: var(--color-hover-overlay);
+  outline: none;
+}
+
+.effortSegment {
+  gap: 4px;
+  min-width: 34px;
+  min-height: 22px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+}
+
+.effortSegment:hover,
+.effortSegment:focus-visible {
+  background: var(--color-primary-light);
+  outline: none;
+}
+
+.modelSegment:disabled,
+.effortSegment:disabled {
   cursor: default;
+  opacity: 0.65;
 }
 
 .triggerIcon {
@@ -47,6 +94,7 @@
 }
 
 .triggerText {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -160,6 +208,14 @@
   color: var(--color-on-surface-muted);
   font-size: 10px;
   line-height: 1.4;
+}
+
+.nextTurnInline {
+  padding-left: 4px;
+  border-left: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+  color: var(--color-on-surface-dim);
+  font-size: 9px;
+  font-weight: var(--weight-medium);
 }
 
 .providerLabel {

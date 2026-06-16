@@ -2,7 +2,9 @@ import type { Component } from 'solid-js';
 import { createSignal, createMemo, Show, For, onMount, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { commandPaletteOpen, closeCommandPalette, isMac } from '@/services/keyboard.js';
+import type { ReasoningEffort } from '@/types/index.js';
 import { fuzzyMatch, highlightMatch } from '@/utils/fuzzy.js';
+import { REASONING_EFFORT_OPTIONS } from '@/features/conversation/reasoning-effort.js';
 import styles from './CommandPalette.module.css';
 
 export interface PaletteAction {
@@ -148,6 +150,8 @@ export function buildDefaultActions(callbacks: {
   onCompressContext: () => void;
   onClearHistory: () => void;
   onSwitchModel: () => void;
+  onCycleReasoningEffort: () => void;
+  onSetReasoningEffort: (effort: ReasoningEffort) => void;
 }): PaletteAction[] {
   const mod = isMac() ? '⌘' : 'Ctrl+';
   return [
@@ -263,5 +267,21 @@ export function buildDefaultActions(callbacks: {
       shortcut: '',
       callback: () => callbacks.onSwitchModel(),
     },
+    {
+      id: 'cycle-reasoning-effort',
+      label: 'Cycle reasoning effort',
+      description: 'Move the current session to the next reasoning level',
+      category: 'Model',
+      shortcut: '',
+      callback: () => callbacks.onCycleReasoningEffort(),
+    },
+    ...REASONING_EFFORT_OPTIONS.map((option): PaletteAction => ({
+      id: `set-reasoning-${option.value}`,
+      label: `Set reasoning: ${option.label}`,
+      description: `Use ${option.label} reasoning for the current session`,
+      category: 'Model',
+      shortcut: '',
+      callback: () => callbacks.onSetReasoningEffort(option.value),
+    })),
   ];
 }

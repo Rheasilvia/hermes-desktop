@@ -20,9 +20,15 @@ function tokenLabel(n: number): string {
   return `${fmtK(n)} ${n === 1 ? 'token' : 'tokens'}`;
 }
 
+function costLabel(n: number): string {
+  if (n < 0.01) return `$${n.toFixed(4)}`;
+  return `$${n.toFixed(2)}`;
+}
+
 export const ContextUsageBar: Component<ContextUsageProps> = (props) => {
   const tokenCount = () => props.totalTokens ?? 0;
   const hasContext = () => props.contextUsed !== null && props.contextMax !== null;
+  const hasCost = () => props.costUsd !== null;
 
   return (
     <div class={styles.container} aria-label="Token usage">
@@ -32,6 +38,10 @@ export const ContextUsageBar: Component<ContextUsageProps> = (props) => {
         <span class={styles.metric}>
           {fmtK(props.contextUsed!)} / {fmtK(props.contextMax!)} context
         </span>
+      </Show>
+      <Show when={hasCost()}>
+        <span class={styles.separator}>·</span>
+        <span class={styles.metric}>{costLabel(props.costUsd!)}</span>
       </Show>
     </div>
   );

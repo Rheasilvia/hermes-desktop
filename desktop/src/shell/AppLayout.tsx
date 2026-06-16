@@ -10,6 +10,7 @@ import { initKeyboardShortcuts, destroyKeyboardShortcuts } from '@/services/keyb
 import { loadState } from '@/services/api/state.js';
 import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner';
 import { getGateway } from '@/stores/context.js';
+import { cycleActiveReasoningEffort, updateActiveReasoningEffort } from './reasoning-actions.js';
 import styles from './AppLayout.module.css';
 
 interface AppLayoutProps {
@@ -40,6 +41,8 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
       onCompressContext: () => {},
       onClearHistory: () => {},
       onSwitchModel: () => navigate('/model'),
+      onCycleReasoningEffort: cycleActiveReasoningEffort,
+      onSetReasoningEffort: updateActiveReasoningEffort,
     });
 
   onMount(async () => {

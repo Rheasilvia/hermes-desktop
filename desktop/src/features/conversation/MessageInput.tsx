@@ -1109,18 +1109,9 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
             <Show when={props.modelSlot}>
               <div class={styles.modelPill}>{props.modelSlot!(Boolean(props.disabled && !props.isStreaming), false)}</div>
             </Show>
-            <WorkspacePicker
-              sessionId={props.sessionId}
-              workspacePath={props.cwd}
-              editable={props.isNewConversation}
-              disabled={!props.isNewConversation}
-              onChange={props.onCwdChange}
-            />
-            <GitBranchPicker
-              sessionId={props.sessionId}
-              workspacePath={props.cwd}
-              disabled={props.disabled}
-            />
+          </div>
+
+          <div class={styles.toolbarRight}>
             <PermissionModePicker
               disabled={props.disabled || !props.onPermissionModeChange}
               mode={props.permissionMode ?? 'auto'}
@@ -1128,9 +1119,6 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
               appliesNextTurn={props.permissionModeAppliesNextTurn}
               onChange={(mode) => props.onPermissionModeChange?.(mode)}
             />
-          </div>
-
-          <div class={styles.toolbarRight}>
             <Show when={dictationRecorder.voiceStatus() !== 'idle'}>
               <VoiceActivity class={styles.voiceActivityInline} state={dictationRecorder.voiceActivityState()} />
             </Show>
@@ -1193,13 +1181,29 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
             </Show>
           </div>
         </div>
-        <ContextUsageBar
-          contextUsed={props.contextUsage?.contextUsed ?? null}
-          contextMax={props.contextUsage?.contextMax ?? null}
-          contextPercent={props.contextUsage?.contextPercent ?? null}
-          costUsd={props.contextUsage?.costUsd ?? null}
-          totalTokens={props.contextUsage?.totalTokens ?? null}
-        />
+        <div class={styles.composerStatusRow} aria-label="Composer context">
+          <ContextUsageBar
+            contextUsed={props.contextUsage?.contextUsed ?? null}
+            contextMax={props.contextUsage?.contextMax ?? null}
+            contextPercent={props.contextUsage?.contextPercent ?? null}
+            costUsd={props.contextUsage?.costUsd ?? null}
+            totalTokens={props.contextUsage?.totalTokens ?? null}
+          />
+          <div class={styles.statusContextGroup}>
+            <WorkspacePicker
+              sessionId={props.sessionId}
+              workspacePath={props.cwd}
+              editable={props.isNewConversation}
+              disabled={props.disabled}
+              onChange={props.onCwdChange}
+            />
+            <GitBranchPicker
+              sessionId={props.sessionId}
+              workspacePath={props.cwd}
+              disabled={props.disabled}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
