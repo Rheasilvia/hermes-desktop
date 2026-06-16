@@ -25,6 +25,7 @@
     "@solidjs/router": "^0.16.1",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "dompurify": "^3.4.8",
     "lucide-solid": "^1.17.0",
     "marked": "^18.0.5",

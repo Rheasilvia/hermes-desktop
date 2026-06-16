@@ -41,6 +41,11 @@ function hasRenderableAssistantBlocks(message: RenderedMessage): boolean {
 
 export const MessageBubble: Component<MessageBubbleProps> = (props) => {
   const role = () => props.message.role;
+  // User attachments are stored as an opaque snapshot (retry metadata + the
+  // persisted/hydrated MessageAttachment shape). Pass through to UserMessage,
+  // which normalizes both AttachmentChip ({kind,path}) and MessageAttachment
+  // ({type,localPath}) shapes.
+  const userAttachments = () => (props.message.attachments ?? []) as Array<Record<string, unknown>>;
 
   return (
     <div class={styles.wrapper}>
@@ -55,6 +60,7 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
             .join('\n')}
           slashCommand={props.message.slashCommand}
           displayParts={props.message.displayParts}
+          attachments={userAttachments()}
           timestamp={props.message.timestamp || undefined}
           deliveryStatus={props.message.deliveryStatus}
           failedReason={props.message.failedReason}

@@ -25,6 +25,7 @@ import type { MessageBlock, TextBlock } from '@/types/index.js';
 import { MessageInput } from './MessageInput.js';
 import type { AttachmentChip } from './composer/AttachmentChips.js';
 import type { UserDisplayPart } from './display-parts.js';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { CommandCardDock } from './cards/CommandCardDock.js';
 import { ModelSelector } from './ModelSelector.js';
 import { ChatToolbar } from './ChatToolbar.js';
@@ -183,14 +184,47 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     const attachmentLabelText = attachments.map((attachment) => attachment.name).join(', ');
     const submitText = promptText || (imageAttachments.length > 0 ? 'What do you see in this image?' : attachmentLabelText);
     const displayText = (display?.text ?? promptText) || attachmentLabelText;
-    const messageId = chatStore.appendUserMessage(sid, displayText, display?.slashCommand, submitText, attachments, displayParts);
     const gateway = getGateway();
-    if (gateway && imageAttachments.length > 0) {
+
+    // Persist image attachments into a durable per-session assets dir (the
+    // clipboard temp file may be purged by the OS), then carry the persisted
+    // paths as image display-parts so they survive a restart via the
+    // user_display_parts round-trip. Falls back to the raw path outside Tauri.
+    const persistedImages: { path: string; name: string }[] = [];
+    if (imageAttachments.length > 0) {
       try {
         for (const attachment of imageAttachments) {
-          if (attachment.path) {
-            await gateway.image.attach({ session_id: sid, path: attachment.path });
+          if (!attachment.path) continue;
+          let imagePath = attachment.path;
+          if (isTauri()) {
+            imagePath = await invoke<string>('persist_session_image', {
+              sessionId: sid,
+              srcPath: attachment.path,
+            });
           }
+          persistedImages.push({ path: imagePath, name: attachment.name });
+        }
+      } catch (error) {
+        chatStore.markUserMessageFailed(
+          sid,
+          crypto.randomUUID(),
+          error instanceof Error ? error.message : 'Failed to attach image',
+        );
+        return false;
+      }
+    }
+
+    // Merge image display-parts into the parts carried to the store + sidecar.
+    const mergedDisplayParts: UserDisplayPart[] = [
+      ...(displayParts ?? []),
+      ...persistedImages.map((img) => ({ type: 'image' as const, path: img.path, name: img.name })),
+    ];
+
+    const messageId = chatStore.appendUserMessage(sid, displayText, display?.slashCommand, submitText, attachments, mergedDisplayParts);
+    if (gateway && persistedImages.length > 0) {
+      try {
+        for (const img of persistedImages) {
+          await gateway.image.attach({ session_id: sid, path: img.path });
         }
       } catch (error) {
         chatStore.markUserMessageFailed(
@@ -205,7 +239,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     const ok = await chatStore.sendMessage(sid, dispatch.message, {
       context: dispatch.context,
       slashCommand: dispatch.slashCommand,
-      displayParts,
+      displayParts: mergedDisplayParts,
     });
     if (!ok) {
       chatStore.markUserMessageFailed(sid, messageId, chatStore.getError(sid) ?? 'Failed to send message');

@@ -4,12 +4,62 @@
   gap: 8px;
 }
 
+/* Compact mode: fixed small thumbnail for user-message attachment previews. */
+.compact .frame {
+  width: 120px;
+  height: 120px;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-sm);
+}
+
+.compact .image {
+  width: 120px;
+  height: 120px;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+  cursor: zoom-in;
+}
+
+.compact .placeholder {
+  width: 120px;
+  height: 120px;
+}
+
 .frame {
+  position: relative;
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--color-border);
   width: fit-content;
   max-width: 100%;
+}
+
+.copyBtn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-on-surface);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.frame:hover .copyBtn {
+  opacity: 0.85;
+}
+
+.copyBtn:hover {
+  opacity: 1;
 }
 
 .image {

@@ -15,6 +15,9 @@ const REGISTERED_TAURI_COMMANDS: &[&str] = &[
     "list_dir",
     "open_external",
     "get_platform",
+    "read_clipboard_image",
+    "write_clipboard_image_from_url",
+    "persist_session_image",
     "select_workspace_for_session",
     "sidecar_info",
     "check_for_updates",
@@ -100,6 +103,8 @@ async fn select_workspace_for_session(
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -115,6 +120,9 @@ pub fn run() {
             commands::hermes_home::list_dir,
             commands::platform::open_external,
             commands::platform::get_platform,
+            commands::clipboard::read_clipboard_image,
+            commands::clipboard::write_clipboard_image_from_url,
+            commands::assets::persist_session_image,
             select_workspace_for_session,
             sidecar_info,
             updater::check_for_updates,

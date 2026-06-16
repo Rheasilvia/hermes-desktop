@@ -10,6 +10,7 @@ import { initKeyboardShortcuts, destroyKeyboardShortcuts } from '@/services/keyb
 import { loadState } from '@/services/api/state.js';
 import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner';
 import { getGateway } from '@/stores/context.js';
+import { setApprovalResponder, setSessionFocuser, teardownNativeNotifications } from '@/services/notifications/native-notifications.js';
 import { cycleActiveReasoningEffort, updateActiveReasoningEffort } from './reasoning-actions.js';
 import styles from './AppLayout.module.css';
 
@@ -75,6 +76,31 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
         gateway.off('model.changed', onModelChanged);
       });
     }
+
+    // Wire native-notification action + click callbacks.
+    // Approval actions (Approve/Reject buttons) resolve straight to the sidecar;
+    // the inline approval card remains the always-present primary surface.
+    setApprovalResponder(gateway
+      ? async (sessionId, command, choice) => {
+        try {
+          await gateway.approval.respond({ session_id: sessionId, command, choice });
+        } catch {
+          /* best-effort — the inline card is still actionable */
+        }
+      }
+      : null);
+    setSessionFocuser((sessionId) => {
+      if (sessionId) navigate(`/conversation/${sessionId}`);
+      void import('@tauri-apps/api/core').then(({ isTauri }) => {
+        if (!isTauri()) return;
+        return import('@tauri-apps/api/window').then(({ getCurrentWindow }) => getCurrentWindow().setFocus());
+      }).catch(() => {});
+    });
+    onCleanup(() => {
+      setApprovalResponder(null);
+      setSessionFocuser(null);
+      teardownNativeNotifications();
+    });
 
     // App.tsx guarantees the backend is available before AppLayout mounts
     await sessionStore.loadSessions();

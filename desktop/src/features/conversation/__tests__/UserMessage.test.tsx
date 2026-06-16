@@ -49,4 +49,27 @@ describe('UserMessage', () => {
     expect(screen.getByText('second')).toBeDefined();
     expect(screen.queryByText('[File 1: one.ts:L1-L3] first [File 2: two.ts] second')).toBeNull();
   });
+
+  test('renders image attachments as thumbnails in the user bubble', () => {
+    render(() => (
+      <UserMessage
+        content="check this"
+        attachments={[
+          { id: 'img1', kind: 'image', name: 'screenshot.png', path: '/tmp/clip-1.png' },
+          { id: 'file1', kind: 'file', name: 'note.md', path: '/tmp/note.md' },
+        ]}
+      />
+    ));
+
+    // An image attachment renders the image gallery group (always present,
+    // even before the <img> load event fires in jsdom). Non-image chips are
+    // NOT rendered into the gallery.
+    const gallery = document.querySelector('[aria-label="Attached images"]');
+    expect(gallery).not.toBeNull();
+    // The gallery preloads the image; its <img> src carries the (unconverted,
+    // since jsdom is not Tauri) attachment path.
+    const imgs = gallery?.querySelectorAll('img') ?? [];
+    expect(imgs.length).toBeGreaterThan(0);
+    expect(Array.from(imgs).some((img) => (img.getAttribute('src') ?? '').includes('clip-1.png'))).toBe(true);
+  });
 });

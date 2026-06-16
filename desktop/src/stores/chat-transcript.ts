@@ -8,12 +8,32 @@
  */
 
 import type { TranscriptLiveTurn, TranscriptMessage } from '@/types/session.js';
-import type { ConversationMessage } from '@/types/domain/message.js';
+import type { ConversationMessage, MessageAttachment } from '@/types/domain/message.js';
 import type { LiveTurnState } from '@/types/ui/turn.js';
 import type { MessageBlock } from '@/types/ui/blocks.js';
 import { hydratePersistedBlocks } from '@/utils/messageParser.js';
 import { chatStates, makeLiveTurnState, nextBlockId } from './chat-state.js';
 import { transcriptToolToLiveTool, liveToolToBlock } from './chat-blocks.js';
+
+/** Reconstruct domain attachments from persisted display parts so image/file
+ *  chips survive a restart instead of being dropped (they were in-memory only). */
+function attachmentsFromTranscript(displayParts: TranscriptMessage['display_parts']): MessageAttachment[] | null {
+  if (!displayParts?.length) return null;
+  const out: MessageAttachment[] = [];
+  for (const part of displayParts) {
+    if (part.type === 'image') {
+      out.push({
+        id: `image:${part.path}`,
+        type: 'image',
+        name: part.name,
+        size: 0,
+        mimeType: '',
+        localPath: part.path,
+      });
+    }
+  }
+  return out.length ? out : null;
+}
 
 export function transcriptMsgToDomain(msg: TranscriptMessage, sessionId: string): ConversationMessage {
   return {
@@ -30,7 +50,7 @@ export function transcriptMsgToDomain(msg: TranscriptMessage, sessionId: string)
     timestamp: msg.timestamp,
     tokenCount: msg.token_count ?? null,
     finishReason: msg.finish_reason ?? null,
-    attachments: null,
+    attachments: attachmentsFromTranscript(msg.display_parts),
     slashCommand: msg.slash_command ?? null,
     displayParts: msg.display_parts ?? null,
   };
