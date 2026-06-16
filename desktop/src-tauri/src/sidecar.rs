@@ -27,6 +27,7 @@ pub struct SidecarState {
 }
 
 pub static SIDECAR: OnceCell<Arc<SidecarState>> = OnceCell::new();
+const SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub fn state() -> Arc<SidecarState> {
     SIDECAR
@@ -152,7 +153,7 @@ pub async fn spawn_dev() -> Result<SidecarInfo> {
         .take()
         .ok_or_else(|| anyhow::anyhow!("no stdout"))?;
     let mut reader = BufReader::new(stdout).lines();
-    let actual_port = timeout(Duration::from_secs(30), async {
+    let actual_port = timeout(SIDECAR_READY_TIMEOUT, async {
         while let Some(line) = reader.next_line().await? {
             if let Some(rest) = line.strip_prefix("READY ") {
                 return Ok::<u16, anyhow::Error>(rest.trim().parse()?);
@@ -323,7 +324,7 @@ pub async fn spawn(handle: tauri::AppHandle) -> Result<SidecarInfo> {
         let mut child = cmd.spawn().context("failed to spawn sidecar")?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?;
         let mut reader = BufReader::new(stdout).lines();
-        let port = timeout(Duration::from_secs(30), async {
+        let port = timeout(SIDECAR_READY_TIMEOUT, async {
             while let Some(line) = reader.next_line().await? {
                 if let Some(rest) = line.strip_prefix("READY ") {
                     return Ok::<u16, anyhow::Error>(rest.trim().parse()?);
