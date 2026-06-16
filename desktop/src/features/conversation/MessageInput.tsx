@@ -1,5 +1,5 @@
 import type { Accessor, Component } from 'solid-js';
-import { createSignal, createEffect, Show, createMemo, untrack, For } from 'solid-js';
+import { createSignal, createEffect, Show, createMemo, untrack, For, onCleanup } from 'solid-js';
 import { fileChipQueue } from '@/stores/file-chip-queue.js';
 import {
   clearComposerDraft,
@@ -93,6 +93,7 @@ const REFERENCE_STARTERS: ReferenceCompletion[] = [
 
 const REF_PREFIX_RE = /^@(file|folder|image|url|tool|git):(.*)$/;
 const SIMPLE_REF_RE = /^@(diff|staged)$/;
+const VOICE_ERROR_DISMISS_MS = 3000;
 
 export const MessageInput: Component<MessageInputProps> = (props) => {
   const [text, setText] = createSignal('');
@@ -110,6 +111,27 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const [voiceError, setVoiceError] = createSignal('');
   let textareaRef: HTMLTextAreaElement | undefined;
   let previousSessionId: string | null | undefined;
+  let voiceErrorTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const clearVoiceErrorTimer = () => {
+    if (!voiceErrorTimer) return;
+    clearTimeout(voiceErrorTimer);
+    voiceErrorTimer = undefined;
+  };
+
+  const clearVoiceError = () => {
+    clearVoiceErrorTimer();
+    setVoiceError('');
+  };
+
+  const showVoiceError = (message: string) => {
+    clearVoiceErrorTimer();
+    setVoiceError(message);
+    voiceErrorTimer = setTimeout(() => {
+      setVoiceError('');
+      voiceErrorTimer = undefined;
+    }, VOICE_ERROR_DISMISS_MS);
+  };
 
   const insertTranscriptAtCaret = (transcript: string) => {
     const nextTranscript = transcript.trim();
@@ -142,11 +164,12 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     maxRecordingSeconds: () => props.maxVoiceRecordingSeconds ?? 120,
     focusInput: () => textareaRef?.focus(),
     onTranscript: (t) => {
-      setVoiceError('');
+      clearVoiceError();
       insertTranscriptAtCaret(t);
     },
-    onError: (message) => setVoiceError(message),
+    onError: showVoiceError,
   });
+  onCleanup(clearVoiceErrorTimer);
   let referenceRequestId = 0;
   let historyCursor = -1;
   let historyDraftSnapshot: ComposerHistoryEntry | null = null;
@@ -1123,7 +1146,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
               <VoiceActivity class={styles.voiceActivityInline} state={dictationRecorder.voiceActivityState()} />
             </Show>
             <Show when={voiceError()}>
-              <div class={`${styles.voiceActivityInline} ${styles.voiceError}`} role="alert">
+              <div class={`${styles.voiceActivityInline} ${styles.voiceError}`} role="alert" title={voiceError()}>
                 {voiceError()}
               </div>
             </Show>
@@ -1140,9 +1163,9 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
                 title={dictationButtonTitle()}
                 disabled={!!props.disabled}
                 onClick={() => {
-                  setVoiceError('');
+                  clearVoiceError();
                   if (props.sttEnabled === false) {
-                    setVoiceError('Speech to text is disabled in Voice settings.');
+                    showVoiceError('Speech to text disabled');
                     textareaRef?.focus();
                     return;
                   }
