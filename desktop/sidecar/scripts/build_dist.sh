@@ -41,7 +41,8 @@ cleanup() {
   rm -rf "$TMP_HOME"
 }
 trap cleanup EXIT
-for _ in {1..100}; do
+READY_ATTEMPTS=900
+for _ in $(seq 1 "$READY_ATTEMPTS"); do
   if grep -q "^READY " "$READY_LOG"; then
     break
   fi

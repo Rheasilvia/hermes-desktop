@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import threading
+import time
 
 import uvicorn
 
@@ -20,7 +21,7 @@ except ImportError:
 
 def _announce(server: uvicorn.Server, port: int) -> None:
     while not server.started:
-        pass
+        time.sleep(0.01)
     sys.stdout.write(f"READY {port}\n")
     sys.stdout.flush()
 
