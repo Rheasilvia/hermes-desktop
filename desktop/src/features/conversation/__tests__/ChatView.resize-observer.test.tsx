@@ -6,7 +6,7 @@ import type { ScrollController } from '../scrollController';
 const handleViewportResize = vi.fn();
 const observe = vi.fn();
 const disconnect = vi.fn();
-let resizeCallback: ResizeObserverCallback | undefined;
+let resizeCallbacks: ResizeObserverCallback[] = [];
 
 vi.mock('@solidjs/router', () => ({
   useNavigate: () => vi.fn(),
@@ -171,11 +171,9 @@ vi.mock('../AssistantMessage.js', () => ({ AssistantMessage: stubComponent('assi
 vi.mock('../MessageInput.js', () => ({ MessageInput: () => <div data-testid="message-input" /> }));
 vi.mock('../cards/CommandCardDock.js', () => ({ CommandCardDock: stubComponent('command-card-dock') }));
 vi.mock('../ModelSelector.js', () => ({ ModelSelector: stubComponent('model-selector') }));
-vi.mock('../ChatToolbar.js', () => ({ ChatToolbar: stubComponent('chat-toolbar') }));
 vi.mock('../WorkspaceSidePanel.js', () => ({ WorkspaceSidePanel: stubComponent('workspace-side-panel') }));
 vi.mock('../EmptyChatState.js', () => ({ EmptyChatState: stubComponent('empty-chat-state') }));
 vi.mock('../ErrorBanner.js', () => ({ ErrorBanner: stubComponent('error-banner') }));
-vi.mock('../WorkspaceBanner.js', () => ({ WorkspaceBanner: stubComponent('workspace-banner') }));
 vi.mock('../ConversationRecoveryBanner.js', () => ({ ConversationRecoveryBanner: stubComponent('recovery-banner') }));
 vi.mock('@/ui/atoms/Icon.js', () => ({ Icon: stubComponent('icon') }));
 vi.mock('../ClarificationCard.js', () => ({ ClarificationCard: stubComponent('clarification-card') }));
@@ -191,11 +189,11 @@ describe('ChatView composer resize anchoring', () => {
     handleViewportResize.mockClear();
     observe.mockClear();
     disconnect.mockClear();
-    resizeCallback = undefined;
+    resizeCallbacks = [];
 
     class ResizeObserverMock {
       constructor(callback: ResizeObserverCallback) {
-        resizeCallback = callback;
+        resizeCallbacks.push(callback);
       }
 
       observe = observe;
@@ -209,20 +207,23 @@ describe('ChatView composer resize anchoring', () => {
     vi.unstubAllGlobals();
   });
 
-  it('observes only the composer input target and anchors the current conversation when it resizes', async () => {
+  it('observes the composer input target and anchors the current conversation when it resizes', async () => {
     const { ChatView } = await import('../ChatView.js');
     const rendered = render(() => <ChatView sessionId="session-resize" />);
 
-    const observedTarget = observe.mock.calls[0][0] as HTMLElement;
-    expect(observe).toHaveBeenCalledTimes(1);
-    expect(observedTarget.contains(rendered.getByTestId('message-input'))).toBe(true);
-    expect(observedTarget.contains(rendered.getByTestId('jump-to-bottom'))).toBe(false);
-    expect(observedTarget.contains(rendered.getByTestId('prompt-dock'))).toBe(false);
+    const observedTargets = observe.mock.calls.map((call) => call[0] as HTMLElement);
+    const composerTarget = observedTargets.find((target) => target.contains(rendered.getByTestId('message-input')));
 
-    resizeCallback?.([], {} as ResizeObserver);
+    expect(composerTarget).toBeDefined();
+    expect(composerTarget?.contains(rendered.getByTestId('jump-to-bottom'))).toBe(false);
+    expect(composerTarget?.contains(rendered.getByTestId('prompt-dock'))).toBe(false);
+
+    for (const callback of resizeCallbacks) {
+      callback([], {} as ResizeObserver);
+    }
 
     expect(handleViewportResize).toHaveBeenCalledTimes(1);
     rendered.unmount();
-    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(disconnect).toHaveBeenCalledTimes(resizeCallbacks.length);
   });
 });

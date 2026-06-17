@@ -1,6 +1,8 @@
 .wrapper {
-  padding: 8px 32px 24px 32px;
+  padding: 8px clamp(16px, 4%, 32px) 24px;
   flex-shrink: 0;
+  min-width: 0;
+  container-type: inline-size;
 }
 
 .attachmentBar {
@@ -18,6 +20,7 @@
   display: flex;
   flex-direction: column;
   transition: border-color var(--transition-fast);
+  min-width: 0;
 }
 
 .inputContainerActive {
@@ -217,6 +220,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 0 16px 8px 16px;
 }
@@ -226,28 +230,31 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 220px;
 }
 
 .toolbarRight {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
   flex: 0 1 auto;
   min-width: 0;
+  row-gap: 4px;
 }
 
 .composerStatusRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
   min-height: 28px;
   padding: 5px 16px 7px;
   border-top: 1px solid var(--color-border);
   color: var(--color-on-surface-dim);
-  overflow: visible;
+  overflow: hidden;
 }
 
 .statusContextGroup {
@@ -256,7 +263,7 @@
   justify-content: flex-end;
   gap: 6px;
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 1 1 260px;
   flex-wrap: wrap;
 }
 
@@ -309,9 +316,9 @@
 }
 
 .permissionButtonLabel {
-  max-width: none;
-  overflow: visible;
-  text-overflow: clip;
+  max-width: 128px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
   font-weight: var(--weight-semibold);
@@ -319,6 +326,9 @@
 }
 
 .permissionNextTurnHint {
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--color-on-surface-dim);
   font-family: var(--font-sans);
   font-size: 10px;
@@ -522,6 +532,7 @@
 .modelPill {
   display: flex;
   align-items: center;
+  min-width: 0;
 }
 
 .inputContainerSending .modelPill {
@@ -612,4 +623,114 @@
     max-width: 154px;
     flex-basis: 132px;
   }
+}
+
+@container (max-width: 560px) {
+  .toolbar {
+    align-items: stretch;
+  }
+
+  .toolbarRight {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .composerStatusRow {
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .statusContextGroup {
+    justify-content: flex-start;
+  }
+
+  .permissionButtonLabel {
+    max-width: 96px;
+  }
+
+  .permissionNextTurnHint {
+    max-width: 96px;
+  }
+}
+
+.wrapperCompact .toolbar {
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px 6px;
+}
+
+.wrapperCompact .composerStatusRow {
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 12px 6px;
+}
+
+.wrapperCompact .statusContextGroup {
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  max-width: 70%;
+  margin-left: auto;
+  gap: 6px;
+}
+
+.wrapperCompact .toolbarLeft {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.wrapperCompact .toolbarRight {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  width: auto;
+  margin-left: auto;
+  gap: 4px;
+}
+
+.wrapperCompact .actionBtn,
+.wrapperCompact .sendButton {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.wrapperCompact .stopButton {
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  gap: 0;
+  padding: 0;
+  border-radius: 7px;
+}
+
+.wrapperCompact .stopButton span {
+  display: none;
+}
+
+.actionBtn.permissionButtonCompact {
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  gap: 0;
+  padding: 0;
+  border-radius: 7px;
+}
+
+.permissionNextTurnCompact {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  max-width: none;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--color-background-alt);
+  font-size: 9px;
+  font-weight: var(--weight-medium);
+  line-height: 16px;
 }

@@ -8,6 +8,13 @@ import type { ConnectionState } from '@/services/gateway/types.js';
 
 type Theme = 'dark' | 'light';
 
+/**
+ * Operating system the desktop shell is running on. Drives platform-specific
+ * chrome such as the title bar (macOS keeps native traffic lights; Windows /
+ * Linux render custom window controls). Unknown until `get_platform` resolves.
+ */
+type Platform = 'macos' | 'windows' | 'linux' | 'unknown';
+
 const STORAGE_KEY_THEME = 'hermes-desktop-theme';
 const STORAGE_KEY_SIDEBAR = 'hermes-desktop-sidebar-collapsed';
 const STORAGE_KEY_SIDEBAR_WIDTH = 'hermes-desktop-sidebar-width';
@@ -76,6 +83,7 @@ const [sidebarWidth, setSidebarWidthRaw] = createSignal(loadPersistedSidebarWidt
 const [activeRoute, setActiveRoute] = createSignal<string>('/');
 const [connectionState, setConnectionState] = createSignal<ConnectionState>('disconnected');
 const [theme, setThemeSignal] = createSignal<Theme>(loadPersistedTheme());
+const [platform, setPlatformSignal] = createSignal<Platform>('unknown');
 
 // Sidebar section state — persisted to localStorage
 const [pinnedSectionOpen, setPinnedSectionOpen] = createSignal(loadBool(STORAGE_KEY_PINNED_OPEN, true));
@@ -126,6 +134,7 @@ export const uiStore = {
   get activeRoute() { return activeRoute(); },
   get connectionState() { return connectionState(); },
   get theme() { return theme(); },
+  get platform() { return platform(); },
   get pinnedSectionOpen() { return pinnedSectionOpen(); },
   get conversationsSectionOpen() { return conversationsSectionOpen(); },
   get workspaceGrouping() { return workspaceGrouping(); },
@@ -155,6 +164,10 @@ export const uiStore = {
   setTheme(newTheme: Theme) {
     setThemeSignal(newTheme);
     document.documentElement.dataset.theme = newTheme;
+  },
+
+  setPlatform(newPlatform: Platform) {
+    setPlatformSignal(newPlatform);
   },
 
   togglePinnedSection() {

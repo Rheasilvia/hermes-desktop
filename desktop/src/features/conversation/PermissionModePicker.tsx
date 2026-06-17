@@ -37,6 +37,7 @@ interface PermissionModePickerProps {
   mode: DesktopPermissionMode;
   pending?: boolean;
   appliesNextTurn?: boolean;
+  compact?: boolean;
   onChange: (mode: DesktopPermissionMode) => void;
 }
 
@@ -46,6 +47,7 @@ export const PermissionModePicker: Component<PermissionModePickerProps> = (props
   let triggerRef: HTMLButtonElement | undefined;
 
   const current = () => OPTIONS.find((option) => option.mode === props.mode) ?? OPTIONS[1];
+  const triggerLabel = () => `Permission mode: ${current().label}${props.appliesNextTurn ? ', applies next turn' : ''}`;
 
   createEffect(() => {
     if (!open()) return;
@@ -89,9 +91,10 @@ export const PermissionModePicker: Component<PermissionModePickerProps> = (props
           [styles.permissionButtonAsk]: current().mode === 'ask',
           [styles.permissionButtonAuto]: current().mode === 'auto',
           [styles.permissionButtonFull]: current().mode === 'full',
+          [styles.permissionButtonCompact]: props.compact,
         }}
         type="button"
-        aria-label={`Permission mode: ${current().label}`}
+        aria-label={triggerLabel()}
         aria-expanded={open()}
         aria-haspopup="menu"
         disabled={props.disabled || props.pending}
@@ -99,11 +102,18 @@ export const PermissionModePicker: Component<PermissionModePickerProps> = (props
         onClick={() => setOpen((value) => !value)}
       >
         <Icon name={current().icon} size={13} />
-        <span class={styles.permissionButtonLabel}>{current().label}</span>
+        <Show when={!props.compact}>
+          <span class={styles.permissionButtonLabel}>{current().label}</span>
+        </Show>
       </button>
 
       <Show when={props.appliesNextTurn}>
-        <span class={styles.permissionNextTurnHint}>Applies next turn</span>
+        <span
+          class={styles.permissionNextTurnHint}
+          classList={{ [styles.permissionNextTurnCompact]: props.compact }}
+        >
+          {props.compact ? 'Next' : 'Applies next turn'}
+        </span>
       </Show>
 
       <Show when={open() && !props.disabled}>

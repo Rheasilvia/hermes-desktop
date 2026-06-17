@@ -8,12 +8,6 @@
   padding: var(--space-8);
 }
 
-.banner {
-  margin-bottom: 8px;
-  opacity: 0.35;
-  filter: saturate(0.6);
-}
-
 .heading {
   font-family: var(--font-serif);
   font-size: var(--text-3xl);

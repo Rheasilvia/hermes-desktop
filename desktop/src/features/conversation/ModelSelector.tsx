@@ -14,6 +14,7 @@ interface ModelSelectorProps {
   onModelChange?: (provider: string, model: string) => void;
   dimmed?: boolean;
   disabled?: boolean;
+  compact?: boolean;
 }
 
 interface ModelRow {
@@ -21,6 +22,17 @@ interface ModelRow {
   providerLabel: string;
   modelName: string;
   modelLabel: string;
+}
+
+function compactEffortLabel(effort: ReasoningEffort): string {
+  switch (effort) {
+    case 'high':
+      return 'Hi';
+    case 'xhigh':
+      return 'XHi';
+    default:
+      return effortLabel(effort);
+  }
 }
 
 export const ModelSelector: Component<ModelSelectorProps> = (props) => {
@@ -38,15 +50,25 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
 
   const hasModel = createMemo(() => !!sessionModel());
 
-  const modelLabel = createMemo(() => {
+  const fullModelLabel = createMemo(() => {
     const sm = sessionModel();
     if (!sm) return '⚠ Select model';
     // Find display name from catalog
     const providerEntry = modelsStore.providers().find(p => p.name === sm.provider);
     const modelOption = providerEntry?.models?.find(m => m.name === sm.model);
-    const displayName = modelOption?.display_name ?? sm.model;
+    return modelOption?.display_name ?? sm.model;
+  });
+
+  const modelLabel = createMemo(() => {
+    const displayName = fullModelLabel();
     return displayName.length > 24 ? `${displayName.slice(0, 24)}…` : displayName;
   });
+
+  const modelButtonLabel = () => props.compact ? `Select model: ${fullModelLabel()}` : 'Select model';
+  const effortButtonTitle = () => {
+    const suffix = runtimeAppliesNextTurn() ? ' Applies next turn.' : '';
+    return `Reasoning effort: ${effortLabel(currentEffort())}. Click or use Left/Right to adjust.${suffix}`;
+  };
 
   const providers = () => modelsStore.providers();
   const modelRows = createMemo<ModelRow[]>(() => providers().flatMap(provider =>
@@ -233,34 +255,46 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
 
   return (
     <div class={styles.wrapper} ref={wrapperRef}>
-      <div class={`${styles.trigger} ${openPanel() ? styles.triggerActive : ''} ${props.dimmed ? styles.triggerDimmed : ''}`}>
+      <div
+        class={styles.trigger}
+        classList={{
+          [styles.triggerActive]: isModelOpen(),
+          [styles.triggerDimmed]: props.dimmed,
+          [styles.triggerCompact]: props.compact,
+        }}
+      >
         <button
           class={styles.modelSegment}
+          classList={{ [styles.modelSegmentCompact]: props.compact }}
           onClick={toggleModelPanel}
           onKeyDown={handleTriggerKeyDown}
           type="button"
-          aria-label="Select model"
+          aria-label={modelButtonLabel()}
           aria-expanded={isModelOpen()}
+          title={fullModelLabel()}
           disabled={props.disabled}
           data-testid="model-selector-trigger"
         >
-          <Icon name="cpu" size={12} class={`${styles.triggerIcon} ${props.dimmed ? styles.triggerIconDimmed : ''}`} />
-          <span class={styles.triggerText}>{modelLabel()}</span>
-          <Icon name="chevron-down" size={10} class={`${styles.chevronIcon} ${props.dimmed ? styles.chevronIconDimmed : ''}`} />
+          <Icon name="cpu" size={props.compact ? 14 : 12} class={`${styles.triggerIcon} ${props.dimmed ? styles.triggerIconDimmed : ''}`} />
+          <Show when={!props.compact}>
+            <span class={styles.triggerText}>{modelLabel()}</span>
+            <Icon name="chevron-down" size={10} class={`${styles.chevronIcon} ${props.dimmed ? styles.chevronIconDimmed : ''}`} />
+          </Show>
         </button>
         <button
           class={styles.effortSegment}
+          classList={{ [styles.effortSegmentCompact]: props.compact }}
           onClick={() => cycleEffort(1)}
           onKeyDown={handleEffortKeyDown}
           type="button"
-          aria-label={`Reasoning effort: ${effortLabel(currentEffort())}. Click or use Left/Right to adjust.`}
+          aria-label={effortButtonTitle()}
           aria-keyshortcuts="ArrowLeft ArrowRight"
-          title={`Reasoning effort: ${effortLabel(currentEffort())}. Click or use Left/Right to adjust.`}
+          title={effortButtonTitle()}
           disabled={props.disabled || !hasModel()}
           data-testid="model-effort-trigger"
         >
-          <span>{effortLabel(currentEffort())}</span>
-          <Show when={runtimeAppliesNextTurn()}>
+          <span>{props.compact ? compactEffortLabel(currentEffort()) : effortLabel(currentEffort())}</span>
+          <Show when={runtimeAppliesNextTurn() && !props.compact}>
             <span class={styles.nextTurnInline}>Next</span>
           </Show>
         </button>

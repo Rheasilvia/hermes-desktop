@@ -386,7 +386,7 @@ export const Sidebar: Component = () => {
           <Show when={allSessions().length > 0}>
             <div class={styles.section}>
               {renderSectionHeader(
-                'Conversations',
+                uiStore.workspaceGrouping ? 'Projects' : 'Conversations',
                 allSessions().length,
                 uiStore.conversationsSectionOpen,
                 () => uiStore.toggleConversationsSection(),

@@ -1,6 +1,7 @@
 import { Component, JSX, onMount, onCleanup, createSignal, Show } from 'solid-js';
 import { useNavigate, useLocation } from '@solidjs/router';
 import { Sidebar } from '@/shell/Sidebar';
+import { TitleBar } from '@/shell/TitleBar';
 import { CommandPalette, buildDefaultActions } from '@/shell/CommandPalette';
 import type { PaletteAction } from '@/shell/CommandPalette';
 import { sessionStore } from '@/stores/session.js';
@@ -47,6 +48,20 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
     });
 
   onMount(async () => {
+    // Detect the OS once so platform-specific chrome (e.g. the title bar's
+    // native-vs-custom window controls) renders correctly. Off-Tauri (browser
+    // preview) this resolves to 'unknown' and is harmless.
+    try {
+      const { isTauri } = await import('@tauri-apps/api/core');
+      if (isTauri()) {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const platform = await invoke<'macos' | 'windows' | 'linux'>('get_platform');
+        uiStore.setPlatform(platform);
+      }
+    } catch {
+      /* best-effort — 'unknown' platform falls back to no custom controls */
+    }
+
     initKeyboardShortcuts({
       onToggleSidebar: () => uiStore.toggleSidebar(),
       onNavigate: (route: string) => navigate(route),
@@ -137,12 +152,20 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
   return (
     <div class={styles.layout}>
       <Show when={initializing()}>
-        <div style={{ display: 'flex', 'align-items': 'center', 'justify-content': 'center', height: '100vh', position: 'absolute', inset: '0', 'z-index': '100', background: 'var(--color-background)' }}>
+        <div style={{ display: 'flex', 'align-items': 'center', 'justify-content': 'center', height: '100vh', position: 'absolute', inset: '0', 'z-index': 'var(--z-overlay)', background: 'var(--color-background)' }}>
           <LoadingSpinner size="lg" label="Starting Hermes..." />
         </div>
       </Show>
+      <TitleBar
+        onToggleSidebar={() => uiStore.toggleSidebar()}
+        onNavigateBack={() => navigate(-1)}
+        onNavigateForward={() => navigate(1)}
+        onNewSession={handleNewSession}
+      />
       <div class={styles.contentRow}>
-        <Sidebar />
+        <Show when={!uiStore.sidebarCollapsed}>
+          <Sidebar />
+        </Show>
         <div class={styles.mainColumn}>
           <main class={styles.content}>
             {props.children}
