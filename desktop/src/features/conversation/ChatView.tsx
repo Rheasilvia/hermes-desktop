@@ -28,11 +28,9 @@ import type { UserDisplayPart } from './display-parts.js';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { CommandCardDock } from './cards/CommandCardDock.js';
 import { ModelSelector } from './ModelSelector.js';
-import { ChatToolbar } from './ChatToolbar.js';
 import { WorkspaceSidePanel } from './WorkspaceSidePanel.js';
 import { EmptyChatState } from './EmptyChatState.js';
 import { ErrorBanner } from './ErrorBanner.js';
-import { WorkspaceBanner } from './WorkspaceBanner.js';
 import { ConversationRecoveryBanner } from './ConversationRecoveryBanner.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { ClarificationCard } from './ClarificationCard.js';
@@ -48,6 +46,7 @@ import { createScrollController } from './scrollController.js';
 import { createCommandCardState } from './commandCardState.js';
 import { createSlashCommandRunner } from './slashCommandRunner.js';
 import { useGatewayEvents } from './eventSubscription.js';
+import { clampWorkspacePanelWidth, shouldOverlayWorkspacePanel } from './layout-sizing.js';
 import styles from './ChatView.module.css';
 
 interface ChatViewProps {
@@ -117,6 +116,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let dragHandleEl: HTMLDivElement | undefined;
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
   const [connectionState, setConnectionState] = createSignal<ConnectionState>(uiStore.connectionState);
+  const [chatBodyWidth, setChatBodyWidth] = createSignal(0);
   let wasBusy = false;
   let suppressNextAutoDrain = false;
   const autoTtsPlayed = new Set<string>();
@@ -132,6 +132,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const isLoading = () => chatStore.isLoadingMessages(sessionId());
   const diagnostics = createMemo(() => chatStore.getDiagnostics(sessionId()));
   const permissionMode = createMemo(() => sessionStore.activeSession?.permissionMode ?? 'auto');
+  const workspacePanelOverlay = createMemo(() => shouldOverlayWorkspacePanel(chatBodyWidth()));
   const voiceConfig = createMemo(() => configStore.config);
   const sttEnabled = createMemo(() => isSttEnabled(voiceConfig()));
   const maxVoiceRecordingSeconds = createMemo(() => getVoiceRecordingLimit(voiceConfig()));
@@ -167,6 +168,30 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     });
     observer.observe(messageInputResizeRef);
     onCleanup(() => observer.disconnect());
+  });
+
+  onMount(() => {
+    const updateChatBodyWidth = () => {
+      setChatBodyWidth(chatBodyRef?.clientWidth ?? 0);
+    };
+
+    updateChatBodyWidth();
+    if (!chatBodyRef || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(updateChatBodyWidth);
+    observer.observe(chatBodyRef);
+    onCleanup(() => observer.disconnect());
+  });
+
+  createEffect(() => {
+    const containerWidth = chatBodyWidth();
+    if (!containerWidth || workspacePanelOverlay() || !sidePanelStore.isOpen()) return;
+
+    const currentWidth = sidePanelStore.panelWidth();
+    const clampedWidth = clampWorkspacePanelWidth(currentWidth, containerWidth);
+    if (clampedWidth !== currentWidth) {
+      sidePanelStore.setPanelWidth(clampedWidth);
+    }
   });
 
   const sendPrompt = async (
@@ -487,6 +512,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const handleDragStart = (e: MouseEvent) => {
     e.preventDefault();
+    if (workspacePanelOverlay()) return;
     if (diffPanelEl) {
       diffPanelEl.style.transition = 'none';
       diffPanelEl.style.willChange = 'width';
@@ -495,8 +521,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     if (chatBodyRef) chatBodyRef.classList.add(styles.chatBodyDragging);
 
     const startX = e.clientX;
-    const startWidth = diffPanelEl?.offsetWidth ?? 500;
-    const containerWidth = chatBodyRef?.clientWidth ?? 1200;
+    const containerWidth = chatBodyWidth() || chatBodyRef?.clientWidth || 1200;
+    const startWidth = clampWorkspacePanelWidth(
+      diffPanelEl?.offsetWidth ?? sidePanelStore.panelWidth(),
+      containerWidth,
+    );
     let lastWidth = startWidth;
     let prevWidth = startWidth;
     let dirty = false;
@@ -504,7 +533,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
     const onMove = (ev: MouseEvent) => {
       const delta = startX - ev.clientX;
-      lastWidth = Math.min(Math.max(startWidth + delta, 320), containerWidth * 0.8);
+      lastWidth = clampWorkspacePanelWidth(startWidth + delta, containerWidth);
       if (lastWidth !== prevWidth) {
         dirty = true;
         prevWidth = lastWidth;
@@ -526,7 +555,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       if (diffPanelEl) { diffPanelEl.style.transition = ''; diffPanelEl.style.willChange = ''; }
       if (dragHandleEl) dragHandleEl.classList.remove(styles.dragHandleActive);
       if (chatBodyRef) chatBodyRef.classList.remove(styles.chatBodyDragging);
-      sidePanelStore.setPanelWidth(lastWidth);
+      sidePanelStore.setPanelWidth(clampWorkspacePanelWidth(lastWidth, containerWidth));
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
@@ -765,24 +794,15 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   // ── Render ────────────────────────────────────────────────────────────
 
   return (
-    <div class={styles.chatView}>
-      <ChatToolbar
-        workspacePath={cwd()}
-        sessionTitle={sessionStore.activeSession?.title}
-        sidePanelActive={sidePanelStore.isOpen()}
-        onToggleSidePanel={() => sidePanelStore.toggle('workspace')}
-      />
-
-      <Show when={error()}>
-        <ErrorBanner
+	    <div class={styles.chatView}>
+	      <Show when={error()}>
+	        <ErrorBanner
           message={error()!}
           action={errorAction()}
           onRetry={() => handleSend('')}
           onDismiss={() => { chatStore.clearError(sessionId()); }}
         />
       </Show>
-
-      <WorkspaceBanner workspacePath={cwd()} />
 
       <Show when={!sessionStore.getSessionModel(sessionId()) && !modelStore.defaultModel}>
         <div class={styles.noModelBanner}>
@@ -800,7 +820,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         <MemoryContextCard items={liveState().memoryContext!} onEdit={() => {}} />
       </Show>
 
-      <div class={styles.chatBody} ref={chatBodyRef}>
+      <div
+        class={styles.chatBody}
+        classList={{ [styles.chatBodyPanelOverlay]: workspacePanelOverlay() }}
+        ref={chatBodyRef}
+      >
         <div class={styles.chatPane}>
           <Switch>
             <Match when={isLoading()}>
@@ -882,7 +906,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 }}
                 disabled={blockingPromptActive() || !modelStore.activeModel}
                 isStreaming={isStreaming()}
-                modelSlot={(dimmed, disabled) => <ModelSelector sessionId={sessionId()} dimmed={dimmed} disabled={disabled} />}
+                modelSlot={(dimmed, disabled, compact) => (
+                  <ModelSelector
+                    sessionId={sessionId()}
+                    dimmed={dimmed}
+                    disabled={disabled}
+                    compact={compact}
+                  />
+                )}
                 cwd={cwd()}
                 historyMessages={messages()}
                 onComposerActivity={scroll.handleViewportResize}
@@ -905,7 +936,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           </div>
         </div>
 
-        <Show when={sidePanelStore.isOpen()}>
+        <Show when={sidePanelStore.isOpen() && !workspacePanelOverlay()}>
           <div class={styles.diffSeparator} />
           <div
             ref={(el) => { dragHandleEl = el; }}
@@ -919,6 +950,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
             sessionId={sessionId()}
             workspacePath={cwd()}
             panelWidth={sidePanelStore.panelWidth()}
+            overlay={workspacePanelOverlay()}
           />
         </Show>
       </div>

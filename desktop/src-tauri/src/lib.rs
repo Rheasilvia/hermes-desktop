@@ -6,6 +6,16 @@ use serde::Deserialize;
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
+/// Horizontal position (logical px) of the macOS traffic-light cluster when the
+/// title bar is in `Overlay` mode. The frontend action group starts at 85px, so
+/// the native cluster must remain comfortably to its left.
+#[cfg(target_os = "macos")]
+const MACOS_TRAFFIC_LIGHT_X: f64 = 13.0;
+/// Vertical position (logical px) of the macOS traffic-light cluster, aligned to
+/// the vertical center of the 32px title bar (`--titlebar-height`).
+#[cfg(target_os = "macos")]
+const MACOS_TRAFFIC_LIGHT_Y: f64 = 18.0;
+
 #[cfg(test)]
 const REGISTERED_TAURI_COMMANDS: &[&str] = &[
     "get_app_version",
@@ -147,16 +157,33 @@ pub fn run() {
                 }
             });
 
-            // Create main window programmatically (matching OpenCode pattern)
+            // Create main window programmatically (matching OpenCode pattern).
+            // decorations:false (from tauri.conf.json) gives a frameless window on
+            // every platform. On macOS we additionally switch to an Overlay title
+            // bar so the native traffic-light buttons are preserved and positioned
+            // to align with the custom frontend title bar — matching the Electron
+            // app's `titleBarStyle: 'hidden'` + `trafficLightPosition` behavior.
             let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))?;
             let webview_url = tauri::WebviewUrl::App("index.html".into());
-            let _webview = tauri::WebviewWindowBuilder::new(app, "main", webview_url)
+            let mut builder = tauri::WebviewWindowBuilder::new(app, "main", webview_url)
                 .title("Hermes")
                 .inner_size(1200.0, 800.0)
                 .min_inner_size(900.0, 600.0)
                 .center()
-                .icon(icon)?
-                .build()?;
+                .icon(icon)?;
+
+            #[cfg(target_os = "macos")]
+            {
+                builder = builder
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
+                    .hidden_title(true)
+                    .traffic_light_position(tauri::LogicalPosition::new(
+                        MACOS_TRAFFIC_LIGHT_X,
+                        MACOS_TRAFFIC_LIGHT_Y,
+                    ));
+            }
+
+            let _webview = builder.build()?;
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -198,5 +225,34 @@ mod command_surface_tests {
         assert!(!REGISTERED_TAURI_COMMANDS.contains(&"run_git_diff"));
         assert!(!REGISTERED_TAURI_COMMANDS.contains(&"get_git_branches"));
         assert!(!REGISTERED_TAURI_COMMANDS.contains(&"checkout_git_branch"));
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod titlebar_config_tests {
+    use super::*;
+
+    // The traffic-light cluster must sit inside the title bar band, below the
+    // very top edge (so it isn't clipped) and left of the frontend action
+    // group fixed at 85px. These bounds lock the agreed-upon layout.
+    const FRONTEND_ACTION_GROUP_LEFT: f64 = 85.0;
+    const TRAFFIC_LIGHT_CLUSTER_WIDTH: f64 = 60.0;
+
+    #[test]
+    fn macos_traffic_light_x_stays_left_of_frontend_action_group() {
+        assert!(MACOS_TRAFFIC_LIGHT_X > 0.0, "x must be positive");
+        assert!(
+            MACOS_TRAFFIC_LIGHT_X + TRAFFIC_LIGHT_CLUSTER_WIDTH < FRONTEND_ACTION_GROUP_LEFT,
+            "traffic-light cluster must stay left of the frontend titlebar actions"
+        );
+    }
+
+    #[test]
+    fn macos_traffic_light_y_is_vertically_centered_in_32px_title_bar() {
+        // Buttons are ~12px tall; centering in a 32px bar puts y ≈ 10–22.
+        assert!(
+            (10.0..=22.0).contains(&MACOS_TRAFFIC_LIGHT_Y),
+            "y must vertically center the cluster within --titlebar-height"
+        );
     }
 }

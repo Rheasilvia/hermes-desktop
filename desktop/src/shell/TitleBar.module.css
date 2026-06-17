@@ -1,0 +1,121 @@
+/* Custom frameless title bar. Height comes from tokens.css.
+ * Colors derive from the design-system color-mix ladder — no hardcoded hex. */
+
+.titleBar {
+  display: flex;
+  align-items: center;
+  position: relative;
+  height: var(--titlebar-height);
+  min-height: var(--titlebar-height);
+  flex-shrink: 0;
+  width: 100%;
+  padding: 0 var(--space-2) 0 0;
+  background: var(--color-background);
+  border-bottom: 1px solid var(--color-border-light);
+  user-select: none;
+  -webkit-user-select: none;
+  z-index: var(--z-sticky);
+}
+
+.dragSurface {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+/* Navigation toolbar is anchored to the titlebar, not to the sidebar/layout
+   flow, so toggling the sidebar cannot move it into the macOS traffic lights.
+   Buttons stop mousedown propagation so they don't start a window drag; the
+   session title span deliberately does not so users can grab the title text to
+   move the window. */
+.actionToolbar {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 24px;
+  transform: translateY(-50%);
+  flex-shrink: 0;
+  pointer-events: auto;
+}
+
+/* Session title sits inline after the forward arrow. Native title attribute
+   provides the full-text tooltip on hover. max-width is capped so long titles
+   don't crowd out the right-side buttons. */
+.sessionTitle {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-on-surface-muted);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: auto;
+  user-select: text;
+  flex-shrink: 1;
+  min-width: 0;
+  margin-left: var(--space-1);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* Right-side group: workspace panel toggle + optional window controls. */
+.rightGroup {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  pointer-events: auto;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  pointer-events: auto;
+}
+
+.actionButton,
+.controlBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-on-surface-muted);
+  cursor: default;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.actionButton:hover,
+.controlBtn:hover {
+  background: var(--color-hover-overlay);
+  color: var(--color-on-surface);
+}
+
+.actionButton:active,
+.controlBtn:active {
+  background: var(--color-active-overlay);
+}
+
+/* Close button goes red on hover (convention) — uses the semantic error token. */
+.closeBtn:hover {
+  background: var(--color-error);
+  color: var(--color-on-primary);
+}
+
+/* Workspace panel toggle — active state when the panel is open. */
+.workspaceToggleActive {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}

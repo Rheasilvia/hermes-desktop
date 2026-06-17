@@ -35,6 +35,28 @@ vi.mock('@/services/api/router.js', () => ({
   },
 }));
 
+function stubComposerResize(width: number): () => void {
+  let resizeCallback: ResizeObserverCallback | undefined;
+
+  class ResizeObserverMock {
+    constructor(callback: ResizeObserverCallback) {
+      resizeCallback = callback;
+    }
+
+    observe = (element: Element) => {
+      Object.defineProperty(element, 'clientWidth', {
+        configurable: true,
+        value: width,
+      });
+    };
+
+    disconnect = vi.fn();
+  }
+
+  vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+  return () => resizeCallback?.([], {} as ResizeObserver);
+}
+
 describe('MessageInput slash commands', () => {
   beforeEach(() => {
     clearAllComposerDrafts();
@@ -724,13 +746,36 @@ describe('MessageInput slash commands', () => {
     });
   });
 
-  test('plain Enter does not send (newline only — avoids accidental submit)', async () => {
+  test('plain Enter sends the message', async () => {
     const onSend = vi.fn();
     render(() => <MessageInput onSend={onSend} />);
 
     const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
     fireEvent.input(input, { target: { value: '/help now' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    expect(onSend).toHaveBeenCalledWith('/help now', undefined);
+  });
+
+  test('Shift+Enter does not send (inserts newline only)', async () => {
+    const onSend = vi.fn();
+    render(() => <MessageInput onSend={onSend} />);
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    fireEvent.input(input, { target: { value: 'line one' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  test('Enter during IME composition does not send', async () => {
+    const onSend = vi.fn();
+    render(() => <MessageInput onSend={onSend} />);
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    fireEvent.input(input, { target: { value: 'ni hao' } });
+    // Simulate an IME composition keydown
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: true });
 
     expect(onSend).not.toHaveBeenCalled();
   });
@@ -790,6 +835,62 @@ describe('MessageInput slash commands', () => {
 
     fireEvent.click(permission);
     expect(screen.getByRole('menuitemradio', { name: /Full file access/ })).toBeDefined();
+  });
+
+  test('passes compact composer mode to controls when the input box is narrow', async () => {
+    const flushResize = stubComposerResize(480);
+    const modelSlot = vi.fn((_, __, compact: boolean) => (
+      <div data-testid="model-slot" data-compact={compact ? 'true' : 'false'} />
+    ));
+
+    try {
+      render(() => (
+        <MessageInput
+          onSend={vi.fn()}
+          modelSlot={modelSlot}
+          permissionMode="auto"
+          onPermissionModeChange={vi.fn()}
+        />
+      ));
+      flushResize();
+
+      await waitFor(() => {
+        const lastCall = modelSlot.mock.calls[modelSlot.mock.calls.length - 1];
+        expect(lastCall?.[2]).toBe(true);
+      });
+
+      expect(screen.getByTestId('model-slot').getAttribute('data-compact')).toBe('true');
+      const permission = screen.getByRole('button', { name: /Permission mode: Approve for me/ });
+      expect(permission.className).toContain('permissionButtonCompact');
+      expect(permission.textContent).not.toContain('Approve for me');
+      expect(screen.getByLabelText('Dictate')).toBeDefined();
+      expect(screen.getByLabelText('Send message')).toBeDefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test('keeps the compact stop button accessible while streaming', async () => {
+    const flushResize = stubComposerResize(480);
+
+    try {
+      render(() => (
+        <MessageInput
+          onSend={vi.fn()}
+          onStop={vi.fn()}
+          isStreaming={true}
+          permissionMode="auto"
+          onPermissionModeChange={vi.fn()}
+        />
+      ));
+      flushResize();
+
+      expect(screen.getByLabelText('Stop generation')).toBeDefined();
+      expect(screen.getByRole('button', { name: /Permission mode: Approve for me/ }).className)
+        .toContain('permissionButtonCompact');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   test('opens status-row workspace and branch controls after moving them below the toolbar', async () => {

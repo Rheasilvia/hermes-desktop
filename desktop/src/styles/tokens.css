@@ -165,4 +165,8 @@
   --sidebar-collapsed-width: 48px;
   --statusbar-height: 28px;
   --input-min-height: 48px;
+
+  /* --- Title bar --- */
+  /* Height of the custom drag title bar that spans the top of the window. */
+  --titlebar-height: 32px;
 }

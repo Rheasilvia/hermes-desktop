@@ -2,6 +2,8 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+  min-width: 0;
+  flex-shrink: 0;
 }
 
 .trigger {
@@ -34,6 +36,11 @@
   color: var(--color-on-surface-dim);
 }
 
+.triggerCompact {
+  gap: 3px;
+  padding: 2px;
+}
+
 .modelSegment,
 .effortSegment {
   display: inline-flex;
@@ -53,6 +60,16 @@
   border-radius: var(--radius-sm);
 }
 
+.modelSegmentCompact {
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 7px;
+}
+
 .modelSegment:hover,
 .modelSegment:focus-visible {
   background: var(--color-hover-overlay);
@@ -69,6 +86,16 @@
   color: var(--color-primary);
   font-size: 10px;
   font-weight: var(--weight-semibold);
+}
+
+.effortSegmentCompact {
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 6px;
+  border-radius: 7px;
+  font-size: 9px;
 }
 
 .effortSegment:hover,

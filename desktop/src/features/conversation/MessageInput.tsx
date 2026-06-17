@@ -1,5 +1,5 @@
 import type { Accessor, Component } from 'solid-js';
-import { createSignal, createEffect, Show, createMemo, untrack, For, onCleanup } from 'solid-js';
+import { createSignal, createEffect, Show, createMemo, untrack, For, onCleanup, onMount } from 'solid-js';
 import { fileChipQueue } from '@/stores/file-chip-queue.js';
 import {
   clearComposerDraft,
@@ -44,7 +44,7 @@ interface MessageInputProps {
   disabled?: boolean;
   isStreaming?: boolean;
   placeholder?: string;
-  modelSlot?: (dimmed: boolean, disabled: boolean) => any;
+  modelSlot?: (dimmed: boolean, disabled: boolean, compact: boolean) => any;
   cwd?: string | null;
   isNewConversation?: boolean;
   onCwdChange?: (path: string) => void;
@@ -95,6 +95,7 @@ const REFERENCE_STARTERS: ReferenceCompletion[] = [
 const REF_PREFIX_RE = /^@(file|folder|image|url|tool|git):(.*)$/;
 const SIMPLE_REF_RE = /^@(diff|staged)$/;
 const VOICE_ERROR_DISMISS_MS = 3000;
+const COMPACT_COMPOSER_WIDTH = 560;
 
 export const MessageInput: Component<MessageInputProps> = (props) => {
   const [text, setText] = createSignal('');
@@ -110,6 +111,8 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const [referencePanelOpen, setReferencePanelOpen] = createSignal(false);
   const [referenceManuallyClosed, setReferenceManuallyClosed] = createSignal(false);
   const [voiceError, setVoiceError] = createSignal('');
+  const [composerWidth, setComposerWidth] = createSignal(0);
+  let wrapperRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let previousSessionId: string | null | undefined;
   let voiceErrorTimer: ReturnType<typeof setTimeout> | undefined;
@@ -187,6 +190,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const isActive = () => canSend() && focused();
   const hasAttachments = () => attachments().length > 0;
   const showPaperclip = () => true;
+  const compactComposer = () => composerWidth() > 0 && composerWidth() <= COMPACT_COMPOSER_WIDTH;
   const dictationStatus = () => dictationRecorder.voiceStatus();
   const dictationButtonLabel = () => {
     switch (dictationStatus()) {
@@ -796,10 +800,12 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
         return;
       }
     }
-    // Cmd+Enter (macOS) / Ctrl+Enter (Windows/Linux) is the only send trigger —
-    // for prose messages and slash commands alike. Plain Enter / Shift+Enter
-    // insert a newline, so a stray Enter can never fire off a half-typed message.
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    // Enter sends the message (Shift+Enter inserts a newline). During IME
+    // composition (e.g. 中文, 日本語) Enter confirms a character — we must NOT
+    // send in that case. Cmd/Ctrl+Enter also sends as a power-user shortcut
+    // and IME fallback; the condition below covers that since both modifiers
+    // set isComposing to false.
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       e.stopImmediatePropagation();
       setSlashPanelOpen(false);
@@ -1042,8 +1048,25 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     previousCwd = nextCwd;
   });
 
+  onMount(() => {
+    const updateComposerWidth = () => {
+      setComposerWidth(wrapperRef?.clientWidth ?? 0);
+    };
+
+    updateComposerWidth();
+    if (!wrapperRef || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(updateComposerWidth);
+    observer.observe(wrapperRef);
+    onCleanup(() => observer.disconnect());
+  });
+
   return (
-    <div class={styles.wrapper}>
+    <div
+      ref={(el) => { wrapperRef = el; }}
+      class={styles.wrapper}
+      classList={{ [styles.wrapperCompact]: compactComposer() }}
+    >
       <Show when={hasAttachments()}>
         <div class={styles.attachmentBar} data-testid="attachment-chip-bar">
           <AttachmentChips attachments={attachments()} onRemove={removeAttachment} />
@@ -1152,7 +1175,13 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
               </div>
             </Show>
             <Show when={props.modelSlot}>
-              <div class={styles.modelPill}>{props.modelSlot!(Boolean(props.disabled && !props.isStreaming), false)}</div>
+              <div class={styles.modelPill}>
+                {props.modelSlot!(
+                  Boolean(props.disabled && !props.isStreaming),
+                  false,
+                  compactComposer(),
+                )}
+              </div>
             </Show>
           </div>
 
@@ -1162,6 +1191,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
               mode={props.permissionMode ?? 'auto'}
               pending={props.permissionModePending}
               appliesNextTurn={props.permissionModeAppliesNextTurn}
+              compact={compactComposer()}
               onChange={(mode) => props.onPermissionModeChange?.(mode)}
             />
             <Show when={dictationRecorder.voiceStatus() !== 'idle'}>

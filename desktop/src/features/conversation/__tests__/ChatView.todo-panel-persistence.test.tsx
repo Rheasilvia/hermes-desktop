@@ -151,11 +151,9 @@ vi.mock('../AssistantMessage.js', () => ({ AssistantMessage: stubComponent('assi
 vi.mock('../MessageInput.js', () => ({ MessageInput: () => <div data-testid="message-input" /> }));
 vi.mock('../cards/CommandCardDock.js', () => ({ CommandCardDock: stubComponent('command-card-dock') }));
 vi.mock('../ModelSelector.js', () => ({ ModelSelector: stubComponent('model-selector') }));
-vi.mock('../ChatToolbar.js', () => ({ ChatToolbar: stubComponent('chat-toolbar') }));
 vi.mock('../WorkspaceSidePanel.js', () => ({ WorkspaceSidePanel: stubComponent('workspace-side-panel') }));
 vi.mock('../EmptyChatState.js', () => ({ EmptyChatState: stubComponent('empty-chat-state') }));
 vi.mock('../ErrorBanner.js', () => ({ ErrorBanner: stubComponent('error-banner') }));
-vi.mock('../WorkspaceBanner.js', () => ({ WorkspaceBanner: stubComponent('workspace-banner') }));
 vi.mock('../ConversationRecoveryBanner.js', () => ({ ConversationRecoveryBanner: stubComponent('recovery-banner') }));
 vi.mock('@/ui/atoms/Icon.js', () => ({ Icon: stubComponent('icon') }));
 vi.mock('../ClarificationCard.js', () => ({ ClarificationCard: stubComponent('clarification-card') }));

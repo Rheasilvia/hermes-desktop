@@ -77,6 +77,7 @@ import {
   Trash2,
   Ellipsis,
   Square,
+  PanelLeft,
   PanelRight,
   Folder,
   Users,
@@ -87,6 +88,8 @@ import {
   PhoneOff,
   Volume2,
   VolumeX,
+  Minus,
+  Maximize2,
 } from 'lucide-solid';
 
 export type IconName =
@@ -166,6 +169,7 @@ export type IconName =
   | 'trash-2'
   | 'ellipsis'
   | 'square'
+  | 'panel-left'
   | 'panel-right'
   | 'folder'
   | 'users'
@@ -175,7 +179,9 @@ export type IconName =
   | 'phone'
   | 'phone-off'
   | 'volume-2'
-  | 'volume-x';
+  | 'volume-x'
+  | 'minus'
+  | 'maximize';
 
 interface IconProps {
   name: IconName;
@@ -261,6 +267,7 @@ const LUCIDE_ICONS: Record<IconName, Component<{ size?: number; strokeWidth?: nu
   'trash-2': Trash2,
   'ellipsis': Ellipsis,
   'square': Square,
+  'panel-left': PanelLeft,
   'panel-right': PanelRight,
   'folder': Folder,
   'users': Users,
@@ -271,6 +278,8 @@ const LUCIDE_ICONS: Record<IconName, Component<{ size?: number; strokeWidth?: nu
   'phone-off': PhoneOff,
   'volume-2': Volume2,
   'volume-x': VolumeX,
+  'minus': Minus,
+  'maximize': Maximize2,
 };
 
 export const Icon: Component<IconProps> = (props) => {

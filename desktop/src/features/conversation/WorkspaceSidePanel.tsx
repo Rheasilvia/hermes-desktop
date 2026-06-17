@@ -12,6 +12,7 @@ interface WorkspaceSidePanelProps {
   sessionId: string | null;
   workspacePath: string | null;
   panelWidth: number;
+  overlay?: boolean;
   ref?: (el: HTMLDivElement) => void;
 }
 
@@ -40,7 +41,8 @@ export const WorkspaceSidePanel: Component<WorkspaceSidePanelProps> = (props) =>
     <aside
       ref={(el) => props.ref?.(el as HTMLDivElement)}
       class={styles.panel}
-      style={{ width: `${props.panelWidth}px` }}
+      classList={{ [styles.panelOverlay]: props.overlay }}
+      style={props.overlay ? {} : { width: `${props.panelWidth}px` }}
       aria-label="Workspace side panel"
     >
       <div class={styles.header}>

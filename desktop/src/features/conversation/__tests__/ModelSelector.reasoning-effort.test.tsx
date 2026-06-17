@@ -48,11 +48,11 @@ function makeGateway(overrides: Partial<GatewayAdapter> = {}): GatewayAdapter {
   return gateway;
 }
 
-async function renderSelector(gateway = makeGateway()) {
+async function renderSelector(gateway = makeGateway(), compact = false) {
   initializeStores(gateway);
   sessionStore.setSessionModel('session-1', 'openai', 'gpt-5');
   sessionStore.applyRuntime('session-1', { reasoningEffort: 'medium' });
-  render(() => <ModelSelector sessionId="session-1" />);
+  render(() => <ModelSelector sessionId="session-1" compact={compact} />);
   return gateway;
 }
 
@@ -89,6 +89,37 @@ describe('ModelSelector reasoning effort', () => {
 
     expect(screen.getByText('Anthropic')).toBeDefined();
     expect(screen.getByText('Claude Sonnet')).toBeDefined();
+  });
+
+  it('renders the compact model trigger as icon-only while keeping the full accessible label', async () => {
+    await renderSelector(makeGateway(), true);
+
+    const trigger = screen.getByTestId('model-selector-trigger');
+
+    expect(trigger.textContent).not.toContain('GPT-5');
+    expect(trigger.getAttribute('aria-label')).toBe('Select model: GPT-5');
+    expect(trigger.getAttribute('title')).toBe('GPT-5');
+
+    fireEvent.click(trigger);
+    expect(screen.getByText('Anthropic')).toBeDefined();
+    expect(screen.getByText('Claude Sonnet')).toBeDefined();
+  });
+
+  it('keeps compact effort directly clickable with a short visible label', async () => {
+    const gateway = await renderSelector(makeGateway(), true);
+    const effort = screen.getByTestId('model-effort-trigger');
+
+    expect(effort.textContent).toBe('Med');
+    expect(effort.getAttribute('aria-label')).toContain('Reasoning effort: Med');
+
+    fireEvent.click(effort);
+
+    await waitFor(() => {
+      expect(gateway.session.updateRuntime).toHaveBeenCalledWith('session-1', {
+        reasoningEffort: 'high',
+      });
+    });
+    expect(screen.queryByText('Claude Sonnet')).toBeNull();
   });
 
   it('cycles effort directly from the effort segment without opening the model picker', async () => {
