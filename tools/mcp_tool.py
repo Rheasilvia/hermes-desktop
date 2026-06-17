@@ -4578,6 +4578,41 @@ def _reinject_post_build_tools(agent, tools_list: list, name_set: set) -> set:
     return staged_engine_names
 
 
+def shutdown_mcp_server(name: str, timeout: float = 15) -> bool:
+    """Close one MCP server connection and deregister its tools.
+
+    Used by desktop/dashboard management surfaces after removing a server from
+    config.yaml. Returns True when a live server entry was found.
+    """
+    safe_name = sanitize_mcp_name_component(name)
+    with _lock:
+        server = _servers.get(name)
+        _server_connecting.discard(name)
+        _server_connect_errors.pop(name, None)
+        _parallel_safe_servers.discard(safe_name)
+
+    if server is None:
+        return False
+
+    try:
+        with _lock:
+            loop = _mcp_loop
+        if loop is not None and loop.is_running():
+            _run_on_mcp_loop(lambda: server.shutdown(), timeout=timeout)
+        else:
+            for tool_name in list(getattr(server, "_registered_tool_names", [])):
+                registry.deregister(tool_name)
+                _forget_mcp_tool_server(tool_name)
+            server._registered_tool_names = []
+            server.session = None
+    finally:
+        with _lock:
+            _servers.pop(name, None)
+        _stop_mcp_loop(only_if_idle=True)
+
+    return True
+
+
 def shutdown_mcp_servers():
     """Close all MCP server connections and stop the background loop.
 

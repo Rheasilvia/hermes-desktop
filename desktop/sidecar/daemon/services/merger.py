@@ -14,16 +14,34 @@ def merge_cron_jobs(
     merged: list[MergedCronJob] = []
     for job in jobs:
         entry = overlay.get(job.get("id", ""), {})
+        schedule = job.get("schedule")
+        schedule_expr = schedule if isinstance(schedule, str) else schedule.get("expr", "")
         merged.append(
             MergedCronJob(
                 id=job["id"],
-                schedule=job["schedule"] if isinstance(job["schedule"], str) else job["schedule"].get("expr", ""),
-                prompt=job["prompt"],
+                schedule=schedule_expr,
+                prompt=job.get("prompt", ""),
                 enabled=bool(job.get("enabled", True)),
                 created_at=job.get("created_at", ""),
+                name=job.get("name"),
+                skills=job.get("skills") or ([job["skill"]] if job.get("skill") else []),
+                skill=job.get("skill"),
+                model=job.get("model"),
+                provider=job.get("provider"),
+                base_url=job.get("base_url"),
+                script=job.get("script"),
+                schedule_display=job.get("schedule_display"),
+                repeat=job.get("repeat"),
+                state=job.get("state"),
+                paused_at=job.get("paused_at"),
+                paused_reason=job.get("paused_reason"),
+                next_run_at=job.get("next_run_at"),
                 last_run_at=job.get("last_run_at"),
                 last_status=job.get("last_status"),
                 last_error=job.get("last_error"),
+                last_delivery_error=job.get("last_delivery_error"),
+                deliver=job.get("deliver"),
+                origin=job.get("origin"),
                 desktop=CronOverlay(**entry),
             )
         )

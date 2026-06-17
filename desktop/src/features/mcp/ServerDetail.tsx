@@ -2,6 +2,7 @@ import type { Component } from 'solid-js';
 import { For, Show } from 'solid-js';
 import type { McpServer, McpTool, McpConnectionStatus } from '@/types/mcp.js';
 import { ProtocolBadge } from './ProtocolBadge.js';
+import { mcpStatusLabel, mcpStatusTone } from './status.js';
 import styles from './ServerDetail.module.css';
 
 export interface HistoryEntry {
@@ -14,15 +15,20 @@ export interface ServerDetailProps {
   server: McpServer;
   status: McpConnectionStatus | undefined;
   tools: McpTool[];
+  toolsLoading: boolean;
+  toolsError: string | null;
   history: HistoryEntry[];
   onClose: () => void;
 }
 
 export const ServerDetail: Component<ServerDetailProps> = (props) => {
-  const connected = () => props.status?.connected ?? false;
+  const tone = () => mcpStatusTone(props.server, props.status);
+  const pillClass = () => styles[`pill${tone()[0].toUpperCase()}${tone().slice(1)}`];
+  const statusMessage = () => props.server.error ?? props.status?.error ?? null;
 
   const configJson = (): string => {
     const cfg: Record<string, unknown> = {};
+    if (props.server.transport) cfg.transport = props.server.transport;
     if (props.server.url) cfg.url = props.server.url;
     if (props.server.command) cfg.command = props.server.command;
     if (props.server.args) cfg.args = props.server.args;
@@ -56,14 +62,17 @@ export const ServerDetail: Component<ServerDetailProps> = (props) => {
         <div class={styles.headerTop}>
           <h2 class={styles.serverName}>{props.server.name}</h2>
           <ProtocolBadge transport={props.server.transport ?? 'stdio'} />
-          <span class={`${styles.statusPill} ${connected() ? styles.pillOnline : styles.pillOffline}`}>
+          <span class={`${styles.statusPill} ${pillClass()}`}>
             <span class={styles.pillDot} />
-            {connected() ? 'Online' : 'Offline'}
+            {mcpStatusLabel(tone())}
           </span>
         </div>
         <div class={styles.headerMeta}>
           {(props.status?.tools ?? 0)} tool{(props.status?.tools ?? 0) !== 1 ? 's' : ''}
         </div>
+        <Show when={statusMessage()}>
+          {(message) => <div class={styles.statusError}>{message()}</div>}
+        </Show>
         <button class={styles.closeBtn} type="button" onClick={props.onClose}>
           &times;
         </button>
@@ -72,21 +81,40 @@ export const ServerDetail: Component<ServerDetailProps> = (props) => {
       <section class={styles.section}>
         <h3 class={styles.sectionTitle}>Discovered Tools</h3>
         <Show
-          when={props.tools.length > 0}
-          fallback={<p class={styles.emptyText}>No tools discovered yet</p>}
+          when={!props.toolsLoading}
+          fallback={<p class={styles.emptyText}>Loading tools...</p>}
         >
-          <For each={props.tools}>
-            {(tool) => (
-              <div class={styles.toolItem}>
-                <span class={styles.toolName}>{tool.name}</span>
-                <Show when={tool.description}>
-                  <span class={styles.toolDesc}> — {tool.description}</span>
-                </Show>
-              </div>
-            )}
-          </For>
+          <Show
+            when={!props.toolsError}
+            fallback={<p class={styles.errorText}>{props.toolsError}</p>}
+          >
+            <Show
+              when={props.tools.length > 0}
+              fallback={<p class={styles.emptyText}>No tools discovered yet</p>}
+            >
+              <For each={props.tools}>
+                {(tool) => (
+                  <div class={styles.toolItem}>
+                    <span class={styles.toolName}>{tool.name}</span>
+                    <Show when={tool.description}>
+                      <span class={styles.toolDesc}> — {tool.description}</span>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </Show>
         </Show>
       </section>
+
+      <Show when={props.server.desktop?.note}>
+        {(note) => (
+          <section class={styles.section}>
+            <h3 class={styles.sectionTitle}>Desktop Note</h3>
+            <p class={styles.emptyText}>{note()}</p>
+          </section>
+        )}
+      </Show>
 
       <section class={styles.section}>
         <h3 class={styles.sectionTitle}>Configuration</h3>

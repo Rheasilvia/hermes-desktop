@@ -7,6 +7,9 @@ describe('ApiRegistry', () => {
     const cron = {
       list: async () => ({ items: [], generated_at: null }),
       get: async () => ({}) as never,
+      create: async () => ({}) as never,
+      update: async () => ({}) as never,
+      delete: async () => ({ ok: true }),
     };
     reg.register('cron', cron);
     expect(reg.cron()).toBe(cron);
@@ -22,10 +25,16 @@ describe('ApiRegistry', () => {
     const a = {
       list: async () => ({ items: [], generated_at: null }),
       get: async () => ({}) as never,
+      create: async () => ({}) as never,
+      update: async () => ({}) as never,
+      delete: async () => ({ ok: true }),
     };
     const b = {
       list: async () => ({ items: [], generated_at: null }),
       get: async () => ({}) as never,
+      create: async () => ({}) as never,
+      update: async () => ({}) as never,
+      delete: async () => ({ ok: true }),
     };
     reg.register('cron', a);
     reg.register('cron', b);

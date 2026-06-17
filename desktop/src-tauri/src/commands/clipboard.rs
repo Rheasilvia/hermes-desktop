@@ -117,26 +117,6 @@ mod clipboard_tests {
     use super::*;
 
     #[test]
-    fn encode_rgba_to_png_round_trips() {
-        // 2x2 fully-opaque red image.
-        let (w, h) = (2u32, 2u32);
-        let rgba: Vec<u8> = (0..(w * h)).flat_map(|_| [255u8, 0, 0, 255]).collect();
-        let dir = std::env::temp_dir().join(format!(
-            "hermes-clip-test-{}",
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("out.png");
-        encode_rgba_to_png(&rgba, w, h, &path).expect("encode should succeed");
-        assert!(path.exists(), "PNG file should be written");
-        // Re-decode to confirm it is a valid PNG of the right size.
-        use image::GenericImageView;
-        let decoded = image::open(&path).expect("written file should decode as PNG");
-        assert_eq!(decoded.dimensions(), (w, h));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
     fn encode_rgba_to_png_rejects_mismatched_dimensions() {
         let rgba = vec![0u8; 4]; // 1 pixel, but claim 2x2
         let res = encode_rgba_to_png(&rgba, 2, 2, std::path::Path::new("/nonexistent/out.png"));

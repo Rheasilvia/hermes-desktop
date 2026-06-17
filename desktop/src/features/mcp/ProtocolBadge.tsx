@@ -9,7 +9,8 @@ export interface ProtocolBadgeProps {
 const LABELS: Record<McpTransport, string> = {
   stdio: 'stdio',
   http: 'HTTP',
-  streamable_http: 'SSE',
+  streamable_http: 'Streamable HTTP',
+  sse: 'SSE',
 };
 
 export const ProtocolBadge: Component<ProtocolBadgeProps> = (props) => (

@@ -1,3 +1,5 @@
+export type { McpServer, McpServerDesktop, McpServerDesktopPatch, McpTool } from '@/types/mcp.js';
+
 export interface CronOverlay {
   pinned: boolean;
   color?: string | null;
@@ -11,10 +13,45 @@ export interface CronJob {
   prompt: string;
   enabled: boolean;
   created_at: string;
+  name?: string | null;
+  skills?: string[];
+  skill?: string | null;
+  model?: string | null;
+  provider?: string | null;
+  base_url?: string | null;
+  script?: string | null;
+  schedule_display?: string | null;
+  repeat?: { times?: number | null; completed?: number } | null;
+  state?: string | null;
+  paused_at?: string | null;
+  paused_reason?: string | null;
+  next_run_at?: string | null;
   last_run_at?: string | null;
   last_status?: string | null;
   last_error?: string | null;
+  last_delivery_error?: string | null;
+  deliver?: string | null;
+  origin?: Record<string, unknown> | null;
   desktop: CronOverlay;
+}
+
+export interface CreateCronJobRequest {
+  prompt: string;
+  schedule: string;
+  name?: string;
+  repeat?: number | null;
+  deliver?: string | null;
+  origin?: Record<string, unknown> | null;
+  skill?: string | null;
+  skills?: string[] | null;
+  model?: string | null;
+  provider?: string | null;
+  base_url?: string | null;
+  script?: string | null;
+}
+
+export interface UpdateCronJobRequest extends Partial<CreateCronJobRequest> {
+  enabled?: boolean;
 }
 
 export interface ProviderOverlay {
@@ -122,7 +159,7 @@ export function isApiError(e: unknown): e is ApiError {
   );
 }
 
-export type Domain = 'analytics' | 'config' | 'cron' | 'model' | 'overlays' | 'plugins' | 'settings' | 'skills' | 'state';
+export type Domain = 'analytics' | 'config' | 'cron' | 'mcp' | 'model' | 'overlays' | 'plugins' | 'settings' | 'skills' | 'state' | 'tools';
 
 export interface PluginRow {
   name: string;
@@ -226,4 +263,11 @@ export interface SkillsToolset {
   enabled: boolean;
   configured: boolean;
   tools: string[];
+}
+
+export interface ToolInfo {
+  name: string;
+  description?: string | null;
+  schema?: Record<string, unknown> | null;
+  toolset?: string | null;
 }

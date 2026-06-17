@@ -204,6 +204,14 @@ export function buildDefaultActions(callbacks: {
       callback: () => callbacks.onNavigate('/plugins'),
     },
     {
+      id: 'nav-mcp',
+      label: 'MCP',
+      description: 'Manage MCP servers',
+      category: 'Navigate',
+      shortcut: '',
+      callback: () => callbacks.onNavigate('/mcp'),
+    },
+    {
       id: 'nav-gateway',
       label: 'Gateway',
       description: 'Manage messaging gateway',

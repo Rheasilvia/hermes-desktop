@@ -98,4 +98,4 @@ def test_analytics_days_filter(client, auth, hermes_home):
 def test_analytics_invalid_days(client, auth):
     for bad in (0, -1, -30):
         resp = client.get(f"/desktop/api/analytics/models?days={bad}", headers=auth)
-        assert resp.status_code == 422, f"days={bad} should be 422, got {resp.status_code}"
+        assert resp.status_code == 400, f"days={bad} should be 400, got {resp.status_code}"

@@ -85,3 +85,35 @@ class MemoryConcurrentWriteError(ServiceError):
     ) -> None:
         super().__init__(detail)
         self.current = current
+
+
+class CronJobNotFoundError(ServiceError):
+    code = "CRON_JOB_NOT_FOUND"
+
+
+class CronValidationError(ServiceError):
+    code = "CRON_VALIDATION"
+
+
+class McpServerNotFoundError(ServiceError):
+    code = "MCP_SERVER_NOT_FOUND"
+
+
+class McpServerConflictError(ServiceError):
+    code = "MCP_SERVER_CONFLICT"
+
+
+class McpValidationError(ServiceError):
+    code = "MCP_VALIDATION"
+
+
+class McpUnavailableError(ServiceError):
+    code = "MCP_UNAVAILABLE"
+
+
+class SkillsUnavailableError(ServiceError):
+    code = "SKILLS_UNAVAILABLE"
+
+
+class ToolsUnavailableError(ServiceError):
+    code = "TOOLS_UNAVAILABLE"

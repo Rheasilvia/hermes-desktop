@@ -17,6 +17,10 @@ class _FakeAIAgent:
         self.session_id = session_id
         self._interrupted = False
         self.reasoning_config = None
+        self.enabled_toolsets = None
+        self.disabled_toolsets = None
+        self.tools = []
+        self.valid_tool_names = set()
 
     def interrupt(self):
         self._interrupted = True
@@ -33,6 +37,60 @@ def pool():
             session_db=MagicMock(),
         )
         yield p
+
+
+def test_wait_for_mcp_discovery_uses_bounded_timeout(tmp_path, monkeypatch):
+    import hermes_cli.mcp_startup as mcp_startup
+
+    calls: list[float] = []
+    monkeypatch.setattr(
+        mcp_startup,
+        "wait_for_mcp_discovery",
+        lambda timeout=0.75: calls.append(timeout),
+    )
+    pool = AgentPool(tmp_path, EventBus(), session_db=MagicMock())
+
+    pool._wait_for_mcp_discovery()
+
+    assert calls == [0.75]
+
+
+def test_refresh_tool_snapshots_rebuilds_cached_agent_tools(pool, monkeypatch):
+    import model_tools
+
+    calls = []
+    tool_defs = [
+        {
+            "type": "function",
+            "function": {
+                "name": "mcp_time_now",
+                "description": "Current time",
+                "parameters": {"type": "object"},
+            },
+        }
+    ]
+
+    def fake_get_tool_definitions(**kwargs):
+        calls.append(kwargs)
+        return tool_defs
+
+    monkeypatch.setattr(model_tools, "get_tool_definitions", fake_get_tool_definitions)
+    entry = pool.get_or_create("s1")
+    entry.agent.enabled_toolsets = ["mcp"]
+    entry.agent.disabled_toolsets = ["terminal"]
+
+    refreshed = pool.refresh_tool_snapshots()
+
+    assert refreshed == 1
+    assert entry.agent.tools == tool_defs
+    assert entry.agent.valid_tool_names == {"mcp_time_now"}
+    assert calls == [
+        {
+            "enabled_toolsets": ["mcp"],
+            "disabled_toolsets": ["terminal"],
+            "quiet_mode": True,
+        }
+    ]
 
 
 class TestAgentPoolEviction:

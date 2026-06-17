@@ -459,13 +459,13 @@ class TestRouter:
         assert r2.status_code == 200
         assert r2.json()["content"] == "round trip"
 
-    def test_invalid_name_pydantic_422(self, client):
+    def test_invalid_name_pydantic_400(self, client):
         r = client.put(
             "/desktop/api/memory/file",
             json={"scope": "user", "name": "evil.txt", "content": "x"},
             headers=AUTH,
         )
-        assert r.status_code == 422
+        assert r.status_code == 400
 
     def test_concurrent_write_409_carries_current(self, client):
         client.put(

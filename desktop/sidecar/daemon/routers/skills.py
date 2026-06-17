@@ -6,6 +6,7 @@ import sys
 from fastapi import APIRouter, Request
 
 from ..schemas.skills import SkillInfo, SkillsToolset, ToggleSkillRequest
+from ..services.exceptions import SkillsUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,7 @@ def list_skills(request: Request) -> dict:
             sys.path[:6],
             __import__("os").getcwd(),
         )
-        return {
-            "items": [],
-            "error": "import_failed",
-            "detail": f"tools.skills_tool not available: {exc}",
-        }
+        raise SkillsUnavailableError(f"tools.skills_tool not available: {exc}") from exc
 
     try:
         from hermes_cli.skills_config import get_disabled_skills
@@ -56,14 +53,10 @@ def list_skills(request: Request) -> dict:
             sys.path[:6],
             __import__("os").getcwd(),
         )
-        return {
-            "items": [],
-            "error": "import_failed",
-            "detail": f"hermes_cli modules not available: {exc}",
-        }
+        raise SkillsUnavailableError(f"hermes_cli modules not available: {exc}") from exc
     except Exception:
         logger.exception("Unexpected error listing skills")
-        return {"items": [], "error": "internal_error"}
+        raise SkillsUnavailableError("Unexpected error listing skills")
 
     return {"items": [i.model_dump() for i in items]}
 
@@ -87,10 +80,10 @@ def toggle_skill(request: Request, body: ToggleSkillRequest) -> dict:
             "sys.path=%r",
             sys.path[:6],
         )
-        return {"ok": False, "name": body.name, "enabled": body.enabled, "error": str(exc)}
+        raise SkillsUnavailableError(str(exc)) from exc
     except Exception:
         logger.exception("Unexpected error toggling skill %s", body.name)
-        return {"ok": False, "name": body.name, "enabled": body.enabled, "error": "internal_error"}
+        raise SkillsUnavailableError(f"Unexpected error toggling skill {body.name}")
     return {"ok": True, "name": body.name, "enabled": body.enabled}
 
 
@@ -108,11 +101,7 @@ def list_toolsets(request: Request) -> dict:
             "sys.path=%r",
             sys.path[:6],
         )
-        return {
-            "items": [],
-            "error": "import_failed",
-            "detail": f"hermes_cli.tools_config not available: {exc}",
-        }
+        raise SkillsUnavailableError(f"hermes_cli.tools_config not available: {exc}") from exc
 
     try:
         from toolsets import resolve_toolset
@@ -138,13 +127,9 @@ def list_toolsets(request: Request) -> dict:
             "Failed to import toolsets for /desktop/api/toolsets — sys.path=%r",
             sys.path[:6],
         )
-        return {
-            "items": [],
-            "error": "import_failed",
-            "detail": f"toolsets module not available: {exc}",
-        }
+        raise SkillsUnavailableError(f"toolsets module not available: {exc}") from exc
     except Exception:
         logger.exception("Unexpected error listing toolsets")
-        return {"items": [], "error": "internal_error"}
+        raise SkillsUnavailableError("Unexpected error listing toolsets")
 
     return {"items": [r.model_dump() for r in result]}

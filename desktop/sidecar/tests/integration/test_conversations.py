@@ -226,11 +226,16 @@ class TestSessionCRUD:
                 client.post(f"/desktop/api/sessions/{sid}/interrupt")
                 time.sleep(0.1)
 
-    def test_image_attach_requires_path_under_session_cwd(self, client, tmp_path):
+    def test_image_attach_requires_path_under_session_cwd(self, client, tmp_path, monkeypatch):
+        from daemon.services import session_service
+
         cwd = tmp_path / "project"
         outside = tmp_path / "outside"
+        clipboard_tmp = tmp_path / "clipboard"
         cwd.mkdir()
         outside.mkdir()
+        clipboard_tmp.mkdir()
+        monkeypatch.setattr(session_service.tempfile, "gettempdir", lambda: str(clipboard_tmp))
         inside_image = cwd / "in.png"
         outside_image = outside / "out.png"
         inside_image.write_bytes(b"png")

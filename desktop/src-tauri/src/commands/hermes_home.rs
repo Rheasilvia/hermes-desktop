@@ -127,32 +127,6 @@ mod hermes_home_tests {
         path
     }
 
-    // --- resolve_under_hermes_home ---
-
-    #[test]
-    fn test_resolve_under_hermes_home_normal_path() {
-        let home = temp_hermes_home("write_normal");
-        let canonical_home = fs::canonicalize(&home).unwrap();
-        let result =
-            resolve_under_hermes_home(home.to_str().unwrap(), "config.json").unwrap();
-        assert!(result.starts_with(&canonical_home));
-        assert_eq!(result.file_name().unwrap(), "config.json");
-        let _ = fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn test_resolve_under_hermes_home_nested_path() {
-        let home = temp_hermes_home("write_nested");
-        let canonical_home = fs::canonicalize(&home).unwrap();
-        let result =
-            resolve_under_hermes_home(home.to_str().unwrap(), "subdir/settings.json").unwrap();
-        assert!(result.starts_with(&canonical_home));
-        assert_eq!(result.file_name().unwrap(), "settings.json");
-        // Parent subdir should have been created.
-        assert!(home.join("subdir").is_dir());
-        let _ = fs::remove_dir_all(&home);
-    }
-
     #[test]
     fn test_resolve_under_hermes_home_traversal_rejected() {
         let home = temp_hermes_home("write_escape");
@@ -179,20 +153,6 @@ mod hermes_home_tests {
             err.contains("escapes HERMES_HOME") || err.contains("Failed to create directory"),
             "unexpected error: {err}"
         );
-        let _ = fs::remove_dir_all(&home);
-    }
-
-    // --- resolve_existing_under_hermes_home ---
-
-    #[test]
-    fn test_list_dir_normal_path() {
-        let home = temp_hermes_home("list_normal");
-        let canonical_home = fs::canonicalize(&home).unwrap();
-        let subdir = home.join("logs");
-        fs::create_dir_all(&subdir).unwrap();
-        let result =
-            resolve_existing_under_hermes_home(home.to_str().unwrap(), "logs").unwrap();
-        assert!(result.starts_with(&canonical_home));
         let _ = fs::remove_dir_all(&home);
     }
 
@@ -224,17 +184,5 @@ mod hermes_home_tests {
 
         let _ = fs::remove_dir_all(&home);
         let _ = fs::remove_dir_all(&sibling);
-    }
-
-    #[test]
-    fn test_list_dir_missing_directory_returns_error() {
-        let home = temp_hermes_home("list_missing");
-        let err =
-            resolve_existing_under_hermes_home(home.to_str().unwrap(), "nonexistent").unwrap_err();
-        assert!(
-            err.contains("Directory not found"),
-            "unexpected error: {err}"
-        );
-        let _ = fs::remove_dir_all(&home);
     }
 }

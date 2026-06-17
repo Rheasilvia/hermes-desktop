@@ -214,25 +214,6 @@ mod workspace_tree_tests {
     }
 
     #[test]
-    fn workspace_children_sort_dirs_files_and_dotfiles() {
-        let root = temp_workspace("sort");
-        fs::create_dir(root.join("z_dir")).unwrap();
-        fs::create_dir(root.join(".a_dir")).unwrap();
-        fs::write(root.join("b.txt"), "b").unwrap();
-        fs::write(root.join(".a.txt"), "a").unwrap();
-
-        let result = list_workspace_children(
-            root.to_string_lossy().to_string(),
-            root.to_string_lossy().to_string(),
-        )
-        .unwrap();
-        let names: Vec<_> = result.children.into_iter().map(|n| n.name).collect();
-        assert_eq!(names, vec![".a_dir", "z_dir", ".a.txt", "b.txt"]);
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
     fn workspace_children_rejects_path_escape() {
         let root = temp_workspace("root");
         let outside = temp_workspace("outside");

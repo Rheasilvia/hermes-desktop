@@ -272,6 +272,50 @@ class AgentPool:
                         pass
             self._agents.clear()
 
+    def refresh_tool_snapshots(self) -> int:
+        """Refresh cached agents after explicit runtime tool changes."""
+        from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+
+        token = set_hermes_home_override(self._hermes_home)
+        try:
+            from model_tools import get_tool_definitions
+        except Exception:
+            log.exception("[agent_pool] failed to import tool definitions for refresh")
+            return 0
+        finally:
+            reset_hermes_home_override(token)
+
+        with self._lock:
+            entries = list(self._agents.values())
+
+        refreshed = 0
+        token = set_hermes_home_override(self._hermes_home)
+        try:
+            for entry in entries:
+                try:
+                    agent = entry.agent
+                    new_defs = get_tool_definitions(
+                        enabled_toolsets=getattr(agent, "enabled_toolsets", None),
+                        disabled_toolsets=getattr(agent, "disabled_toolsets", None),
+                        quiet_mode=True,
+                    )
+                    agent.tools = new_defs
+                    agent.valid_tool_names = (
+                        {tool["function"]["name"] for tool in new_defs}
+                        if new_defs
+                        else set()
+                    )
+                    refreshed += 1
+                except Exception:
+                    log.warning(
+                        "[agent_pool] failed to refresh tool snapshot for %s",
+                        entry.session_id,
+                        exc_info=True,
+                    )
+        finally:
+            reset_hermes_home_override(token)
+        return refreshed
+
     # ── public accessors ───────────────────────────────────────────────────
 
     def is_running(self, session_id: str) -> bool:
@@ -292,6 +336,14 @@ class AgentPool:
             return entry.agent if entry else None
 
     # ── internals ─────────────────────────────────────────────────────────
+
+    def _wait_for_mcp_discovery(self) -> None:
+        try:
+            from hermes_cli.mcp_startup import wait_for_mcp_discovery
+
+            wait_for_mcp_discovery(timeout=0.75)
+        except Exception:
+            log.debug("[agent_pool] MCP discovery wait failed", exc_info=True)
 
     def _build_agent(self, session_id: str) -> Any:
         """Create a new AIAgent with daemon callbacks wired in."""
@@ -446,6 +498,7 @@ class AgentPool:
 
         # Wire callbacks
         _t0_init = time.time()
+        self._wait_for_mcp_discovery()
         from contextlib import ExitStack
         init_cwd_context = ExitStack()
         if cwd:
