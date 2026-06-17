@@ -32,6 +32,7 @@ export interface DbDesktopSessionMeta {
   session_id: string;
   pinned: number;          // SQLite 0/1
   archived: number;        // SQLite 0/1
+  archived_at: number | null;
   last_opened_at: number | null;
   created_at: number;
   provider: string | null;

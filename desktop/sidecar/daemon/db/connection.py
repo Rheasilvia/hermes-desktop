@@ -145,6 +145,26 @@ def _migrate(conn: sqlite3.Connection, current_version: int) -> None:
     if current_version < 9:
         conn.executescript(MCP_SERVER_META_DDL)
         conn.execute("UPDATE schema_version SET version = ?", (9,))
+        current_version = 9
+
+    if current_version < 10:
+        try:
+            conn.execute("ALTER TABLE session_desktop_meta ADD COLUMN archived_at REAL")
+        except Exception:
+            pass  # column already exists
+        conn.execute(
+            "UPDATE session_desktop_meta SET archived_at = COALESCE(archived_at, last_opened_at, created_at) "
+            "WHERE archived = 1"
+        )
+        conn.execute(
+            "UPDATE session_desktop_meta SET archived_at = NULL "
+            "WHERE archived = 0"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sdm_archived_at "
+            "ON session_desktop_meta(archived, archived_at DESC) WHERE archived = 1"
+        )
+        conn.execute("UPDATE schema_version SET version = ?", (10,))
 
 
 def _overlay_json_path(hermes_home: str, domain: str) -> Path:

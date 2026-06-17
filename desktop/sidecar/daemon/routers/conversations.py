@@ -12,7 +12,7 @@ from typing import Optional
 
 import hmac
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..schemas.conversation import (
     ApprovalRespondRequest,
@@ -90,8 +90,14 @@ async def create_session(
 
 
 @router.get("/sessions")
-async def list_sessions(svc=Depends(get_session_service)):
-    return svc.list_sessions()
+async def list_sessions(
+    archived: str = Query("exclude", pattern="^(exclude|only|include)$"),
+    svc=Depends(get_session_service),
+):
+    try:
+        return svc.list_sessions(archived=archived)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/sessions/{session_id}")
@@ -112,8 +118,13 @@ async def update_session(
 ):
     try:
         resolved_cwd = None
+        archived_result = None
         if body.cwd is not None:
             _require_workspace_grant(request)
+            svc.get_session_or_404(session_id)
+            if pool.is_running(session_id):
+                raise HTTPException(status_code=409, detail="SESSION_BUSY")
+        if body.archived is not None:
             svc.get_session_or_404(session_id)
             if pool.is_running(session_id):
                 raise HTTPException(status_code=409, detail="SESSION_BUSY")
@@ -122,6 +133,8 @@ async def update_session(
         if body.cwd is not None:
             resolved_cwd = svc.update_cwd(session_id, body.cwd)
             pool.evict(session_id)
+        if body.archived is not None:
+            archived_result = svc.set_archived(session_id, body.archived)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
     except ValueError as exc:
@@ -129,6 +142,9 @@ async def update_session(
     response = {"ok": True}
     if resolved_cwd is not None:
         response["cwd"] = resolved_cwd
+    if archived_result is not None:
+        response["archived"] = archived_result.get("archived", body.archived)
+        response["archivedAt"] = archived_result.get("archivedAt")
     return response
 
 

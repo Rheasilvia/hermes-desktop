@@ -116,15 +116,21 @@ def build_app(cfg: Config) -> FastAPI:
         def _do_prewarm() -> None:
             _t0 = time.time()
             try:
+                from .services.desktop_meta_service import DesktopMetaService
+
+                meta = DesktopMetaService(cfg.hermes_home)
                 sessions = session_db.list_sessions_rich(
                     source="desktop",
                     include_children=False,
                     order_by_last_active=True,
                     limit=5,
+                    include_archived=True,
                 )
+                session_ids = [str(sess.get("id") or sess.get("session_id") or "") for sess in sessions]
+                archived_map = meta.get_archived_map([sid for sid in session_ids if sid])
                 for sess in sessions[:5]:
                     sid = str(sess.get("id") or sess.get("session_id") or "")
-                    if sid:
+                    if sid and not archived_map.get(sid, False):
                         _t_s = time.time()
                         agent_pool.get_or_create(sid)
                         log.info("[prewarm] agent ready for session %s (%.2fs)", sid, time.time() - _t_s)

@@ -90,6 +90,8 @@ import {
   VolumeX,
   Minus,
   Maximize2,
+  Archive,
+  ArchiveRestore,
 } from 'lucide-solid';
 
 export type IconName =
@@ -181,7 +183,9 @@ export type IconName =
   | 'volume-2'
   | 'volume-x'
   | 'minus'
-  | 'maximize';
+  | 'maximize'
+  | 'archive'
+  | 'archive-restore';
 
 interface IconProps {
   name: IconName;
@@ -280,6 +284,8 @@ const LUCIDE_ICONS: Record<IconName, Component<{ size?: number; strokeWidth?: nu
   'volume-x': VolumeX,
   'minus': Minus,
   'maximize': Maximize2,
+  'archive': Archive,
+  'archive-restore': ArchiveRestore,
 };
 
 export const Icon: Component<IconProps> = (props) => {

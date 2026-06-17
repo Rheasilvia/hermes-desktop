@@ -45,6 +45,7 @@ class SessionStateStore(Protocol):
         include_children: bool,
         order_by_last_active: bool,
         limit: int,
+        include_archived: bool = False,
     ) -> list[dict]:
         """Return list of session dicts with metadata (message_count, last_active, etc.)."""
         ...
@@ -76,6 +77,22 @@ class DesktopMetaStore(Protocol):
 
     def delete_meta(self, session_id: str) -> None:
         """Delete the session_desktop_meta row."""
+        ...
+
+    def set_archived(self, session_id: str, archived: bool) -> None:
+        """Set the desktop-local archived flag for a session."""
+        ...
+
+    def get_archived_map(self, session_ids: list[str]) -> dict[str, bool]:
+        """Batch fetch archived flags for multiple sessions."""
+        ...
+
+    def get_archive_states(self, session_ids: list[str]) -> dict[str, dict]:
+        """Batch fetch archived flags and timestamps for multiple sessions."""
+        ...
+
+    def list_archived_session_ids(self, limit: int = 200) -> list[str]:
+        """Return desktop-local archived session ids ordered by archive recency."""
         ...
 
     def set_provider(self, session_id: str, provider: str) -> None:

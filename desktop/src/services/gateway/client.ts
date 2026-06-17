@@ -109,7 +109,8 @@ export class GatewayClient {
   }
 
   session = {
-    list: (): Promise<SessionListItem[]> => this.call('session.list'),
+    list: (options?: { archived?: import('./types.js').SessionArchiveFilter }): Promise<SessionListItem[]> =>
+      this.call('session.list', options ?? {}),
     info: (sessionId: string): Promise<SessionInfoPayload> =>
       this.call('session.info', { session_id: sessionId }),
     create: (params: { model?: string; provider?: string; system_prompt?: string; cwd?: string }): Promise<SessionMeta> =>
@@ -118,6 +119,8 @@ export class GatewayClient {
       this.call('session.delete', { session_id: sessionId }),
     rename: (sessionId: string, title: string): Promise<void> =>
       this.call('session.rename', { session_id: sessionId, title }),
+    setArchived: (sessionId: string, archived: boolean): Promise<{ archived: boolean; archivedAt?: number | null }> =>
+      this.call('session.archived.set', { session_id: sessionId, archived }),
     updateCwd: (sessionId: string, cwd: string): Promise<{ cwd: string }> =>
       this.call('session.cwd.set', { session_id: sessionId, cwd }),
     setPermissionMode: (sessionId: string, mode: SessionMeta['permissionMode']) =>

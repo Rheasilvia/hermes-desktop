@@ -23,6 +23,7 @@ class FakeStateStore:
         include_children: bool,
         order_by_last_active: bool,
         limit: int,
+        include_archived: bool = False,
     ) -> list[dict]:
         return list(self._rich_rows)
 

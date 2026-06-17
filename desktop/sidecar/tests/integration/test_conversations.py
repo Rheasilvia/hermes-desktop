@@ -490,6 +490,35 @@ class TestSessionCRUD:
         assert isinstance(data, list)
         assert len(data) >= 2
 
+    def test_archive_session_is_desktop_local_overlay(self, client):
+        first = client.post("/desktop/api/sessions", json={"model": "gpt-4"})
+        second = client.post("/desktop/api/sessions", json={"model": "claude"})
+        sid = first.json()["session_id"]
+        other_sid = second.json()["session_id"]
+
+        resp = client.patch(f"/desktop/api/sessions/{sid}", json={"archived": True})
+
+        assert resp.status_code == 200
+        assert resp.json()["archived"] is True
+        default_list = client.get("/desktop/api/sessions").json()
+        archived_list = client.get("/desktop/api/sessions?archived=only").json()
+        include_list = client.get("/desktop/api/sessions?archived=include").json()
+        assert not any(s["id"] == sid for s in default_list)
+        assert any(s["id"] == other_sid for s in default_list)
+        assert [s["id"] for s in archived_list] == [sid]
+        assert any(s["id"] == sid and s["archived"] is True for s in include_list)
+
+        core_row = client.app.state.session_db.get_session(sid)
+        assert core_row is not None
+        assert core_row.get("archived") == 0
+
+        restore = client.patch(f"/desktop/api/sessions/{sid}", json={"archived": False})
+
+        assert restore.status_code == 200
+        assert restore.json()["archived"] is False
+        restored_list = client.get("/desktop/api/sessions").json()
+        assert any(s["id"] == sid and s["archived"] is False for s in restored_list)
+
     def test_get_session_404(self, client):
         resp = client.get("/desktop/api/sessions/nonexistent")
         assert resp.status_code == 404

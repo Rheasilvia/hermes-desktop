@@ -51,6 +51,8 @@ export interface SessionMeta {
   parent_session_id: string | null;
   end_reason: string | null;
   cwd: string | null;
+  archived: boolean;
+  archivedAt?: number | null;
   permissionMode: DesktopPermissionMode;
   runtime: SessionRuntime;
 }
@@ -116,6 +118,8 @@ export interface SessionListItem {
   tool_call_count: number;
   last_message?: string;
   cwd?: string | null;
+  archived?: boolean;
+  archivedAt?: number | null;
   permissionMode: DesktopPermissionMode;
   runtime: SessionRuntime;
 }

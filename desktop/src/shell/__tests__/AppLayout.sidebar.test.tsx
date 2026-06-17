@@ -106,6 +106,15 @@ describe('AppLayout sidebar titlebar controls', () => {
     expect(screen.queryByLabelText('Primary sidebar')).not.toBeNull();
   });
 
+  test('settings routes hide the primary app sidebar', () => {
+    locationState.pathname = '/settings/general';
+
+    render(() => <AppLayout><div>Settings</div></AppLayout>);
+
+    expect(screen.queryByLabelText('Primary sidebar')).toBeNull();
+    expect(screen.getByText('Settings')).not.toBeNull();
+  });
+
   test('titlebar back and forward buttons use router history deltas', async () => {
     render(() => <AppLayout><div>Conversation</div></AppLayout>);
 

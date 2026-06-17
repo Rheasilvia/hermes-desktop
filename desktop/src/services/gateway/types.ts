@@ -130,12 +130,15 @@ export interface GatewayEventEmitter {
 }
 
 /** Session method group. */
+export type SessionArchiveFilter = 'exclude' | 'only' | 'include';
+
 export interface SessionMethods {
-  list(): Promise<SessionListItem[]>;
+  list(options?: { archived?: SessionArchiveFilter }): Promise<SessionListItem[]>;
   info(sessionId: string): Promise<SessionInfoPayload>;
   create(params: { model?: string; provider?: string; system_prompt?: string; cwd?: string }): Promise<SessionMeta>;
   delete(sessionId: string): Promise<void>;
   rename(sessionId: string, title: string): Promise<void>;
+  setArchived(sessionId: string, archived: boolean): Promise<{ archived: boolean; archivedAt?: number | null }>;
   updateCwd(sessionId: string, cwd: string): Promise<{ cwd: string }>;
   setPermissionMode(
     sessionId: string,

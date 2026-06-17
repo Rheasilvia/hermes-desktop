@@ -55,7 +55,7 @@ export function initKeyboardShortcuts(callbacks: KeyboardCallbacks): void {
 
     if (e.key === ',') {
       e.preventDefault();
-      currentCallbacks?.onNavigate('/settings');
+      currentCallbacks?.onNavigate('/settings/general');
       return;
     }
 
@@ -69,14 +69,14 @@ export function initKeyboardShortcuts(callbacks: KeyboardCallbacks): void {
       e.preventDefault();
       const routes: Record<string, string> = {
         '1': '/',
-        '2': '/sessions',
-        '3': '/memory',
-        '4': '/model',
-        '5': '/skills',
-        '6': '/plugins',
-        '7': '/gateway',
-        '8': '/cron',
-        '9': '/settings',
+        '2': '/settings/sessions',
+        '3': '/settings/memory',
+        '4': '/settings/model',
+        '5': '/settings/skills',
+        '6': '/settings/plugins',
+        '7': '/settings/gateway',
+        '8': '/settings/cron',
+        '9': '/settings/general',
       };
       const route = routes[e.key];
       if (route) {

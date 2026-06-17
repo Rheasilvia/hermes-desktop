@@ -1,4 +1,4 @@
-import { Component, JSX, onMount, onCleanup, createSignal, Show } from 'solid-js';
+import { Component, JSX, onMount, onCleanup, createSignal, Show, createMemo } from 'solid-js';
 import { useNavigate, useLocation } from '@solidjs/router';
 import { Sidebar } from '@/shell/Sidebar';
 import { TitleBar } from '@/shell/TitleBar';
@@ -23,6 +23,9 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [initializing, setInitializing] = createSignal(true);
+  const isSettingsRoute = createMemo(() =>
+    location.pathname === '/settings' || location.pathname.startsWith('/settings/'),
+  );
 
   const handleNewSession = async () => {
     try {
@@ -42,7 +45,7 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
       onToggleSidebar: () => uiStore.toggleSidebar(),
       onCompressContext: () => {},
       onClearHistory: () => {},
-      onSwitchModel: () => navigate('/model'),
+      onSwitchModel: () => navigate('/settings/model'),
       onCycleReasoningEffort: cycleActiveReasoningEffort,
       onSetReasoningEffort: updateActiveReasoningEffort,
     });
@@ -163,7 +166,7 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
         onNewSession={handleNewSession}
       />
       <div class={styles.contentRow}>
-        <Show when={!uiStore.sidebarCollapsed}>
+        <Show when={!isSettingsRoute() && !uiStore.sidebarCollapsed}>
           <Sidebar />
         </Show>
         <div class={styles.mainColumn}>

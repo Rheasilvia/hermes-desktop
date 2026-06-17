@@ -11,9 +11,11 @@ import type {
   SessionRuntime,
   SessionRuntimeUpdateResult,
 } from '@/types/index.js';
+import type { SessionArchiveFilter } from '@/services/gateway/types.js';
 import { getGateway } from './context.js';
 
 const [sessions, setSessions] = createSignal<SessionListItem[]>([]);
+const [archivedSessions, setArchivedSessions] = createSignal<SessionListItem[]>([]);
 const [activeSessionId, setActiveSessionId] = createSignal<string | null>(null);
 const [isLoading, setIsLoading] = createSignal(false);
 const [error, setError] = createSignal<string | null>(null);
@@ -46,6 +48,7 @@ const activeSession = createMemo(() => {
 
 export const sessionStore = {
   get sessions() { return sessions(); },
+  get archivedSessions() { return archivedSessions(); },
   get activeSessionId() { return activeSessionId(); },
   get activeSession() { return activeSession(); },
   get isLoading() { return isLoading(); },
@@ -123,26 +126,35 @@ export const sessionStore = {
     }
   },
 
-  async loadSessions(): Promise<void> {
+  async loadSessions(options: { archived?: SessionArchiveFilter } = {}): Promise<void> {
     const gateway = getGateway();
     if (!gateway) {
       setSessions([]);
+      if (options.archived === 'only') setArchivedSessions([]);
       setSessionRuntimes({});
       return;
     }
     setIsLoading(true);
     setError(null);
     try {
-      const list = await gateway.session.list();
+      const list = await gateway.session.list(options);
       setSessionRuntimes(Object.fromEntries(
         list.map(s => [s.id, normalizeRuntime(s.runtime)]),
       ));
-      setSessions(list);
+      if (options.archived === 'only') {
+        setArchivedSessions(list);
+      } else {
+        setSessions(list);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load sessions');
     } finally {
       setIsLoading(false);
     }
+  },
+
+  async loadArchivedSessions(): Promise<void> {
+    await this.loadSessions({ archived: 'only' });
   },
 
   async createSession(params: { model?: string; provider?: string; system_prompt?: string; cwd?: string }): Promise<SessionMeta | null> {
@@ -189,6 +201,48 @@ export const sessionStore = {
     setSessions(prev => prev.map(s =>
       s.id === sessionId ? { ...s, title } : s
     ));
+    setArchivedSessions(prev => prev.map(s =>
+      s.id === sessionId ? { ...s, title } : s
+    ));
+  },
+
+  async archiveSession(id: string): Promise<boolean> {
+    const gateway = getGateway();
+    if (!gateway) return false;
+    setError(null);
+    try {
+      const result = await gateway.session.setArchived(id, true);
+      const archivedRow = sessions().find(s => s.id === id);
+      setSessions(prev => prev.filter(s => s.id !== id));
+      if (archivedRow) {
+        setArchivedSessions(prev => [
+          { ...archivedRow, archived: result.archived, archivedAt: result.archivedAt ?? null },
+          ...prev.filter(s => s.id !== id),
+        ]);
+      }
+      if (activeSessionId() === id) {
+        setActiveSessionId(null);
+      }
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to archive session');
+      return false;
+    }
+  },
+
+  async restoreSession(id: string): Promise<boolean> {
+    const gateway = getGateway();
+    if (!gateway) return false;
+    setError(null);
+    try {
+      await gateway.session.setArchived(id, false);
+      setArchivedSessions(prev => prev.filter(s => s.id !== id));
+      await this.loadSessions();
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to restore session');
+      return false;
+    }
   },
 
   async deleteSession(id: string): Promise<boolean> {
@@ -201,6 +255,7 @@ export const sessionStore = {
       if (activeSessionId() === id) {
         setActiveSessionId(null);
       }
+      setArchivedSessions(prev => prev.filter(s => s.id !== id));
       await this.loadSessions();
       return true;
     } catch (e) {

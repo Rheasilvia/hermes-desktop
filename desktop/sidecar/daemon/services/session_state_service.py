@@ -38,12 +38,14 @@ class SessionStateService:
         include_children: bool,
         order_by_last_active: bool,
         limit: int,
+        include_archived: bool = False,
     ) -> list[dict]:
         return self._db.list_sessions_rich(
             source=source,
             include_children=include_children,
             order_by_last_active=order_by_last_active,
             limit=limit,
+            include_archived=include_archived,
         )
 
     def get_messages_as_conversation(self, session_id: str) -> list[dict]:
