@@ -169,7 +169,7 @@ export function buildDefaultActions(callbacks: {
       description: 'View all sessions',
       category: 'Navigate',
       shortcut: `${mod}2`,
-      callback: () => callbacks.onNavigate('/sessions'),
+      callback: () => callbacks.onNavigate('/settings/sessions'),
     },
     {
       id: 'nav-memory',
@@ -177,7 +177,7 @@ export function buildDefaultActions(callbacks: {
       description: 'View memory and context',
       category: 'Navigate',
       shortcut: `${mod}3`,
-      callback: () => callbacks.onNavigate('/memory'),
+      callback: () => callbacks.onNavigate('/settings/memory'),
     },
     {
       id: 'nav-model',
@@ -185,7 +185,7 @@ export function buildDefaultActions(callbacks: {
       description: 'Switch AI model',
       category: 'Navigate',
       shortcut: `${mod}4`,
-      callback: () => callbacks.onNavigate('/model'),
+      callback: () => callbacks.onNavigate('/settings/model'),
     },
     {
       id: 'nav-skills',
@@ -193,7 +193,7 @@ export function buildDefaultActions(callbacks: {
       description: 'Browse available skills',
       category: 'Navigate',
       shortcut: `${mod}5`,
-      callback: () => callbacks.onNavigate('/skills'),
+      callback: () => callbacks.onNavigate('/settings/skills'),
     },
     {
       id: 'nav-plugins',
@@ -201,7 +201,7 @@ export function buildDefaultActions(callbacks: {
       description: 'Manage plugins',
       category: 'Navigate',
       shortcut: `${mod}6`,
-      callback: () => callbacks.onNavigate('/plugins'),
+      callback: () => callbacks.onNavigate('/settings/plugins'),
     },
     {
       id: 'nav-mcp',
@@ -209,7 +209,7 @@ export function buildDefaultActions(callbacks: {
       description: 'Manage MCP servers',
       category: 'Navigate',
       shortcut: '',
-      callback: () => callbacks.onNavigate('/mcp'),
+      callback: () => callbacks.onNavigate('/settings/mcp'),
     },
     {
       id: 'nav-gateway',
@@ -217,7 +217,7 @@ export function buildDefaultActions(callbacks: {
       description: 'Manage messaging gateway',
       category: 'Navigate',
       shortcut: `${mod}7`,
-      callback: () => callbacks.onNavigate('/gateway'),
+      callback: () => callbacks.onNavigate('/settings/gateway'),
     },
     {
       id: 'nav-cron',
@@ -225,7 +225,7 @@ export function buildDefaultActions(callbacks: {
       description: 'Manage scheduled tasks',
       category: 'Navigate',
       shortcut: `${mod}8`,
-      callback: () => callbacks.onNavigate('/cron'),
+      callback: () => callbacks.onNavigate('/settings/cron'),
     },
     {
       id: 'nav-settings',
@@ -233,7 +233,7 @@ export function buildDefaultActions(callbacks: {
       description: 'Open application settings',
       category: 'Navigate',
       shortcut: `${mod}9`,
-      callback: () => callbacks.onNavigate('/settings'),
+      callback: () => callbacks.onNavigate('/settings/general'),
     },
     {
       id: 'new-session',

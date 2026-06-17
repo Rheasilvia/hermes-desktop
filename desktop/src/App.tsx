@@ -1,5 +1,5 @@
-import { Component, lazy, Suspense, createSignal, Switch, Match } from 'solid-js';
-import { Router, Route } from '@solidjs/router';
+import { Component, lazy, Suspense, createSignal, Switch, Match, onMount } from 'solid-js';
+import { Router, Route, useNavigate, useParams } from '@solidjs/router';
 import '@/styles/global.css';
 import { AppLayout } from '@/shell/AppLayout';
 import { ModuleErrorBoundary } from '@/shell/ModuleErrorBoundary';
@@ -12,16 +12,23 @@ import { modelsStore } from '@/stores/models.js';
 import styles from './App.module.css';
 
 const ConversationPage = lazy(() => import('@/pages/ConversationPage'));
-const SessionsPage = lazy(() => import('@/pages/SessionsPage'));
-const SessionDetailPage = lazy(() => import('@/pages/SessionDetailPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
-const ModelPage = lazy(() => import('@/pages/ModelPage'));
-const SkillsPage = lazy(() => import('@/pages/SkillsPage'));
-const PluginsPage = lazy(() => import('@/pages/PluginsPage'));
-const McpPage = lazy(() => import('@/pages/McpPage'));
-const MemoryPage = lazy(() => import('@/pages/MemoryPage'));
-const GatewayPage = lazy(() => import('@/pages/GatewayPage'));
-const CronPage = lazy(() => import('@/pages/CronPage'));
+
+const RedirectRoute: Component<{ to: string }> = (props) => {
+  const navigate = useNavigate();
+  onMount(() => navigate(props.to, { replace: true }));
+  return null;
+};
+
+const LegacySessionRedirect: Component = () => {
+  const navigate = useNavigate();
+  const params = useParams();
+  onMount(() => {
+    const id = params.id ? `/${params.id}` : '';
+    navigate(`/settings/sessions${id}`, { replace: true });
+  });
+  return null;
+};
 
 const ModuleSuspense: Component<{ moduleName: string; children: any }> = (props) => (
   <ModuleErrorBoundary moduleName={props.moduleName}>
@@ -76,36 +83,21 @@ const App: Component = () => {
           <Route path="/conversation/:id" component={() => (
             <ModuleSuspense moduleName="Conversation"><ConversationPage /></ModuleSuspense>
           )} />
-          <Route path="/sessions" component={() => (
-            <ModuleSuspense moduleName="Sessions"><SessionsPage /></ModuleSuspense>
-          )} />
-          <Route path="/sessions/:id" component={() => (
-            <ModuleSuspense moduleName="Session Detail"><SessionDetailPage /></ModuleSuspense>
-          )} />
+          <Route path="/sessions" component={() => <RedirectRoute to="/settings/sessions" />} />
+          <Route path="/sessions/:id" component={LegacySessionRedirect} />
           <Route path="/settings" component={() => (
             <ModuleSuspense moduleName="Settings"><SettingsPage /></ModuleSuspense>
           )} />
-          <Route path="/model" component={() => (
-            <ModuleSuspense moduleName="Model"><ModelPage /></ModuleSuspense>
+          <Route path="/settings/*section" component={() => (
+            <ModuleSuspense moduleName="Settings"><SettingsPage /></ModuleSuspense>
           )} />
-          <Route path="/skills" component={() => (
-            <ModuleSuspense moduleName="Skills"><SkillsPage /></ModuleSuspense>
-          )} />
-          <Route path="/plugins" component={() => (
-            <ModuleSuspense moduleName="Plugins"><PluginsPage /></ModuleSuspense>
-          )} />
-          <Route path="/mcp" component={() => (
-            <ModuleSuspense moduleName="MCP"><McpPage /></ModuleSuspense>
-          )} />
-          <Route path="/memory" component={() => (
-            <ModuleSuspense moduleName="Memory"><MemoryPage /></ModuleSuspense>
-          )} />
-          <Route path="/gateway" component={() => (
-            <ModuleSuspense moduleName="Gateway"><GatewayPage /></ModuleSuspense>
-          )} />
-          <Route path="/cron" component={() => (
-            <ModuleSuspense moduleName="Cron"><CronPage /></ModuleSuspense>
-          )} />
+          <Route path="/model" component={() => <RedirectRoute to="/settings/model" />} />
+          <Route path="/skills" component={() => <RedirectRoute to="/settings/skills" />} />
+          <Route path="/plugins" component={() => <RedirectRoute to="/settings/plugins" />} />
+          <Route path="/mcp" component={() => <RedirectRoute to="/settings/mcp" />} />
+          <Route path="/memory" component={() => <RedirectRoute to="/settings/memory" />} />
+          <Route path="/gateway" component={() => <RedirectRoute to="/settings/gateway" />} />
+          <Route path="/cron" component={() => <RedirectRoute to="/settings/cron" />} />
         </Router>
       </Match>
       <Match when={bootState() === 'error'}>

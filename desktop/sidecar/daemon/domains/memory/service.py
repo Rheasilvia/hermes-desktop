@@ -506,16 +506,44 @@ def search(
 # ── Project list (sessions table) ────────────────────────────────────────
 
 
+def _archived_session_ids(hermes_home: Path) -> set[str]:
+    path = Path(hermes_home) / "desktop" / "desktop.db"
+    if not path.exists():
+        return set()
+    try:
+        conn = sqlite3.connect(str(path))
+    except Exception:
+        return set()
+    try:
+        rows = conn.execute(
+            "SELECT session_id FROM session_desktop_meta WHERE archived = 1"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return set()
+    finally:
+        conn.close()
+    return {str(row[0]) for row in rows}
+
+
 def list_known_workspaces(hermes_home: Path) -> list[str]:
     """Return distinct desktop session cwd values from state.db."""
+    archived_ids = _archived_session_ids(hermes_home)
     try:
         conn = sqlite3.connect(str(Path(hermes_home) / "state.db"))
     except Exception:
         return []
     try:
+        params: list[str] = []
+        archived_clause = ""
+        if archived_ids:
+            placeholders = ",".join("?" for _ in archived_ids)
+            archived_clause = f" AND id NOT IN ({placeholders})"
+            params.extend(archived_ids)
         rows = conn.execute(
             "SELECT DISTINCT cwd FROM sessions "
             "WHERE source = 'desktop' AND cwd IS NOT NULL AND cwd != ''"
+            f"{archived_clause}",
+            params,
         ).fetchall()
     except sqlite3.OperationalError:
         return []
@@ -529,21 +557,30 @@ def list_projects(hermes_home: Path) -> list[MemoryProject]:
 
     Sorts by most-recent desktop session activity from state.db.
     """
+    archived_ids = _archived_session_ids(hermes_home)
     try:
         conn = sqlite3.connect(str(Path(hermes_home) / "state.db"))
     except Exception:
         return []
     try:
+        params: list[str] = []
+        archived_clause = ""
+        if archived_ids:
+            placeholders = ",".join("?" for _ in archived_ids)
+            archived_clause = f" AND id NOT IN ({placeholders})"
+            params.extend(archived_ids)
         rows = conn.execute(
-            """
+            f"""
             SELECT cwd,
                    MAX(started_at) AS last_used_at,
                    COUNT(*) AS session_count
             FROM sessions
             WHERE source = 'desktop' AND cwd IS NOT NULL AND cwd != ''
+            {archived_clause}
             GROUP BY cwd
             ORDER BY last_used_at DESC
-            """
+            """,
+            params,
         ).fetchall()
     except sqlite3.OperationalError:
         return []

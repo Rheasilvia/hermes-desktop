@@ -15,6 +15,7 @@ export const SessionsPageContent: Component = () => {
 
   const handleSelectSession = (id: string) => {
     sessionStore.setActiveSession(id);
+    navigate(`${ROUTES.SETTINGS_SESSIONS}/${id}`);
   };
 
   const handleNewSession = () => {
@@ -25,12 +26,12 @@ export const SessionsPageContent: Component = () => {
     const meta = await sessionStore.createSession(params);
     setShowNewModal(false);
     if (meta) {
-      navigate(`${ROUTES.SESSIONS}/${meta.id}`);
+      navigate(`${ROUTES.SETTINGS_SESSIONS}/${meta.id}`);
     }
   };
 
   const handleBranch = (id: string) => {
-    navigate(`${ROUTES.SESSIONS}/${id}`);
+    navigate(`${ROUTES.SETTINGS_SESSIONS}/${id}`);
   };
 
   const handleResume = (id: string) => {

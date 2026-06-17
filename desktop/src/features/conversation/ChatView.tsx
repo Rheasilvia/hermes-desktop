@@ -810,7 +810,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           <span class={styles.noModelText}>
             No model provider configured — messages cannot be sent until you add one.
           </span>
-          <button type="button" class={styles.noModelBtn} onClick={() => navigate(ROUTES.MODEL)}>
+          <button type="button" class={styles.noModelBtn} onClick={() => navigate(ROUTES.SETTINGS_MODEL)}>
             Configure
           </button>
         </div>

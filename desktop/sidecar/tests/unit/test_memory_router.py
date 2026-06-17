@@ -405,6 +405,18 @@ class TestListProjects:
         assert projects[0].workspace_path == "/proj/a"
         assert projects[0].session_count == 2
 
+    def test_archived_desktop_sessions_are_hidden(self, hermes_home):
+        from daemon.services.desktop_meta_service import DesktopMetaService
+
+        _seed_sessions_db(hermes_home, ["/proj/active", "/proj/archived"])
+        DesktopMetaService(hermes_home).set_archived("sess-1", True)
+
+        projects = svc.list_projects(hermes_home)
+        known = svc.list_known_workspaces(hermes_home)
+
+        assert {p.workspace_path for p in projects} == {"/proj/active"}
+        assert known == ["/proj/active"]
+
 
 # ── Router: HTTP layer ───────────────────────────────────────────────────
 

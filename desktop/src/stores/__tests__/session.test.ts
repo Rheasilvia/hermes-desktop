@@ -15,6 +15,8 @@ function row(overrides: Partial<SessionListItem> = {}): SessionListItem {
     message_count: 0,
     tool_call_count: 0,
     cwd: '/tmp/workspace',
+    archived: false,
+    archivedAt: null,
     permissionMode: 'auto',
     runtime: { reasoningEffort: 'medium' },
     ...overrides,
@@ -50,6 +52,8 @@ function meta(overrides: Partial<SessionMeta> = {}): SessionMeta {
     parent_session_id: null,
     end_reason: null,
     cwd: '/tmp/workspace',
+    archived: false,
+    archivedAt: null,
     permissionMode: 'auto',
     runtime: { reasoningEffort: 'medium' },
     ...overrides,
@@ -77,6 +81,10 @@ function gatewayWithSessions(initial: SessionListItem[]) {
         create,
         delete: vi.fn(async () => undefined),
         rename: vi.fn(async () => undefined),
+        setArchived: vi.fn(async (_sessionId: string, archived: boolean) => ({
+          archived,
+          archivedAt: archived ? 1_800_000_000 : null,
+        })),
         updateCwd: vi.fn(async (_sessionId: string, cwd: string) => ({ cwd })),
         setPermissionMode: vi.fn(async (sessionId: string, mode: SessionMeta['permissionMode']) =>
           meta({ id: sessionId, permissionMode: mode })
@@ -155,6 +163,50 @@ describe('sessionStore runtime', () => {
     expect(result).toBeNull();
     expect(sessionStore.getSessionReasoningEffort('session-1')).toBe('medium');
     expect(sessionStore.error).toBe('SESSION_RUNTIME_FAILED');
+  });
+});
+
+describe('sessionStore archive overlay', () => {
+  beforeEach(() => {
+    initializeStores(null as unknown as GatewayAdapter);
+    sessionStore.setActiveSession(null);
+  });
+
+  it('archives a session by removing it from the active list', async () => {
+    const { gateway } = gatewayWithSessions([
+      row({ id: 'session-1', title: 'Active chat' }),
+      row({ id: 'session-2', title: 'Other chat' }),
+    ]);
+    initializeStores(gateway);
+    await sessionStore.loadSessions();
+    sessionStore.setActiveSession('session-1');
+
+    const result = await sessionStore.archiveSession('session-1');
+
+    expect(result).toBe(true);
+    expect(gateway.session.setArchived).toHaveBeenCalledWith('session-1', true);
+    expect(sessionStore.activeSessionId).toBeNull();
+    expect(sessionStore.sessions.map((s) => s.id)).toEqual(['session-2']);
+    expect(sessionStore.archivedSessions.map((s) => s.id)).toEqual(['session-1']);
+  });
+
+  it('loads archived-only sessions and restores through the gateway', async () => {
+    const { gateway } = gatewayWithSessions([
+      row({ id: 'archived-1', title: 'Archived chat', archived: true }),
+    ]);
+    vi.mocked(gateway.session.list).mockImplementation(async (options) => (
+      options?.archived === 'only'
+        ? [row({ id: 'archived-1', title: 'Archived chat', archived: true })]
+        : []
+    ));
+    initializeStores(gateway);
+
+    await sessionStore.loadArchivedSessions();
+    const result = await sessionStore.restoreSession('archived-1');
+
+    expect(sessionStore.archivedSessions.map((s) => s.id)).toEqual([]);
+    expect(result).toBe(true);
+    expect(gateway.session.setArchived).toHaveBeenCalledWith('archived-1', false);
   });
 });
 

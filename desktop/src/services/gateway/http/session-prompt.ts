@@ -53,6 +53,8 @@ function emptySessionMeta(
     parent_session_id: null,
     end_reason: null,
     cwd: null,
+    archived: false,
+    archivedAt: null,
     permissionMode: 'auto',
     runtime: { reasoningEffort: 'medium' },
     ...overrides,
@@ -71,8 +73,9 @@ function mapRuntimeUpdate(sessionId: string, r: Record<string, unknown>): Sessio
 export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['session'] {
   const { http } = deps;
   return {
-    list: async (): Promise<SessionListItem[]> => {
-      const rows = await http.get<Array<Record<string, unknown>>>(`${API_PREFIX}/sessions`);
+    list: async (options): Promise<SessionListItem[]> => {
+      const qs = options?.archived ? `?archived=${encodeURIComponent(options.archived)}` : '';
+      const rows = await http.get<Array<Record<string, unknown>>>(`${API_PREFIX}/sessions${qs}`);
       return rows.map((r) => ({
         id: String(r.id ?? ''),
         source: String(r.source ?? 'desktop'),
@@ -83,6 +86,8 @@ export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['se
         message_count: Number(r.message_count ?? 0),
         tool_call_count: 0,
         cwd: (r.cwd as string) ?? null,
+        archived: Boolean(r.archived),
+        archivedAt: typeof r.archivedAt === 'number' ? r.archivedAt : null,
         permissionMode: permissionModeOf(r.permissionMode),
         runtime: sessionRuntimeOf(r.runtime),
       }));
@@ -112,6 +117,8 @@ export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['se
         started_at: String(r.started_at ?? new Date().toISOString()),
         system_prompt: params.system_prompt ?? null,
         cwd: (r.cwd as string) ?? params.cwd ?? null,
+        archived: Boolean(r.archived),
+        archivedAt: typeof r.archivedAt === 'number' ? r.archivedAt : null,
         permissionMode: permissionModeOf(r.permissionMode),
         runtime: sessionRuntimeOf(r.runtime),
       });
@@ -124,6 +131,17 @@ export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['se
 
     rename: async (sessionId: string, title: string): Promise<void> => {
       await http.patch(`${API_PREFIX}/sessions/${sessionId}`, { title });
+    },
+
+    setArchived: async (
+      sessionId: string,
+      archived: boolean,
+    ): Promise<{ archived: boolean; archivedAt?: number | null }> => {
+      const r = await http.patch<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}`, { archived });
+      return {
+        archived: Boolean(r.archived),
+        archivedAt: typeof r.archivedAt === 'number' ? r.archivedAt : null,
+      };
     },
 
     updateCwd: async (sessionId: string, cwd: string): Promise<{ cwd: string }> => {
@@ -140,6 +158,8 @@ export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['se
         started_at: String(r.started_at ?? new Date().toISOString()),
         message_count: Number(r.message_count ?? 0),
         cwd: (r.cwd as string) ?? null,
+        archived: Boolean(r.archived),
+        archivedAt: typeof r.archivedAt === 'number' ? r.archivedAt : null,
         permissionMode: permissionModeOf(r.permissionMode),
         runtime: sessionRuntimeOf(r.runtime),
       });
@@ -167,6 +187,8 @@ export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['se
         started_at: String(r.started_at ?? new Date().toISOString()),
         parent_session_id: sessionId,
         cwd: (r.cwd as string) ?? null,
+        archived: Boolean(r.archived),
+        archivedAt: typeof r.archivedAt === 'number' ? r.archivedAt : null,
         permissionMode: permissionModeOf(r.permissionMode),
         runtime: sessionRuntimeOf(r.runtime),
       });

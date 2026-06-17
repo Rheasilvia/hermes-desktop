@@ -75,7 +75,7 @@ export function useGatewayEvents(opts: {
     const sid = p.session_id || sessionStore.activeSessionId;
     if (!sid) return;
     const action = isProviderSetupError(p)
-      ? { label: 'Open model settings', route: '/model' }
+      ? { label: 'Open model settings', route: '/settings/model' }
       : null;
     const displayMessage = p.hint
       ? `${buildErrorMessage(p)}\n${p.hint}`

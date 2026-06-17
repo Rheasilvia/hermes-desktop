@@ -12,6 +12,7 @@ export interface ConversationSession {
   cwd: string | null;
   pinned: boolean;
   archived: boolean;
+  archivedAt: number | null;
   lastOpenedAt: number | null;
   createdAt: number;
   lastMessageAt: number | null;

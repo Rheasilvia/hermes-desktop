@@ -19,9 +19,18 @@ def test_fresh_schema_defaults_reasoning_effort_to_medium(tmp_path):
         meta_table = conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mcp_server_meta'"
         ).fetchone()
-        assert version == 9
+        assert version == 10
         assert row["reasoning_effort"] == "medium"
         assert meta_table is not None
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(session_desktop_meta)").fetchall()
+        }
+        assert "archived_at" in columns
+        index = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sdm_archived_at'"
+        ).fetchone()
+        assert index is not None
     finally:
         conn.close()
 
@@ -61,7 +70,7 @@ def test_v7_schema_migrates_reasoning_effort_to_medium(tmp_path):
             ("sess-old",),
         ).fetchone()
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
-        assert version == 9
+        assert version == 10
         assert row["reasoning_effort"] == "medium"
     finally:
         conn.close()
@@ -100,7 +109,7 @@ def test_v8_schema_migrates_mcp_server_meta(tmp_path):
         table = conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mcp_server_meta'"
         ).fetchone()
-        assert version == 9
+        assert version == 10
         assert table is not None
     finally:
         conn.close()
@@ -120,3 +129,89 @@ def test_invalid_stored_reasoning_effort_normalizes_to_medium(tmp_path):
 
     service = DesktopMetaService(tmp_path)
     assert service.get_reasoning_effort("sess-invalid") == "medium"
+
+
+def test_set_archived_preserved_across_runtime_upsert(tmp_path):
+    service = DesktopMetaService(tmp_path)
+
+    service.upsert_meta("sess-archive", provider="openai")
+    service.set_archived("sess-archive", True)
+    service.upsert_meta(
+        "sess-archive",
+        provider="anthropic",
+        permission_mode="full",
+        reasoning_effort="high",
+    )
+
+    meta = service.get_meta("sess-archive")
+    assert meta is not None
+    assert meta["archived"] == 1
+    assert meta["archived_at"] is not None
+    assert meta["provider"] == "anthropic"
+    assert service.get_archived_map(["sess-archive"]) == {"sess-archive": True}
+
+    service.set_archived("sess-archive", False)
+    restored = service.get_meta("sess-archive")
+    assert restored is not None
+    assert restored["archived"] == 0
+    assert restored["archived_at"] is None
+
+
+def test_v9_schema_migrates_archived_at_and_index(tmp_path):
+    path = get_db_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = sqlite3.connect(path)
+    try:
+        raw.executescript(
+            """
+            CREATE TABLE desktop_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE schema_version (version INTEGER NOT NULL);
+            INSERT INTO schema_version (version) VALUES (9);
+            CREATE TABLE session_desktop_meta (
+                session_id       TEXT PRIMARY KEY,
+                pinned           INTEGER NOT NULL DEFAULT 0,
+                archived         INTEGER NOT NULL DEFAULT 0,
+                last_opened_at   REAL,
+                created_at       REAL NOT NULL DEFAULT (strftime('%s','now')),
+                provider         TEXT,
+                permission_mode  TEXT NOT NULL DEFAULT 'auto',
+                reasoning_effort TEXT NOT NULL DEFAULT 'medium'
+            );
+            INSERT INTO session_desktop_meta
+                (session_id, archived, last_opened_at, created_at)
+            VALUES
+                ('archived-old', 1, 1234.0, 1200.0),
+                ('active-old', 0, 1300.0, 1300.0);
+            """
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    conn = connect(tmp_path)
+    try:
+        ensure_schema(conn)
+        version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        archived = conn.execute(
+            "SELECT archived_at FROM session_desktop_meta WHERE session_id = ?",
+            ("archived-old",),
+        ).fetchone()
+        active = conn.execute(
+            "SELECT archived_at FROM session_desktop_meta WHERE session_id = ?",
+            ("active-old",),
+        ).fetchone()
+        query_plan = conn.execute(
+            """
+            EXPLAIN QUERY PLAN
+            SELECT session_id
+            FROM session_desktop_meta
+            WHERE archived = 1
+            ORDER BY archived_at DESC
+            """
+        ).fetchall()
+        assert version == 10
+        assert archived["archived_at"] == 1234.0
+        assert active["archived_at"] is None
+        assert any("idx_sdm_archived_at" in row["detail"] for row in query_plan)
+    finally:
+        conn.close()

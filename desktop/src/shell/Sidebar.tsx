@@ -10,6 +10,7 @@ import { Modal } from '@/ui/molecules/Modal.js';
 import { Input } from '@/ui/atoms/Input.js';
 import { Button } from '@/ui/atoms/Button.js';
 import { APP_VERSION, APP_COMMIT } from '@/version';
+import { SidebarNav, type SidebarNavGroup } from './SidebarNav';
 import styles from './Sidebar.module.css';
 
 /**
@@ -75,6 +76,22 @@ export const Sidebar: Component = () => {
   const handleDeleteSession = async (id: string) => {
     const wasActive = location.pathname === `/conversation/${id}`;
     await sessionStore.deleteSession(id);
+    if (wasActive) {
+      const remaining = sessionStore.sessions;
+      if (remaining.length > 0) {
+        navigate(`/conversation/${remaining[0].id}`);
+      } else {
+        try {
+          const meta = await sessionStore.createSession({});
+          if (meta) navigate(`/conversation/${meta.id}`);
+        } catch { /* noop */ }
+      }
+    }
+  };
+
+  const handleArchiveSession = async (id: string) => {
+    const wasActive = location.pathname === `/conversation/${id}`;
+    await sessionStore.archiveSession(id);
     if (wasActive) {
       const remaining = sessionStore.sessions;
       if (remaining.length > 0) {
@@ -206,6 +223,14 @@ export const Sidebar: Component = () => {
         action: () => handleOpenRename(s.id, s.title),
       },
       {
+        label: 'Archive',
+        icon: 'archive',
+        action: () => {
+          handleArchiveSession(s.id);
+          closeContextMenu();
+        },
+      },
+      {
         label: 'Delete',
         icon: 'trash-2',
         danger: true,
@@ -221,6 +246,19 @@ export const Sidebar: Component = () => {
 
   const showSearch = () => allSessions().length > 0;
 
+  const bottomNavGroups = (): SidebarNavGroup[] => [
+    {
+      items: [
+        {
+          href: ROUTES.SETTINGS_GENERAL,
+          label: 'Settings',
+          icon: 'settings',
+          active: isActive(ROUTES.SETTINGS),
+        },
+      ],
+    },
+  ];
+
   // ── Render helpers ────────────────────────────────────────────────────────────
 
   const renderSessionRow = (session: { id: string; title: string }) => (
@@ -235,7 +273,7 @@ export const Sidebar: Component = () => {
           e.preventDefault();
           e.stopPropagation();
           const menuWidth = 148;
-          const menuHeight = 160;
+          const menuHeight = 190;
           let x = e.clientX;
           let y = e.clientY;
           if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 8;
@@ -441,41 +479,9 @@ export const Sidebar: Component = () => {
         </Show>
       </div>
 
-      {/* ── Bottom: Tools + Settings ────────────────────────────────────── */}
+      {/* ── Bottom: Settings ────────────────────────────────────────────── */}
       <div class={styles.bottomBar}>
-        <div class={styles.toolGroupLabel}>Tools</div>
-        <A href={ROUTES.SESSIONS} class={`${styles.navRow} ${isActive(ROUTES.SESSIONS) ? styles.navRowActive : ''}`}>
-          <Icon name="clipboard-list" size={16} />
-          <span>Sessions</span>
-        </A>
-        <A href={ROUTES.MODEL} class={`${styles.navRow} ${isActive(ROUTES.MODEL) ? styles.navRowActive : ''}`}>
-          <Icon name="bot" size={16} />
-          <span>Model</span>
-        </A>
-        <A href={ROUTES.SKILLS} class={`${styles.navRow} ${isActive(ROUTES.SKILLS) ? styles.navRowActive : ''}`}>
-          <Icon name="zap" size={16} />
-          <span>Skills</span>
-        </A>
-        <A href={ROUTES.PLUGINS} class={`${styles.navRow} ${isActive(ROUTES.PLUGINS) ? styles.navRowActive : ''}`}>
-          <Icon name="plug" size={16} />
-          <span>Plugins</span>
-        </A>
-        <A href={ROUTES.MCP} class={`${styles.navRow} ${isActive(ROUTES.MCP) ? styles.navRowActive : ''}`}>
-          <Icon name="radio-tower" size={16} />
-          <span>MCP</span>
-        </A>
-        <A href={ROUTES.CRON} class={`${styles.navRow} ${isActive(ROUTES.CRON) ? styles.navRowActive : ''}`}>
-          <Icon name="clock" size={16} />
-          <span>Cron</span>
-        </A>
-        <div class={styles.bottomDivider} />
-        <A
-          href={ROUTES.SETTINGS}
-          class={`${styles.navRow} ${isActive(ROUTES.SETTINGS) ? styles.navRowActive : ''}`}
-        >
-          <Icon name="settings" size={16} />
-          <span>Settings</span>
-        </A>
+        <SidebarNav groups={bottomNavGroups()} />
         <div
           class={styles.versionLabel}
           title={`Version ${APP_VERSION} (${APP_COMMIT})`}

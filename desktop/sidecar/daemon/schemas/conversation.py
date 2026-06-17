@@ -14,6 +14,7 @@ class SessionMetaResponse(BaseModel):
     session_id: str
     pinned: bool
     archived: bool
+    archived_at: Optional[float] = None
     last_opened_at: Optional[float]
     created_at: float
 
@@ -31,6 +32,7 @@ class CreateSessionRequest(BaseModel):
 class UpdateSessionRequest(BaseModel):
     title: Optional[str] = None
     cwd: Optional[str] = None
+    archived: Optional[bool] = None
 
 
 class SetSessionProviderRequest(BaseModel):
@@ -100,6 +102,8 @@ class SessionResponse(BaseModel):
     ended_at: Optional[float] = None
     message_count: int = 0
     cwd: Optional[str] = None
+    archived: bool = False
+    archivedAt: Optional[float] = None
     permissionMode: str = "auto"
 
 
@@ -112,6 +116,8 @@ class CreateSessionResponse(BaseModel):
     title: str = "New Session"
     started_at: Optional[float] = None
     cwd: Optional[str] = None
+    archived: bool = False
+    archivedAt: Optional[float] = None
     model_configured: bool = False
     permissionMode: str = "auto"
 

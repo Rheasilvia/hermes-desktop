@@ -46,7 +46,7 @@ class DesktopMetaService:
         try:
             row = conn.execute(
                 "SELECT session_id, pinned, archived, "
-                "last_opened_at, created_at, provider, permission_mode, reasoning_effort "
+                "archived_at, last_opened_at, created_at, provider, permission_mode, reasoning_effort "
                 "FROM session_desktop_meta WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
@@ -69,8 +69,8 @@ class DesktopMetaService:
             conn.execute(
                 """
                 INSERT INTO session_desktop_meta
-                    (session_id, pinned, archived, last_opened_at, created_at, provider, permission_mode, reasoning_effort)
-                VALUES (?, 0, 0, ?, ?, ?, ?, ?)
+                    (session_id, pinned, archived, archived_at, last_opened_at, created_at, provider, permission_mode, reasoning_effort)
+                VALUES (?, 0, 0, NULL, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     last_opened_at = excluded.last_opened_at,
                     provider = excluded.provider,
@@ -80,6 +80,79 @@ class DesktopMetaService:
                 (session_id, now, now, provider, mode, effort),
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    def set_archived(self, session_id: str, archived: bool) -> None:
+        archived_value = 1 if archived else 0
+        archived_at = time.time() if archived else None
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                INSERT INTO session_desktop_meta (session_id, archived, archived_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    archived = excluded.archived,
+                    archived_at = excluded.archived_at
+                """,
+                (session_id, archived_value, archived_at),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_archived_map(self, session_ids: list[str]) -> dict[str, bool]:
+        if not session_ids:
+            return {}
+        conn = self._connect()
+        try:
+            placeholders = ",".join("?" for _ in session_ids)
+            rows = conn.execute(
+                f"SELECT session_id, archived FROM session_desktop_meta WHERE session_id IN ({placeholders})",
+                tuple(session_ids),
+            ).fetchall()
+            result = {sid: False for sid in session_ids}
+            for row in rows:
+                result[row["session_id"]] = bool(row["archived"])
+            return result
+        finally:
+            conn.close()
+
+    def get_archive_states(self, session_ids: list[str]) -> dict[str, dict]:
+        if not session_ids:
+            return {}
+        conn = self._connect()
+        try:
+            placeholders = ",".join("?" for _ in session_ids)
+            rows = conn.execute(
+                f"SELECT session_id, archived, archived_at FROM session_desktop_meta WHERE session_id IN ({placeholders})",
+                tuple(session_ids),
+            ).fetchall()
+            result = {sid: {"archived": False, "archived_at": None} for sid in session_ids}
+            for row in rows:
+                result[row["session_id"]] = {
+                    "archived": bool(row["archived"]),
+                    "archived_at": row["archived_at"],
+                }
+            return result
+        finally:
+            conn.close()
+
+    def list_archived_session_ids(self, limit: int = 200) -> list[str]:
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT session_id
+                FROM session_desktop_meta
+                WHERE archived = 1
+                ORDER BY archived_at DESC, last_opened_at DESC, created_at DESC
+                LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
+            return [str(row["session_id"]) for row in rows]
         finally:
             conn.close()
 

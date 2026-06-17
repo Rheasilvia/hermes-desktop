@@ -25,6 +25,9 @@ DEFAULT_WORKSPACE = Path.home() / "HermesAgentWorkspace"
 REUSABLE_EMPTY_TITLES = frozenset(
     {"", "new session", "untitled", "untitled new conversation"}
 )
+ARCHIVE_FILTERS = frozenset({"exclude", "only", "include"})
+SESSION_LIST_FETCH_LIMIT = 200
+SESSION_LIST_RETURN_LIMIT = 50
 
 
 def ensure_default_workspace() -> Path:
@@ -86,6 +89,13 @@ def _todos_from_tools(tools: list[dict]) -> list[dict]:
     return todos
 
 
+def _normalize_archive_filter(value: str | None) -> str:
+    archive_filter = str(value or "exclude").strip().lower()
+    if archive_filter not in ARCHIVE_FILTERS:
+        raise ValueError(f"invalid archive filter: {value}")
+    return archive_filter
+
+
 class SessionService:
     """Facade for session lifecycle operations across state.db and desktop.db."""
 
@@ -126,12 +136,7 @@ class SessionService:
     def resolve_default_permission_mode(self, *, exclude_session_id: str | None = None) -> str:
         """Return the current profile's most recent non-empty conversation mode."""
         try:
-            rows = self._state.list_sessions_rich(
-                source="desktop",
-                include_children=False,
-                order_by_last_active=True,
-                limit=50,
-            )
+            rows = self.list_sessions(archived="exclude")
         except Exception:
             log.exception("failed to resolve recent permission mode")
             return "auto"
@@ -207,6 +212,8 @@ class SessionService:
             "title": info.get("title", "New Session"),
             "started_at": info.get("started_at"),
             "cwd": resolved_cwd,
+            "archived": False,
+            "archivedAt": None,
             "model_configured": bool(resolved_model),
             "permissionMode": resolved_permission_mode,
             "runtime": {"reasoningEffort": self._meta.get_reasoning_effort(sid)},
@@ -254,19 +261,21 @@ class SessionService:
         row = self._state.get_session(session_id)
         if row is None:
             return None
-        meta_providers = self._meta.get_providers([session_id])
+        meta = self._meta.get_meta(session_id) or {}
         permission_mode = self._meta.get_permission_mode(session_id)
         reasoning_effort = self._meta.get_reasoning_effort(session_id)
         return {
             "id": row.get("id", session_id),
             "source": row.get("source", "desktop"),
             "model": row.get("model", ""),
-            "provider": meta_providers.get(session_id) or "",
+            "provider": meta.get("provider") or "",
             "title": row.get("title", "Untitled"),
             "started_at": row.get("started_at"),
             "ended_at": row.get("ended_at"),
             "message_count": row.get("message_count", 0),
             "cwd": row.get("cwd") or str(ensure_default_workspace()),
+            "archived": bool(meta.get("archived")),
+            "archivedAt": meta.get("archived_at"),
             "permissionMode": permission_mode,
             "runtime": {"reasoningEffort": reasoning_effort},
         }
@@ -277,17 +286,28 @@ class SessionService:
             raise SessionNotFoundError()
         return row
 
-    def list_sessions(self) -> list[dict]:
-        rows = self._state.list_sessions_rich(
+    def _state_desktop_rows(self, limit: int = SESSION_LIST_FETCH_LIMIT) -> list[dict]:
+        return self._state.list_sessions_rich(
             source="desktop",
             include_children=False,
             order_by_last_active=True,
-            limit=50,
+            limit=limit,
+            include_archived=True,
         )
+
+    def _compose_session_rows(
+        self,
+        rows: list[dict],
+        *,
+        archive_states: dict[str, dict] | None = None,
+    ) -> list[dict]:
         session_ids = [r["id"] for r in rows]
         meta_providers = self._meta.get_providers(session_ids) if session_ids else {}
         permission_modes = self._meta.get_permission_modes(session_ids) if session_ids else {}
         reasoning_efforts = self._meta.get_reasoning_efforts(session_ids) if session_ids else {}
+        archive_states = archive_states or (
+            self._meta.get_archive_states(session_ids) if session_ids else {}
+        )
         return [
             {
                 "id": r["id"],
@@ -299,6 +319,8 @@ class SessionService:
                 "message_count": r.get("message_count", 0),
                 "last_active": r.get("last_active"),
                 "cwd": r.get("cwd") or str(ensure_default_workspace()),
+                "archived": bool(archive_states.get(r["id"], {}).get("archived")),
+                "archivedAt": archive_states.get(r["id"], {}).get("archived_at"),
                 "permissionMode": permission_modes.get(r["id"], "auto"),
                 "runtime": {
                     "reasoningEffort": reasoning_efforts.get(r["id"], DEFAULT_REASONING_EFFORT)
@@ -306,6 +328,33 @@ class SessionService:
             }
             for r in rows
         ]
+
+    def list_sessions(self, archived: str = "exclude") -> list[dict]:
+        archive_filter = _normalize_archive_filter(archived)
+        rows = self._state_desktop_rows()
+        session_ids = [r["id"] for r in rows]
+        archive_states = self._meta.get_archive_states(session_ids) if session_ids else {}
+        if archive_filter == "exclude":
+            rows = [r for r in rows if not archive_states.get(r["id"], {}).get("archived")]
+        elif archive_filter == "only":
+            archived_ids = self._meta.list_archived_session_ids(limit=SESSION_LIST_FETCH_LIMIT)
+            archived_rank = {sid: idx for idx, sid in enumerate(archived_ids)}
+            rows = [
+                r for r in rows
+                if archive_states.get(r["id"], {}).get("archived")
+            ]
+            rows.sort(key=lambda r: archived_rank.get(r["id"], len(archived_rank)))
+        return self._compose_session_rows(
+            rows[:SESSION_LIST_RETURN_LIMIT],
+            archive_states=archive_states,
+        )
+
+    def set_archived(self, session_id: str, archived: bool) -> dict:
+        self.get_session_or_404(session_id)
+        self._meta.set_archived(session_id, archived)
+        session = self.get_session_or_404(session_id)
+        session["archived"] = archived
+        return session
 
     def set_permission_mode(self, session_id: str, mode: str) -> dict:
         self.get_session_or_404(session_id)
