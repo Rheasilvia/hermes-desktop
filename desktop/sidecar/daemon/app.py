@@ -4,12 +4,14 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import hmac
 import logging
+import os
 import uuid
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 from .config import Config
 from .readers.cron_reader import L1CorruptError
@@ -33,6 +35,14 @@ _SERVICE_ERROR_STATUS = {
     "MEMORY_PATH_INVALID": 400,
     "MEMORY_ENCODING_INVALID": 415,
     "MEMORY_CONCURRENT_WRITE": 409,
+    "CRON_JOB_NOT_FOUND": 404,
+    "CRON_VALIDATION": 400,
+    "MCP_SERVER_NOT_FOUND": 404,
+    "MCP_SERVER_CONFLICT": 409,
+    "MCP_VALIDATION": 400,
+    "MCP_UNAVAILABLE": 503,
+    "SKILLS_UNAVAILABLE": 503,
+    "TOOLS_UNAVAILABLE": 503,
 }
 
 
@@ -60,6 +70,28 @@ def build_app(cfg: Config) -> FastAPI:
 
     def _sync_overlay_keys_to_env() -> None:
         _sync_provider_keys(cfg.hermes_home)
+
+    def _set_process_hermes_home() -> str | None:
+        previous = os.environ.get("HERMES_HOME")
+        os.environ["HERMES_HOME"] = str(cfg.hermes_home)
+        return previous
+
+    def _restore_process_hermes_home(previous: str | None) -> None:
+        if previous is None:
+            os.environ.pop("HERMES_HOME", None)
+        else:
+            os.environ["HERMES_HOME"] = previous
+
+    def _start_mcp_discovery() -> None:
+        try:
+            from hermes_cli.mcp_startup import start_background_mcp_discovery
+
+            start_background_mcp_discovery(
+                logger=log,
+                thread_name="desktop-mcp-discovery",
+            )
+        except Exception:
+            log.debug("[mcp] background discovery startup failed", exc_info=True)
 
     def _prewarm_agents(startup_app: FastAPI) -> None:
         import threading
@@ -104,10 +136,15 @@ def build_app(cfg: Config) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(startup_app: FastAPI):
+        previous_hermes_home = _set_process_hermes_home()
         _prewarm_model_imports()
         _sync_overlay_keys_to_env()
+        _start_mcp_discovery()
         _prewarm_agents(startup_app)
-        yield
+        try:
+            yield
+        finally:
+            _restore_process_hermes_home(previous_hermes_home)
 
     app = FastAPI(title="Hermes Desktop Sidecar", openapi_url=None, lifespan=lifespan)
 
@@ -174,6 +211,16 @@ def build_app(cfg: Config) -> FastAPI:
             env.model_dump(exclude_none=True), status_code=exc.status_code
         )
 
+    @app.exception_handler(RequestValidationError)
+    async def validation_handler(request: Request, exc: RequestValidationError):
+        env = ErrorEnvelope(
+            code="VALIDATION",
+            domain=_domain_from_path(request.url.path),
+            detail=str(exc),
+            trace_id=getattr(request.state, "trace_id", "unknown"),
+        )
+        return JSONResponse(env.model_dump(exclude_none=True), status_code=400)
+
     @app.exception_handler(L1CorruptError)
     async def l1_corrupt_handler(request: Request, exc: L1CorruptError):
         env = ErrorEnvelope(
@@ -232,6 +279,8 @@ def build_app(cfg: Config) -> FastAPI:
         overlays,
         analytics,
         skills,
+        mcp,
+        tools as tools_router,
         plugins as plugins_router,
         conversations as conversations_router,
         commands as commands_router,
@@ -254,6 +303,8 @@ def build_app(cfg: Config) -> FastAPI:
     app.include_router(overlays.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(analytics.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(skills.router, prefix=API_PREFIX, dependencies=deps)
+    app.include_router(mcp.router, prefix=API_PREFIX, dependencies=deps)
+    app.include_router(tools_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(plugins_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(conversations_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(commands_router.router, prefix=API_PREFIX, dependencies=deps)

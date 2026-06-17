@@ -2,7 +2,6 @@ import type { Component } from 'solid-js';
 import { createSignal, createMemo, onMount, Show, Switch, Match } from 'solid-js';
 import type { CreateCronJobParams } from '@/types/cron.js';
 import { cronStore } from '@/stores/cron.js';
-import { getGateway } from '@/stores/context.js';
 import { Button } from '@/ui/atoms/Button.js';
 import { Tabs } from '@/ui/molecules/Tabs.js';
 import { Modal } from '@/ui/molecules/Modal.js';
@@ -27,6 +26,7 @@ export const CronView: Component = () => {
   const [activeTab, setActiveTab] = createSignal('all');
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [showCreateForm, setShowCreateForm] = createSignal(false);
+  const [actionError, setActionError] = createSignal<string | null>(null);
 
   onMount(() => {
     void cronStore.load();
@@ -54,42 +54,33 @@ export const CronView: Component = () => {
   });
 
   const handleCreate = async (params: CreateCronJobParams) => {
-    const gateway = getGateway();
-    if (gateway) {
-      try {
-        await gateway.cron.create(params);
-      } catch {
-        void 0;
-      }
+    setActionError(null);
+    try {
+      await cronStore.create(params);
+      setShowCreateForm(false);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to create cron job');
     }
-    void cronStore.load();
-    setShowCreateForm(false);
   };
 
   const handleToggle = async (id: string, enabled: boolean) => {
-    const gateway = getGateway();
-    if (gateway) {
-      try {
-        await gateway.cron.update(id, { enabled });
-      } catch {
-        void 0;
-      }
+    setActionError(null);
+    try {
+      await cronStore.update(id, { enabled });
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to update cron job');
     }
-    void cronStore.load();
   };
 
   const handleDelete = async (id: string) => {
-    const gateway = getGateway();
-    if (gateway) {
-      try {
-        await gateway.cron.delete(id);
-      } catch {
-        void 0;
+    setActionError(null);
+    try {
+      await cronStore.delete(id);
+      if (selectedId() === id) {
+        setSelectedId(null);
       }
-    }
-    void cronStore.load();
-    if (selectedId() === id) {
-      setSelectedId(null);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to delete cron job');
     }
   };
 
@@ -103,6 +94,11 @@ export const CronView: Component = () => {
       </div>
 
       <div class={styles.content}>
+        <Show when={error() || actionError()}>
+          <div class={styles.errorBanner}>
+            {(error() ?? { message: actionError() ?? '' }).message}
+          </div>
+        </Show>
         <Show
           when={!loading()}
           fallback={

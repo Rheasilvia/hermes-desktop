@@ -4,10 +4,27 @@
  */
 
 /** MCP server transport type. */
-export type McpTransport = 'stdio' | 'http' | 'streamable_http';
+export type McpTransport = 'stdio' | 'http' | 'streamable_http' | 'sse';
 
 /** MCP server authentication type. */
 export type McpAuthType = 'oauth' | 'bearer' | 'api_key' | null;
+
+/** Desktop-only MCP server metadata. */
+export interface McpServerDesktop {
+  pinned: boolean;
+  note?: string | null;
+  display_order?: number | null;
+  last_selected_at?: string | null;
+  updated_at?: string | null;
+}
+
+/** Desktop-only MCP metadata patch. */
+export interface McpServerDesktopPatch {
+  pinned?: boolean;
+  note?: string | null;
+  display_order?: number | null;
+  last_selected_at?: string | null;
+}
 
 /** MCP server configuration. */
 export interface McpServer {
@@ -23,6 +40,11 @@ export interface McpServer {
   oauth?: McpOAuthConfig;
   sampling?: McpSamplingConfig;
   transport?: McpTransport;
+  enabled?: boolean;
+  valid?: boolean;
+  error?: string | null;
+  status?: Record<string, unknown> | null;
+  desktop?: McpServerDesktop;
 }
 
 /** MCP OAuth configuration. */
@@ -69,10 +91,20 @@ export interface McpSchemaProperty {
 }
 
 /** MCP server connection state. */
+export type McpRuntimeStatus =
+  | 'connected'
+  | 'connecting'
+  | 'configured'
+  | 'failed'
+  | 'disabled'
+  | string;
+
 export interface McpConnectionStatus {
   name: string;
   connected: boolean;
   transport: McpTransport;
   tools: number;
   error?: string;
+  disabled?: boolean;
+  status?: McpRuntimeStatus;
 }

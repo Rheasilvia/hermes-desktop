@@ -7,6 +7,7 @@ export const ROUTES = {
   MODEL: '/model',
   SKILLS: '/skills',
   PLUGINS: '/plugins',
+  MCP: '/mcp',
   MEMORY: '/memory',
   GATEWAY: '/gateway',
   CRON: '/cron',

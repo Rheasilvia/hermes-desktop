@@ -25,7 +25,8 @@ export interface AddServerFormData {
 const TRANSPORT_OPTIONS = [
   { value: 'stdio', label: 'stdio' },
   { value: 'http', label: 'HTTP' },
-  { value: 'streamable_http', label: 'SSE' },
+  { value: 'streamable_http', label: 'Streamable HTTP' },
+  { value: 'sse', label: 'SSE' },
 ];
 
 export const AddServerForm: Component<AddServerFormProps> = (props) => {

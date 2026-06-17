@@ -20,7 +20,7 @@ export class StdioTransportPlaceholder implements Transport {
     if (this.disposed) {
       return Promise.reject(new Error('Transport is closed'));
     }
-    return Promise.reject(new Error('StdioTransportPlaceholder: not implemented'));
+    return Promise.reject(new Error('Stdio transport is unavailable in this runtime'));
   }
 
   onMessage(_handler: (event: Record<string, unknown>) => void): void {

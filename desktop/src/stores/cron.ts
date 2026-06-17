@@ -1,7 +1,7 @@
 import { createSignal } from 'solid-js';
 import { api } from '../services/api/router';
 import type { CronJob as ApiCronJob } from '../services/api/types';
-import type { CronJob } from '../types/cron.js';
+import type { CreateCronJobParams, CronJob, UpdateCronJobParams } from '../types/cron.js';
 
 /* ── minimal 5‑field cron helpers ── */
 
@@ -105,29 +105,29 @@ function mapJob(api: ApiCronJob): CronJob {
   const next = nextMatch(api.schedule);
   return {
     id: api.id,
-    name: api.prompt.slice(0, 40),
+    name: api.name ?? api.prompt.slice(0, 40),
     prompt: api.prompt,
-    skills: [],
-    skill: null,
-    model: null,
-    provider: null,
-    base_url: null,
-    script: null,
-    schedule: { kind: 'cron', expr: api.schedule, display: cronDisplay(api.schedule) },
-    schedule_display: cronDisplay(api.schedule),
-    repeat: { times: null, completed: 0 },
+    skills: api.skills ?? [],
+    skill: api.skill ?? null,
+    model: api.model ?? null,
+    provider: api.provider ?? null,
+    base_url: api.base_url ?? null,
+    script: api.script ?? null,
+    schedule: { kind: 'cron', expr: api.schedule, display: api.schedule_display ?? cronDisplay(api.schedule) },
+    schedule_display: api.schedule_display ?? cronDisplay(api.schedule),
+    repeat: { times: api.repeat?.times ?? null, completed: api.repeat?.completed ?? 0 },
     enabled: api.enabled,
-    state: api.enabled ? 'scheduled' : 'paused',
-    paused_at: api.enabled ? null : now,
-    paused_reason: api.enabled ? null : 'Paused by user',
+    state: (api.state as CronJob['state'] | null) ?? (api.enabled ? 'scheduled' : 'paused'),
+    paused_at: api.paused_at ?? (api.enabled ? null : now),
+    paused_reason: api.paused_reason ?? (api.enabled ? null : 'Paused by user'),
     created_at: api.created_at,
-    next_run_at: next ? next.toISOString() : null,
+    next_run_at: api.next_run_at ?? (next ? next.toISOString() : null),
     last_run_at: api.last_run_at ?? null,
     last_status: api.last_status === 'ok' || api.last_status === 'error' ? api.last_status : null,
     last_error: api.last_error ?? null,
-    last_delivery_error: null,
-    deliver: 'local',
-    origin: null,
+    last_delivery_error: api.last_delivery_error ?? null,
+    deliver: api.deliver ?? 'local',
+    origin: api.origin ?? null,
   };
 }
 
@@ -136,6 +136,9 @@ export interface CronStore {
   loading: () => boolean;
   error: () => Error | null;
   load: () => Promise<void>;
+  create: (params: CreateCronJobParams) => Promise<CronJob>;
+  update: (id: string, params: UpdateCronJobParams) => Promise<CronJob>;
+  delete: (id: string) => Promise<void>;
   togglePinned: (id: string) => Promise<void>;
 }
 
@@ -179,7 +182,24 @@ export function createCronStore(): CronStore {
     }
   };
 
-  return { jobs, loading, error, load, togglePinned };
+  const create = async (params: CreateCronJobParams) => {
+    const created = await api.cron().create(params);
+    setApiJobs((prev) => [...prev, created]);
+    return mapJob(created);
+  };
+
+  const update = async (id: string, params: UpdateCronJobParams) => {
+    const updated = await api.cron().update(id, params);
+    setApiJobs((prev) => prev.map((j) => (j.id === id ? updated : j)));
+    return mapJob(updated);
+  };
+
+  const deleteJob = async (id: string) => {
+    await api.cron().delete(id);
+    setApiJobs((prev) => prev.filter((j) => j.id !== id));
+  };
+
+  return { jobs, loading, error, load, create, update, delete: deleteJob, togglePinned };
 }
 
 export const cronStore = createCronStore();

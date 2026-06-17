@@ -460,6 +460,10 @@ export const Sidebar: Component = () => {
           <Icon name="plug" size={16} />
           <span>Plugins</span>
         </A>
+        <A href={ROUTES.MCP} class={`${styles.navRow} ${isActive(ROUTES.MCP) ? styles.navRowActive : ''}`}>
+          <Icon name="radio-tower" size={16} />
+          <span>MCP</span>
+        </A>
         <A href={ROUTES.CRON} class={`${styles.navRow} ${isActive(ROUTES.CRON) ? styles.navRowActive : ''}`}>
           <Icon name="clock" size={16} />
           <span>Cron</span>

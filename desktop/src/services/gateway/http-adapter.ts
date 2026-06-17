@@ -3,7 +3,8 @@
  *
  * Real methods: session.*, prompt.execute, approval.respond, clarify.respond,
  * complete.slash, slash.exec, command.dispatch.
- * All other method groups throw notImplemented() until wired to real endpoints.
+ * Resource-style method groups proxy to sidecar REST endpoints for compatibility;
+ * user-facing resource pages should prefer services/api transports directly.
  *
  * SSE is via one long-lived EventSource.  On reconnect, each known session's
  * messages are replayed from DB via GET /sessions/{sid}/messages?since={lastSeq}.
@@ -155,8 +156,6 @@ export class HttpGatewayAdapter implements GatewayAdapter {
       },
     };
 
-    // ── everything else → not implemented ───────────────────────────────
-    const notImplemented = (name: string) => () => { throw new Error(`${name} not implemented`); };
     this.config = {
       get: async (): Promise<HermesConfig> => {
         const response = await this.http.get<ConfigReadResponse>(`${API_PREFIX}/config`);
@@ -188,7 +187,20 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         throw new Error(`config.set: unsupported key '${input.key}'`);
       },
     };
-    this.tools = { list: notImplemented('tools.list'), reload: notImplemented('tools.reload') };
+    this.tools = {
+      list: async (): Promise<ToolEntry[]> => {
+        const r = await this.http.get<{ items: Array<Record<string, unknown>> }>(`${API_PREFIX}/tools`);
+        return r.items.map((item) => ({
+          name: String(item.name ?? ''),
+          toolset: String(item.toolset ?? ''),
+          schema: (item.schema ?? { name: item.name, description: item.description ?? '' }) as ToolEntry['schema'],
+          description: item.description as string | undefined,
+        }));
+      },
+      reload: async (): Promise<void> => {
+        await this.http.post(`${API_PREFIX}/tools/reload`, {});
+      },
+    };
     this.model = {
       options: async (_sessionId?: string): Promise<import('./types.js').ModelOptionsResult> => {
         const [providersRes, activeRes] = await Promise.all([
@@ -224,8 +236,36 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         await this.http.post(`${API_PREFIX}/secret/respond`, params);
       },
     };
-    this.cron = { list: notImplemented('cron.list'), create: notImplemented('cron.create'), update: notImplemented('cron.update'), delete: notImplemented('cron.delete') };
-    this.mcp = { list: notImplemented('mcp.list'), add: notImplemented('mcp.add'), remove: notImplemented('mcp.remove'), tools: notImplemented('mcp.tools') };
+    this.cron = {
+      list: async (): Promise<CronJob[]> => {
+        const r = await this.http.get<{ items: CronJob[] }>(`${API_PREFIX}/cron/jobs`);
+        return r.items;
+      },
+      create: async (job: CreateCronJobParams): Promise<CronJob> =>
+        this.http.post<CronJob>(`${API_PREFIX}/cron/jobs`, job),
+      update: async (id: string, job: UpdateCronJobParams): Promise<CronJob> =>
+        this.http.patch<CronJob>(`${API_PREFIX}/cron/jobs/${encodeURIComponent(id)}`, job),
+      delete: async (id: string): Promise<void> => {
+        await this.http.delete(`${API_PREFIX}/cron/jobs/${encodeURIComponent(id)}`);
+      },
+    };
+    this.mcp = {
+      list: async (): Promise<McpServer[]> => {
+        const r = await this.http.get<{ items: McpServer[] }>(`${API_PREFIX}/mcp/servers`);
+        return r.items;
+      },
+      add: async (server: Partial<McpServer>): Promise<McpServer> =>
+        this.http.post<McpServer>(`${API_PREFIX}/mcp/servers`, server),
+      remove: async (name: string): Promise<void> => {
+        await this.http.delete(`${API_PREFIX}/mcp/servers/${encodeURIComponent(name)}`);
+      },
+      tools: async (serverName: string): Promise<McpTool[]> => {
+        const r = await this.http.get<{ items: McpTool[] }>(
+          `${API_PREFIX}/mcp/servers/${encodeURIComponent(serverName)}/tools`,
+        );
+        return r.items;
+      },
+    };
     this.memory = {
       projects: async (): Promise<MemoryProject[]> => {
         const r = await this.http.get<{ projects: MemoryProject[] }>(
@@ -290,7 +330,12 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         return r.hits;
       },
     };
-    this.skills = { list: notImplemented('skills.list') };
+    this.skills = {
+      list: async (): Promise<SkillInfo[]> => {
+        const r = await this.http.get<{ items: SkillInfo[] }>(`${API_PREFIX}/skills`);
+        return r.items;
+      },
+    };
     this.complete = makeCompleteGateway(this.http);
     this.workspace = makeWorkspaceGateway(this.http);
     this.git = makeGitGateway(this.http);

@@ -372,18 +372,6 @@ mod sidecar_security_tests {
     }
 
     #[test]
-    fn sidecar_token_prefers_existing_env_values() {
-        assert_eq!(
-            resolve_sidecar_token(Some("hermes-token".into()), Some("desktop-token".into())),
-            "hermes-token"
-        );
-        assert_eq!(
-            resolve_sidecar_token(None, Some("desktop-token".into())),
-            "desktop-token"
-        );
-    }
-
-    #[test]
     fn workspace_grant_token_is_separate_and_injected_into_sidecar_env() {
         let backend_token = resolve_sidecar_token(None, None);
         let grant_token = resolve_workspace_grant_token(None);

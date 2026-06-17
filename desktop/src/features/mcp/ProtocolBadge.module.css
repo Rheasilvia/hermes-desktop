@@ -24,3 +24,8 @@
   background-color: color-mix(in srgb, var(--color-warning) 12%, transparent);
   color: var(--color-warning);
 }
+
+.sse {
+  background-color: color-mix(in srgb, var(--color-info) 12%, transparent);
+  color: var(--color-info);
+}

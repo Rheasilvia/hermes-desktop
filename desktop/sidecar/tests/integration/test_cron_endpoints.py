@@ -19,7 +19,7 @@ def test_list_jobs_applies_overlay(client, auth, hermes_home):
 def test_get_job_404(client, auth):
     r = client.get("/desktop/api/cron/jobs/nope", headers=auth)
     assert r.status_code == 404
-    assert r.json()["code"] == "NOT_FOUND"
+    assert r.json()["code"] == "CRON_JOB_NOT_FOUND"
 
 
 def test_get_job_200(client, auth):
@@ -42,3 +42,31 @@ def test_sqlite_l2_overlay_does_not_use_json_file(client, auth, hermes_home):
     r = client.get("/desktop/api/cron/jobs", headers=auth)
     assert r.status_code == 200
     assert not (hermes_home / "desktop" / "overlays" / "cron.json").exists()
+
+
+def test_create_update_delete_job(client, auth):
+    created = client.post(
+        "/desktop/api/cron/jobs",
+        headers=auth,
+        json={"prompt": "desktop job", "schedule": "0 10 * * *", "name": "Desktop Job"},
+    )
+    assert created.status_code == 200
+    job = created.json()
+    assert job["prompt"] == "desktop job"
+    assert job["name"] == "Desktop Job"
+
+    paused = client.patch(
+        f"/desktop/api/cron/jobs/{job['id']}",
+        headers=auth,
+        json={"enabled": False},
+    )
+    assert paused.status_code == 200
+    assert paused.json()["enabled"] is False
+    assert paused.json()["state"] == "paused"
+
+    deleted = client.delete(f"/desktop/api/cron/jobs/{job['id']}", headers=auth)
+    assert deleted.status_code == 200
+    assert deleted.json()["ok"] is True
+
+    missing = client.get(f"/desktop/api/cron/jobs/{job['id']}", headers=auth)
+    assert missing.status_code == 404

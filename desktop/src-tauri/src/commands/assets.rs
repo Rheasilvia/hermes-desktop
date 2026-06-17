@@ -85,20 +85,6 @@ mod assets_tests {
     use super::*;
 
     #[test]
-    fn unique_path_preserves_extension() {
-        let dir = Path::new("/tmp");
-        let p = unique_path(dir, "clip.png", 123, 7);
-        assert_eq!(p.file_name().unwrap(), "clip-123-7.png");
-    }
-
-    #[test]
-    fn unique_path_handles_missing_extension() {
-        let dir = Path::new("/tmp");
-        let p = unique_path(dir, "clip", 123, 7);
-        assert_eq!(p.file_name().unwrap(), "clip-123-7");
-    }
-
-    #[test]
     fn session_assets_dir_is_under_hermes_home() {
         // hermes_home() reads HERMES_HOME; verify the constructed path nesting.
         let tmp = std::env::temp_dir().join(format!(

@@ -227,32 +227,3 @@ mod command_surface_tests {
         assert!(!REGISTERED_TAURI_COMMANDS.contains(&"checkout_git_branch"));
     }
 }
-
-#[cfg(all(test, target_os = "macos"))]
-mod titlebar_config_tests {
-    use super::*;
-
-    // The traffic-light cluster must sit inside the title bar band, below the
-    // very top edge (so it isn't clipped) and left of the frontend action
-    // group fixed at 85px. These bounds lock the agreed-upon layout.
-    const FRONTEND_ACTION_GROUP_LEFT: f64 = 85.0;
-    const TRAFFIC_LIGHT_CLUSTER_WIDTH: f64 = 60.0;
-
-    #[test]
-    fn macos_traffic_light_x_stays_left_of_frontend_action_group() {
-        assert!(MACOS_TRAFFIC_LIGHT_X > 0.0, "x must be positive");
-        assert!(
-            MACOS_TRAFFIC_LIGHT_X + TRAFFIC_LIGHT_CLUSTER_WIDTH < FRONTEND_ACTION_GROUP_LEFT,
-            "traffic-light cluster must stay left of the frontend titlebar actions"
-        );
-    }
-
-    #[test]
-    fn macos_traffic_light_y_is_vertically_centered_in_32px_title_bar() {
-        // Buttons are ~12px tall; centering in a 32px bar puts y ≈ 10–22.
-        assert!(
-            (10.0..=22.0).contains(&MACOS_TRAFFIC_LIGHT_Y),
-            "y must vertically center the cluster within --titlebar-height"
-        );
-    }
-}

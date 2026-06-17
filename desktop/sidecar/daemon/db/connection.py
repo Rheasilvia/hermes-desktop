@@ -7,7 +7,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-from .schema import SCHEMA_VERSION, SESSION_DESKTOP_META_DDL, V3_DDL
+from .schema import MCP_SERVER_META_DDL, SCHEMA_VERSION, SESSION_DESKTOP_META_DDL, V3_DDL
 
 log = logging.getLogger(__name__)
 
@@ -140,6 +140,11 @@ def _migrate(conn: sqlite3.Connection, current_version: int) -> None:
             "OR LOWER(reasoning_effort) NOT IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')"
         )
         conn.execute("UPDATE schema_version SET version = ?", (8,))
+        current_version = 8
+
+    if current_version < 9:
+        conn.executescript(MCP_SERVER_META_DDL)
+        conn.execute("UPDATE schema_version SET version = ?", (9,))
 
 
 def _overlay_json_path(hermes_home: str, domain: str) -> Path:

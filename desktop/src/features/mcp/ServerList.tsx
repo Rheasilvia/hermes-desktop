@@ -2,6 +2,7 @@ import type { Component } from 'solid-js';
 import { For, Show } from 'solid-js';
 import type { McpServer, McpConnectionStatus } from '@/types/mcp.js';
 import { ProtocolBadge } from './ProtocolBadge.js';
+import { mcpStatusCompactLabel, mcpStatusTone } from './status.js';
 import styles from './ServerList.module.css';
 
 export interface ServerListProps {
@@ -10,6 +11,7 @@ export interface ServerListProps {
   selectedName: string | null;
   onSelect: (name: string) => void;
   onDelete: (name: string) => void;
+  onTogglePin: (name: string, pinned: boolean) => void;
 }
 
 export const ServerList: Component<ServerListProps> = (props) => {
@@ -18,18 +20,19 @@ export const ServerList: Component<ServerListProps> = (props) => {
     return status?.tools ?? 0;
   };
 
-  const isConnected = (name: string): boolean => {
-    const status = props.statuses.get(name);
-    return status?.connected ?? false;
+  const dotClass = (server: McpServer): string => {
+    const tone = mcpStatusTone(server, props.statuses.get(server.name));
+    return styles[`dot${tone[0].toUpperCase()}${tone.slice(1)}`];
   };
 
   return (
     <div class={styles.list}>
       <For each={props.servers}>
         {(server) => {
-          const connected = () => isConnected(server.name);
           const count = () => toolCount(server.name);
           const selected = () => props.selectedName === server.name;
+          const status = () => props.statuses.get(server.name);
+          const tone = () => mcpStatusTone(server, status());
 
           return (
             <div
@@ -38,10 +41,17 @@ export const ServerList: Component<ServerListProps> = (props) => {
             >
               <div class={styles.rowLeft}>
                 <span
-                  class={`${styles.statusDot} ${connected() ? styles.dotOnline : styles.dotOffline}`}
+                  class={`${styles.statusDot} ${dotClass(server)}`}
                 />
+                <Show when={server.desktop?.pinned}>
+                  <span class={styles.pinMark}>Pinned</span>
+                </Show>
                 <span class={styles.serverName}>{server.name}</span>
                 <ProtocolBadge transport={server.transport ?? 'stdio'} />
+                <span class={styles.statusText}>{mcpStatusCompactLabel(tone())}</span>
+                <Show when={server.valid === false}>
+                  <span class={styles.invalidText}>{server.error ?? 'Invalid config'}</span>
+                </Show>
               </div>
               <div class={styles.rowRight}>
                 <span class={styles.toolCount}>
@@ -58,9 +68,12 @@ export const ServerList: Component<ServerListProps> = (props) => {
                   <button
                     class={styles.actionLink}
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); void 0; }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onTogglePin(server.name, !(server.desktop?.pinned ?? false));
+                    }}
                   >
-                    Test
+                    {server.desktop?.pinned ? 'Unpin' : 'Pin'}
                   </button>
                   <button
                     class={`${styles.actionLink} ${styles.actionDanger}`}

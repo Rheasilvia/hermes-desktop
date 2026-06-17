@@ -4,6 +4,7 @@ import { makeAnalyticsTransport } from './transports/http/analytics';
 import { makeAudioTransport } from './transports/http/audio';
 import { makeConfigTransport } from './transports/http/config';
 import { makeCronTransport } from './transports/http/cron';
+import { makeMcpTransport } from './transports/http/mcp';
 import { makeModelTransport } from './transports/http/model';
 import { makeOAuthTransport } from './transports/http/oauth';
 import { makeOverlayTransport } from './transports/http/overlays';
@@ -12,9 +13,16 @@ import { makeSessionTransport } from './transports/http/session';
 import { makeSettingsTransport } from './transports/http/settings';
 import { makeSkillsTransport } from './transports/http/skills';
 import { makeStateTransport } from './transports/http/state';
+import { makeToolsTransport } from './transports/http/tools';
 
 export type {
   CronJob,
+  CreateCronJobRequest,
+  UpdateCronJobRequest,
+  McpServer,
+  McpServerDesktop,
+  McpServerDesktopPatch,
+  McpTool,
   Provider,
   OAuthProvider,
   OAuthStartResponse,
@@ -28,6 +36,7 @@ export type {
   HermesConfigRecord,
   SkillInfo,
   SkillsToolset,
+  ToolInfo,
   State,
   ListResponse,
   ApiError,
@@ -54,6 +63,7 @@ export type {
 
 export function bootstrapApi(): void {
   api.register('cron', makeCronTransport(httpClient));
+  api.register('mcp', makeMcpTransport(httpClient));
   api.register('model', makeModelTransport(httpClient));
   api.register('oauth', makeOAuthTransport(httpClient));
   api.register('overlays', makeOverlayTransport(httpClient));
@@ -63,6 +73,7 @@ export function bootstrapApi(): void {
   api.register('config', makeConfigTransport(httpClient));
   api.register('skills', makeSkillsTransport(httpClient));
   api.register('state', makeStateTransport(httpClient));
+  api.register('tools', makeToolsTransport(httpClient));
   api.register('analytics', makeAnalyticsTransport(httpClient));
   api.register('audio', makeAudioTransport(httpClient));
 }

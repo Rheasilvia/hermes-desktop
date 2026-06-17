@@ -46,7 +46,7 @@ export type {
 } from './memory.js';
 
 // MCP types
-export type { McpTransport, McpAuthType, McpServer, McpOAuthConfig, McpSamplingConfig, McpTool, McpInputSchema, McpSchemaProperty, McpConnectionStatus } from './mcp.js';
+export type { McpTransport, McpAuthType, McpServer, McpServerDesktop, McpServerDesktopPatch, McpOAuthConfig, McpSamplingConfig, McpTool, McpInputSchema, McpSchemaProperty, McpConnectionStatus, McpRuntimeStatus } from './mcp.js';
 
 // Workspace tree types
 export type { WorkspaceTreeNodeKind, WorkspaceTreeNode, WorkspaceChildrenResult, WorkspaceFileResult, WorkspaceTreeRow } from './workspace-tree.js';

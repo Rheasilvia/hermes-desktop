@@ -2,6 +2,7 @@ import type { AnalyticsTransport } from './transports/http/analytics';
 import type { AudioTransport } from './transports/http/audio';
 import type { ConfigTransport } from './transports/http/config';
 import type { CronTransport } from './transports/http/cron';
+import type { McpTransport } from './transports/http/mcp';
 import type { ModelTransport } from './transports/http/model';
 import type { OAuthTransport } from './transports/http/oauth';
 import type { OverlayTransport } from './transports/http/overlays';
@@ -10,12 +11,14 @@ import type { SessionTransport } from './transports/http/session';
 import type { SettingsTransport } from './transports/http/settings';
 import type { SkillsTransport } from './transports/http/skills';
 import type { StateTransport } from './transports/http/state';
+import type { ToolsTransport } from './transports/http/tools';
 
 type Slot =
   | { kind: 'analytics'; impl: AnalyticsTransport }
   | { kind: 'audio'; impl: AudioTransport }
   | { kind: 'config'; impl: ConfigTransport }
   | { kind: 'cron'; impl: CronTransport }
+  | { kind: 'mcp'; impl: McpTransport }
   | { kind: 'model'; impl: ModelTransport }
   | { kind: 'oauth'; impl: OAuthTransport }
   | { kind: 'overlays'; impl: OverlayTransport }
@@ -23,7 +26,8 @@ type Slot =
   | { kind: 'session'; impl: SessionTransport }
   | { kind: 'settings'; impl: SettingsTransport }
   | { kind: 'skills'; impl: SkillsTransport }
-  | { kind: 'state'; impl: StateTransport };
+  | { kind: 'state'; impl: StateTransport }
+  | { kind: 'tools'; impl: ToolsTransport };
 
 export class ApiRegistry {
   private slots: Map<Slot['kind'], unknown> = new Map();
@@ -53,6 +57,9 @@ export class ApiRegistry {
   cron(): CronTransport {
     return this.resolve<CronTransport>('cron');
   }
+  mcp(): McpTransport {
+    return this.resolve<McpTransport>('mcp');
+  }
   model(): ModelTransport {
     return this.resolve<ModelTransport>('model');
   }
@@ -76,6 +83,9 @@ export class ApiRegistry {
   }
   state(): StateTransport {
     return this.resolve<StateTransport>('state');
+  }
+  tools(): ToolsTransport {
+    return this.resolve<ToolsTransport>('tools');
   }
 }
 

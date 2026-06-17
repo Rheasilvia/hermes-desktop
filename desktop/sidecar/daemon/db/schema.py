@@ -1,7 +1,7 @@
 """Schema constants for desktop.db."""
 from __future__ import annotations
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 SESSION_DESKTOP_META_DDL = """
 CREATE TABLE IF NOT EXISTS session_desktop_meta (
@@ -47,4 +47,18 @@ CREATE TABLE IF NOT EXISTS desktop_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+"""
+
+MCP_SERVER_META_DDL = """
+CREATE TABLE IF NOT EXISTS mcp_server_meta (
+    server_name      TEXT PRIMARY KEY,
+    pinned           INTEGER NOT NULL DEFAULT 0,
+    note             TEXT,
+    display_order    INTEGER,
+    last_selected_at TEXT,
+    updated_at       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_meta_pinned ON mcp_server_meta(pinned) WHERE pinned = 1;
+CREATE INDEX IF NOT EXISTS idx_mcp_meta_order  ON mcp_server_meta(display_order);
 """

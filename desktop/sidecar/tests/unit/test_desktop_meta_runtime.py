@@ -16,8 +16,12 @@ def test_fresh_schema_defaults_reasoning_effort_to_medium(tmp_path):
             ("sess-1",),
         ).fetchone()
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
-        assert version == 8
+        meta_table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mcp_server_meta'"
+        ).fetchone()
+        assert version == 9
         assert row["reasoning_effort"] == "medium"
+        assert meta_table is not None
     finally:
         conn.close()
 
@@ -57,8 +61,47 @@ def test_v7_schema_migrates_reasoning_effort_to_medium(tmp_path):
             ("sess-old",),
         ).fetchone()
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
-        assert version == 8
+        assert version == 9
         assert row["reasoning_effort"] == "medium"
+    finally:
+        conn.close()
+
+
+def test_v8_schema_migrates_mcp_server_meta(tmp_path):
+    path = get_db_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = sqlite3.connect(path)
+    try:
+        raw.executescript(
+            """
+            CREATE TABLE desktop_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE schema_version (version INTEGER NOT NULL);
+            INSERT INTO schema_version (version) VALUES (8);
+            CREATE TABLE session_desktop_meta (
+                session_id       TEXT PRIMARY KEY,
+                pinned           INTEGER NOT NULL DEFAULT 0,
+                archived         INTEGER NOT NULL DEFAULT 0,
+                last_opened_at   REAL,
+                created_at       REAL NOT NULL DEFAULT (strftime('%s','now')),
+                provider         TEXT,
+                permission_mode  TEXT NOT NULL DEFAULT 'auto',
+                reasoning_effort TEXT NOT NULL DEFAULT 'medium'
+            );
+            """
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    conn = connect(tmp_path)
+    try:
+        ensure_schema(conn)
+        version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mcp_server_meta'"
+        ).fetchone()
+        assert version == 9
+        assert table is not None
     finally:
         conn.close()
 
