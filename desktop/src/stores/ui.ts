@@ -24,9 +24,13 @@ const STORAGE_KEY_WORKSPACE_GROUPING = 'hermes-desktop-workspace-grouping';
 const STORAGE_KEY_PINNED_SESSIONS = 'hermes-desktop-pinned-sessions';
 const STORAGE_KEY_TODO_PANEL_DISMISSED = 'hermes-desktop-todo-panel-dismissed';
 
-const SIDEBAR_MIN_WIDTH = 200;
-const SIDEBAR_MAX_WIDTH = 360;
-const SIDEBAR_DEFAULT_WIDTH = 240;
+export const SIDEBAR_MIN_WIDTH = 200;
+export const SIDEBAR_MAX_WIDTH = 360;
+export const SIDEBAR_DEFAULT_WIDTH = 240;
+
+export function clampSidebarWidth(width: number): number {
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, width));
+}
 
 function loadPersistedTheme(): Theme {
   try {
@@ -149,8 +153,7 @@ export const uiStore = {
   },
 
   setSidebarWidth(width: number) {
-    const clamped = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, width));
-    setSidebarWidthRaw(clamped);
+    setSidebarWidthRaw(clampSidebarWidth(width));
   },
 
   setActiveRoute(route: string) {

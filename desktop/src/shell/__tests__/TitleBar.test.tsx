@@ -18,8 +18,26 @@ const windowMock = vi.hoisted(() => {
   };
 });
 
-const { sidePanelToggle } = vi.hoisted(() => ({
+const { sidePanelState, sidePanelToggle, sidePanelOpenTab, sidePanelSetActiveView } = vi.hoisted(() => ({
+  sidePanelState: {
+    open: false,
+    activeView: 'menu',
+    openTabs: [] as string[],
+  },
   sidePanelToggle: vi.fn(),
+  sidePanelOpenTab: vi.fn((view: string) => {
+    if (!sidePanelState.openTabs.includes(view)) {
+      sidePanelState.openTabs.push(view);
+    }
+    sidePanelState.activeView = view;
+    sidePanelState.open = true;
+  }),
+  sidePanelSetActiveView: vi.fn((view: string) => {
+    if (view !== 'menu' && !sidePanelState.openTabs.includes(view)) {
+      sidePanelState.openTabs.push(view);
+    }
+    sidePanelState.activeView = view;
+  }),
 }));
 
 // isTauri is imported statically at the top of TitleBar.tsx, so the core module
@@ -37,8 +55,12 @@ vi.mock('@/stores/session.js', () => ({
 
 vi.mock('@/stores/side-panel.js', () => ({
   sidePanelStore: {
-    isOpen: () => false,
+    isOpen: () => sidePanelState.open,
+    activeView: () => sidePanelState.activeView,
+    openTabs: () => sidePanelState.openTabs,
     toggle: sidePanelToggle,
+    openTab: sidePanelOpenTab,
+    setActiveView: sidePanelSetActiveView,
   },
 }));
 
@@ -104,7 +126,15 @@ describe('TitleBar', () => {
     uiStore.setPlatform('unknown');
     uiStore.setSidebarCollapsed(false);
     (sessionStore as any).activeSession = null;
+    sidePanelState.open = false;
+    sidePanelState.activeView = 'menu';
+    sidePanelState.openTabs = [];
     sidePanelToggle.mockReset();
+    sidePanelOpenTab.mockClear();
+    sidePanelSetActiveView.mockClear();
+    (sidePanelStore as any).isOpen = () => sidePanelState.open;
+    (sidePanelStore as any).activeView = () => sidePanelState.activeView;
+    (sidePanelStore as any).openTabs = () => sidePanelState.openTabs;
   });
 
   afterEach(() => {
@@ -185,6 +215,26 @@ describe('TitleBar', () => {
     expect(windowMock.calls.startDragging).toBe(0);
   });
 
+  test('double-clicking the titlebar toggles native maximize and restore behavior', async () => {
+    uiStore.setPlatform('macos');
+    renderTitleBar();
+
+    await fireEvent.dblClick(screen.getByLabelText('Hermes window titlebar'), { button: 0 });
+
+    await vi.waitFor(() => {
+      expect(windowMock.calls.toggleMaximize).toBe(1);
+    });
+  });
+
+  test('double-clicking titlebar controls does not toggle maximize', async () => {
+    uiStore.setPlatform('macos');
+    renderTitleBar();
+
+    await fireEvent.dblClick(screen.getByTitle('Toggle Sidebar'), { button: 0 });
+
+    expect(windowMock.calls.toggleMaximize).toBe(0);
+  });
+
   test('pressing navigation toolbar buttons does not start native window dragging', async () => {
     uiStore.setPlatform('macos');
     renderTitleBar();
@@ -235,6 +285,12 @@ describe('TitleBar', () => {
     expect(props.onToggleSidebar).toHaveBeenCalledTimes(1);
     expect(uiStore.sidebarCollapsed).toBe(true);
     expect(toolbar.style.left).toBe('85px');
+  });
+
+  test('accepts a shell-provided navigation toolbar inset', () => {
+    renderTitleBar({ actionToolbarLeft: 'var(--space-2)' });
+
+    expect(getNavigationToolbar().style.left).toBe('var(--space-2)');
   });
 
   test('clicking minimize/toggleMaximize/close drives the Tauri window handle', async () => {
@@ -289,6 +345,18 @@ describe('TitleBar', () => {
     });
   });
 
+  test('double-clicking on the session title toggles maximize', async () => {
+    (sessionStore as any).activeSession = { title: 'Test Session' };
+    uiStore.setPlatform('macos');
+    renderTitleBar();
+
+    await fireEvent.dblClick(screen.getByText('Test Session'), { button: 0 });
+
+    await vi.waitFor(() => {
+      expect(windowMock.calls.toggleMaximize).toBe(1);
+    });
+  });
+
   
   test('new chat button appears when sidebar is collapsed and triggers onNewSession', () => {
     uiStore.setSidebarCollapsed(true);
@@ -308,45 +376,79 @@ describe('TitleBar', () => {
     expect(screen.queryByRole('button', { name: 'New Chat' })).toBeNull();
   });
 
-test('workspace panel toggle button renders with correct aria-label when closed', () => {
-    (sidePanelStore as any).isOpen = () => false;
+test('tools dock toggle button renders with correct aria-label when closed', () => {
+    sidePanelState.open = false;
     sidePanelToggle.mockReset();
     renderTitleBar();
 
-    const btn = screen.getByRole('button', { name: 'Show workspace panel' });
+    const btn = screen.getByRole('button', { name: 'Show tools dock' });
     expect(btn).toBeTruthy();
   });
 
-  test('workspace panel toggle button reflects active state when panel is open', () => {
-    (sidePanelStore as any).isOpen = () => true;
+  test('tools dock toggle button reflects active state when dock is open', () => {
+    sidePanelState.open = true;
     sidePanelToggle.mockReset();
     renderTitleBar();
 
-    const btn = screen.getByRole('button', { name: 'Hide workspace panel' });
+    const btn = screen.getByRole('button', { name: 'Hide tools dock' });
     expect(btn).toBeTruthy();
   });
 
-  test('clicking workspace panel toggle calls sidePanelStore toggle', () => {
-    (sidePanelStore as any).isOpen = () => false;
+  test('clicking tools dock toggle calls sidePanelStore toggle', () => {
+    sidePanelState.open = false;
     sidePanelToggle.mockReset();
     renderTitleBar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show workspace panel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show tools dock' }));
 
-    expect(sidePanelToggle).toHaveBeenCalledWith('workspace');
+    expect(sidePanelToggle).toHaveBeenCalledWith();
   });
 
-  test('toggling the workspace panel does not move the fixed navigation toolbar', () => {
-    (sidePanelStore as any).isOpen = () => false;
+  test('toggling the tools dock does not move the fixed navigation toolbar', () => {
+    sidePanelState.open = false;
     sidePanelToggle.mockReset();
     renderTitleBar();
     const toolbar = getNavigationToolbar();
 
     expect(toolbar.style.left).toBe('85px');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show workspace panel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show tools dock' }));
 
-    expect(sidePanelToggle).toHaveBeenCalledWith('workspace');
+    expect(sidePanelToggle).toHaveBeenCalledWith();
     expect(toolbar.style.left).toBe('85px');
+  });
+
+  test('tools tabs render inside the right group when the dock is open', () => {
+    sidePanelState.open = true;
+    sidePanelState.activeView = 'terminal';
+    sidePanelState.openTabs = ['terminal', 'files'];
+
+    renderTitleBar({ toolsDockWidth: 500 });
+
+    expect(screen.getByTestId('titlebar-right-group').style.width).toBe('500px');
+    expect(screen.getByRole('tablist', { name: 'Tool tabs' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Terminal' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tab', { name: 'Open file' }).getAttribute('aria-selected')).toBe('false');
+    expect(screen.getByRole('button', { name: 'Add tool tab' })).toBeTruthy();
+  });
+
+  test('tools plus menu creates or activates titlebar tabs', () => {
+    sidePanelState.open = true;
+    sidePanelState.activeView = 'terminal';
+    sidePanelState.openTabs = ['terminal'];
+
+    renderTitleBar({ toolsDockWidth: 500 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add tool tab' }));
+    expect(screen.getByRole('menuitem', { name: /Review/ })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: /Terminal/ })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: /Open file/ })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: /Delegation/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /Open file/ }));
+
+    expect(sidePanelOpenTab).toHaveBeenCalledWith('files');
+    expect(sidePanelState.openTabs).toEqual(['terminal', 'files']);
+    expect(sidePanelState.activeView).toBe('files');
   });
 });

@@ -95,7 +95,15 @@ const REFERENCE_STARTERS: ReferenceCompletion[] = [
 const REF_PREFIX_RE = /^@(file|folder|image|url|tool|git):(.*)$/;
 const SIMPLE_REF_RE = /^@(diff|staged)$/;
 const VOICE_ERROR_DISMISS_MS = 3000;
-const COMPACT_COMPOSER_WIDTH = 560;
+const COMPACT_COMPOSER_ENTER_WIDTH = 560;
+const COMPACT_COMPOSER_EXIT_WIDTH = 592;
+
+function shouldUseCompactComposer(width: number, currentCompact: boolean): boolean {
+  if (width <= 0) return false;
+  return currentCompact
+    ? width < COMPACT_COMPOSER_EXIT_WIDTH
+    : width <= COMPACT_COMPOSER_ENTER_WIDTH;
+}
 
 export const MessageInput: Component<MessageInputProps> = (props) => {
   const [text, setText] = createSignal('');
@@ -111,11 +119,13 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const [referencePanelOpen, setReferencePanelOpen] = createSignal(false);
   const [referenceManuallyClosed, setReferenceManuallyClosed] = createSignal(false);
   const [voiceError, setVoiceError] = createSignal('');
-  const [composerWidth, setComposerWidth] = createSignal(0);
+  const [compactComposer, setCompactComposer] = createSignal(false);
   let wrapperRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let previousSessionId: string | null | undefined;
   let voiceErrorTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingComposerWidth: number | null = null;
+  let composerResizeFrame: number | null = null;
 
   const clearVoiceErrorTimer = () => {
     if (!voiceErrorTimer) return;
@@ -190,7 +200,6 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const isActive = () => canSend() && focused();
   const hasAttachments = () => attachments().length > 0;
   const showPaperclip = () => true;
-  const compactComposer = () => composerWidth() > 0 && composerWidth() <= COMPACT_COMPOSER_WIDTH;
   const dictationStatus = () => dictationRecorder.voiceStatus();
   const dictationButtonLabel = () => {
     switch (dictationStatus()) {
@@ -1048,17 +1057,56 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     previousCwd = nextCwd;
   });
 
+  const requestComposerResizeFrame = (callback: FrameRequestCallback): number => {
+    if (typeof requestAnimationFrame === 'function') {
+      return requestAnimationFrame(callback);
+    }
+    return window.setTimeout(() => callback(performance.now()), 16);
+  };
+
+  const cancelComposerResizeFrame = (frameId: number) => {
+    if (typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(frameId);
+      return;
+    }
+    window.clearTimeout(frameId);
+  };
+
+  const applyComposerWidth = (width: number) => {
+    const nextWidth = Math.max(0, Math.round(width));
+    setCompactComposer((current) => shouldUseCompactComposer(nextWidth, current));
+  };
+
+  const scheduleComposerWidth = (width: number) => {
+    pendingComposerWidth = width;
+    if (composerResizeFrame !== null) return;
+    composerResizeFrame = requestComposerResizeFrame(() => {
+      composerResizeFrame = null;
+      const nextWidth = pendingComposerWidth;
+      pendingComposerWidth = null;
+      if (nextWidth !== null) {
+        applyComposerWidth(nextWidth);
+      }
+    });
+  };
+
   onMount(() => {
     const updateComposerWidth = () => {
-      setComposerWidth(wrapperRef?.clientWidth ?? 0);
+      scheduleComposerWidth(wrapperRef?.clientWidth ?? 0);
     };
 
-    updateComposerWidth();
+    applyComposerWidth(wrapperRef?.clientWidth ?? 0);
     if (!wrapperRef || typeof ResizeObserver === 'undefined') return;
 
     const observer = new ResizeObserver(updateComposerWidth);
     observer.observe(wrapperRef);
     onCleanup(() => observer.disconnect());
+  });
+
+  onCleanup(() => {
+    if (composerResizeFrame !== null) {
+      cancelComposerResizeFrame(composerResizeFrame);
+    }
   });
 
   return (

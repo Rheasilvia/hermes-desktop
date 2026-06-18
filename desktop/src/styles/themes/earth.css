@@ -41,6 +41,8 @@
   --color-border: #3e2010;
   --color-border-light: #281408;
   --color-border-focus: #e07a30;
+  --color-shell-separator: rgba(245, 213, 165, 0.12);
+  --color-shell-separator-hover: rgba(245, 213, 165, 0.20);
 
   /* --- Colors: Status --- */
   --color-success: #73d673;

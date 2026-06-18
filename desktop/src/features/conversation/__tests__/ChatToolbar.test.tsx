@@ -13,7 +13,7 @@ describe('ChatToolbar workspace side panel controls', () => {
       />
     ));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show workspace panel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show tools dock' }));
 
     expect(onToggleSidePanel).toHaveBeenCalledTimes(1);
   });
@@ -27,6 +27,6 @@ describe('ChatToolbar workspace side panel controls', () => {
       />
     ));
 
-    expect(screen.getByRole('button', { name: 'Hide workspace panel' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Hide tools dock' })).toBeTruthy();
   });
 });

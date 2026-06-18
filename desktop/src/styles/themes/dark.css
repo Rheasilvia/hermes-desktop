@@ -40,6 +40,8 @@
   --color-border: rgba(255, 255, 255, 0.09);
   --color-border-light: rgba(255, 255, 255, 0.05);
   --color-border-focus: #5b8dff;
+  --color-shell-separator: rgba(255, 255, 255, 0.07);
+  --color-shell-separator-hover: rgba(255, 255, 255, 0.14);
 
   /* --- Colors: Status --- */
   --color-success: #4cc58a;

@@ -22,8 +22,8 @@ export const ChatToolbar: Component<ChatToolbarProps> = (props) => {
           type="button"
           class={`${styles.iconBtn} ${props.sidePanelActive ? styles.iconBtnActive : ''}`}
           onClick={props.onToggleSidePanel}
-          title={props.sidePanelActive ? 'Hide workspace panel' : 'Show workspace panel'}
-          aria-label={props.sidePanelActive ? 'Hide workspace panel' : 'Show workspace panel'}
+          title={props.sidePanelActive ? 'Hide tools dock' : 'Show tools dock'}
+          aria-label={props.sidePanelActive ? 'Hide tools dock' : 'Show tools dock'}
         >
           <Icon name="panel-right" size={16} />
         </button>

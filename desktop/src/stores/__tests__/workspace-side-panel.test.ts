@@ -31,17 +31,28 @@ async function flushPromises() {
 }
 
 describe('sidePanelStore', () => {
-  it('preserves active tab and width across close and reopen', async () => {
+  it('opens to the tools tab shell by default and supports direct tab activation', async () => {
     vi.resetModules();
     const { sidePanelStore } = await import('../side-panel.js');
 
-    sidePanelStore.open('git');
+    sidePanelStore.open('terminal');
     sidePanelStore.setPanelWidth(640);
+
+    expect(sidePanelStore.isOpen()).toBe(true);
+    expect(sidePanelStore.activeView()).toBe('terminal');
+    expect(sidePanelStore.openTabs()).toEqual(['terminal']);
+
+    sidePanelStore.setActiveView('review');
+
+    expect(sidePanelStore.activeView()).toBe('review');
+    expect(sidePanelStore.openTabs()).toEqual(['terminal', 'review']);
+
     sidePanelStore.close();
     sidePanelStore.open();
 
     expect(sidePanelStore.isOpen()).toBe(true);
-    expect(sidePanelStore.activeTab()).toBe('git');
+    expect(sidePanelStore.activeView()).toBe('menu');
+    expect(sidePanelStore.openTabs()).toEqual(['terminal', 'review']);
     expect(sidePanelStore.panelWidth()).toBe(640);
   });
 });

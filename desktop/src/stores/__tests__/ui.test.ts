@@ -16,6 +16,11 @@ async function loadUiStore() {
   return (await import('../ui.js')).uiStore;
 }
 
+async function loadUiModule() {
+  vi.resetModules();
+  return import('../ui.js');
+}
+
 describe('uiStore — floating todo panel dismissal', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -32,6 +37,17 @@ describe('uiStore — floating todo panel dismissal', () => {
 
     uiStore.restoreTodoPanel('sess-a');
     expect(uiStore.isTodoPanelDismissed('sess-a')).toBe(false);
+  });
+
+  it('clamps sidebar width through the shared helper and store setter', async () => {
+    const { clampSidebarWidth, uiStore } = await loadUiModule();
+
+    expect(clampSidebarWidth(120)).toBe(200);
+    expect(clampSidebarWidth(280)).toBe(280);
+    expect(clampSidebarWidth(480)).toBe(360);
+
+    uiStore.setSidebarWidth(480);
+    expect(uiStore.sidebarWidth).toBe(360);
   });
 
   it('dedupes repeated dismissals', async () => {

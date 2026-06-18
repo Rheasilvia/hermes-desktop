@@ -35,8 +35,9 @@ vi.mock('@/services/api/router.js', () => ({
   },
 }));
 
-function stubComposerResize(width: number): () => void {
+function stubComposerResize(width: number): (nextWidth?: number) => void {
   let resizeCallback: ResizeObserverCallback | undefined;
+  let currentWidth = width;
 
   class ResizeObserverMock {
     constructor(callback: ResizeObserverCallback) {
@@ -46,7 +47,7 @@ function stubComposerResize(width: number): () => void {
     observe = (element: Element) => {
       Object.defineProperty(element, 'clientWidth', {
         configurable: true,
-        value: width,
+        get: () => currentWidth,
       });
     };
 
@@ -54,7 +55,10 @@ function stubComposerResize(width: number): () => void {
   }
 
   vi.stubGlobal('ResizeObserver', ResizeObserverMock);
-  return () => resizeCallback?.([], {} as ResizeObserver);
+  return (nextWidth = currentWidth) => {
+    currentWidth = nextWidth;
+    resizeCallback?.([], {} as ResizeObserver);
+  };
 }
 
 describe('MessageInput slash commands', () => {
@@ -885,9 +889,46 @@ describe('MessageInput slash commands', () => {
       ));
       flushResize();
 
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Permission mode: Approve for me/ }).className)
+          .toContain('permissionButtonCompact');
+      });
       expect(screen.getByLabelText('Stop generation')).toBeDefined();
-      expect(screen.getByRole('button', { name: /Permission mode: Approve for me/ }).className)
-        .toContain('permissionButtonCompact');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test('keeps compact composer mode stable around the resize threshold', async () => {
+    const flushResize = stubComposerResize(620);
+    const modelSlot = vi.fn((_, __, compact: boolean) => (
+      <div data-testid="model-slot" data-compact={compact ? 'true' : 'false'} />
+    ));
+
+    try {
+      render(() => (
+        <MessageInput
+          onSend={vi.fn()}
+          modelSlot={modelSlot}
+          permissionMode="auto"
+          onPermissionModeChange={vi.fn()}
+        />
+      ));
+
+      flushResize(540);
+      await waitFor(() => {
+        expect(screen.getByTestId('model-slot').getAttribute('data-compact')).toBe('true');
+      });
+
+      flushResize(580);
+      await waitFor(() => {
+        expect(screen.getByTestId('model-slot').getAttribute('data-compact')).toBe('true');
+      });
+
+      flushResize(600);
+      await waitFor(() => {
+        expect(screen.getByTestId('model-slot').getAttribute('data-compact')).toBe('false');
+      });
     } finally {
       vi.unstubAllGlobals();
     }
