@@ -28,7 +28,6 @@ import type { UserDisplayPart } from './display-parts.js';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { CommandCardDock } from './cards/CommandCardDock.js';
 import { ModelSelector } from './ModelSelector.js';
-import { WorkspaceSidePanel } from './WorkspaceSidePanel.js';
 import { EmptyChatState } from './EmptyChatState.js';
 import { ErrorBanner } from './ErrorBanner.js';
 import { ConversationRecoveryBanner } from './ConversationRecoveryBanner.js';
@@ -46,7 +45,6 @@ import { createScrollController } from './scrollController.js';
 import { createCommandCardState } from './commandCardState.js';
 import { createSlashCommandRunner } from './slashCommandRunner.js';
 import { useGatewayEvents } from './eventSubscription.js';
-import { clampWorkspacePanelWidth, shouldOverlayWorkspacePanel } from './layout-sizing.js';
 import styles from './ChatView.module.css';
 
 interface ChatViewProps {
@@ -110,13 +108,9 @@ export function resolveMessageEditDraft(message: RenderedMessage): string {
 export const ChatView: Component<ChatViewProps> = (props) => {
   const navigate = useNavigate();
   const sessionId = () => props.sessionId ?? '';
-  let chatBodyRef: HTMLDivElement | undefined;
   let messageInputResizeRef: HTMLDivElement | undefined;
-  let diffPanelEl: HTMLDivElement | undefined;
-  let dragHandleEl: HTMLDivElement | undefined;
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
   const [connectionState, setConnectionState] = createSignal<ConnectionState>(uiStore.connectionState);
-  const [chatBodyWidth, setChatBodyWidth] = createSignal(0);
   let wasBusy = false;
   let suppressNextAutoDrain = false;
   const autoTtsPlayed = new Set<string>();
@@ -132,7 +126,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const isLoading = () => chatStore.isLoadingMessages(sessionId());
   const diagnostics = createMemo(() => chatStore.getDiagnostics(sessionId()));
   const permissionMode = createMemo(() => sessionStore.activeSession?.permissionMode ?? 'auto');
-  const workspacePanelOverlay = createMemo(() => shouldOverlayWorkspacePanel(chatBodyWidth()));
   const voiceConfig = createMemo(() => configStore.config);
   const sttEnabled = createMemo(() => isSttEnabled(voiceConfig()));
   const maxVoiceRecordingSeconds = createMemo(() => getVoiceRecordingLimit(voiceConfig()));
@@ -168,30 +161,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     });
     observer.observe(messageInputResizeRef);
     onCleanup(() => observer.disconnect());
-  });
-
-  onMount(() => {
-    const updateChatBodyWidth = () => {
-      setChatBodyWidth(chatBodyRef?.clientWidth ?? 0);
-    };
-
-    updateChatBodyWidth();
-    if (!chatBodyRef || typeof ResizeObserver === 'undefined') return;
-
-    const observer = new ResizeObserver(updateChatBodyWidth);
-    observer.observe(chatBodyRef);
-    onCleanup(() => observer.disconnect());
-  });
-
-  createEffect(() => {
-    const containerWidth = chatBodyWidth();
-    if (!containerWidth || workspacePanelOverlay() || !sidePanelStore.isOpen()) return;
-
-    const currentWidth = sidePanelStore.panelWidth();
-    const clampedWidth = clampWorkspacePanelWidth(currentWidth, containerWidth);
-    if (clampedWidth !== currentWidth) {
-      sidePanelStore.setPanelWidth(clampedWidth);
-    }
   });
 
   const sendPrompt = async (
@@ -508,62 +477,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const dateSeparators = createMemo(() => computeDateSeparators(messages()));
 
-  // ── Side panel drag ───────────────────────────────────────────────────
-
-  const handleDragStart = (e: MouseEvent) => {
-    e.preventDefault();
-    if (workspacePanelOverlay()) return;
-    if (diffPanelEl) {
-      diffPanelEl.style.transition = 'none';
-      diffPanelEl.style.willChange = 'width';
-    }
-    if (dragHandleEl) dragHandleEl.classList.add(styles.dragHandleActive);
-    if (chatBodyRef) chatBodyRef.classList.add(styles.chatBodyDragging);
-
-    const startX = e.clientX;
-    const containerWidth = chatBodyWidth() || chatBodyRef?.clientWidth || 1200;
-    const startWidth = clampWorkspacePanelWidth(
-      diffPanelEl?.offsetWidth ?? sidePanelStore.panelWidth(),
-      containerWidth,
-    );
-    let lastWidth = startWidth;
-    let prevWidth = startWidth;
-    let dirty = false;
-    let rafId: number | undefined;
-
-    const onMove = (ev: MouseEvent) => {
-      const delta = startX - ev.clientX;
-      lastWidth = clampWorkspacePanelWidth(startWidth + delta, containerWidth);
-      if (lastWidth !== prevWidth) {
-        dirty = true;
-        prevWidth = lastWidth;
-      }
-    };
-
-    const tick = () => {
-      if (dirty && diffPanelEl) {
-        diffPanelEl.style.width = `${lastWidth}px`;
-        dirty = false;
-      }
-      rafId = requestAnimationFrame(tick);
-    };
-
-    rafId = requestAnimationFrame(tick);
-
-    const onUp = () => {
-      if (rafId != null) cancelAnimationFrame(rafId);
-      if (diffPanelEl) { diffPanelEl.style.transition = ''; diffPanelEl.style.willChange = ''; }
-      if (dragHandleEl) dragHandleEl.classList.remove(styles.dragHandleActive);
-      if (chatBodyRef) chatBodyRef.classList.remove(styles.chatBodyDragging);
-      sidePanelStore.setPanelWidth(clampWorkspacePanelWidth(lastWidth, containerWidth));
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  };
-
   // ── Session loading & model sync ──────────────────────────────────────
 
   createEffect(() => {
@@ -607,13 +520,13 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     const path = cwd();
     gitViewStore.setWorkspace(sid, path);
     void workspaceTreeStore.setWorkspace(sid, path);
-    if (path && sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git') {
+    if (path && sidePanelStore.isOpen() && sidePanelStore.activeView() === 'review') {
       void gitViewStore.fetchDiff();
     }
   });
 
   createEffect(() => {
-    if (sidePanelStore.isOpen() && sidePanelStore.activeTab() === 'git' && cwd()) {
+    if (sidePanelStore.isOpen() && sidePanelStore.activeView() === 'review' && cwd()) {
       void gitViewStore.fetchDiff();
     }
   });
@@ -820,11 +733,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         <MemoryContextCard items={liveState().memoryContext!} onEdit={() => {}} />
       </Show>
 
-      <div
-        class={styles.chatBody}
-        classList={{ [styles.chatBodyPanelOverlay]: workspacePanelOverlay() }}
-        ref={chatBodyRef}
-      >
+      <div class={styles.chatBody}>
         <div class={styles.chatPane}>
           <Switch>
             <Match when={isLoading()}>
@@ -936,23 +845,6 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           </div>
         </div>
 
-        <Show when={sidePanelStore.isOpen() && !workspacePanelOverlay()}>
-          <div class={styles.diffSeparator} />
-          <div
-            ref={(el) => { dragHandleEl = el; }}
-            class={styles.dragHandle}
-            onMouseDown={handleDragStart}
-          />
-        </Show>
-        <Show when={sidePanelStore.isOpen()}>
-          <WorkspaceSidePanel
-            ref={(el: HTMLDivElement) => { diffPanelEl = el; }}
-            sessionId={sessionId()}
-            workspacePath={cwd()}
-            panelWidth={sidePanelStore.panelWidth()}
-            overlay={workspacePanelOverlay()}
-          />
-        </Show>
       </div>
     </div>
   );

@@ -29,6 +29,10 @@ const REGISTERED_TAURI_COMMANDS: &[&str] = &[
     "write_clipboard_image_from_url",
     "persist_session_image",
     "select_workspace_for_session",
+    "terminal_start",
+    "terminal_write",
+    "terminal_resize",
+    "terminal_stop",
     "sidecar_info",
     "check_for_updates",
     "install_update",
@@ -134,6 +138,10 @@ pub fn run() {
             commands::clipboard::write_clipboard_image_from_url,
             commands::assets::persist_session_image,
             select_workspace_for_session,
+            commands::terminal::terminal_start,
+            commands::terminal::terminal_write,
+            commands::terminal::terminal_resize,
+            commands::terminal::terminal_stop,
             sidecar_info,
             updater::check_for_updates,
             updater::install_update,
@@ -192,6 +200,7 @@ pub fn run() {
     app.run(|_app_handle, event| {
         if let tauri::RunEvent::Exit = event {
             tauri::async_runtime::block_on(async {
+                commands::terminal::terminal_shutdown();
                 if let Some(mut child) = sidecar::take_child().await {
                     let _ = child.start_kill();
                     let _ = child.wait().await;

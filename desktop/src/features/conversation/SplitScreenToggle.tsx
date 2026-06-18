@@ -13,7 +13,7 @@ export const SplitScreenToggle: Component<SplitScreenToggleProps> = (props) => {
       type="button"
       class={`${styles.toggle} ${props.active ? styles.toggleActive : ''}`}
       onClick={props.onToggle}
-      title={props.active ? 'Hide workspace panel' : 'Show workspace panel'}
+      title={props.active ? 'Hide tools dock' : 'Show tools dock'}
     >
       <Icon name="panel-right" size={16} />
     </button>

@@ -88,7 +88,7 @@ vi.mock('@/stores/usage.js', () => ({
 vi.mock('@/stores/side-panel.js', () => ({
   sidePanelStore: {
     isOpen: () => false,
-    activeTab: () => 'workspace',
+    activeView: () => 'menu',
     toggle: vi.fn(),
     panelWidth: () => 420,
     setPanelWidth: vi.fn(),
@@ -171,7 +171,7 @@ vi.mock('../AssistantMessage.js', () => ({ AssistantMessage: stubComponent('assi
 vi.mock('../MessageInput.js', () => ({ MessageInput: () => <div data-testid="message-input" /> }));
 vi.mock('../cards/CommandCardDock.js', () => ({ CommandCardDock: stubComponent('command-card-dock') }));
 vi.mock('../ModelSelector.js', () => ({ ModelSelector: stubComponent('model-selector') }));
-vi.mock('../WorkspaceSidePanel.js', () => ({ WorkspaceSidePanel: stubComponent('workspace-side-panel') }));
+vi.mock('../RightToolPanel.js', () => ({ RightToolPanel: stubComponent('right-tool-panel') }));
 vi.mock('../EmptyChatState.js', () => ({ EmptyChatState: stubComponent('empty-chat-state') }));
 vi.mock('../ErrorBanner.js', () => ({ ErrorBanner: stubComponent('error-banner') }));
 vi.mock('../ConversationRecoveryBanner.js', () => ({ ConversationRecoveryBanner: stubComponent('recovery-banner') }));

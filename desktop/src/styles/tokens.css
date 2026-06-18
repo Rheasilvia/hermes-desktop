@@ -43,6 +43,8 @@
   --color-border: #c8d5f5;
   --color-border-light: #dce7fa;
   --color-border-focus: #0053fd;
+  --color-shell-separator: #d8dde8;
+  --color-shell-separator-hover: #c7cedd;
 
   /* --- Colors: Hover/Active overlays (substrate-aware; dark theme inverts) --- */
   --color-hover-overlay: color-mix(in srgb, #0053fd 3%, color-mix(in srgb, #17171a 3%, transparent));

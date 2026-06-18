@@ -1,19 +1,35 @@
 import { createSignal } from 'solid-js';
 
-export type SidePanelTab = 'workspace' | 'git' | 'delegation';
+export type SidePanelView = 'menu' | 'review' | 'terminal' | 'files' | 'delegation';
+export type ToolTabView = Exclude<SidePanelView, 'menu'>;
 
 const [isOpen, setIsOpen] = createSignal(false);
-const [activeTab, setActiveTab] = createSignal<SidePanelTab>('workspace');
+const [activeView, setActiveView] = createSignal<SidePanelView>('menu');
 const [panelWidth, setPanelWidth] = createSignal(500);
+const [openTabs, setOpenTabs] = createSignal<ToolTabView[]>([]);
+
+const isToolTabView = (view: SidePanelView): view is ToolTabView => view !== 'menu';
+
+const ensureOpenTab = (view: ToolTabView): void => {
+  setOpenTabs((tabs) => (tabs.includes(view) ? tabs : [...tabs, view]));
+};
+
+const activateView = (view: SidePanelView): void => {
+  if (isToolTabView(view)) {
+    ensureOpenTab(view);
+  }
+  setActiveView(view);
+};
 
 export const sidePanelStore = {
   isOpen,
-  activeTab,
+  activeView,
+  openTabs,
   panelWidth,
   setPanelWidth,
 
-  open(tab?: SidePanelTab): void {
-    if (tab) setActiveTab(tab);
+  open(view: SidePanelView = 'menu'): void {
+    activateView(view);
     setIsOpen(true);
   },
 
@@ -21,16 +37,26 @@ export const sidePanelStore = {
     setIsOpen(false);
   },
 
-  toggle(tab?: SidePanelTab): void {
+  toggle(view: SidePanelView = 'menu'): void {
     if (isOpen()) {
       setIsOpen(false);
       return;
     }
-    if (tab) setActiveTab(tab);
+    activateView(view);
     setIsOpen(true);
   },
 
-  setActiveTab(tab: SidePanelTab): void {
-    setActiveTab(tab);
+  setActiveView(view: SidePanelView): void {
+    activateView(view);
+  },
+
+  openTab(view: ToolTabView): void {
+    activateView(view);
+    setIsOpen(true);
+  },
+
+  clearTabs(): void {
+    setOpenTabs([]);
+    setActiveView('menu');
   },
 };

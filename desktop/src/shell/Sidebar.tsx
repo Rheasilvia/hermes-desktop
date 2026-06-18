@@ -321,30 +321,7 @@ export const Sidebar: Component = () => {
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <aside
-      class={styles.sidebar}
-      style={{ width: `${uiStore.sidebarWidth}px` }}
-    >
-      {/* Resize handle */}
-      <div
-        class={styles.resizeHandle}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          const startX = e.clientX;
-          const startWidth = uiStore.sidebarWidth;
-          const handleMouseMove = (moveEvent: MouseEvent) => {
-            const delta = moveEvent.clientX - startX;
-            uiStore.setSidebarWidth(startWidth + delta);
-          };
-          const handleMouseUp = () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
-          };
-          document.addEventListener('mousemove', handleMouseMove);
-          document.addEventListener('mouseup', handleMouseUp);
-        }}
-      />
-
+    <aside class={styles.sidebar}>
       {/* ── New Chat button ────────────────────────────────────────────── */}
       <div class={styles.topBar}>
         <button

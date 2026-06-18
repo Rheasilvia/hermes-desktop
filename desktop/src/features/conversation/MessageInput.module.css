@@ -2,7 +2,6 @@
   padding: 8px clamp(16px, 4%, 32px) 24px;
   flex-shrink: 0;
   min-width: 0;
-  container-type: inline-size;
 }
 
 .attachmentBar {
@@ -622,34 +621,6 @@
   .voiceActivityInline {
     max-width: 154px;
     flex-basis: 132px;
-  }
-}
-
-@container (max-width: 560px) {
-  .toolbar {
-    align-items: stretch;
-  }
-
-  .toolbarRight {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .composerStatusRow {
-    align-items: stretch;
-    gap: 6px;
-  }
-
-  .statusContextGroup {
-    justify-content: flex-start;
-  }
-
-  .permissionButtonLabel {
-    max-width: 96px;
-  }
-
-  .permissionNextTurnHint {
-    max-width: 96px;
   }
 }
 
