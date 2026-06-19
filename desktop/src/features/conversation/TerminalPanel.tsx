@@ -2,6 +2,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import type { Component } from 'solid-js';
@@ -24,7 +25,10 @@ interface TerminalStartResult {
 
 interface TerminalDataEvent {
   id: string;
-  data: string;
+  // Raw bytes from the PTY (see terminal.rs::TerminalDataEvent). Avoids the
+  // UTF-8-lossy middle layer that corrupted multi-byte sequences spanning
+  // read-chunk boundaries. Reconstructed into a Uint8Array for xterm.
+  data: number[];
 }
 
 interface TerminalExitEvent {
@@ -118,6 +122,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   let host: HTMLDivElement | undefined;
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
+  let webglAddon: WebglAddon | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let unlistenData: (() => void) | null = null;
   let unlistenExit: (() => void) | null = null;
@@ -125,6 +130,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   let dataDisposable: { dispose: () => void } | null = null;
   let pendingFrame: number | null = null;
   let themeObserver: MutationObserver | null = null;
+  let textEncoder: TextEncoder | null = null;
   let runningStatus = 'Terminal running';
 
   const [sessionId, setSessionId] = createSignal<string | null>(null);
@@ -291,7 +297,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   onMount(async () => {
     if (!host) return;
     terminal = new XTerm({
-      allowProposedApi: false,
+      allowProposedApi: true,
       convertEol: true,
       cursorBlink: true,
       cursorStyle: 'block',
@@ -307,6 +313,21 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     terminal.loadAddon(new Unicode11Addon());
     terminal.unicode.activeVersion = '11';
     terminal.open(host);
+    // WebGL renderer matches the dashboard + Electron paths; xterm's default
+    // DOM renderer paints SGR via CSS classes that visibly mute against our
+    // skins. Load after open() (needs a mounted canvas); fall back silently.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        if (webglAddon === webgl) webglAddon = null;
+      });
+      terminal.loadAddon(webgl);
+      webglAddon = webgl;
+    } catch (err) {
+      // WebGL unavailable (headless test env, disabled GPU) — DOM renderer keeps working.
+      console.warn('[hermes-terminal] WebGL unavailable; falling back to DOM', err);
+    }
     if (typeof MutationObserver !== 'undefined') {
       themeObserver = new MutationObserver(applyTerminalTheme);
       themeObserver.observe(document.documentElement, {
@@ -319,7 +340,11 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     dataDisposable = terminal.onData((data) => {
       const id = sessionId();
       if (!id || !running()) return;
-      void invoke('terminal_write', { id, data }).catch((err) => setError(String(err)));
+      // xterm hands us a string; the PTY backend takes raw bytes so non-UTF-8
+      // key sequences round-trip correctly. Encode once and forward.
+      if (!textEncoder) textEncoder = new TextEncoder();
+      const bytes = Array.from(textEncoder.encode(data));
+      void invoke('terminal_write', { id, data: bytes }).catch((err) => setError(String(err)));
     });
 
     if (typeof ResizeObserver !== 'undefined') {
@@ -341,7 +366,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
         if (!current || event.payload.id !== current) return;
         setHasOutput(true);
         setStatus(runningStatus);
-        terminal?.write(event.payload.data);
+        terminal?.write(new Uint8Array(event.payload.data));
       });
       unlistenExit = await listen<TerminalExitEvent>('terminal_exit', (event) => {
         const current = sessionId();

@@ -17,11 +17,12 @@ const mocks = vi.hoisted(() => ({
   terminalInstances: [] as Array<{
     cols: number;
     rows: number;
-    options: { theme: { background?: string } | null };
+    options: { allowProposedApi?: boolean; theme: { background?: string } | null };
     focus: ReturnType<typeof vi.fn>;
     refresh: ReturnType<typeof vi.fn>;
     reset: ReturnType<typeof vi.fn>;
     write: ReturnType<typeof vi.fn>;
+    open: ReturnType<typeof vi.fn>;
     emitData: (data: string) => void;
   }>,
 }));
@@ -58,11 +59,18 @@ vi.mock('@xterm/addon-web-links', () => ({
   WebLinksAddon: class {},
 }));
 
+vi.mock('@xterm/addon-webgl', () => ({
+  WebglAddon: class {
+    onContextLoss = vi.fn();
+    dispose = vi.fn();
+  },
+}));
+
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     cols = 80;
     rows = 24;
-    options: { theme: { background?: string } | null } = { theme: null };
+    options: { allowProposedApi?: boolean; theme: { background?: string } | null } = { theme: null };
     unicode = { activeVersion: '' };
     focus = vi.fn();
     refresh = vi.fn();
@@ -73,7 +81,8 @@ vi.mock('@xterm/xterm', () => ({
     open = vi.fn();
     private dataHandler: ((data: string) => void) | null = null;
 
-    constructor(options?: { theme?: { background?: string } }) {
+    constructor(options?: { allowProposedApi?: boolean; theme?: { background?: string } }) {
+      this.options.allowProposedApi = options?.allowProposedApi;
       this.options.theme = options?.theme ?? null;
       mocks.terminalInstances.push(this);
     }
@@ -186,6 +195,32 @@ describe('TerminalPanel', () => {
     expect(screen.getByLabelText('Terminal status: Running /bin/zsh in /repo')).toBeTruthy();
   });
 
+  it('enables proposed xterm APIs required by the unicode addon', () => {
+    renderTerminal(false);
+
+    expect(mocks.terminalInstances[0]?.options.allowProposedApi).toBe(true);
+  });
+
+  // Regression: when allowProposedApi was false, Unicode11Addon's loadAddon
+  // threw "You must set the allowProposedApi option to true" inside onMount,
+  // rejecting the async mount before terminal.open(host) / the onData handler /
+  // ensureStarted() ever ran — so the terminal rendered nothing: no cursor,
+  // no input. This locks in that onMount runs to completion: open() is called
+  // and, once the host is measurable, the PTY is started.
+  it('mounts the xterm surface and starts the PTY once the host is measurable', async () => {
+    renderTerminal(true);
+
+    // open() runs synchronously inside onMount; if any addon threw we'd never
+    // get here.
+    expect(mocks.terminalInstances[0]?.open).toHaveBeenCalled();
+
+    setHostSize(480, 320);
+
+    await waitFor(() => {
+      expect(terminalStartCalls()).toHaveLength(1);
+    });
+  });
+
   it('does not restart when switching away and back to Terminal', async () => {
     const { setActive } = renderTerminal(false);
     setHostSize(480, 320);
@@ -255,14 +290,35 @@ describe('TerminalPanel', () => {
       expect(screen.getByText('Shell started. Waiting for output...')).toBeTruthy();
     });
 
-    emitTerminalEvent('terminal_data', { id: 'terminal-1', data: '$ ' });
+    // The backend streams raw bytes (number[]); xterm receives a Uint8Array.
+    // Multi-byte sequences must survive the hop without UTF-8 lossy decoding,
+    // so assert on the exact bytes for a non-ASCII codepoint too.
+    const promptBytes = Array.from(new TextEncoder().encode('$ 你好 '));
+    emitTerminalEvent('terminal_data', { id: 'terminal-1', data: promptBytes });
 
     await waitFor(() => {
       const terminal = mocks.terminalInstances[mocks.terminalInstances.length - 1];
-      expect(terminal?.write).toHaveBeenCalledWith('$ ');
+      expect(terminal?.write).toHaveBeenCalledWith(new Uint8Array(promptBytes));
     });
     expect(screen.queryByText('Shell started. Waiting for output...')).toBeNull();
     expect(screen.getByText('Running')).toBeTruthy();
+  });
+
+  it('forwards keystrokes as raw bytes to terminal_write', async () => {
+    renderTerminal(true);
+    setHostSize(480, 320);
+
+    await waitFor(() => {
+      expect(terminalStartCalls()).toHaveLength(1);
+    });
+
+    const terminal = mocks.terminalInstances[mocks.terminalInstances.length - 1];
+    terminal?.emitData('你好\r');
+
+    const writeCalls = mocks.invoke.mock.calls.filter(([command]) => command === 'terminal_write');
+    expect(writeCalls).toHaveLength(1);
+    const [, payload] = writeCalls[0];
+    expect(payload).toEqual({ id: 'terminal-1', data: Array.from(new TextEncoder().encode('你好\r')) });
   });
 
   it('adapts the xterm theme to the desktop theme', async () => {

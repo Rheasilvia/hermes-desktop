@@ -1,4 +1,5 @@
 import { render, screen } from '@solidjs/testing-library';
+import { createSignal } from 'solid-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/stores/git-view.js', () => ({
@@ -66,6 +67,58 @@ describe('RightToolPanel', () => {
     expect(screen.getByTestId('terminal-view')).toBeTruthy();
     expect(screen.getByTestId('terminal-view').getAttribute('data-active')).toBe('true');
     expect(sidePanelStore.openTabs()).toEqual(['terminal']);
+  });
+
+  it('freezes tool body width only in deferred resize mode', () => {
+    const [resizing, setResizing] = createSignal(true);
+    const [contentWidth, setContentWidth] = createSignal(500);
+    sidePanelStore.setActiveView('terminal');
+
+    render(() => (
+      <RightToolPanel
+        sessionId="session-1"
+        workspacePath="/repo"
+        contentWidth={contentWidth()}
+        resizeMode="deferred"
+        resizing={resizing()}
+      />
+    ));
+
+    const body = screen.getByLabelText('Right tools dock').firstElementChild as HTMLElement;
+
+    expect(body.style.width).toBe('500px');
+    expect(body.className).toContain('bodyFrozen');
+
+    setContentWidth(580);
+    setResizing(false);
+
+    expect(body.style.width).toBe('');
+    expect(body.className).not.toContain('bodyFrozen');
+  });
+
+  it('keeps tool body live while resizing in live mode', () => {
+    const [contentWidth, setContentWidth] = createSignal(500);
+    sidePanelStore.setActiveView('review');
+
+    render(() => (
+      <RightToolPanel
+        sessionId="session-1"
+        workspacePath="/repo"
+        contentWidth={contentWidth()}
+        resizeMode="live"
+        resizing={true}
+      />
+    ));
+
+    const body = screen.getByLabelText('Right tools dock').firstElementChild as HTMLElement;
+
+    expect(body.style.width).toBe('');
+    expect(body.className).not.toContain('bodyFrozen');
+
+    setContentWidth(580);
+
+    expect(body.style.width).toBe('');
+    expect(body.className).not.toContain('bodyFrozen');
   });
 
   it('switches content from store state while keeping Terminal mounted', () => {

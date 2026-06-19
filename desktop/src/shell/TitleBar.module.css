@@ -64,7 +64,7 @@
   flex: 1;
 }
 
-/* Right-side group: tools dock toggle + optional window controls. */
+/* Right-side group: closed-dock entry point + optional window controls. */
 .rightGroup {
   position: relative;
   z-index: 1;
@@ -75,6 +75,25 @@
   box-sizing: border-box;
   padding: 0 var(--space-2);
   pointer-events: auto;
+}
+
+.toolDockToolbar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  height: var(--titlebar-height);
+  min-height: var(--titlebar-height);
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-background);
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .toolTabs {
@@ -100,7 +119,7 @@
   display: none;
 }
 
-.toolTab,
+.toolTabItem,
 .addToolButton {
   display: inline-flex;
   align-items: center;
@@ -115,15 +134,13 @@
   transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
-.toolTab {
-  gap: var(--space-2);
+.toolTabItem {
   min-width: 0;
   max-width: 180px;
   flex: 0 1 auto;
-  padding: 0 var(--space-3);
 }
 
-.toolTab:hover,
+.toolTabItem:hover,
 .addToolButton:hover {
   background: var(--color-hover-overlay);
   color: var(--color-on-surface);
@@ -150,6 +167,54 @@
   line-height: var(--leading-tight);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.toolTab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  background: transparent;
+  color: inherit;
+  cursor: default;
+  font-family: var(--font-sans);
+}
+
+/* Per-tab close affordance; revealed on hover/focus so it does not clutter
+   the toolbar at rest. Always in the DOM for a11y + keyboard focus. */
+.toolTabClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-on-surface-muted);
+  cursor: default;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.toolTabItem:hover .toolTabClose,
+.toolTabClose:focus-visible {
+  opacity: 1;
+}
+
+.toolTabClose:hover {
+  background: var(--color-hover-overlay);
+  color: var(--color-on-surface);
+}
+
+.toolTabClose:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-border-focus);
 }
 
 .addToolRoot {
