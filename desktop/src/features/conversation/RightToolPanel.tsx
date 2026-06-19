@@ -13,10 +13,22 @@ interface RightToolPanelProps {
   sessionId: string | null;
   workspacePath: string | null;
   overlay?: boolean;
+  contentWidth?: number | null;
+  resizeMode?: 'live' | 'deferred';
+  resizing?: boolean;
 }
 
 export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
   const [terminalMounted, setTerminalMounted] = createSignal(false);
+  const bodyFrozen = () => Boolean(
+    props.resizing
+    && props.resizeMode === 'deferred'
+    && props.contentWidth != null,
+  );
+  const bodyStyle = () => {
+    if (!bodyFrozen() || props.contentWidth == null) return undefined;
+    return { width: `${props.contentWidth}px` };
+  };
 
   createEffect(() => {
     if (sidePanelStore.activeView() === 'terminal') {
@@ -36,7 +48,11 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
       classList={{ [styles.panelOverlay]: props.overlay }}
       aria-label="Right tools dock"
     >
-      <div class={styles.body}>
+      <div
+        class={styles.body}
+        classList={{ [styles.bodyFrozen]: bodyFrozen() }}
+        style={bodyStyle()}
+      >
         <Switch>
           <Match when={sidePanelStore.activeView() === 'menu'}>
             <div class={styles.emptyState} role="status" aria-label="No tool tab selected">
@@ -44,7 +60,7 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
                 <Icon name="panel-right" size={24} />
               </span>
               <div class={styles.emptyTitle}>Select a tool</div>
-              <div class={styles.emptyDescription}>Use the plus button in the titlebar to add Review, Terminal, Open file, or Delegation.</div>
+              <div class={styles.emptyDescription}>Use the plus button in the toolbar to add Review, Terminal, Open file, or Delegation.</div>
             </div>
           </Match>
           <Match when={sidePanelStore.activeView() === 'review'}>

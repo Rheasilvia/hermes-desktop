@@ -1,4 +1,5 @@
 import { render, fireEvent, screen } from '@solidjs/testing-library';
+import { createRoot, createSignal } from 'solid-js';
 import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest';
 
 // --- Mock state hoisted so vi.mock factories can read it ----------------------
@@ -18,16 +19,62 @@ const windowMock = vi.hoisted(() => {
   };
 });
 
-const { sidePanelState, sidePanelToggle, sidePanelOpenTab, sidePanelSetActiveView } = vi.hoisted(() => ({
+const {
+  sidePanelState,
+  sidePanelToggle,
+  sidePanelOpenTab,
+  sidePanelSetActiveView,
+  sidePanelCloseTab,
+  sidePanelRequestToolMenuOpen,
+} = vi.hoisted(() => ({
   sidePanelState: {
-    open: false,
-    activeView: 'menu',
-    openTabs: [] as string[],
+    _open: false,
+    _activeView: 'menu',
+    _openTabs: [] as string[],
+    _readOpen: undefined as undefined | (() => boolean),
+    _writeOpen: undefined as undefined | ((open: boolean) => void),
+    _readActiveView: undefined as undefined | (() => string),
+    _writeActiveView: undefined as undefined | ((view: string) => void),
+    _readOpenTabs: undefined as undefined | (() => string[]),
+    _writeOpenTabs: undefined as undefined | ((tabs: string[]) => void),
+    get open() {
+      return this._open;
+    },
+    set open(open: boolean) {
+      this._open = open;
+      this._writeOpen?.(open);
+    },
+    get activeView() {
+      return this._activeView;
+    },
+    set activeView(view: string) {
+      this._activeView = view;
+      this._writeActiveView?.(view);
+    },
+    get openTabs() {
+      return this._openTabs;
+    },
+    set openTabs(tabs: string[]) {
+      this._openTabs = tabs;
+      this._writeOpenTabs?.(tabs);
+    },
+    readOpen() {
+      return this._readOpen?.() ?? this._open;
+    },
+    readActiveView() {
+      return this._readActiveView?.() ?? this._activeView;
+    },
+    readOpenTabs() {
+      return this._readOpenTabs?.() ?? this._openTabs;
+    },
   },
-  sidePanelToggle: vi.fn(),
+  sidePanelToggle: vi.fn(() => {
+    sidePanelState.open = !sidePanelState.open;
+    if (sidePanelState.open) sidePanelState.activeView = 'menu';
+  }),
   sidePanelOpenTab: vi.fn((view: string) => {
     if (!sidePanelState.openTabs.includes(view)) {
-      sidePanelState.openTabs.push(view);
+      sidePanelState.openTabs = [...sidePanelState.openTabs, view];
     }
     sidePanelState.activeView = view;
     sidePanelState.open = true;
@@ -38,6 +85,17 @@ const { sidePanelState, sidePanelToggle, sidePanelOpenTab, sidePanelSetActiveVie
     }
     sidePanelState.activeView = view;
   }),
+  sidePanelCloseTab: vi.fn((view: string) => {
+    const next = sidePanelState.openTabs.filter((tab) => tab !== view);
+    sidePanelState.openTabs = next;
+    if (sidePanelState.activeView === view) {
+      sidePanelState.activeView = next[0] ?? 'menu';
+    }
+    if (next.length === 0) {
+      sidePanelState.open = false;
+    }
+  }),
+  sidePanelRequestToolMenuOpen: vi.fn(),
 }));
 
 // isTauri is imported statically at the top of TitleBar.tsx, so the core module
@@ -55,12 +113,14 @@ vi.mock('@/stores/session.js', () => ({
 
 vi.mock('@/stores/side-panel.js', () => ({
   sidePanelStore: {
-    isOpen: () => sidePanelState.open,
-    activeView: () => sidePanelState.activeView,
-    openTabs: () => sidePanelState.openTabs,
+    isOpen: () => sidePanelState.readOpen(),
+    activeView: () => sidePanelState.readActiveView(),
+    openTabs: () => sidePanelState.readOpenTabs(),
     toggle: sidePanelToggle,
     openTab: sidePanelOpenTab,
     setActiveView: sidePanelSetActiveView,
+    closeTab: sidePanelCloseTab,
+    requestToolMenuOpen: sidePanelRequestToolMenuOpen,
   },
 }));
 
@@ -99,6 +159,24 @@ import { uiStore } from '@/stores/ui.js';
 import { sessionStore } from '@/stores/session.js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 
+let disposeSidePanelSignals: (() => void) | undefined;
+
+function installSidePanelSignals() {
+  disposeSidePanelSignals?.();
+  createRoot((dispose) => {
+    disposeSidePanelSignals = dispose;
+    const [open, setOpen] = createSignal(sidePanelState.open);
+    const [activeView, setActiveView] = createSignal(sidePanelState.activeView);
+    const [openTabs, setOpenTabs] = createSignal(sidePanelState.openTabs);
+    sidePanelState._readOpen = open;
+    sidePanelState._writeOpen = setOpen;
+    sidePanelState._readActiveView = activeView;
+    sidePanelState._writeActiveView = setActiveView;
+    sidePanelState._readOpenTabs = openTabs;
+    sidePanelState._writeOpenTabs = setOpenTabs;
+  });
+}
+
 function getNavigationToolbar() {
   return screen.getByRole('toolbar', { name: 'Window navigation' });
 }
@@ -117,6 +195,7 @@ function renderTitleBar(overrides: Partial<Parameters<typeof TitleBar>[0]> = {})
 
 describe('TitleBar', () => {
   beforeEach(() => {
+    installSidePanelSignals();
     windowMock.calls.minimize = 0;
     windowMock.calls.startDragging = 0;
     windowMock.calls.toggleMaximize = 0;
@@ -130,14 +209,22 @@ describe('TitleBar', () => {
     sidePanelState.activeView = 'menu';
     sidePanelState.openTabs = [];
     sidePanelToggle.mockReset();
+    sidePanelToggle.mockImplementation(() => {
+      sidePanelState.open = !sidePanelState.open;
+      if (sidePanelState.open) sidePanelState.activeView = 'menu';
+    });
     sidePanelOpenTab.mockClear();
     sidePanelSetActiveView.mockClear();
-    (sidePanelStore as any).isOpen = () => sidePanelState.open;
-    (sidePanelStore as any).activeView = () => sidePanelState.activeView;
-    (sidePanelStore as any).openTabs = () => sidePanelState.openTabs;
+    sidePanelCloseTab.mockClear();
+    sidePanelRequestToolMenuOpen.mockClear();
+    (sidePanelStore as any).isOpen = () => sidePanelState.readOpen();
+    (sidePanelStore as any).activeView = () => sidePanelState.readActiveView();
+    (sidePanelStore as any).openTabs = () => sidePanelState.readOpenTabs();
   });
 
   afterEach(() => {
+    disposeSidePanelSignals?.();
+    disposeSidePanelSignals = undefined;
     vi.restoreAllMocks();
   });
 
@@ -385,18 +472,22 @@ test('tools dock toggle button renders with correct aria-label when closed', () 
     expect(btn).toBeTruthy();
   });
 
-  test('tools dock toggle button reflects active state when dock is open', () => {
+  test('tools dock toggle button moves out of the titlebar when dock is open', () => {
     sidePanelState.open = true;
     sidePanelToggle.mockReset();
     renderTitleBar();
 
-    const btn = screen.getByRole('button', { name: 'Hide tools dock' });
-    expect(btn).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Hide tools dock' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Show tools dock' })).toBeNull();
   });
 
   test('clicking tools dock toggle calls sidePanelStore toggle', () => {
     sidePanelState.open = false;
     sidePanelToggle.mockReset();
+    sidePanelToggle.mockImplementation(() => {
+      sidePanelState.open = !sidePanelState.open;
+      if (sidePanelState.open) sidePanelState.activeView = 'menu';
+    });
     renderTitleBar();
 
     fireEvent.click(screen.getByRole('button', { name: 'Show tools dock' }));
@@ -404,9 +495,24 @@ test('tools dock toggle button renders with correct aria-label when closed', () 
     expect(sidePanelToggle).toHaveBeenCalledWith();
   });
 
+  test('clicking closed empty tools dock requests the add tool menu for the right toolbar', () => {
+    sidePanelState.open = false;
+    sidePanelState.openTabs = [];
+    renderTitleBar();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show tools dock' }));
+
+    expect(sidePanelRequestToolMenuOpen).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('menu', { name: 'Add tool tab' })).toBeNull();
+  });
+
   test('toggling the tools dock does not move the fixed navigation toolbar', () => {
     sidePanelState.open = false;
     sidePanelToggle.mockReset();
+    sidePanelToggle.mockImplementation(() => {
+      sidePanelState.open = !sidePanelState.open;
+      if (sidePanelState.open) sidePanelState.activeView = 'menu';
+    });
     renderTitleBar();
     const toolbar = getNavigationToolbar();
 
@@ -416,39 +522,5 @@ test('tools dock toggle button renders with correct aria-label when closed', () 
 
     expect(sidePanelToggle).toHaveBeenCalledWith();
     expect(toolbar.style.left).toBe('85px');
-  });
-
-  test('tools tabs render inside the right group when the dock is open', () => {
-    sidePanelState.open = true;
-    sidePanelState.activeView = 'terminal';
-    sidePanelState.openTabs = ['terminal', 'files'];
-
-    renderTitleBar({ toolsDockWidth: 500 });
-
-    expect(screen.getByTestId('titlebar-right-group').style.width).toBe('500px');
-    expect(screen.getByRole('tablist', { name: 'Tool tabs' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Terminal' }).getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByRole('tab', { name: 'Open file' }).getAttribute('aria-selected')).toBe('false');
-    expect(screen.getByRole('button', { name: 'Add tool tab' })).toBeTruthy();
-  });
-
-  test('tools plus menu creates or activates titlebar tabs', () => {
-    sidePanelState.open = true;
-    sidePanelState.activeView = 'terminal';
-    sidePanelState.openTabs = ['terminal'];
-
-    renderTitleBar({ toolsDockWidth: 500 });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Add tool tab' }));
-    expect(screen.getByRole('menuitem', { name: /Review/ })).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: /Terminal/ })).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: /Open file/ })).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: /Delegation/ })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('menuitem', { name: /Open file/ }));
-
-    expect(sidePanelOpenTab).toHaveBeenCalledWith('files');
-    expect(sidePanelState.openTabs).toEqual(['terminal', 'files']);
-    expect(sidePanelState.activeView).toBe('files');
   });
 });

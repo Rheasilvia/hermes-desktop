@@ -9,6 +9,7 @@ const { navigateMock, locationState } = vi.hoisted(() => ({
 const { sidePanelState } = vi.hoisted(() => ({
   sidePanelState: {
     open: false,
+    activeView: 'menu',
     panelWidth: 500,
     setPanelWidth: vi.fn((width: number) => {
       sidePanelState.panelWidth = width;
@@ -36,12 +37,10 @@ vi.mock('@/shell/TitleBar', () => ({
     onNavigateBack: () => void;
     onNavigateForward: () => void;
     actionToolbarLeft?: string;
-    toolsDockWidth?: number | null;
   }) => (
     <header
       aria-label="Hermes window titlebar"
       data-action-toolbar-left={props.actionToolbarLeft ?? 'default'}
-      data-tools-dock-width={props.toolsDockWidth ?? 'none'}
     >
       <button type="button" onClick={props.onToggleSidebar}>Toggle Sidebar</button>
       <button type="button" onClick={props.onNavigateBack}>Back</button>
@@ -50,14 +49,30 @@ vi.mock('@/shell/TitleBar', () => ({
   ),
 }));
 
+vi.mock('@/shell/ToolDockToolbar', () => ({
+  ToolDockToolbar: () => (
+    <div
+      role="toolbar"
+      aria-label="Tool dock toolbar"
+      data-testid="tool-dock-toolbar"
+    />
+  ),
+}));
+
 vi.mock('@/features/conversation/RightToolPanel.js', () => ({
   RightToolPanel: (props: {
+    contentWidth?: number | null;
     overlay?: boolean;
+    resizeMode?: 'live' | 'deferred';
+    resizing?: boolean;
   }) => (
     <aside
       aria-label="Right tools dock"
       data-testid="right-tool-panel"
+      data-content-width={props.contentWidth ?? 'none'}
       data-overlay={String(Boolean(props.overlay))}
+      data-resize-mode={props.resizeMode ?? 'none'}
+      data-resizing={String(Boolean(props.resizing))}
     />
   ),
 }));
@@ -65,7 +80,7 @@ vi.mock('@/features/conversation/RightToolPanel.js', () => ({
 vi.mock('@/stores/side-panel.js', () => ({
   sidePanelStore: {
     isOpen: () => sidePanelState.open,
-    activeView: () => 'menu',
+    activeView: () => sidePanelState.activeView,
     panelWidth: () => sidePanelState.panelWidth,
     setPanelWidth: sidePanelState.setPanelWidth,
   },
@@ -176,6 +191,7 @@ describe('AppLayout sidebar titlebar controls', () => {
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
     locationState.pathname = '/conversation/test-session';
     sidePanelState.open = false;
+    sidePanelState.activeView = 'menu';
     sidePanelState.panelWidth = 500;
     sidePanelState.setPanelWidth.mockClear();
     uiStore.setSidebarCollapsed(false);
@@ -193,13 +209,15 @@ describe('AppLayout sidebar titlebar controls', () => {
     const layout = screen.getByTestId('app-layout');
     const sidebarDock = screen.getByTestId('sidebar-dock');
     const workspaceFrame = screen.getByTestId('workspace-frame');
+    const splitGrid = screen.getByTestId('workspace-split-grid');
     const contentFrame = screen.getByTestId('workspace-content-frame');
 
     expect(layout.style.display).toBe('flex');
     expect(layout.style.flexDirection).toBe('row');
     expect(sidebarDock.parentElement).toBe(layout);
     expect(workspaceFrame.parentElement).toBe(layout);
-    expect(workspaceFrame.style.flexDirection).toBe('column');
+    expect(splitGrid.parentElement).toBe(workspaceFrame);
+    expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr)');
     expect(contentFrame.style.display).toBe('flex');
     expect(screen.queryByLabelText('Primary sidebar')).not.toBeNull();
     expect(screen.queryByTestId('left-sidebar-separator')).not.toBeNull();
@@ -229,7 +247,7 @@ describe('AppLayout sidebar titlebar controls', () => {
     expect(screen.getByText('Settings')).not.toBeNull();
   });
 
-  test('conversation routes render the window-top right tools dock when open', () => {
+  test('conversation routes render a split-grid right tools pane when open', () => {
     sidePanelState.open = true;
 
     render(() => <AppLayout><div>Conversation</div></AppLayout>);
@@ -237,9 +255,10 @@ describe('AppLayout sidebar titlebar controls', () => {
     expect(screen.queryByLabelText('Hermes window titlebar')).not.toBeNull();
     expect(screen.queryByLabelText('Right tools dock')).not.toBeNull();
     expect(screen.queryByTestId('right-tools-dock')).not.toBeNull();
-    expect(screen.queryByTestId('right-tools-separator')).not.toBeNull();
-    expect(screen.queryByTestId('right-tools-drag-handle')).not.toBeNull();
-    expect(screen.getByLabelText('Hermes window titlebar').getAttribute('data-tools-dock-width')).toBe('500');
+    expect(screen.getByTestId('workspace-split-grid').style.gridTemplateColumns).toBe('minmax(0, 1fr) 500px');
+    expect(screen.getByTestId('right-tools-separator').style.top).toBe('0px');
+    expect(screen.getByTestId('right-tools-drag-handle').style.top).toBe('0px');
+    expect(screen.getByTestId('tool-dock-toolbar')).toBeTruthy();
   });
 
   test('settings routes do not render the conversation right tools dock', () => {
@@ -266,35 +285,128 @@ describe('AppLayout sidebar titlebar controls', () => {
 
     render(() => <AppLayout><div>Conversation</div></AppLayout>);
 
-    const dock = screen.getByTestId('right-tools-dock');
+    const splitGrid = screen.getByTestId('workspace-split-grid');
     const innerPanel = screen.getByTestId('right-tool-panel');
     const contentFrame = screen.getByTestId('workspace-content-frame');
+    const separator = screen.getByTestId('right-tools-separator');
     const dragHandle = screen.getByTestId('right-tools-drag-handle');
+    const titlebar = screen.getByLabelText('Hermes window titlebar');
 
-    expect(dock.style.width).toBe('500px');
-    expect(contentFrame.style.marginRight).toBe('501px');
+    expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr) 500px');
+    expect(contentFrame.style.marginRight).toBe('');
     expect(innerPanel.getAttribute('style') ?? '').toBe('');
+    expect(separator.style.right).toBe('500px');
+    expect(titlebar.hasAttribute('data-tools-dock-width')).toBe(false);
 
     await fireEvent.mouseDown(dragHandle, { clientX: 600, button: 0 });
     await fireEvent.mouseMove(document, { clientX: 540 });
     await fireEvent.mouseMove(document, { clientX: 520 });
 
-    expect(dock.style.width).toBe('500px');
-    expect(contentFrame.style.marginRight).toBe('501px');
+    expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr) 500px');
+    expect(contentFrame.style.marginRight).toBe('');
     expect(innerPanel.getAttribute('style') ?? '').toBe('');
+    expect(separator.style.right).toBe('500px');
     expect(sidePanelState.setPanelWidth).not.toHaveBeenCalled();
 
     flushRaf();
 
-    expect(dock.style.width).toBe('580px');
-    expect(contentFrame.style.marginRight).toBe('581px');
+    expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr) 580px');
+    expect(contentFrame.style.marginRight).toBe('');
     expect(innerPanel.getAttribute('style') ?? '').toBe('');
+    expect(separator.style.right).toBe('580px');
     expect(sidePanelState.setPanelWidth).not.toHaveBeenCalled();
 
     await fireEvent.mouseUp(document);
 
     expect(sidePanelState.setPanelWidth).toHaveBeenCalledTimes(1);
     expect(sidePanelState.setPanelWidth).toHaveBeenCalledWith(580);
+    expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr) 580px');
+  });
+
+  test('right tools drag defers terminal content width until mouseup', async () => {
+    sidePanelState.open = true;
+    sidePanelState.activeView = 'terminal';
+    const resizeLayout = stubLayoutResize(1400);
+
+    render(() => <AppLayout><div>Conversation</div></AppLayout>);
+    resizeLayout(1400);
+
+    const splitGrid = screen.getByTestId('workspace-split-grid');
+    const innerPanel = screen.getByTestId('right-tool-panel');
+    const contentFrame = screen.getByTestId('workspace-content-frame');
+    const mainColumn = screen.getByTestId('workspace-main-column');
+    const dragHandle = screen.getByTestId('right-tools-drag-handle');
+
+    expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr) 500px');
+    expect(contentFrame.style.marginRight).toBe('');
+    expect(mainColumn.getAttribute('style') ?? '').toBe('');
+    expect(innerPanel.getAttribute('data-content-width')).toBe('500');
+    expect(innerPanel.getAttribute('data-resize-mode')).toBe('deferred');
+    expect(innerPanel.getAttribute('data-resizing')).toBe('false');
+
+    await fireEvent.mouseDown(dragHandle, { clientX: 600, button: 0 });
+    await fireEvent.mouseMove(document, { clientX: 520 });
+    flushRaf();
+
+    expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr) 580px');
+    expect(contentFrame.style.marginRight).toBe('');
+    expect(mainColumn.getAttribute('style') ?? '').toBe('');
+    expect(innerPanel.getAttribute('data-content-width')).toBe('500');
+    expect(innerPanel.getAttribute('data-resize-mode')).toBe('deferred');
+    expect(innerPanel.getAttribute('data-resizing')).toBe('true');
+    expect(sidePanelState.setPanelWidth).not.toHaveBeenCalled();
+
+    await fireEvent.mouseUp(document);
+
+    expect(sidePanelState.setPanelWidth).toHaveBeenCalledWith(580);
+    expect(innerPanel.getAttribute('data-content-width')).toBe('580');
+    expect(innerPanel.getAttribute('data-resizing')).toBe('false');
+  });
+
+  test('right tools drag keeps review content width live during resize', async () => {
+    sidePanelState.open = true;
+    sidePanelState.activeView = 'review';
+    const resizeLayout = stubLayoutResize(1400);
+
+    render(() => <AppLayout><div>Conversation</div></AppLayout>);
+    resizeLayout(1400);
+
+    const splitGrid = screen.getByTestId('workspace-split-grid');
+    const innerPanel = screen.getByTestId('right-tool-panel');
+    const contentFrame = screen.getByTestId('workspace-content-frame');
+    const layout = screen.getByTestId('app-layout');
+    const mainColumn = screen.getByTestId('workspace-main-column');
+    const dragHandle = screen.getByTestId('right-tools-drag-handle');
+
+    expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr) 500px');
+    expect(contentFrame.style.marginRight).toBe('');
+    expect(layout.getAttribute('data-right-tools-dragging')).toBeNull();
+    expect(mainColumn.getAttribute('style') ?? '').toBe('');
+    expect(innerPanel.getAttribute('data-content-width')).toBe('500');
+    expect(innerPanel.getAttribute('data-resize-mode')).toBe('live');
+    expect(innerPanel.getAttribute('data-resizing')).toBe('false');
+
+    await fireEvent.mouseDown(dragHandle, { clientX: 600, button: 0 });
+    await fireEvent.mouseMove(document, { clientX: 520 });
+    flushRaf();
+
+    expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr) 580px');
+    expect(contentFrame.style.marginRight).toBe('');
+    expect(layout.getAttribute('data-right-tools-dragging')).toBe('true');
+    expect(mainColumn.style.width).toBe('660px');
+    expect(mainColumn.style.flex).toBe('0 0 auto');
+    expect(innerPanel.getAttribute('data-content-width')).toBe('580');
+    expect(innerPanel.getAttribute('data-resize-mode')).toBe('live');
+    expect(innerPanel.getAttribute('data-resizing')).toBe('true');
+    expect(sidePanelState.setPanelWidth).not.toHaveBeenCalled();
+
+    await fireEvent.mouseUp(document);
+
+    expect(sidePanelState.setPanelWidth).toHaveBeenCalledWith(580);
+    expect(layout.getAttribute('data-right-tools-dragging')).toBeNull();
+    expect(mainColumn.getAttribute('style') ?? '').toBe('');
+    expect(innerPanel.getAttribute('data-content-width')).toBe('580');
+    expect(innerPanel.getAttribute('data-resizing')).toBe('false');
   });
 
   test('window resize shrinks the dock before entering overlay without persisting panel width', async () => {
@@ -305,9 +417,9 @@ describe('AppLayout sidebar titlebar controls', () => {
     resizeLayout(1240);
 
     await waitFor(() => {
-      expect(screen.getByTestId('right-tools-dock').style.width).toBe('439px');
+      expect(screen.getByTestId('workspace-split-grid').style.gridTemplateColumns).toBe('minmax(0, 1fr) 439px');
     });
-    expect(screen.getByTestId('workspace-content-frame').style.marginRight).toBe('440px');
+    expect(screen.getByTestId('workspace-content-frame').style.marginRight).toBe('');
     expect(screen.getByTestId('right-tool-panel').getAttribute('data-overlay')).toBe('false');
     expect(sidePanelState.setPanelWidth).not.toHaveBeenCalled();
   });
@@ -323,6 +435,9 @@ describe('AppLayout sidebar titlebar controls', () => {
       expect(screen.getByTestId('right-tool-panel').getAttribute('data-overlay')).toBe('true');
     });
     expect(screen.queryByTestId('right-tools-separator')).toBeNull();
+    expect(screen.queryByTestId('right-tools-drag-handle')).toBeNull();
+    expect(screen.getByTestId('tool-dock-toolbar')).toBeTruthy();
+    expect(screen.getByTestId('right-tools-content')).toBeTruthy();
 
     resizeLayout(1200);
     await waitFor(() => {
@@ -336,7 +451,7 @@ describe('AppLayout sidebar titlebar controls', () => {
     expect(screen.queryByTestId('right-tools-separator')).not.toBeNull();
   });
 
-  test('window resize disables main-frame margin transitions during the resize frame', async () => {
+  test('window resize marks the layout as resizing during the resize frame', async () => {
     const resizeLayout = stubLayoutResize(1300);
     sidePanelState.open = true;
 

@@ -8,7 +8,6 @@
   background: var(--color-parchment);
   overflow: hidden;
   contain: layout style;
-  container-type: inline-size;
 }
 
 .body {
@@ -16,7 +15,14 @@
   flex-direction: column;
   min-height: 0;
   flex: 1;
+  width: 100%;
   overflow: hidden;
+  container-type: inline-size;
+}
+
+.bodyFrozen {
+  align-self: flex-end;
+  contain: layout style paint;
 }
 
 .emptyIcon {

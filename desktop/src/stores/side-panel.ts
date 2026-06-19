@@ -7,6 +7,7 @@ const [isOpen, setIsOpen] = createSignal(false);
 const [activeView, setActiveView] = createSignal<SidePanelView>('menu');
 const [panelWidth, setPanelWidth] = createSignal(500);
 const [openTabs, setOpenTabs] = createSignal<ToolTabView[]>([]);
+const [toolMenuOpenRequested, setToolMenuOpenRequested] = createSignal(false);
 
 const isToolTabView = (view: SidePanelView): view is ToolTabView => view !== 'menu';
 
@@ -26,7 +27,16 @@ export const sidePanelStore = {
   activeView,
   openTabs,
   panelWidth,
+  toolMenuOpenRequested,
   setPanelWidth,
+
+  requestToolMenuOpen(): void {
+    setToolMenuOpenRequested(true);
+  },
+
+  clearToolMenuOpenRequest(): void {
+    setToolMenuOpenRequested(false);
+  },
 
   open(view: SidePanelView = 'menu'): void {
     activateView(view);
@@ -35,11 +45,13 @@ export const sidePanelStore = {
 
   close(): void {
     setIsOpen(false);
+    setToolMenuOpenRequested(false);
   },
 
   toggle(view: SidePanelView = 'menu'): void {
     if (isOpen()) {
       setIsOpen(false);
+      setToolMenuOpenRequested(false);
       return;
     }
     activateView(view);
@@ -55,8 +67,25 @@ export const sidePanelStore = {
     setIsOpen(true);
   },
 
+  closeTab(view: ToolTabView): void {
+    const next = openTabs().filter((tab) => tab !== view);
+    setOpenTabs(next);
+    // If the closed tab was active, fall back to the first remaining tab
+    // (else the empty 'menu' state).
+    if (activeView() === view) {
+      setActiveView(next[0] ?? 'menu');
+    }
+    // When no tabs remain, collapse the dock entirely so the user is not
+    // left looking at the empty "Select a tool" state.
+    if (next.length === 0) {
+      setIsOpen(false);
+      setToolMenuOpenRequested(false);
+    }
+  },
+
   clearTabs(): void {
     setOpenTabs([]);
     setActiveView('menu');
+    setToolMenuOpenRequested(false);
   },
 };

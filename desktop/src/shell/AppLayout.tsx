@@ -2,6 +2,7 @@ import { Component, JSX, onMount, onCleanup, createSignal, Show, createMemo, cre
 import { useNavigate, useLocation } from '@solidjs/router';
 import { Sidebar } from '@/shell/Sidebar';
 import { TitleBar } from '@/shell/TitleBar';
+import { ToolDockToolbar } from '@/shell/ToolDockToolbar';
 import { CommandPalette, buildDefaultActions } from '@/shell/CommandPalette';
 import type { PaletteAction } from '@/shell/CommandPalette';
 import { RightToolPanel } from '@/features/conversation/RightToolPanel.js';
@@ -16,7 +17,6 @@ import { getGateway } from '@/stores/context.js';
 import { setApprovalResponder, setSessionFocuser, teardownNativeNotifications } from '@/services/notifications/native-notifications.js';
 import { cycleActiveReasoningEffort, updateActiveReasoningEffort } from './reasoning-actions.js';
 import {
-  SPLIT_CHROME_WIDTH,
   SPLIT_DRAG_HANDLE_WIDTH,
   clampToolsDockWidth,
   shouldOverlayToolsDock,
@@ -82,12 +82,54 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
 
     return clampToolsDockWidth(preferredWidth, containerWidth);
   });
-  const rightToolsReservedWidth = createMemo(() =>
-    effectiveRightToolsWidth() + SPLIT_CHROME_WIDTH,
-  );
   const rightToolsDragHandleRight = createMemo(() =>
     Math.max(0, effectiveRightToolsWidth() - (SPLIT_DRAG_HANDLE_WIDTH / 2)),
   );
+  const rightToolsDragActive = createMemo(() => rightDragWidth() !== null);
+  const committedRightToolsWidth = createMemo(() => {
+    // Track the drag lifecycle without feeding live widths into content that
+    // should stay committed until the resize finishes.
+    rightToolsDragActive();
+    if (!rightToolsDocked()) return null;
+
+    const preferredWidth = sidePanelStore.panelWidth();
+    const containerWidth = conversationSplitWidth();
+    if (containerWidth <= 0) return preferredWidth;
+
+    return clampToolsDockWidth(preferredWidth, containerWidth);
+  });
+  const rightToolsContentResizeMode = createMemo(() =>
+    sidePanelStore.activeView() === 'terminal' ? 'deferred' : 'live',
+  );
+  const rightToolsContentWidth = createMemo(() => {
+    if (!rightToolsDocked()) return null;
+    if (rightToolsDragActive() && rightToolsContentResizeMode() === 'live') {
+      return effectiveRightToolsWidth();
+    }
+    return committedRightToolsWidth();
+  });
+  const rightToolsContentResizing = createMemo(() =>
+    rightToolsDragActive() && sidePanelStore.activeView() !== 'menu',
+  );
+  const mainColumnFrozen = createMemo(() =>
+    rightToolsContentResizing()
+    && rightToolsContentResizeMode() === 'live'
+    && committedRightToolsWidth() != null,
+  );
+  const committedMainColumnWidth = createMemo(() => {
+    const rightWidth = committedRightToolsWidth();
+    const containerWidth = conversationSplitWidth();
+    if (rightWidth == null || containerWidth <= 0) return null;
+    return Math.max(0, containerWidth - rightWidth);
+  });
+  const mainColumnStyle = createMemo<JSX.CSSProperties | undefined>(() => {
+    const width = committedMainColumnWidth();
+    if (!mainColumnFrozen() || width == null) return undefined;
+    return {
+      width: `${width}px`,
+      flex: '0 0 auto',
+    };
+  });
   const leftSidebarDragHandleLeft = createMemo(() =>
     Math.max(0, effectiveSidebarWidth() - (SPLIT_DRAG_HANDLE_WIDTH / 2)),
   );
@@ -98,32 +140,23 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
     sessionStore.activeSession?.cwd ?? null,
   );
   const mainFrameStyle = createMemo<JSX.CSSProperties>(() => {
-    const style: JSX.CSSProperties = {
+    return {
       display: 'flex',
       flex: '1 1 0',
       'min-width': '0',
       'min-height': '0',
       overflow: 'hidden',
     };
-    if (rightToolsDocked()) {
-      style['margin-right'] = `${rightToolsReservedWidth()}px`;
-    }
-    return style;
   });
-  const rightToolsDockStyle = createMemo<JSX.CSSProperties>(() => {
-    const style: JSX.CSSProperties = {
-      position: 'absolute',
-      top: 'var(--titlebar-height)',
-      right: '0',
-      bottom: '0',
-      overflow: 'hidden',
-    };
-    if (rightToolsOverlay()) {
-      style.left = showPrimarySidebar() ? `${effectiveSidebarWidth()}px` : '0';
-    } else {
-      style.width = `${effectiveRightToolsWidth()}px`;
-    }
-    return style;
+  const workspaceGridStyle = createMemo<JSX.CSSProperties>(() => ({
+    'grid-template-columns': rightToolsDocked()
+      ? `minmax(0, 1fr) ${effectiveRightToolsWidth()}px`
+      : 'minmax(0, 1fr)',
+  }));
+  const rightToolsPaneStyle = createMemo<JSX.CSSProperties | undefined>(() => {
+    if (!rightToolsVisible()) return undefined;
+    if (!rightToolsOverlay()) return undefined;
+    return { width: `${effectiveRightToolsWidth()}px` };
   });
 
   const handleNewSession = async () => {
@@ -446,6 +479,7 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
         overflow: 'hidden',
         position: 'relative',
       }}
+      data-right-tools-dragging={rightToolsDragActive() ? 'true' : undefined}
       data-testid="app-layout"
       ref={(el) => { layoutRef = el; }}
     >
@@ -473,32 +507,64 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
         class={styles.workspaceFrame}
         style={{
           display: 'flex',
-          'flex-direction': 'column',
           flex: '1 1 0',
           'min-width': '0',
           'min-height': '0',
+          position: 'relative',
           overflow: 'hidden',
         }}
         data-testid="workspace-frame"
       >
-        <TitleBar
-          onToggleSidebar={() => uiStore.toggleSidebar()}
-          onNavigateBack={() => navigate(-1)}
-          onNavigateForward={() => navigate(1)}
-          onNewSession={handleNewSession}
-          actionToolbarLeft={showPrimarySidebar() ? 'var(--space-2)' : undefined}
-          toolsDockWidth={rightToolsDocked() ? effectiveRightToolsWidth() : null}
-        />
         <div
-          class={styles.mainFrame}
-          style={mainFrameStyle()}
-          data-testid="workspace-content-frame"
+          class={styles.workspaceSplitGrid}
+          style={workspaceGridStyle()}
+          data-testid="workspace-split-grid"
         >
-          <div class={styles.mainColumn}>
-            <main class={styles.content}>
-              {props.children}
-            </main>
+          <div class={styles.mainTitlebarCell} data-testid="workspace-titlebar-cell">
+            <TitleBar
+              onToggleSidebar={() => uiStore.toggleSidebar()}
+              onNavigateBack={() => navigate(-1)}
+              onNavigateForward={() => navigate(1)}
+              onNewSession={handleNewSession}
+              actionToolbarLeft={showPrimarySidebar() ? 'var(--space-2)' : undefined}
+            />
           </div>
+          <div
+            class={styles.mainFrame}
+            style={mainFrameStyle()}
+            data-testid="workspace-content-frame"
+          >
+            <div
+              class={styles.mainColumn}
+              classList={{ [styles.mainColumnFrozen]: mainColumnFrozen() }}
+              style={mainColumnStyle()}
+              data-testid="workspace-main-column"
+            >
+              <main class={styles.content}>
+                {props.children}
+              </main>
+            </div>
+          </div>
+          <Show when={rightToolsVisible()}>
+            <div
+              class={styles.rightToolsPane}
+              classList={{ [styles.rightToolsPaneOverlay]: rightToolsOverlay() }}
+              style={rightToolsPaneStyle()}
+              data-testid="right-tools-dock"
+            >
+              <ToolDockToolbar />
+              <div class={styles.rightToolsContent} data-testid="right-tools-content">
+                <RightToolPanel
+                  sessionId={rightToolsSessionId()}
+                  workspacePath={rightToolsWorkspacePath()}
+                  overlay={rightToolsOverlay()}
+                  contentWidth={rightToolsContentWidth()}
+                  resizeMode={rightToolsContentResizeMode()}
+                  resizing={rightToolsContentResizing()}
+                />
+              </div>
+            </div>
+          </Show>
         </div>
       </div>
       <Show when={showPrimarySidebar()}>
@@ -554,20 +620,6 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
           onMouseDown={handleRightToolsDragStart}
           data-testid="right-tools-drag-handle"
         />
-      </Show>
-      <Show when={rightToolsVisible()}>
-        <div
-          class={styles.rightToolsDock}
-          classList={{ [styles.rightToolsDockOverlay]: rightToolsOverlay() }}
-          style={rightToolsDockStyle()}
-          data-testid="right-tools-dock"
-        >
-          <RightToolPanel
-            sessionId={rightToolsSessionId()}
-            workspacePath={rightToolsWorkspacePath()}
-            overlay={rightToolsOverlay()}
-          />
-        </div>
       </Show>
       <CommandPalette actions={paletteActions()} />
     </div>

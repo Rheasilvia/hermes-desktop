@@ -21,7 +21,11 @@ pub struct TerminalStartResult {
 #[derive(Debug, Serialize, Clone)]
 struct TerminalDataEvent {
     id: String,
-    data: String,
+    // Raw bytes from the PTY reader. We intentionally avoid UTF-8 decoding
+    // here: multi-byte sequences (CJK, emoji) routinely span read-chunk
+    // boundaries and `String::from_utf8_lossy` would corrupt them. The
+    // frontend reconstructs a `Uint8Array` and feeds it straight to xterm.
+    data: Vec<u8>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -93,6 +97,13 @@ pub fn terminal_start(
         .map_err(|e| format!("failed to open terminal writer: {e}"))?;
     let mut cmd = CommandBuilder::new(&shell);
     cmd.cwd(cwd_path.as_os_str());
+    // Spawn the shell as a proper interactive session (mirrors the Electron
+    // reference in apps/desktop/electron/main.cjs::posixShellSpec). Without
+    // these flags zsh/bash skip rc loading and the prompt looks wrong.
+    for arg in shell_args(&shell) {
+        cmd.arg(arg);
+    }
+    scrub_terminal_env(&mut cmd);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "Hermes");
@@ -129,7 +140,7 @@ pub fn terminal_start(
 }
 
 #[tauri::command]
-pub fn terminal_write(id: String, data: String) -> Result<(), String> {
+pub fn terminal_write(id: String, data: Vec<u8>) -> Result<(), String> {
     let writer = {
         let guard = TERMINAL_SESSION
             .lock()
@@ -147,7 +158,7 @@ pub fn terminal_write(id: String, data: String) -> Result<(), String> {
         .lock()
         .map_err(|_| "terminal writer lock poisoned".to_string())?;
     writer
-        .write_all(data.as_bytes())
+        .write_all(&data)
         .and_then(|_| writer.flush())
         .map_err(|e| format!("terminal write failed: {e}"))
 }
@@ -250,6 +261,54 @@ fn default_shell() -> String {
     }
 }
 
+/// Pick interactive flags for the resolved shell, by basename. Mirrors the
+/// Electron reference (`apps/desktop/electron/main.cjs::shellSpecFor`): zsh/bash
+/// get `-il` (interactive + login, so rc files load and the prompt is normal),
+/// other POSIX shells get `-i`, PowerShell drops its logo banner, cmd needs
+/// nothing.
+fn shell_args(shell_path: &str) -> Vec<String> {
+    // Extract the basename portably: `Path::file_name()` is platform-specific
+    // (treats `\` as a separator only on Windows), but shell paths cross
+    // platforms in tests and env vars, so split on both separators by hand.
+    let basename = shell_path
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+
+    if basename.starts_with("pwsh") || basename.starts_with("powershell") {
+        vec!["-NoLogo".into()]
+    } else if basename.starts_with("cmd") {
+        Vec::new()
+    } else if basename.contains("zsh") || basename.contains("bash") {
+        vec!["-il".into()]
+    } else {
+        vec!["-i".into()]
+    }
+}
+
+/// Strip env vars the desktop process inherited (commonly via `npm run tauri:dev`
+/// or a non-tty launcher) that would leak into the user's interactive shell or
+/// confuse color detection. Mirrors `terminalShellEnv` in the Electron
+/// reference. `CommandBuilder` inherits the parent env by default; `env_remove`
+/// deletes from that inherited set.
+fn scrub_terminal_env(cmd: &mut CommandBuilder) {
+    for key in ["NO_COLOR", "FORCE_COLOR", "COLORFGBG"] {
+        cmd.env_remove(key);
+    }
+    // npm-scoped vars (prefix, package metadata) make nvm/proto warn loudly in
+    // a user shell; drop the whole family.
+    let inherited_keys: Vec<String> = std::env::vars().map(|(k, _)| k).collect();
+    for key in inherited_keys {
+        if key == "npm_config_prefix"
+            || key.starts_with("npm_config_")
+            || key.starts_with("npm_package_")
+        {
+            cmd.env_remove(&key);
+        }
+    }
+}
+
 fn spawn_reader(app: AppHandle, id: String, mut reader: Box<dyn Read + Send>) {
     thread::spawn(move || {
         let mut buf = [0_u8; 8192];
@@ -257,12 +316,11 @@ fn spawn_reader(app: AppHandle, id: String, mut reader: Box<dyn Read + Send>) {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
                     let _ = app.emit(
                         "terminal_data",
                         TerminalDataEvent {
                             id: id.clone(),
-                            data,
+                            data: buf[..n].to_vec(),
                         },
                     );
                 }
@@ -332,6 +390,21 @@ mod tests {
         let err = resolve_cwd(Some("/definitely/not/a/hermes/terminal/cwd".into()))
             .expect_err("missing cwd should fail");
         assert!(err.contains("terminal cwd not found"));
+    }
+
+    #[test]
+    fn shell_args_picks_interactive_flags_by_family() {
+        // zsh/bash get -il (interactive + login) so rc files load.
+        assert_eq!(shell_args("/bin/zsh"), vec!["-il"]);
+        assert_eq!(shell_args("/bin/bash"), vec!["-il"]);
+        assert_eq!(shell_args("/usr/local/bin/zsh-5.8"), vec!["-il"]);
+        // Other POSIX shells (fish, sh) get bare -i.
+        assert_eq!(shell_args("/usr/bin/fish"), vec!["-i"]);
+        assert_eq!(shell_args("/bin/sh"), vec!["-i"]);
+        // PowerShell drops its logo banner; cmd needs nothing.
+        assert_eq!(shell_args("/usr/bin/pwsh"), vec!["-NoLogo"]);
+        assert_eq!(shell_args("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"), vec!["-NoLogo"]);
+        assert_eq!(shell_args("C:\\Windows\\System32\\cmd.exe"), Vec::<String>::new());
     }
 
     #[cfg(unix)]

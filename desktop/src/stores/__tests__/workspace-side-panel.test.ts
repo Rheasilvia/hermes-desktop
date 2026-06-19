@@ -57,6 +57,73 @@ describe('sidePanelStore', () => {
   });
 });
 
+describe('sidePanelStore.closeTab', () => {
+  it('leaves the active view and remaining tabs intact when closing a non-active tab', async () => {
+    vi.resetModules();
+    const { sidePanelStore } = await import('../side-panel.js');
+
+    sidePanelStore.openTab('terminal');
+    sidePanelStore.openTab('files');
+    sidePanelStore.setActiveView('terminal');
+
+    sidePanelStore.closeTab('files');
+
+    expect(sidePanelStore.openTabs()).toEqual(['terminal']);
+    expect(sidePanelStore.activeView()).toBe('terminal');
+    expect(sidePanelStore.isOpen()).toBe(true);
+  });
+
+  it('reassigns the active view to the first remaining tab when the active tab is closed', async () => {
+    vi.resetModules();
+    const { sidePanelStore } = await import('../side-panel.js');
+
+    sidePanelStore.openTab('terminal');
+    sidePanelStore.openTab('files');
+    sidePanelStore.setActiveView('files');
+
+    sidePanelStore.closeTab('files');
+
+    expect(sidePanelStore.openTabs()).toEqual(['terminal']);
+    expect(sidePanelStore.activeView()).toBe('terminal');
+    expect(sidePanelStore.isOpen()).toBe(true);
+  });
+
+  it('collapses the dock and resets to the menu state when the last tab is closed', async () => {
+    vi.resetModules();
+    const { sidePanelStore } = await import('../side-panel.js');
+
+    sidePanelStore.openTab('terminal');
+    expect(sidePanelStore.isOpen()).toBe(true);
+
+    sidePanelStore.closeTab('terminal');
+
+    expect(sidePanelStore.openTabs()).toEqual([]);
+    expect(sidePanelStore.activeView()).toBe('menu');
+    expect(sidePanelStore.isOpen()).toBe(false);
+  });
+});
+
+describe('sidePanelStore tool menu request', () => {
+  it('clears the pending add-tool menu request when the dock closes', async () => {
+    vi.resetModules();
+    const { sidePanelStore } = await import('../side-panel.js');
+
+    sidePanelStore.open();
+    sidePanelStore.requestToolMenuOpen();
+
+    expect(sidePanelStore.toolMenuOpenRequested()).toBe(true);
+
+    sidePanelStore.close();
+
+    expect(sidePanelStore.toolMenuOpenRequested()).toBe(false);
+
+    sidePanelStore.requestToolMenuOpen();
+    sidePanelStore.clearTabs();
+
+    expect(sidePanelStore.toolMenuOpenRequested()).toBe(false);
+  });
+});
+
 describe('gitViewStore', () => {
   it('clears old diff state on workspace changes and ignores stale responses', async () => {
     vi.resetModules();
