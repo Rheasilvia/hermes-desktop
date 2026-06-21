@@ -9,6 +9,11 @@
 
 .chatBody {
   --conversation-chat-min-width: 560px;
+  --conversation-chat-max-width: 880px;
+  --conversation-chat-gutter: clamp(16px, 5vw, 48px);
+  --environment-popover-width: 344px;
+  --environment-popover-inline-gap: var(--space-5);
+  --environment-popover-reserved-width: calc(var(--environment-popover-width) + var(--space-10));
 
   display: flex;
   flex: 1;
@@ -32,10 +37,23 @@
   min-height: 0;
   overflow-y: auto;
   overflow-anchor: none;
-  padding: var(--space-4) var(--space-6) 52px;
+  padding: var(--space-4) var(--conversation-chat-gutter) 52px;
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   position: relative;
+}
+
+.messageListWithEnvironment {
+  padding-right: calc(var(--conversation-chat-gutter) + var(--environment-popover-reserved-width));
+}
+
+.messageColumn {
+  width: min(100%, var(--conversation-chat-max-width));
+  margin-inline: auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .messageList::-webkit-scrollbar {
@@ -55,6 +73,30 @@
   position: relative;
   flex-shrink: 0;
   min-width: 0;
+  padding: 8px var(--conversation-chat-gutter) 24px;
+}
+
+.inputAreaWithEnvironment {
+  padding-right: calc(var(--conversation-chat-gutter) + var(--environment-popover-reserved-width));
+}
+
+.inputColumn {
+  width: min(100%, var(--conversation-chat-max-width));
+  margin-inline: auto;
+  min-width: 0;
+  position: relative;
+}
+
+.environmentPopover {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--environment-popover-inline-gap);
+  z-index: var(--z-overlay);
+  width: min(var(--environment-popover-width), calc(100% - var(--space-10)));
+  max-height: calc(100% - var(--space-8));
+  min-width: 0;
+  overflow: visible;
+  pointer-events: auto;
 }
 
 .cardDock {

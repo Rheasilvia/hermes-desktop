@@ -1,0 +1,269 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  padding: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: transparent;
+  scrollbar-gutter: stable;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-surface) 94%, var(--color-background) 6%);
+  box-shadow: var(--shadow-lg), 0 1px 0 color-mix(in srgb, var(--color-surface) 86%, transparent) inset;
+  padding: var(--space-3);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding: 0 var(--space-1) var(--space-1);
+}
+
+.title,
+.sectionTitle {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-weight: var(--weight-medium);
+  color: var(--color-on-surface-dim);
+}
+
+.title {
+  font-size: var(--text-sm);
+  color: var(--color-on-surface);
+}
+
+.sectionTitle {
+  padding: var(--space-1) var(--space-1) 0;
+  font-size: var(--text-xs);
+}
+
+.addButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-on-surface-dim);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.addButton:hover {
+  border-color: color-mix(in srgb, var(--color-border) 64%, transparent);
+  background: color-mix(in srgb, var(--color-on-surface) 5%, transparent);
+  color: var(--color-on-surface);
+}
+
+.addButton:focus-visible,
+.row:focus-visible,
+.branchItem:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-border-focus);
+}
+
+.rows,
+.sourcesSection {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.row,
+.branchItem {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--color-on-surface);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 7px var(--space-2);
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.row:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-border) 54%, transparent);
+  background: color-mix(in srgb, var(--color-on-surface) 5%, transparent);
+}
+
+.rowDisabled,
+.rowDisabled:hover {
+  cursor: default;
+  color: var(--color-on-surface-dim);
+  background: transparent;
+  border-color: transparent;
+  opacity: 0.64;
+}
+
+.iconSlot,
+.checkSlot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-on-surface-muted);
+  flex-shrink: 0;
+}
+
+.row:hover:not(:disabled) .iconSlot {
+  color: var(--color-on-surface-dim);
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.rowTitle,
+.rowSubtitle,
+.branchName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowTitle {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+}
+
+.rowSubtitle,
+.mutedValue {
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-dim);
+  line-height: var(--leading-tight);
+}
+
+.changeStats {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-on-surface) 4%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.insertions {
+  color: var(--color-success);
+}
+
+.deletions {
+  color: var(--color-error);
+}
+
+.trailingIcon {
+  color: var(--color-on-surface-dim);
+  flex-shrink: 0;
+}
+
+.branchRoot {
+  position: relative;
+  min-width: 0;
+}
+
+.branchMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 28px;
+  right: var(--space-1);
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-1) 0;
+}
+
+.branchItem {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 30px;
+  padding: 5px var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.branchItem:hover {
+  background: color-mix(in srgb, var(--color-on-surface) 5%, transparent);
+}
+
+.branchItemCurrent {
+  color: var(--color-primary);
+  font-weight: var(--weight-medium);
+}
+
+.checkSlot {
+  visibility: hidden;
+}
+
+.checkSlotVisible {
+  visibility: visible;
+}
+
+.divider {
+  height: 1px;
+  margin: var(--space-2) var(--space-1);
+  background: color-mix(in srgb, var(--color-border-light) 74%, transparent);
+}
+
+@container (max-width: 360px) {
+  .shell {
+    padding: var(--space-3);
+  }
+
+  .card {
+    padding: var(--space-2);
+  }
+
+  .row {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    gap: var(--space-1);
+  }
+}

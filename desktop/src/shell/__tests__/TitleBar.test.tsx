@@ -463,13 +463,37 @@ describe('TitleBar', () => {
     expect(screen.queryByRole('button', { name: 'New Chat' })).toBeNull();
   });
 
-test('tools dock toggle button renders with correct aria-label when closed', () => {
+  test('tools dock toggle button renders with correct aria-label when closed', () => {
     sidePanelState.open = false;
     sidePanelToggle.mockReset();
     renderTitleBar();
 
     const btn = screen.getByRole('button', { name: 'Show tools dock' });
     expect(btn).toBeTruthy();
+  });
+
+  test('environment panel toggle is an independent titlebar icon when enabled', () => {
+    const onToggleEnvironmentPanel = vi.fn();
+    renderTitleBar({
+      showEnvironmentToggle: true,
+      environmentPanelOpen: true,
+      onToggleEnvironmentPanel,
+    });
+
+    const btn = screen.getByRole('button', { name: 'Hide Environment panel' });
+    expect(btn).toBeTruthy();
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(btn);
+
+    expect(onToggleEnvironmentPanel).toHaveBeenCalledTimes(1);
+    expect(sidePanelToggle).not.toHaveBeenCalled();
+  });
+
+  test('environment panel toggle is hidden outside conversation chrome', () => {
+    renderTitleBar();
+
+    expect(screen.queryByRole('button', { name: /Environment panel/ })).toBeNull();
   });
 
   test('tools dock toggle button moves out of the titlebar when dock is open', () => {

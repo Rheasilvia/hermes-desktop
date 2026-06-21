@@ -31,6 +31,7 @@ import { ModelSelector } from './ModelSelector.js';
 import { EmptyChatState } from './EmptyChatState.js';
 import { ErrorBanner } from './ErrorBanner.js';
 import { ConversationRecoveryBanner } from './ConversationRecoveryBanner.js';
+import { EnvironmentPanel } from './EnvironmentPanel.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { ClarificationCard } from './ClarificationCard.js';
 import { MemoryContextCard } from './MemoryContextCard.js';
@@ -50,6 +51,10 @@ import styles from './ChatView.module.css';
 interface ChatViewProps {
   sessionId?: string;
 }
+
+const ENVIRONMENT_FLOATING_PANEL_WIDTH = 344;
+const ENVIRONMENT_FLOATING_RESERVED_WIDTH = ENVIRONMENT_FLOATING_PANEL_WIDTH + 40;
+const ENVIRONMENT_FLOATING_MIN_WIDTH = 880 + ENVIRONMENT_FLOATING_RESERVED_WIDTH;
 
 export interface PromptDisplayMetadata {
   text: string;
@@ -108,9 +113,11 @@ export function resolveMessageEditDraft(message: RenderedMessage): string {
 export const ChatView: Component<ChatViewProps> = (props) => {
   const navigate = useNavigate();
   const sessionId = () => props.sessionId ?? '';
+  let chatBodyRef: HTMLDivElement | undefined;
   let messageInputResizeRef: HTMLDivElement | undefined;
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
   const [connectionState, setConnectionState] = createSignal<ConnectionState>(uiStore.connectionState);
+  const [chatBodyWidth, setChatBodyWidth] = createSignal<number | null>(null);
   let wasBusy = false;
   let suppressNextAutoDrain = false;
   const autoTtsPlayed = new Set<string>();
@@ -131,6 +138,15 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const maxVoiceRecordingSeconds = createMemo(() => getVoiceRecordingLimit(voiceConfig()));
   const [permissionModePending, setPermissionModePending] = createSignal(false);
   const [permissionModeAppliesNextTurn, setPermissionModeAppliesNextTurn] = createSignal(false);
+  const environmentPanelVisible = createMemo(() => {
+    const width = chatBodyWidth();
+    return uiStore.environmentPanelOpen
+      && !uiStore.rightToolsOverlay
+      && (
+        width === null
+        || width >= ENVIRONMENT_FLOATING_MIN_WIDTH
+      );
+  });
 
   const liveBlocks = createMemo((): MessageBlock[] => {
     const live = liveState();
@@ -160,6 +176,23 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       scroll.handleViewportResize();
     });
     observer.observe(messageInputResizeRef);
+    onCleanup(() => observer.disconnect());
+  });
+
+  onMount(() => {
+    const updateChatBodyWidth = (width?: number) => {
+      const measuredWidth = width ?? chatBodyRef?.getBoundingClientRect().width ?? 0;
+      setChatBodyWidth(Math.max(0, Math.round(measuredWidth)));
+    };
+
+    updateChatBodyWidth();
+    if (!chatBodyRef || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      updateChatBodyWidth(entry?.contentRect.width);
+    });
+    observer.observe(chatBodyRef);
     onCleanup(() => observer.disconnect());
   });
 
@@ -733,7 +766,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         <MemoryContextCard items={liveState().memoryContext!} onEdit={() => {}} />
       </Show>
 
-      <div class={styles.chatBody}>
+      <div
+        ref={(el) => { chatBodyRef = el; }}
+        class={styles.chatBody}
+        data-testid="chat-body"
+      >
         <div class={styles.chatPane}>
           <Switch>
             <Match when={isLoading()}>
@@ -754,96 +791,119 @@ export const ChatView: Component<ChatViewProps> = (props) => {
               <div
                 ref={(el) => { scroll.refs.messageList = el; }}
                 class={styles.messageList}
+                classList={{ [styles.messageListWithEnvironment]: environmentPanelVisible() }}
+                data-testid="chat-message-list"
                 onScroll={scroll.handleScroll}
                 style={{ "padding-bottom": blockingPromptActive() ? '60px' : undefined }}
               >
-                <For each={messages()}>
-                  {(message, getIndex) => {
-                    const idx = getIndex();
-                    const onAction = (action: MessageActionType) =>
-                      void handleMessageAction(sessionId(), action, message);
-                    return (
-                      <MessageBubble
-                        message={message}
-                        showDateSeparator={dateSeparators().has(idx)}
-                        dateSeparatorLabel={dateSeparators().get(idx)}
-                        onAction={onAction}
-                        isLast={idx === messages().length - 1}
-                        actionsDisabled={isStreaming()}
-                      />
-                    );
-                  }}
-                </For>
-                <Show when={liveBlocks().length > 0 || liveTools().length > 0}>
-                  <AssistantMessage
-                    blocks={liveBlocks()}
-                    isStreaming={true}
-                  />
-                </Show>
-                <div ref={scroll.refs.messagesEnd} />
+                <div class={styles.messageColumn}>
+                  <For each={messages()}>
+                    {(message, getIndex) => {
+                      const idx = getIndex();
+                      const onAction = (action: MessageActionType) =>
+                        void handleMessageAction(sessionId(), action, message);
+                      return (
+                        <MessageBubble
+                          message={message}
+                          showDateSeparator={dateSeparators().has(idx)}
+                          dateSeparatorLabel={dateSeparators().get(idx)}
+                          onAction={onAction}
+                          isLast={idx === messages().length - 1}
+                          actionsDisabled={isStreaming()}
+                        />
+                      );
+                    }}
+                  </For>
+                  <Show when={liveBlocks().length > 0 || liveTools().length > 0}>
+                    <AssistantMessage
+                      blocks={liveBlocks()}
+                      isStreaming={true}
+                    />
+                  </Show>
+                  <div ref={scroll.refs.messagesEnd} />
+                </div>
               </div>
             </Match>
           </Switch>
 
-          <div class={styles.inputArea}>
-            <JumpToBottom
-              unreadCount={scroll.unreadCount()}
-              visible={!scroll.isNearBottom() && messages().length > 0}
-              onClick={() => {
-                scroll.setUserScrolledUp(false);
-                scroll.setUnreadCount(() => 0);
-                scroll.scrollToBottom({ force: true, behavior: 'smooth' });
-              }}
-            />
-            <ConversationRecoveryBanner
-              turnState={liveState().status}
-              connectionState={connectionState()}
-              diagnostics={{
-                lastEventAt: diagnostics().lastEventAt,
-                droppedLateEvents: diagnostics().droppedLateEvents,
-              }}
-            />
-            <PromptDock items={promptDockItems()} />
-
-            <div ref={(el) => { messageInputResizeRef = el; }}>
-              <MessageInput
-                sessionId={sessionId()}
-                onSend={handleSend}
-                onStop={() => {
-                  suppressNextAutoDrain = true;
-                  void chatStore.cancelMessage(sessionId());
+          <div
+            class={styles.inputArea}
+            classList={{ [styles.inputAreaWithEnvironment]: environmentPanelVisible() }}
+            data-testid="chat-input-area"
+          >
+            <div class={styles.inputColumn}>
+              <JumpToBottom
+                unreadCount={scroll.unreadCount()}
+                visible={!scroll.isNearBottom() && messages().length > 0}
+                onClick={() => {
+                  scroll.setUserScrolledUp(false);
+                  scroll.setUnreadCount(() => 0);
+                  scroll.scrollToBottom({ force: true, behavior: 'smooth' });
                 }}
-                disabled={blockingPromptActive() || !modelStore.activeModel}
-                isStreaming={isStreaming()}
-                modelSlot={(dimmed, disabled, compact) => (
-                  <ModelSelector
-                    sessionId={sessionId()}
-                    dimmed={dimmed}
-                    disabled={disabled}
-                    compact={compact}
-                  />
-                )}
-                cwd={cwd()}
-                historyMessages={messages()}
-                onComposerActivity={scroll.handleViewportResize}
-                permissionMode={permissionMode()}
-                permissionModePending={permissionModePending()}
-                permissionModeAppliesNextTurn={permissionModeAppliesNextTurn()}
-                onPermissionModeChange={handlePermissionModeChange}
-                isNewConversation={canEditWorkspace()}
-                onCwdChange={(path) => {
-                  const sid = sessionId();
-                  if (sid) sessionStore.applyCwd(sid, path);
-                }}
-                editDraft={editDraft}
-                clearEditDraft={() => setEditDraft(null)}
-                contextUsage={sessionUsage.get(sessionId())}
-                sttEnabled={sttEnabled()}
-                maxVoiceRecordingSeconds={maxVoiceRecordingSeconds()}
               />
+              <ConversationRecoveryBanner
+                turnState={liveState().status}
+                connectionState={connectionState()}
+                diagnostics={{
+                  lastEventAt: diagnostics().lastEventAt,
+                  droppedLateEvents: diagnostics().droppedLateEvents,
+                }}
+              />
+              <PromptDock items={promptDockItems()} />
+
+              <div ref={(el) => { messageInputResizeRef = el; }}>
+                <MessageInput
+                  sessionId={sessionId()}
+                  onSend={handleSend}
+                  onStop={() => {
+                    suppressNextAutoDrain = true;
+                    void chatStore.cancelMessage(sessionId());
+                  }}
+                  disabled={blockingPromptActive() || !modelStore.activeModel}
+                  isStreaming={isStreaming()}
+                  modelSlot={(dimmed, disabled, compact) => (
+                    <ModelSelector
+                      sessionId={sessionId()}
+                      dimmed={dimmed}
+                      disabled={disabled}
+                      compact={compact}
+                    />
+                  )}
+                  cwd={cwd()}
+                  historyMessages={messages()}
+                  onComposerActivity={scroll.handleViewportResize}
+                  permissionMode={permissionMode()}
+                  permissionModePending={permissionModePending()}
+                  permissionModeAppliesNextTurn={permissionModeAppliesNextTurn()}
+                  onPermissionModeChange={handlePermissionModeChange}
+                  isNewConversation={canEditWorkspace()}
+                  onCwdChange={(path) => {
+                    const sid = sessionId();
+                    if (sid) sessionStore.applyCwd(sid, path);
+                  }}
+                  editDraft={editDraft}
+                  clearEditDraft={() => setEditDraft(null)}
+                  contextUsage={sessionUsage.get(sessionId())}
+                  sttEnabled={sttEnabled()}
+                  maxVoiceRecordingSeconds={maxVoiceRecordingSeconds()}
+                />
+              </div>
             </div>
           </div>
         </div>
+
+        <Show when={environmentPanelVisible()}>
+          <aside
+            class={styles.environmentPopover}
+            aria-label="Environment overview"
+            data-testid="environment-panel-popover"
+          >
+            <EnvironmentPanel
+              sessionId={sessionId()}
+              workspacePath={cwd()}
+            />
+          </aside>
+        </Show>
 
       </div>
     </div>

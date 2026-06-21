@@ -88,6 +88,8 @@ const [activeRoute, setActiveRoute] = createSignal<string>('/');
 const [connectionState, setConnectionState] = createSignal<ConnectionState>('disconnected');
 const [theme, setThemeSignal] = createSignal<Theme>(loadPersistedTheme());
 const [platform, setPlatformSignal] = createSignal<Platform>('unknown');
+const [environmentPanelOpen, setEnvironmentPanelOpenSignal] = createSignal(true);
+const [rightToolsOverlay, setRightToolsOverlaySignal] = createSignal(false);
 
 // Sidebar section state — persisted to localStorage
 const [pinnedSectionOpen, setPinnedSectionOpen] = createSignal(loadBool(STORAGE_KEY_PINNED_OPEN, true));
@@ -139,6 +141,8 @@ export const uiStore = {
   get connectionState() { return connectionState(); },
   get theme() { return theme(); },
   get platform() { return platform(); },
+  get environmentPanelOpen() { return environmentPanelOpen(); },
+  get rightToolsOverlay() { return rightToolsOverlay(); },
   get pinnedSectionOpen() { return pinnedSectionOpen(); },
   get conversationsSectionOpen() { return conversationsSectionOpen(); },
   get workspaceGrouping() { return workspaceGrouping(); },
@@ -171,6 +175,18 @@ export const uiStore = {
 
   setPlatform(newPlatform: Platform) {
     setPlatformSignal(newPlatform);
+  },
+
+  setEnvironmentPanelOpen(open: boolean) {
+    setEnvironmentPanelOpenSignal(open);
+  },
+
+  toggleEnvironmentPanel() {
+    setEnvironmentPanelOpenSignal(!environmentPanelOpen());
+  },
+
+  setRightToolsOverlay(overlay: boolean) {
+    setRightToolsOverlaySignal(overlay);
   },
 
   togglePinnedSection() {

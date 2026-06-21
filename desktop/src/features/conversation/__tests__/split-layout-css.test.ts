@@ -17,9 +17,33 @@ describe('conversation split layout CSS', () => {
     const css = readConversationCss('ChatView.module.css');
     const chatBodyRule = ruleBody(css, '.chatBody');
     const chatPaneRule = ruleBody(css, '.chatPane');
+    const messageListRule = ruleBody(css, '.messageList');
+    const messageListWithEnvironmentRule = ruleBody(css, '.messageListWithEnvironment');
+    const messageColumnRule = ruleBody(css, '.messageColumn');
+    const inputAreaRule = ruleBody(css, '.inputArea');
+    const inputAreaWithEnvironmentRule = ruleBody(css, '.inputAreaWithEnvironment');
+    const inputColumnRule = ruleBody(css, '.inputColumn');
+    const environmentPopoverRule = ruleBody(css, '.environmentPopover');
 
     expect(chatBodyRule).toContain('--conversation-chat-min-width: 560px');
+    expect(chatBodyRule).toContain('--conversation-chat-max-width: 880px');
+    expect(chatBodyRule).toContain('--conversation-chat-gutter: clamp(16px, 5vw, 48px)');
+    expect(chatBodyRule).toContain('--environment-popover-width: 344px');
+    expect(chatBodyRule).toContain('--environment-popover-reserved-width: calc(var(--environment-popover-width) + var(--space-10))');
     expect(chatPaneRule).toContain('min-width: min(100%, var(--conversation-chat-min-width))');
+    expect(messageListRule).toContain('padding: var(--space-4) var(--conversation-chat-gutter) 52px');
+    expect(messageListRule).toContain('scrollbar-gutter: stable');
+    expect(messageListWithEnvironmentRule).toContain('padding-right: calc(var(--conversation-chat-gutter) + var(--environment-popover-reserved-width))');
+    expect(messageColumnRule).toContain('width: min(100%, var(--conversation-chat-max-width))');
+    expect(messageColumnRule).toContain('margin-inline: auto');
+    expect(inputAreaRule).toContain('padding: 8px var(--conversation-chat-gutter) 24px');
+    expect(inputAreaWithEnvironmentRule).toContain('padding-right: calc(var(--conversation-chat-gutter) + var(--environment-popover-reserved-width))');
+    expect(inputColumnRule).toContain('width: min(100%, var(--conversation-chat-max-width))');
+    expect(inputColumnRule).toContain('margin-inline: auto');
+    expect(inputColumnRule).toContain('position: relative');
+    expect(environmentPopoverRule).toContain('position: absolute');
+    expect(environmentPopoverRule).toContain('right: var(--environment-popover-inline-gap)');
+    expect(environmentPopoverRule).toContain('z-index: var(--z-overlay)');
   });
 
   it('lets the composer wrap and truncate controls inside narrow containers', () => {
@@ -33,6 +57,7 @@ describe('conversation split layout CSS', () => {
     const compactStatusContextRule = ruleBody(css, '.wrapperCompact .statusContextGroup');
 
     expect(wrapperRule).not.toContain('container-type');
+    expect(wrapperRule).toContain('padding: 0');
     expect(css).not.toContain('@container (max-width: 560px)');
     expect(toolbarRule).toContain('flex-wrap: wrap');
     expect(toolbarRightRule).toContain('flex-wrap: wrap');
@@ -47,6 +72,28 @@ describe('conversation split layout CSS', () => {
     expect(compactStatusContextRule).toContain('margin-left: auto');
     expect(compactStatusContextRule).toContain('flex-wrap: nowrap');
     expect(compactStatusContextRule).not.toContain('display: grid');
+  });
+
+  it('keeps composer-adjacent docks aligned to the centered chat column', () => {
+    const promptDockCss = readConversationCss('turn/PromptDock.module.css');
+    const recoveryCss = readConversationCss('ConversationRecoveryBanner.module.css');
+    const promptDockRule = ruleBody(promptDockCss, '.dock');
+    const recoveryBannerRule = ruleBody(recoveryCss, '.banner');
+
+    expect(promptDockRule).toContain('padding: 4px 0');
+    expect(promptDockRule).not.toContain('padding: 4px 32px');
+    expect(recoveryBannerRule).toContain('margin: 0 0 var(--space-2)');
+    expect(recoveryBannerRule).not.toContain('margin: 0 var(--space-6) var(--space-2)');
+  });
+
+  it('lets assistant responses fill the same centered column as the composer', () => {
+    const css = readConversationCss('AssistantMessage.module.css');
+    const contentRule = ruleBody(css, '.content');
+
+    expect(contentRule).toContain('width: 100%');
+    expect(contentRule).toContain('max-width: 100%');
+    expect(contentRule).toContain('min-width: 0');
+    expect(contentRule).not.toContain('max-width: 85%');
   });
 
   it('uses fixed icon-first controls for the compact model selector', () => {
@@ -113,6 +160,7 @@ describe('conversation split layout CSS', () => {
     const mainTitlebarCellRule = ruleBody(css, '.mainTitlebarCell');
     const mainFrameRule = ruleBody(css, '.mainFrame');
     const mainColumnFrozenRule = ruleBody(css, '.mainColumnFrozen');
+    const contentRule = ruleBody(css, '.content');
     const leftSeparatorRule = ruleBody(css, '.leftSidebarSeparator');
     const leftHandleRule = ruleBody(css, '.leftDragHandle');
     const rightPaneRule = ruleBody(css, '.rightToolsPane');
@@ -129,6 +177,9 @@ describe('conversation split layout CSS', () => {
     const toolMenuRule = ruleBody(titleBarCss, '.toolMenu');
 
     expect(layoutRule).toContain('--tools-dock-min-width: 380px');
+    expect(layoutRule).not.toContain('--environment-popover-width');
+    expect(css).not.toContain('contentWithEnvironment');
+    expect(css).not.toContain('environmentPopover');
     expect(layoutRule).toContain('flex-direction: row');
     expect(layoutRule).toContain('position: relative');
     expect(sidebarDockRule).toContain('height: 100%');
@@ -143,8 +194,10 @@ describe('conversation split layout CSS', () => {
     expect(mainFrameRule).toContain('grid-row: 2');
     expect(mainFrameRule).toContain('grid-column: 1');
     expect(mainFrameRule).toContain('flex: 1');
+    expect(mainFrameRule).not.toContain('padding-right');
     expect(mainFrameRule).not.toContain('transition: margin-right');
     expect(mainColumnFrozenRule).toContain('contain: layout style paint');
+    expect(contentRule).toContain('overflow: auto');
     expect(leftSeparatorRule).toContain('position: absolute');
     expect(leftSeparatorRule).toContain('top: 0');
     expect(leftSeparatorRule).toContain('bottom: 0');

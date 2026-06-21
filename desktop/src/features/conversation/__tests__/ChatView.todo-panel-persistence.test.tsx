@@ -64,6 +64,8 @@ vi.mock('@/stores/ui.js', () => ({
   uiStore: {
     connectionState: 'connected',
     setConnectionState: vi.fn(),
+    environmentPanelOpen: false,
+    rightToolsOverlay: false,
     isTodoPanelDismissed: (id: string) => state.dismissed.has(id),
     dismissTodoPanel: (id: string) => { state.dismissed.add(id); },
     restoreTodoPanel: (id: string) => { state.dismissed.delete(id); },

@@ -343,6 +343,11 @@
   background: var(--color-active-overlay);
 }
 
+.actionButtonActive {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
 /* Close button goes red on hover (convention) — uses the semantic error token. */
 .closeBtn:hover {
   background: var(--color-error);

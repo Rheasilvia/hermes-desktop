@@ -141,6 +141,7 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
   );
   const mainFrameStyle = createMemo<JSX.CSSProperties>(() => {
     return {
+      'box-sizing': 'border-box',
       display: 'flex',
       flex: '1 1 0',
       'min-width': '0',
@@ -148,15 +149,21 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
       overflow: 'hidden',
     };
   });
-  const workspaceGridStyle = createMemo<JSX.CSSProperties>(() => ({
-    'grid-template-columns': rightToolsDocked()
-      ? `minmax(0, 1fr) ${effectiveRightToolsWidth()}px`
-      : 'minmax(0, 1fr)',
-  }));
+  const workspaceGridStyle = createMemo<JSX.CSSProperties>(() => {
+    let columns = 'minmax(0, 1fr)';
+    if (rightToolsDocked()) {
+      columns = `minmax(0, 1fr) ${effectiveRightToolsWidth()}px`;
+    }
+    return { 'grid-template-columns': columns };
+  });
   const rightToolsPaneStyle = createMemo<JSX.CSSProperties | undefined>(() => {
     if (!rightToolsVisible()) return undefined;
     if (!rightToolsOverlay()) return undefined;
     return { width: `${effectiveRightToolsWidth()}px` };
+  });
+
+  createEffect(() => {
+    uiStore.setRightToolsOverlay(rightToolsOverlay());
   });
 
   const handleNewSession = async () => {
@@ -527,6 +534,9 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
               onNavigateForward={() => navigate(1)}
               onNewSession={handleNewSession}
               actionToolbarLeft={showPrimarySidebar() ? 'var(--space-2)' : undefined}
+              showEnvironmentToggle={isConversationRoute()}
+              environmentPanelOpen={uiStore.environmentPanelOpen}
+              onToggleEnvironmentPanel={() => uiStore.toggleEnvironmentPanel()}
             />
           </div>
           <div
