@@ -87,18 +87,6 @@
   position: relative;
 }
 
-.environmentPopover {
-  position: absolute;
-  top: var(--space-4);
-  right: var(--environment-popover-inline-gap);
-  z-index: var(--z-overlay);
-  width: min(var(--environment-popover-width), calc(100% - var(--space-10)));
-  max-height: calc(100% - var(--space-8));
-  min-width: 0;
-  overflow: visible;
-  pointer-events: auto;
-}
-
 .cardDock {
   position: absolute;
   bottom: 100%;

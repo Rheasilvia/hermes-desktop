@@ -15,6 +15,7 @@ const ruleBody = (css: string, selector: string) =>
 describe('conversation split layout CSS', () => {
   it('protects the chat pane with a split-layout minimum width token', () => {
     const css = readConversationCss('ChatView.module.css');
+    const overlayCss = readConversationCss('ChatEnvironmentOverlay.module.css');
     const chatBodyRule = ruleBody(css, '.chatBody');
     const chatPaneRule = ruleBody(css, '.chatPane');
     const messageListRule = ruleBody(css, '.messageList');
@@ -23,7 +24,7 @@ describe('conversation split layout CSS', () => {
     const inputAreaRule = ruleBody(css, '.inputArea');
     const inputAreaWithEnvironmentRule = ruleBody(css, '.inputAreaWithEnvironment');
     const inputColumnRule = ruleBody(css, '.inputColumn');
-    const environmentPopoverRule = ruleBody(css, '.environmentPopover');
+    const environmentPopoverRule = ruleBody(overlayCss, '.environmentPopover');
 
     expect(chatBodyRule).toContain('--conversation-chat-min-width: 560px');
     expect(chatBodyRule).toContain('--conversation-chat-max-width: 880px');
@@ -41,6 +42,7 @@ describe('conversation split layout CSS', () => {
     expect(inputColumnRule).toContain('width: min(100%, var(--conversation-chat-max-width))');
     expect(inputColumnRule).toContain('margin-inline: auto');
     expect(inputColumnRule).toContain('position: relative');
+    expect(css).not.toContain('environmentPopover');
     expect(environmentPopoverRule).toContain('position: absolute');
     expect(environmentPopoverRule).toContain('right: var(--environment-popover-inline-gap)');
     expect(environmentPopoverRule).toContain('z-index: var(--z-overlay)');

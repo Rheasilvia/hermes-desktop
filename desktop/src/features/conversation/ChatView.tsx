@@ -31,7 +31,7 @@ import { ModelSelector } from './ModelSelector.js';
 import { EmptyChatState } from './EmptyChatState.js';
 import { ErrorBanner } from './ErrorBanner.js';
 import { ConversationRecoveryBanner } from './ConversationRecoveryBanner.js';
-import { EnvironmentPanel } from './EnvironmentPanel.js';
+import { ChatEnvironmentOverlay } from './ChatEnvironmentOverlay.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { ClarificationCard } from './ClarificationCard.js';
 import { MemoryContextCard } from './MemoryContextCard.js';
@@ -46,15 +46,12 @@ import { createScrollController } from './scrollController.js';
 import { createCommandCardState } from './commandCardState.js';
 import { createSlashCommandRunner } from './slashCommandRunner.js';
 import { useGatewayEvents } from './eventSubscription.js';
+import { shouldShowEnvironmentOverlay } from './environmentOverlay.js';
 import styles from './ChatView.module.css';
 
 interface ChatViewProps {
   sessionId?: string;
 }
-
-const ENVIRONMENT_FLOATING_PANEL_WIDTH = 344;
-const ENVIRONMENT_FLOATING_RESERVED_WIDTH = ENVIRONMENT_FLOATING_PANEL_WIDTH + 40;
-const ENVIRONMENT_FLOATING_MIN_WIDTH = 880 + ENVIRONMENT_FLOATING_RESERVED_WIDTH;
 
 export interface PromptDisplayMetadata {
   text: string;
@@ -138,15 +135,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const maxVoiceRecordingSeconds = createMemo(() => getVoiceRecordingLimit(voiceConfig()));
   const [permissionModePending, setPermissionModePending] = createSignal(false);
   const [permissionModeAppliesNextTurn, setPermissionModeAppliesNextTurn] = createSignal(false);
-  const environmentPanelVisible = createMemo(() => {
-    const width = chatBodyWidth();
-    return uiStore.environmentPanelOpen
-      && !uiStore.rightToolsOverlay
-      && (
-        width === null
-        || width >= ENVIRONMENT_FLOATING_MIN_WIDTH
-      );
-  });
+  const environmentPanelVisible = createMemo(() => shouldShowEnvironmentOverlay({
+    chatBodyWidth: chatBodyWidth(),
+    environmentPanelOpen: uiStore.environmentPanelOpen,
+    rightToolsOverlay: uiStore.rightToolsOverlay,
+  }));
 
   const liveBlocks = createMemo((): MessageBlock[] => {
     const live = liveState();
@@ -892,19 +885,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           </div>
         </div>
 
-        <Show when={environmentPanelVisible()}>
-          <aside
-            class={styles.environmentPopover}
-            aria-label="Environment overview"
-            data-testid="environment-panel-popover"
-          >
-            <EnvironmentPanel
-              sessionId={sessionId()}
-              workspacePath={cwd()}
-            />
-          </aside>
-        </Show>
-
+        <ChatEnvironmentOverlay
+          visible={environmentPanelVisible()}
+          sessionId={sessionId()}
+          workspacePath={cwd()}
+        />
       </div>
     </div>
   );

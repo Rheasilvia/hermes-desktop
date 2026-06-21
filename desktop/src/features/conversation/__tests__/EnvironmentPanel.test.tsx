@@ -40,6 +40,15 @@ vi.mock('@/stores/context.js', () => ({
 }));
 
 import { EnvironmentPanel } from '../EnvironmentPanel.js';
+import { getEnvironmentWorkspaceName } from '../environmentPanelController.js';
+
+describe('getEnvironmentWorkspaceName', () => {
+  it('derives a stable display name from local workspace paths', () => {
+    expect(getEnvironmentWorkspaceName('/Users/me/project/')).toBe('project');
+    expect(getEnvironmentWorkspaceName('C:\\Users\\me\\project')).toBe('project');
+    expect(getEnvironmentWorkspaceName(null)).toBe('No workspace');
+  });
+});
 
 describe('EnvironmentPanel', () => {
   beforeEach(() => {
