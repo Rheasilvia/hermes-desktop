@@ -11,6 +11,25 @@
   padding-top: var(--titlebar-height);
 }
 
+/* ── Window drag strip (titlebar-height top edge) ───────────────────────────── */
+
+/* Mirrors the workspace TitleBar drag surface so the sidebar's top strip can
+   drag-move and double-click-maximize the frameless window. The strip sits
+   over the sidebar's top padding, so it never overlaps the New Chat button
+   or session list beneath it. */
+.dragStrip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar-height);
+  z-index: var(--z-sticky);
+  background: transparent;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* ── Top bar: New Chat ──────────────────────────────────────────────────────── */
 
 .topBar {
