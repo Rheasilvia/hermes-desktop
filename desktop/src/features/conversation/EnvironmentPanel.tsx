@@ -1,9 +1,7 @@
 import type { Component } from 'solid-js';
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
-import { gitViewStore } from '@/stores/git-view.js';
-import { sidePanelStore } from '@/stores/side-panel.js';
-import { getGateway } from '@/stores/context.js';
+import { For, Show } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { createEnvironmentPanelController } from './environmentPanelController.js';
 import styles from './EnvironmentPanel.module.css';
 
 interface EnvironmentPanelProps {
@@ -12,104 +10,7 @@ interface EnvironmentPanelProps {
 }
 
 export const EnvironmentPanel: Component<EnvironmentPanelProps> = (props) => {
-  const [currentBranch, setCurrentBranch] = createSignal<string | null>(null);
-  const [branches, setBranches] = createSignal<string[]>([]);
-  const [branchMenuOpen, setBranchMenuOpen] = createSignal(false);
-  const [branchLoading, setBranchLoading] = createSignal(false);
-  const [branchError, setBranchError] = createSignal<string | null>(null);
-  let branchRoot: HTMLDivElement | undefined;
-
-  const workspaceName = createMemo(() => {
-    const path = props.workspacePath;
-    if (!path) return 'No workspace';
-    const normalized = path.replace(/[\\/]+$/, '').replace(/\\/g, '/');
-    return normalized.split('/').filter(Boolean).pop() ?? path;
-  });
-
-  const diffSummary = createMemo(() => gitViewStore.diffData()?.summary ?? null);
-  const hasWorkspace = createMemo(() => Boolean(props.sessionId && props.workspacePath));
-  const branchLabel = createMemo(() => {
-    if (branchLoading()) return 'Loading branch';
-    return currentBranch() ?? 'No branch';
-  });
-
-  const loadBranches = async (sessionId: string) => {
-    setBranchLoading(true);
-    setBranchError(null);
-    try {
-      const info = await getGateway()?.git.branches(sessionId);
-      if (!info) throw new Error('Gateway is not initialized');
-      setCurrentBranch(info.current || null);
-      setBranches(info.branches);
-    } catch (error) {
-      setCurrentBranch(null);
-      setBranches([]);
-      setBranchError(error instanceof Error ? error.message : 'Could not load branches');
-    } finally {
-      setBranchLoading(false);
-    }
-  };
-
-  createEffect(() => {
-    const sessionId = props.sessionId;
-    const workspacePath = props.workspacePath;
-    setBranchMenuOpen(false);
-    if (!sessionId || !workspacePath) {
-      setCurrentBranch(null);
-      setBranches([]);
-      setBranchError(null);
-      return;
-    }
-    void gitViewStore.fetchDiff();
-    void loadBranches(sessionId);
-  });
-
-  createEffect(() => {
-    if (!branchMenuOpen()) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && branchRoot?.contains(target)) return;
-      setBranchMenuOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setBranchMenuOpen(false);
-    };
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    onCleanup(() => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    });
-  });
-
-  const openReview = () => sidePanelStore.openTab('review');
-  const openFiles = () => sidePanelStore.openTab('files');
-  const requestAddTool = () => {
-    sidePanelStore.open();
-    sidePanelStore.requestToolMenuOpen();
-  };
-
-  const toggleBranchMenu = () => {
-    if (!hasWorkspace() || branches().length === 0) return;
-    setBranchMenuOpen((open) => !open);
-  };
-
-  const selectBranch = async (branch: string) => {
-    const sessionId = props.sessionId;
-    if (!sessionId) return;
-    setBranchMenuOpen(false);
-    setBranchError(null);
-    try {
-      const gateway = getGateway();
-      if (!gateway) throw new Error('Gateway is not initialized');
-      await gateway.git.checkout(sessionId, branch);
-      setCurrentBranch(branch);
-      await loadBranches(sessionId);
-      await gitViewStore.fetchDiff();
-    } catch (error) {
-      setBranchError(error instanceof Error ? error.message : 'Could not switch branches');
-    }
-  };
+  const controller = createEnvironmentPanelController(props);
 
   return (
     <section class={styles.shell} aria-label="Environment panel">
@@ -121,20 +22,20 @@ export const EnvironmentPanel: Component<EnvironmentPanelProps> = (props) => {
             class={styles.addButton}
             aria-label="Add environment tool"
             title="Add tool tab"
-            onClick={requestAddTool}
+            onClick={controller.requestAddTool}
           >
             <Icon name="plus" size={16} strokeWidth={1.7} />
           </button>
         </header>
 
         <div class={styles.rows}>
-          <button type="button" class={styles.row} onClick={openReview} aria-label="Open git changes">
+          <button type="button" class={styles.row} onClick={controller.openReview} aria-label="Open git changes">
             <span class={styles.iconSlot}><Icon name="clipboard-list" size={16} strokeWidth={1.7} /></span>
             <span class={styles.rowText}>
               <span class={styles.rowTitle}>Changes</span>
             </span>
             <span class={styles.changeStats} aria-label="Change summary">
-              <Show when={diffSummary()} fallback={<span class={styles.mutedValue}>No diff</span>}>
+              <Show when={controller.diffSummary()} fallback={<span class={styles.mutedValue}>No diff</span>}>
                 {(summary) => (
                   <>
                     <span class={styles.insertions}>+{summary().insertions.toLocaleString()}</span>
@@ -145,49 +46,49 @@ export const EnvironmentPanel: Component<EnvironmentPanelProps> = (props) => {
             </span>
           </button>
 
-          <button type="button" class={styles.row} onClick={openFiles} aria-label="Open local workspace">
+          <button type="button" class={styles.row} onClick={controller.openFiles} aria-label="Open local workspace">
             <span class={styles.iconSlot}><Icon name="monitor" size={16} strokeWidth={1.7} /></span>
             <span class={styles.rowText}>
               <span class={styles.rowTitle}>Local</span>
-              <span class={styles.rowSubtitle} title={props.workspacePath ?? undefined}>{workspaceName()}</span>
+              <span class={styles.rowSubtitle} title={props.workspacePath ?? undefined}>{controller.workspaceName()}</span>
             </span>
             <Icon name="chevron-right" size={14} class={styles.trailingIcon} />
           </button>
 
-          <div class={styles.branchRoot} ref={(el) => { branchRoot = el; }}>
+          <div class={styles.branchRoot} ref={controller.setBranchRoot}>
             <button
               type="button"
               class={styles.row}
-              classList={{ [styles.rowDisabled]: !hasWorkspace() || branches().length === 0 }}
-              disabled={!hasWorkspace() || branches().length === 0}
-              onClick={toggleBranchMenu}
+              classList={{ [styles.rowDisabled]: controller.branchDisabled() }}
+              disabled={controller.branchDisabled()}
+              onClick={controller.toggleBranchMenu}
               aria-label="Switch git branch"
               aria-haspopup="menu"
-              aria-expanded={branchMenuOpen()}
+              aria-expanded={controller.branchMenuOpen()}
             >
               <span class={styles.iconSlot}><Icon name="git-branch" size={16} strokeWidth={1.7} /></span>
               <span class={styles.rowText}>
-                <span class={styles.rowTitle}>{branchLabel()}</span>
-                <Show when={branchError()}>
-                  <span class={styles.rowSubtitle}>{branchError()}</span>
+                <span class={styles.rowTitle}>{controller.branchLabel()}</span>
+                <Show when={controller.branchError()}>
+                  <span class={styles.rowSubtitle}>{controller.branchError()}</span>
                 </Show>
               </span>
               <Icon name="chevron-down" size={14} class={styles.trailingIcon} />
             </button>
-            <Show when={branchMenuOpen()}>
+            <Show when={controller.branchMenuOpen()}>
               <div class={styles.branchMenu} role="menu" aria-label="Git branches">
-                <For each={branches()}>
+                <For each={controller.branches()}>
                   {(branch) => (
                     <button
                       type="button"
                       class={styles.branchItem}
-                      classList={{ [styles.branchItemCurrent]: branch === currentBranch() }}
+                      classList={{ [styles.branchItemCurrent]: branch === controller.currentBranch() }}
                       role="menuitem"
-                      onClick={() => void selectBranch(branch)}
+                      onClick={() => void controller.selectBranch(branch)}
                     >
                       <span
                         class={styles.checkSlot}
-                        classList={{ [styles.checkSlotVisible]: branch === currentBranch() }}
+                        classList={{ [styles.checkSlotVisible]: branch === controller.currentBranch() }}
                       >
                         <Icon name="check" size={12} strokeWidth={2} />
                       </span>
@@ -228,10 +129,10 @@ export const EnvironmentPanel: Component<EnvironmentPanelProps> = (props) => {
 
         <section class={styles.sourcesSection} aria-label="Sources">
           <h3 class={styles.sectionTitle}>Sources</h3>
-          <button type="button" class={styles.row} onClick={openFiles} aria-label="Open source workspace">
+          <button type="button" class={styles.row} onClick={controller.openFiles} aria-label="Open source workspace">
             <span class={styles.iconSlot}><Icon name="code" size={16} strokeWidth={1.7} /></span>
             <span class={styles.rowText}>
-              <span class={styles.rowTitle}>{workspaceName()}</span>
+              <span class={styles.rowTitle}>{controller.workspaceName()}</span>
               <span class={styles.rowSubtitle} title={props.workspacePath ?? undefined}>
                 {props.workspacePath ?? 'No workspace selected'}
               </span>
