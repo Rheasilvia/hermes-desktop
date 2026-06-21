@@ -29,6 +29,9 @@ interface TitleBarProps {
   onNavigateForward: () => void;
   onNewSession: () => void;
   actionToolbarLeft?: string;
+  showEnvironmentToggle?: boolean;
+  environmentPanelOpen?: boolean;
+  onToggleEnvironmentPanel?: () => void;
 }
 
 /** Lazily-resolved handle to the current Tauri window, or null off-Tauri. */
@@ -211,6 +214,20 @@ export const TitleBar: Component<TitleBarProps> = (props) => {
 
       {/* Right group: closed-dock entry point + optional window controls. */}
       <div class={styles.rightGroup} data-testid="titlebar-right-group">
+        <Show when={props.showEnvironmentToggle}>
+          <button
+            type="button"
+            class={styles.actionButton}
+            classList={{ [styles.actionButtonActive]: Boolean(props.environmentPanelOpen) }}
+            title={props.environmentPanelOpen ? 'Hide Environment panel' : 'Show Environment panel'}
+            aria-label={props.environmentPanelOpen ? 'Hide Environment panel' : 'Show Environment panel'}
+            aria-pressed={Boolean(props.environmentPanelOpen)}
+            onMouseDown={blockDrag}
+            onClick={props.onToggleEnvironmentPanel}
+          >
+            <Icon name="monitor" size={15} strokeWidth={1.5} />
+          </button>
+        </Show>
         <Show when={!toolsDockActive()}>
           <button
             type="button"

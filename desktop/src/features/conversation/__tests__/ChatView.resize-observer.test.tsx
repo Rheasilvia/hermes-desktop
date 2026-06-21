@@ -6,7 +6,15 @@ import type { ScrollController } from '../scrollController';
 const handleViewportResize = vi.fn();
 const observe = vi.fn();
 const disconnect = vi.fn();
-let resizeCallbacks: ResizeObserverCallback[] = [];
+let resizeObserverRecords: Array<{
+  callback: ResizeObserverCallback;
+  targets: Element[];
+}> = [];
+
+const uiState = vi.hoisted(() => ({
+  environmentPanelOpen: true,
+  rightToolsOverlay: false,
+}));
 
 vi.mock('@solidjs/router', () => ({
   useNavigate: () => vi.fn(),
@@ -73,6 +81,8 @@ vi.mock('@/stores/ui.js', () => ({
   uiStore: {
     connectionState: 'connected',
     setConnectionState: vi.fn(),
+    get environmentPanelOpen() { return uiState.environmentPanelOpen; },
+    get rightToolsOverlay() { return uiState.rightToolsOverlay; },
     isTodoPanelDismissed: () => false,
     dismissTodoPanel: vi.fn(),
     restoreTodoPanel: vi.fn(),
@@ -175,6 +185,15 @@ vi.mock('../RightToolPanel.js', () => ({ RightToolPanel: stubComponent('right-to
 vi.mock('../EmptyChatState.js', () => ({ EmptyChatState: stubComponent('empty-chat-state') }));
 vi.mock('../ErrorBanner.js', () => ({ ErrorBanner: stubComponent('error-banner') }));
 vi.mock('../ConversationRecoveryBanner.js', () => ({ ConversationRecoveryBanner: stubComponent('recovery-banner') }));
+vi.mock('../EnvironmentPanel.js', () => ({
+  EnvironmentPanel: (props: { sessionId: string | null; workspacePath: string | null }) => (
+    <aside
+      data-testid="environment-panel"
+      data-session-id={props.sessionId ?? ''}
+      data-workspace-path={props.workspacePath ?? ''}
+    />
+  ),
+}));
 vi.mock('@/ui/atoms/Icon.js', () => ({ Icon: stubComponent('icon') }));
 vi.mock('../ClarificationCard.js', () => ({ ClarificationCard: stubComponent('clarification-card') }));
 vi.mock('../MemoryContextCard.js', () => ({ MemoryContextCard: stubComponent('memory-context-card') }));
@@ -189,14 +208,22 @@ describe('ChatView composer resize anchoring', () => {
     handleViewportResize.mockClear();
     observe.mockClear();
     disconnect.mockClear();
-    resizeCallbacks = [];
+    resizeObserverRecords = [];
+    uiState.environmentPanelOpen = true;
+    uiState.rightToolsOverlay = false;
 
     class ResizeObserverMock {
+      private readonly record: { callback: ResizeObserverCallback; targets: Element[] };
+
       constructor(callback: ResizeObserverCallback) {
-        resizeCallbacks.push(callback);
+        this.record = { callback, targets: [] };
+        resizeObserverRecords.push(this.record);
       }
 
-      observe = observe;
+      observe = (element: Element) => {
+        observe(element);
+        this.record.targets.push(element);
+      };
       disconnect = disconnect;
     }
 
@@ -218,12 +245,61 @@ describe('ChatView composer resize anchoring', () => {
     expect(composerTarget?.contains(rendered.getByTestId('jump-to-bottom'))).toBe(false);
     expect(composerTarget?.contains(rendered.getByTestId('prompt-dock'))).toBe(false);
 
-    for (const callback of resizeCallbacks) {
-      callback([], {} as ResizeObserver);
+    for (const record of resizeObserverRecords) {
+      record.callback([], {} as ResizeObserver);
     }
 
     expect(handleViewportResize).toHaveBeenCalledTimes(1);
     rendered.unmount();
-    expect(disconnect).toHaveBeenCalledTimes(resizeCallbacks.length);
+    expect(disconnect).toHaveBeenCalledTimes(resizeObserverRecords.length);
+  });
+
+  it('renders the Environment panel inside the chat body and reserves internal chat space', async () => {
+    const { ChatView } = await import('../ChatView.js');
+    const rendered = render(() => <ChatView sessionId="session-resize" />);
+    const chatBody = rendered.getByTestId('chat-body');
+    const chatBodyObserver = resizeObserverRecords.find((record) => record.targets.includes(chatBody));
+
+    chatBodyObserver?.callback([
+      { contentRect: { width: 1320 } } as ResizeObserverEntry,
+    ], {} as ResizeObserver);
+
+    const popover = rendered.getByTestId('environment-panel-popover');
+    expect(popover.parentElement).toBe(chatBody);
+    expect(rendered.getByTestId('environment-panel').getAttribute('data-session-id')).toBe('session-resize');
+    expect(rendered.getByTestId('environment-panel').getAttribute('data-workspace-path')).toBe('/repo');
+    expect(rendered.getByTestId('chat-message-list').className).toContain('messageListWithEnvironment');
+    expect(rendered.getByTestId('chat-input-area').className).toContain('inputAreaWithEnvironment');
+  });
+
+  it('hides the Environment panel when disabled, overlayed, or too narrow', async () => {
+    const { ChatView } = await import('../ChatView.js');
+
+    uiState.environmentPanelOpen = false;
+    let rendered = render(() => <ChatView sessionId="session-resize" />);
+    resizeObserverRecords
+      .find((record) => record.targets.includes(rendered.getByTestId('chat-body')))
+      ?.callback([{ contentRect: { width: 1320 } } as ResizeObserverEntry], {} as ResizeObserver);
+    expect(rendered.queryByTestId('environment-panel-popover')).toBeNull();
+    expect(rendered.getByTestId('chat-message-list').className).not.toContain('messageListWithEnvironment');
+    rendered.unmount();
+
+    uiState.environmentPanelOpen = true;
+    uiState.rightToolsOverlay = true;
+    rendered = render(() => <ChatView sessionId="session-resize" />);
+    resizeObserverRecords
+      .find((record) => record.targets.includes(rendered.getByTestId('chat-body')))
+      ?.callback([{ contentRect: { width: 1320 } } as ResizeObserverEntry], {} as ResizeObserver);
+    expect(rendered.queryByTestId('environment-panel-popover')).toBeNull();
+    rendered.unmount();
+
+    uiState.rightToolsOverlay = false;
+    rendered = render(() => <ChatView sessionId="session-resize" />);
+    resizeObserverRecords
+      .find((record) => record.targets.includes(rendered.getByTestId('chat-body')))
+      ?.callback([{ contentRect: { width: 900 } } as ResizeObserverEntry], {} as ResizeObserver);
+    expect(rendered.queryByTestId('environment-panel-popover')).toBeNull();
+    expect(rendered.getByTestId('chat-input-area').className).not.toContain('inputAreaWithEnvironment');
+    rendered.unmount();
   });
 });

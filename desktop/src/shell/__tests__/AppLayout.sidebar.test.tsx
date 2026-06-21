@@ -37,14 +37,24 @@ vi.mock('@/shell/TitleBar', () => ({
     onNavigateBack: () => void;
     onNavigateForward: () => void;
     actionToolbarLeft?: string;
+    showEnvironmentToggle?: boolean;
+    environmentPanelOpen?: boolean;
+    onToggleEnvironmentPanel?: () => void;
   }) => (
     <header
       aria-label="Hermes window titlebar"
       data-action-toolbar-left={props.actionToolbarLeft ?? 'default'}
+      data-show-environment-toggle={String(Boolean(props.showEnvironmentToggle))}
+      data-environment-panel-open={String(Boolean(props.environmentPanelOpen))}
     >
       <button type="button" onClick={props.onToggleSidebar}>Toggle Sidebar</button>
       <button type="button" onClick={props.onNavigateBack}>Back</button>
       <button type="button" onClick={props.onNavigateForward}>Forward</button>
+      {props.showEnvironmentToggle ? (
+        <button type="button" onClick={props.onToggleEnvironmentPanel}>
+          {props.environmentPanelOpen ? 'Hide Environment panel' : 'Show Environment panel'}
+        </button>
+      ) : null}
     </header>
   ),
 }));
@@ -196,6 +206,8 @@ describe('AppLayout sidebar titlebar controls', () => {
     sidePanelState.setPanelWidth.mockClear();
     uiStore.setSidebarCollapsed(false);
     uiStore.setSidebarWidth(240);
+    uiStore.setEnvironmentPanelOpen(true);
+    uiStore.setRightToolsOverlay(false);
   });
 
   afterEach(() => {
@@ -219,6 +231,9 @@ describe('AppLayout sidebar titlebar controls', () => {
     expect(splitGrid.parentElement).toBe(workspaceFrame);
     expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr)');
     expect(contentFrame.style.display).toBe('flex');
+    expect(contentFrame.style.paddingRight).toBe('');
+    expect(contentFrame.style.boxSizing).toBe('border-box');
+    expect(screen.queryByTestId('environment-panel-popover')).toBeNull();
     expect(screen.queryByLabelText('Primary sidebar')).not.toBeNull();
     expect(screen.queryByTestId('left-sidebar-separator')).not.toBeNull();
     expect(screen.getByLabelText('Hermes window titlebar').getAttribute('data-action-toolbar-left')).toBe('var(--space-2)');
@@ -228,6 +243,7 @@ describe('AppLayout sidebar titlebar controls', () => {
     expect(screen.queryByTestId('sidebar-dock')).toBeNull();
     expect(screen.queryByTestId('left-sidebar-separator')).toBeNull();
     expect(screen.getByLabelText('Hermes window titlebar').getAttribute('data-action-toolbar-left')).toBe('default');
+    expect(screen.getByLabelText('Hermes window titlebar').getAttribute('data-show-environment-toggle')).toBe('true');
 
     await fireEvent.click(screen.getByRole('button', { name: 'Toggle Sidebar' }));
     expect(screen.queryByLabelText('Primary sidebar')).not.toBeNull();
@@ -245,6 +261,49 @@ describe('AppLayout sidebar titlebar controls', () => {
     expect(screen.queryByTestId('left-sidebar-separator')).toBeNull();
     expect(screen.getByLabelText('Hermes window titlebar').getAttribute('data-action-toolbar-left')).toBe('default');
     expect(screen.getByText('Settings')).not.toBeNull();
+    expect(screen.queryByTestId('environment-panel-popover')).toBeNull();
+    expect(screen.getByLabelText('Hermes window titlebar').getAttribute('data-show-environment-toggle')).toBe('false');
+  });
+
+  test('conversation routes leave the Environment panel to ChatView instead of shell layout', () => {
+    sidePanelState.open = false;
+
+    render(() => <AppLayout><div>Conversation</div></AppLayout>);
+
+    expect(screen.queryByTestId('right-tools-dock')).toBeNull();
+    expect(screen.queryByTestId('environment-panel-popover')).toBeNull();
+    expect(screen.getByTestId('workspace-split-grid').style.gridTemplateColumns).toBe('minmax(0, 1fr)');
+    expect(screen.getByTestId('workspace-content-frame').style.paddingRight).toBe('');
+  });
+
+  test('titlebar Environment icon toggles shared state independently of tools', async () => {
+    sidePanelState.open = false;
+
+    render(() => <AppLayout><div>Conversation</div></AppLayout>);
+
+    expect(uiStore.environmentPanelOpen).toBe(true);
+    expect(screen.getByRole('button', { name: 'Hide Environment panel' })).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Hide Environment panel' }));
+
+    expect(uiStore.environmentPanelOpen).toBe(false);
+    expect(screen.queryByTestId('right-tools-dock')).toBeNull();
+    expect(screen.getByTestId('workspace-content-frame').style.paddingRight).toBe('');
+    expect(screen.getByRole('button', { name: 'Show Environment panel' })).toBeTruthy();
+  });
+
+  test('conversation routes do not reserve shell space when the split is narrow', async () => {
+    const resizeLayout = stubLayoutResize(900);
+    sidePanelState.open = false;
+
+    render(() => <AppLayout><div>Conversation</div></AppLayout>);
+    resizeLayout(900);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('environment-panel-popover')).toBeNull();
+    });
+    expect(screen.getByTestId('workspace-split-grid').style.gridTemplateColumns).toBe('minmax(0, 1fr)');
+    expect(screen.getByTestId('workspace-content-frame').style.paddingRight).toBe('');
   });
 
   test('conversation routes render a split-grid right tools pane when open', () => {
@@ -255,6 +314,7 @@ describe('AppLayout sidebar titlebar controls', () => {
     expect(screen.queryByLabelText('Hermes window titlebar')).not.toBeNull();
     expect(screen.queryByLabelText('Right tools dock')).not.toBeNull();
     expect(screen.queryByTestId('right-tools-dock')).not.toBeNull();
+    expect(screen.queryByTestId('environment-panel-popover')).toBeNull();
     expect(screen.getByTestId('workspace-split-grid').style.gridTemplateColumns).toBe('minmax(0, 1fr) 500px');
     expect(screen.getByTestId('right-tools-separator').style.top).toBe('0px');
     expect(screen.getByTestId('right-tools-drag-handle').style.top).toBe('0px');
@@ -268,6 +328,7 @@ describe('AppLayout sidebar titlebar controls', () => {
     render(() => <AppLayout><div>Settings</div></AppLayout>);
 
     expect(screen.queryByLabelText('Right tools dock')).toBeNull();
+    expect(screen.queryByTestId('environment-panel-popover')).toBeNull();
   });
 
   test('titlebar back and forward buttons use router history deltas', async () => {
@@ -438,6 +499,7 @@ describe('AppLayout sidebar titlebar controls', () => {
     expect(screen.queryByTestId('right-tools-drag-handle')).toBeNull();
     expect(screen.getByTestId('tool-dock-toolbar')).toBeTruthy();
     expect(screen.getByTestId('right-tools-content')).toBeTruthy();
+    expect(uiStore.rightToolsOverlay).toBe(true);
 
     resizeLayout(1200);
     await waitFor(() => {
@@ -448,6 +510,7 @@ describe('AppLayout sidebar titlebar controls', () => {
     await waitFor(() => {
       expect(screen.getByTestId('right-tool-panel').getAttribute('data-overlay')).toBe('false');
     });
+    expect(uiStore.rightToolsOverlay).toBe(false);
     expect(screen.queryByTestId('right-tools-separator')).not.toBeNull();
   });
 
