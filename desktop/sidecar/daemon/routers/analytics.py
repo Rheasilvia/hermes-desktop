@@ -7,6 +7,7 @@ from typing import List
 
 from fastapi import APIRouter, Query, Request
 
+from ..services.dependencies import get_active_hermes_home
 from ..schemas.analytics import (
     ModelAnalyticsResponse,
     ModelCapabilities,
@@ -45,8 +46,7 @@ async def get_model_analytics(
     request: Request,
     days: int = Query(default=30, ge=1, le=365),
 ) -> ModelAnalyticsResponse:
-    cfg = request.app.state.cfg
-    db_path: Path = cfg.hermes_home / "state.db"
+    db_path: Path = get_active_hermes_home(request) / "state.db"
 
     models: List[ModelUsageStat] = []
 

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from ..schemas.mcp import McpReloadResponse, McpServerCreate, PatchMcpServerDesktopRequest
+from ..services.dependencies import get_active_hermes_home, get_agent_pool
 from ..services.mcp_service import McpService
 
 router = APIRouter()
 
 
 def _service(request: Request) -> McpService:
-    return McpService(request.app.state.cfg.hermes_home)
+    return McpService(get_active_hermes_home(request))
 
 
 @router.get("/mcp/servers")
@@ -35,8 +36,7 @@ def patch_desktop(name: str, body: PatchMcpServerDesktopRequest, request: Reques
 
 
 @router.post("/mcp/reload")
-def reload_mcp(request: Request) -> dict:
-    agent_pool = getattr(request.app.state, "agent_pool", None)
+def reload_mcp(request: Request, agent_pool=Depends(get_agent_pool)) -> dict:
     items, generated_at, refreshed_agents = _service(request).reload(agent_pool=agent_pool)
     return McpReloadResponse(
         items=items,

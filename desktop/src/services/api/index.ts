@@ -9,6 +9,7 @@ import { makeModelTransport } from './transports/http/model';
 import { makeOAuthTransport } from './transports/http/oauth';
 import { makeOverlayTransport } from './transports/http/overlays';
 import { makePluginsTransport } from './transports/http/plugins';
+import { makeProfilesTransport } from './transports/http/profiles';
 import { makeSessionTransport } from './transports/http/session';
 import { makeSettingsTransport } from './transports/http/settings';
 import { makeSkillsTransport } from './transports/http/skills';
@@ -48,6 +49,10 @@ export type {
   PluginInstallResponse,
   PluginProvidersRequest,
   PluginVisibilityRequest,
+  ProfileCreateRequest,
+  ProfileInfo,
+  ProfilesResponse,
+  ProfileUpdateRequest,
 } from './types';
 export { api } from './router';
 export { isApiError } from './types';
@@ -68,6 +73,7 @@ export function bootstrapApi(): void {
   api.register('oauth', makeOAuthTransport(httpClient));
   api.register('overlays', makeOverlayTransport(httpClient));
   api.register('plugins', makePluginsTransport(httpClient));
+  api.register('profiles', makeProfilesTransport(httpClient));
   api.register('session', makeSessionTransport(httpClient));
   api.register('settings', makeSettingsTransport(httpClient));
   api.register('config', makeConfigTransport(httpClient));

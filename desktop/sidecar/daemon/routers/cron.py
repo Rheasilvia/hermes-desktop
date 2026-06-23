@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request
 
 from ..schemas.cron import CreateCronJobRequest, UpdateCronJobRequest
+from ..services.dependencies import get_active_hermes_home
 from ..services.cron_service import CronService
 
 router = APIRouter()
@@ -16,7 +17,7 @@ def _now_iso() -> str:
 
 
 def _service(request: Request) -> CronService:
-    return CronService(request.app.state.cfg.hermes_home)
+    return CronService(get_active_hermes_home(request))
 
 
 @router.get("/cron/jobs")

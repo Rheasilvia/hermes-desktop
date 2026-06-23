@@ -288,6 +288,7 @@ def build_app(cfg: Config) -> FastAPI:
         mcp,
         tools as tools_router,
         plugins as plugins_router,
+        profiles as profiles_router,
         conversations as conversations_router,
         commands as commands_router,
         delegation as delegation_router,
@@ -312,6 +313,7 @@ def build_app(cfg: Config) -> FastAPI:
     app.include_router(mcp.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(tools_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(plugins_router.router, prefix=API_PREFIX, dependencies=deps)
+    app.include_router(profiles_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(conversations_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(commands_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(delegation_router.router, prefix=API_PREFIX, dependencies=deps)

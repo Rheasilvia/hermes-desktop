@@ -7,6 +7,7 @@ describe("api registry boundary", () => {
     expect(typeof api.config).toBe("function");
     expect(typeof api.model).toBe("function");
     expect(typeof api.overlays).toBe("function");
+    expect(typeof api.profiles).toBe("function");
     expect(typeof api.settings).toBe("function");
     expect(typeof api.state).toBe("function");
   });

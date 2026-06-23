@@ -24,6 +24,7 @@ from .schemas import (
     WriteFileRequest,
 )
 from . import service as svc
+from ...services.dependencies import get_active_hermes_home
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -57,8 +58,8 @@ def _project_to_model(p: svc.MemoryProject) -> MemoryProject:
 
 @router.get("/projects", response_model=MemoryProjectListResponse)
 async def list_projects(request: Request) -> MemoryProjectListResponse:
-    cfg = request.app.state.cfg
-    projects = svc.list_projects(cfg.hermes_home)
+    hermes_home = get_active_hermes_home(request)
+    projects = svc.list_projects(hermes_home)
     return MemoryProjectListResponse(projects=[_project_to_model(p) for p in projects])
 
 
@@ -68,12 +69,12 @@ async def list_files(
     scope: str = Query(..., pattern="^(user|project)$"),
     workspace: Optional[str] = Query(default=None),
 ) -> MemoryFileListResponse:
-    cfg = request.app.state.cfg
-    known = svc.list_known_workspaces(cfg.hermes_home)
+    hermes_home = get_active_hermes_home(request)
+    known = svc.list_known_workspaces(hermes_home)
     files = svc.list_files(
         scope,  # type: ignore[arg-type]
         workspace,
-        hermes_home=cfg.hermes_home,
+        hermes_home=hermes_home,
         known_workspaces=known,
     )
     return MemoryFileListResponse(files=[_info_to_model(f) for f in files])
@@ -86,13 +87,13 @@ async def read_file(
     name: str = Query(...),
     workspace: Optional[str] = Query(default=None),
 ) -> MemoryFileWithContent:
-    cfg = request.app.state.cfg
-    known = svc.list_known_workspaces(cfg.hermes_home)
+    hermes_home = get_active_hermes_home(request)
+    known = svc.list_known_workspaces(hermes_home)
     payload = svc.read_file(
         scope,  # type: ignore[arg-type]
         workspace,
         name,
-        hermes_home=cfg.hermes_home,
+        hermes_home=hermes_home,
         known_workspaces=known,
     )
     return _content_to_model(payload)
@@ -105,15 +106,15 @@ async def write_file(
     response: Response,
     if_match: Optional[str] = Header(default=None, alias="If-Match"),
 ) -> MemoryFileWithContent:
-    cfg = request.app.state.cfg
-    known = svc.list_known_workspaces(cfg.hermes_home)
+    hermes_home = get_active_hermes_home(request)
+    known = svc.list_known_workspaces(hermes_home)
     payload = svc.write_file(
         body.scope,
         body.workspace,
         body.name,
         body.content,
         if_match,
-        hermes_home=cfg.hermes_home,
+        hermes_home=hermes_home,
         known_workspaces=known,
     )
     if payload.info.modified_at:
@@ -126,13 +127,13 @@ async def search(
     request: Request,
     body: SearchRequest,
 ) -> MemorySearchResponse:
-    cfg = request.app.state.cfg
-    known = svc.list_known_workspaces(cfg.hermes_home)
+    hermes_home = get_active_hermes_home(request)
+    known = svc.list_known_workspaces(hermes_home)
     hits = svc.search(
         body.query,
         body.scope,
         body.workspace,
-        hermes_home=cfg.hermes_home,
+        hermes_home=hermes_home,
         known_workspaces=known,
     )
     return MemorySearchResponse(hits=[_hit_to_model(h) for h in hits])

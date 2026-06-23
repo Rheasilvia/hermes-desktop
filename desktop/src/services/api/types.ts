@@ -84,6 +84,54 @@ export interface Settings {
   ui: Record<string, unknown>;
 }
 
+export interface ProfileInfo {
+  id: string;
+  name: string;
+  hermesHome: string;
+  path: string;
+  isDefault: boolean;
+  archived: boolean;
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt: number | null;
+  model: string | null;
+  provider: string | null;
+  hasEnv: boolean;
+  skillCount: number;
+  sessionCount: number;
+  soul: string;
+  setupCommand: string;
+}
+
+export interface ProfilesResponse {
+  profiles: ProfileInfo[];
+  activeProfileId: string;
+  activeProfile: ProfileInfo;
+}
+
+export interface ActiveProfileResponse {
+  activeProfileId: string;
+  profile: ProfileInfo;
+}
+
+export interface ProfileCreateRequest {
+  name: string;
+  cloneFrom?: string | null;
+  soul?: string | null;
+}
+
+export interface ProfileUpdateRequest {
+  name?: string | null;
+  soul?: string | null;
+  isDefault?: boolean | null;
+}
+
+export interface ProfileSessionsResponse<TSession> {
+  sessions: TSession[];
+  total: number;
+  profileTotals: Record<string, number>;
+}
+
 export type HermesConfigRecord = Record<string, unknown>;
 
 export interface ConfigFieldSchema {
@@ -159,7 +207,7 @@ export function isApiError(e: unknown): e is ApiError {
   );
 }
 
-export type Domain = 'analytics' | 'config' | 'cron' | 'mcp' | 'model' | 'overlays' | 'plugins' | 'settings' | 'skills' | 'state' | 'tools';
+export type Domain = 'analytics' | 'config' | 'cron' | 'mcp' | 'model' | 'overlays' | 'plugins' | 'profiles' | 'settings' | 'skills' | 'state' | 'tools';
 
 export interface PluginRow {
   name: string;

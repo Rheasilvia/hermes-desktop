@@ -7,6 +7,7 @@ import type { ModelTransport } from './transports/http/model';
 import type { OAuthTransport } from './transports/http/oauth';
 import type { OverlayTransport } from './transports/http/overlays';
 import type { PluginsTransport } from './transports/http/plugins';
+import type { ProfilesTransport } from './transports/http/profiles';
 import type { SessionTransport } from './transports/http/session';
 import type { SettingsTransport } from './transports/http/settings';
 import type { SkillsTransport } from './transports/http/skills';
@@ -23,6 +24,7 @@ type Slot =
   | { kind: 'oauth'; impl: OAuthTransport }
   | { kind: 'overlays'; impl: OverlayTransport }
   | { kind: 'plugins'; impl: PluginsTransport }
+  | { kind: 'profiles'; impl: ProfilesTransport }
   | { kind: 'session'; impl: SessionTransport }
   | { kind: 'settings'; impl: SettingsTransport }
   | { kind: 'skills'; impl: SkillsTransport }
@@ -71,6 +73,9 @@ export class ApiRegistry {
   }
   plugins(): PluginsTransport {
     return this.resolve<PluginsTransport>('plugins');
+  }
+  profiles(): ProfilesTransport {
+    return this.resolve<ProfilesTransport>('profiles');
   }
   settings(): SettingsTransport {
     return this.resolve<SettingsTransport>('settings');
