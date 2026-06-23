@@ -14,6 +14,8 @@ from typing import Any, Callable
 
 import yaml
 
+from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+
 from .exceptions import ProviderNotFoundError
 
 log = logging.getLogger(__name__)
@@ -44,6 +46,15 @@ def _hermes_home_env(hermes_home: Path):
             os.environ.pop("HERMES_HOME", None)
         else:
             os.environ["HERMES_HOME"] = previous
+
+
+@contextmanager
+def _hermes_home_scope(hermes_home: Path):
+    token = set_hermes_home_override(hermes_home)
+    try:
+        yield
+    finally:
+        reset_hermes_home_override(token)
 
 
 def _now_iso() -> str:
@@ -433,9 +444,7 @@ class ModelService:
 
     def get_auxiliary_models(self) -> dict:
         """Return current auxiliary task assignments + the active main model."""
-        from hermes_cli.config import load_config  # type: ignore[import]
-
-        cfg = load_config()
+        cfg = self._load_profile_config()
         aux_cfg = cfg.get("auxiliary", {})
         if not isinstance(aux_cfg, dict):
             aux_cfg = {}
@@ -469,9 +478,7 @@ class ModelService:
 
         Mirrors hermes_cli/web_server.py set_model_assignment semantics exactly.
         """
-        from hermes_cli.config import load_config, save_config  # type: ignore[import]
-
-        cfg = load_config()
+        cfg = self._load_profile_config()
 
         if scope == "main":
             if not provider or not model:
@@ -505,7 +512,7 @@ class ModelService:
                 except Exception:
                     pass
 
-            save_config(cfg)
+            self._save_profile_config(cfg)
 
             # Notify connected frontends
             if self._bus is not None:
@@ -554,7 +561,7 @@ class ModelService:
                 slot_cfg["model"] = ""
                 aux[slot] = slot_cfg
             cfg["auxiliary"] = aux
-            save_config(cfg)
+            self._save_profile_config(cfg)
             return {"ok": True, "scope": "auxiliary", "reset": True}
 
         if not provider:
@@ -572,5 +579,17 @@ class ModelService:
             aux[slot] = slot_cfg
 
         cfg["auxiliary"] = aux
-        save_config(cfg)
+        self._save_profile_config(cfg)
         return {"ok": True, "scope": "auxiliary", "tasks": targets, "provider": provider, "model": model}
+
+    def _load_profile_config(self) -> dict:
+        from hermes_cli.config import load_config  # type: ignore[import]
+
+        with _hermes_home_scope(self._hermes_home):
+            return load_config()
+
+    def _save_profile_config(self, config: dict) -> None:
+        from hermes_cli.config import save_config  # type: ignore[import]
+
+        with _hermes_home_scope(self._hermes_home):
+            save_config(config)

@@ -2,6 +2,7 @@ import { createMemo, createSignal } from 'solid-js';
 import { api, type ProfileCreateRequest, type ProfileInfo, type ProfileUpdateRequest } from '@/services/api';
 import { chatStore } from './chat';
 import { configStore } from './config';
+import { modelsStore } from './models';
 import { sessionStore } from './session';
 
 const ALL_PROFILES = '__all__';
@@ -60,6 +61,12 @@ async function restoreLastSession(profileId: string): Promise<void> {
   if (target) {
     await chatStore.loadMessages(target);
   }
+}
+
+async function reloadProfileModelState(): Promise<void> {
+  modelsStore.invalidate();
+  await modelsStore.load();
+  await modelsStore.loadActive();
 }
 
 export const profileStore = {
@@ -140,6 +147,7 @@ export const profileStore = {
       await this.refreshProfiles();
       if (removingActive) {
         await configStore.loadConfig();
+        await reloadProfileModelState();
         await restoreLastSession(activeProfileId());
       }
       return true;
@@ -177,6 +185,7 @@ export const profileStore = {
       setActiveProfileId(result.activeProfileId || result.profile.id);
       await this.refreshProfiles();
       await configStore.loadConfig();
+      await reloadProfileModelState();
       await restoreLastSession(result.activeProfileId || result.profile.id);
       return true;
     } catch (e) {

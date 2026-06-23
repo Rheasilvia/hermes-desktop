@@ -13,10 +13,12 @@ import os
 import tempfile
 import urllib.request
 from contextlib import contextmanager
+from contextvars import copy_context
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 from fastapi import APIRouter, HTTPException, Request
+from hermes_constants import reset_hermes_home_override, set_hermes_home_override
 
 from ..schemas.audio import (
     AudioTranscriptionRequest,
@@ -59,16 +61,21 @@ def _elevenlabs_voice_label(voice: Dict[str, Any]) -> str:
 
 
 @contextmanager
-def _hermes_home_env(hermes_home: Path):
-    previous = os.environ.get("HERMES_HOME")
-    os.environ["HERMES_HOME"] = str(hermes_home)
+def _hermes_home_scope(hermes_home: Path):
+    token = set_hermes_home_override(hermes_home)
     try:
         yield
     finally:
-        if previous is None:
-            os.environ.pop("HERMES_HOME", None)
-        else:
-            os.environ["HERMES_HOME"] = previous
+        reset_hermes_home_override(token)
+
+
+def _profile_scoped_callable(hermes_home: Path, fn: Callable[[], Any]) -> Callable[[], Any]:
+    token = set_hermes_home_override(hermes_home)
+    try:
+        context = copy_context()
+    finally:
+        reset_hermes_home_override(token)
+    return lambda: context.run(fn)
 
 
 @router.post("/audio/transcribe", response_model=AudioTranscriptionResponse)
@@ -115,10 +122,12 @@ async def transcribe_audio(request: Request, payload: AudioTranscriptionRequest)
         hermes_home = get_active_hermes_home(request)
 
         def _run_transcribe() -> dict:
-            with _hermes_home_env(hermes_home):
-                return _transcribe(temp_path)
+            return _transcribe(temp_path)
 
-        result = await loop.run_in_executor(None, _run_transcribe)
+        result = await loop.run_in_executor(
+            None,
+            _profile_scoped_callable(hermes_home, _run_transcribe),
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -159,10 +168,12 @@ async def speak_text(request: Request, payload: TTSSpeakRequest) -> TTSSpeakResp
         hermes_home = get_active_hermes_home(request)
 
         def _run_tts() -> str:
-            with _hermes_home_env(hermes_home):
-                return text_to_speech_tool(text)
+            return text_to_speech_tool(text)
 
-        result_raw = await loop.run_in_executor(None, _run_tts)
+        result_raw = await loop.run_in_executor(
+            None,
+            _profile_scoped_callable(hermes_home, _run_tts),
+        )
     except Exception as exc:
         log.exception("Desktop voice TTS failed")
         raise HTTPException(status_code=500, detail=f"Speech synthesis failed: {exc}") from exc
@@ -219,7 +230,7 @@ async def get_elevenlabs_voices(request: Request) -> ElevenLabsVoicesResponse:
 
     try:
         from hermes_cli.config import load_env  # type: ignore[import]
-        with _hermes_home_env(hermes_home):
+        with _hermes_home_scope(hermes_home):
             env = load_env()
     except Exception:
         env = {}

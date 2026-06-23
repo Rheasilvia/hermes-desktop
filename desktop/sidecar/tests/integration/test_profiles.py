@@ -140,3 +140,62 @@ def test_switching_active_profile_changes_config_source(client, auth, hermes_hom
         reread_default.json()["config"].get("voice", {}).get("max_recording_seconds")
         != 45
     )
+
+
+def test_active_profile_scopes_model_assignment_config(client, auth, hermes_home):
+    default_config = hermes_home / "config.yaml"
+    created = client.post(
+        "/desktop/api/profiles",
+        json={"name": "research", "cloneFrom": "default"},
+        headers=auth,
+    )
+    assert created.status_code == 200
+    profile_home = hermes_home / "profiles" / "research"
+    profile_config = profile_home / "config.yaml"
+
+    default_config.write_text(
+        "model:\n"
+        "  provider: default-provider\n"
+        "  default: default-model\n",
+        encoding="utf-8",
+    )
+    profile_config.write_text(
+        "model:\n"
+        "  provider: profile-provider\n"
+        "  default: profile-model\n",
+        encoding="utf-8",
+    )
+
+    switch = client.put(
+        "/desktop/api/profiles/active",
+        json={"profileId": "research"},
+        headers=auth,
+    )
+    assert switch.status_code == 200
+
+    assigned = client.post(
+        "/desktop/api/model/assignment",
+        json={
+            "scope": "auxiliary",
+            "task": "vision",
+            "provider": "aux-provider",
+            "model": "aux-model",
+        },
+        headers=auth,
+    )
+
+    assert assigned.status_code == 200
+    default_data = yaml.safe_load(default_config.read_text(encoding="utf-8"))
+    profile_data = yaml.safe_load(profile_config.read_text(encoding="utf-8"))
+    assert "auxiliary" not in default_data
+    assert profile_data["auxiliary"]["vision"]["provider"] == "aux-provider"
+    assert profile_data["auxiliary"]["vision"]["model"] == "aux-model"
+
+    current_aux = client.get("/desktop/api/model/auxiliary", headers=auth)
+    assert current_aux.status_code == 200
+    vision = next(
+        task for task in current_aux.json()["tasks"]
+        if task["task"] == "vision"
+    )
+    assert vision["provider"] == "aux-provider"
+    assert vision["model"] == "aux-model"
