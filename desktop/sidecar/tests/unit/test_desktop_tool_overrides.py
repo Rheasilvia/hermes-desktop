@@ -4,7 +4,6 @@ from __future__ import annotations
 import importlib
 import json
 import sys
-from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 
@@ -65,6 +64,28 @@ def _build_mocks(tool_names=("read_file", "write_file", "patch",
 # ---------------------------------------------------------------------------
 # Test 1: install is idempotent
 # ---------------------------------------------------------------------------
+
+class TestPyInstallerRequiredToolImports:
+    def test_direct_imports_register_todo_without_filesystem_discovery(self):
+        """PyInstaller bundles put tools in PYZ, so glob-based discovery may
+        find nothing. The desktop startup helper must directly import every
+        tool that install_desktop_tool_overrides() requires, including todo.
+        """
+        overrides = _fresh_overrides_module()
+        import tools.registry as registry_module
+
+        registry = registry_module.registry
+        registry.deregister("todo")
+        sys.modules.pop("tools.todo_tool", None)
+        assert registry.get_entry("todo") is None
+
+        try:
+            overrides._import_required_tool_modules()
+            assert registry.get_entry("todo") is not None
+        finally:
+            if registry.get_entry("todo") is None:
+                importlib.import_module("tools.todo_tool")
+
 
 class TestInstallIdempotent:
     def test_install_twice_does_not_raise_and_installed_is_true(self):
@@ -329,6 +350,8 @@ class TestSharedImportDoesNotInstallOverrides:
 
         # Importing the shared registry module must not mutate _INSTALLED
         import tools.registry  # noqa: F401
+        tools.registry.registry.deregister("request_user_input")
+        tools.registry.registry.deregister("update_plan")
 
         assert overrides._INSTALLED is False
         assert tools.registry.registry.get_entry("request_user_input") is None

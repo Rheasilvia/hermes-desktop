@@ -249,7 +249,7 @@ class _FakePoolWithTurnCallbacks(_FakePool):
         super().__init__(agent)
         self._ui = ui
 
-    def make_turn_callbacks(self, sid, turn_id):
+    def make_turn_callbacks(self, sid, turn_id, **_kwargs):
         def stream_delta(text):
             self._ui.append(sid, "message.delta", {"text": text}, turn_id=turn_id)
 

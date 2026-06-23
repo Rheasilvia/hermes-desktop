@@ -72,6 +72,7 @@ def _import_required_tool_modules() -> None:
     import tools.file_tools  # noqa: F401
     import tools.process_registry  # noqa: F401
     import tools.terminal_tool  # noqa: F401
+    import tools.todo_tool  # noqa: F401
 
 
 class _SandboxedSubprocessProxy:
@@ -313,10 +314,6 @@ def _request_user_input_schema() -> dict[str, Any]:
                     "type": "array",
                     "items": question_schema,
                     "description": "Questions to show the user. Prefer 1 and do not exceed 3.",
-                },
-                "autoResolutionMs": {
-                    "type": "number",
-                    "description": "Optional auto-resolution window in milliseconds.",
                 },
             },
             "required": ["questions"],

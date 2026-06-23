@@ -50,7 +50,112 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         current_version = row["version"]
 
     _migrate(conn, current_version)
+    _repair_session_desktop_meta_schema(conn)
     conn.commit()
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone() is not None
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+
+
+def _add_column_if_missing(
+    conn: sqlite3.Connection,
+    columns: set[str],
+    column: str,
+    ddl: str,
+) -> None:
+    if column in columns:
+        return
+    conn.execute(f"ALTER TABLE session_desktop_meta ADD COLUMN {ddl}")
+    columns.add(column)
+
+
+def _repair_session_desktop_meta_schema(conn: sqlite3.Connection) -> None:
+    """Repair drifted current-version desktop meta schemas.
+
+    Some development builds reached schema_version=11 before every v11 column
+    existed locally. Version-gated migrations then skip the missing ALTER, so
+    startup reaches DesktopMetaService queries with a stale table shape.
+    """
+    if not _table_exists(conn, "session_desktop_meta"):
+        conn.executescript(SESSION_DESKTOP_META_DDL)
+        return
+
+    columns = _table_columns(conn, "session_desktop_meta")
+    _add_column_if_missing(conn, columns, "provider", "provider TEXT")
+    _add_column_if_missing(
+        conn,
+        columns,
+        "permission_mode",
+        "permission_mode TEXT NOT NULL DEFAULT 'auto'",
+    )
+    _add_column_if_missing(
+        conn,
+        columns,
+        "reasoning_effort",
+        "reasoning_effort TEXT NOT NULL DEFAULT 'medium'",
+    )
+    _add_column_if_missing(conn, columns, "archived_at", "archived_at REAL")
+    _add_column_if_missing(
+        conn,
+        columns,
+        "collaboration_mode",
+        "collaboration_mode TEXT NOT NULL DEFAULT 'default'",
+    )
+
+    conn.execute(
+        "UPDATE session_desktop_meta "
+        "SET permission_mode = 'auto' "
+        "WHERE permission_mode IS NULL OR permission_mode NOT IN ('ask', 'auto', 'full')"
+    )
+    conn.execute(
+        "UPDATE session_desktop_meta "
+        "SET reasoning_effort = 'medium' "
+        "WHERE reasoning_effort IS NULL "
+        "OR TRIM(reasoning_effort) = '' "
+        "OR LOWER(reasoning_effort) NOT IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')"
+    )
+    conn.execute(
+        "UPDATE session_desktop_meta "
+        "SET collaboration_mode = 'default' "
+        "WHERE collaboration_mode IS NULL "
+        "OR TRIM(collaboration_mode) = '' "
+        "OR LOWER(collaboration_mode) NOT IN ('default', 'plan')"
+    )
+    conn.execute(
+        "UPDATE session_desktop_meta "
+        "SET archived_at = COALESCE(archived_at, last_opened_at, created_at) "
+        "WHERE archived = 1 AND archived_at IS NULL"
+    )
+    conn.execute(
+        "UPDATE session_desktop_meta SET archived_at = NULL WHERE archived = 0"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sdm_pinned "
+        "ON session_desktop_meta(pinned) WHERE pinned = 1"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sdm_last_opened "
+        "ON session_desktop_meta(last_opened_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sdm_archived "
+        "ON session_desktop_meta(archived)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sdm_archived_at "
+        "ON session_desktop_meta(archived, archived_at DESC) WHERE archived = 1"
+    )
 
 
 def _migrate(conn: sqlite3.Connection, current_version: int) -> None:

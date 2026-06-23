@@ -22,6 +22,7 @@ vi.mock('@/stores/chat.js', () => ({
       activeTools: [],
       pendingPermission: null,
       pendingClarify: null,
+      pendingUserInput: null,
       memoryContext: null,
       todos: state.liveTodos,
       status: state.streaming ? 'streaming' : 'idle',

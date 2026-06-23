@@ -60,6 +60,14 @@ function recoveryViewModel(
     };
   }
 
+  if (turnState === 'awaiting_user') {
+    return {
+      icon: 'loader',
+      message: 'Waiting for your input...',
+      tone: 'info',
+    };
+  }
+
   if (turnState === 'stalled') {
     return {
       icon: 'alert-circle',

@@ -478,6 +478,28 @@ def apply_event(
     if row is not None and row["status"] in TERMINAL_STATUSES:
         return
 
+    if msg_type == "user_input.request":
+        conn.execute(
+            """
+            UPDATE conversation_turns
+            SET status = 'awaiting_user', updated_at = ?, last_seq = max(last_seq, ?)
+            WHERE session_id = ? AND turn_id = ?
+            """,
+            (created_at, seq, session_id, turn_id),
+        )
+        return
+
+    if msg_type == "user_input.response":
+        conn.execute(
+            """
+            UPDATE conversation_turns
+            SET status = 'running', updated_at = ?, last_seq = max(last_seq, ?)
+            WHERE session_id = ? AND turn_id = ?
+            """,
+            (created_at, seq, session_id, turn_id),
+        )
+        return
+
     if msg_type == "message.delta":
         text = str(payload.get("text") or "")
         conn.execute(

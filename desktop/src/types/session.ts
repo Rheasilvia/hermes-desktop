@@ -6,6 +6,7 @@
 import type { Usage } from './message.js';
 import type { ParsedToolCall } from './domain/message.js';
 import type { MessageBlock } from './ui/blocks.js';
+import type { UserInputRequestPayload } from './gateway.js';
 import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
 export type DesktopPermissionMode = 'ask' | 'auto' | 'full';
@@ -135,7 +136,7 @@ export interface Session {
   messages: SessionMessage[];
 }
 
-export type TranscriptTurnStatus = 'running' | 'completed' | 'interrupted' | 'failed';
+export type TranscriptTurnStatus = 'running' | 'awaiting_user' | 'completed' | 'interrupted' | 'failed';
 
 export interface TranscriptMessage {
   id: number | string;
@@ -157,7 +158,7 @@ export interface TranscriptMessage {
 
 export interface TranscriptLiveTurn {
   turn_id: string;
-  status: 'running';
+  status: 'running' | 'awaiting_user';
   content: string;
   reasoning: string;
   tools: ParsedToolCall[];
@@ -168,6 +169,7 @@ export interface TranscriptLiveTurn {
   last_event_seq: number;
   started_at: number;
   updated_at: number;
+  pending_user_input?: Omit<UserInputRequestPayload, 'session_id'> | null;
 }
 
 export interface SessionTranscript {

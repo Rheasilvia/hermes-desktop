@@ -70,6 +70,33 @@ async def _replay_pending_approvals() -> AsyncGenerator[str, None]:
         log.debug("Failed to replay pending approvals", exc_info=True)
 
 
+async def _replay_pending_user_inputs() -> AsyncGenerator[str, None]:
+    """Yield SSE events for pending durable request_user_input prompts."""
+    try:
+        from pathlib import Path
+        import os
+
+        from ..db.user_input_prompts import list_pending
+
+        hermes_home = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+        for prompt in list_pending(hermes_home):
+            payload = {
+                "request_id": prompt["request_id"],
+                "turn_id": prompt["turn_id"],
+                "questions": prompt.get("questions") or [],
+                "status": "pending",
+            }
+            data = json.dumps({
+                "session_id": prompt["session_id"],
+                "seq": prompt.get("request_seq") or 0,
+                "type": "user_input.request",
+                "payload": payload,
+            }, ensure_ascii=False)
+            yield f"data: {data}\n\n"
+    except Exception:
+        log.debug("Failed to replay pending user input prompts", exc_info=True)
+
+
 async def _event_generator(
     request: Request,
     token: str | None = None,
@@ -81,6 +108,8 @@ async def _event_generator(
 
     # Replay any pending path approvals so frontend can restore ApprovalCard
     async for event_str in _replay_pending_approvals():
+        yield event_str
+    async for event_str in _replay_pending_user_inputs():
         yield event_str
 
     try:

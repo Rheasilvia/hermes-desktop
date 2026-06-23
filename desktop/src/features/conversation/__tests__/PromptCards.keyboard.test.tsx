@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { describe, expect, test, vi } from 'vitest';
 import { ClarificationCard } from '../ClarificationCard.js';
+import { UserInputRequestCard } from '../UserInputRequestCard.js';
 import { PermissionRequestCard } from '../turn/PermissionRequestCard.js';
 import type { PendingPermission } from '@/types/ui/turn.js';
 
@@ -106,6 +107,32 @@ describe('prompt card keyboard handling', () => {
     fireEvent.submit(input.closest('form')!);
 
     expect(onMaskedSubmit).toHaveBeenCalledWith('secret-1', 'token');
+  });
+
+  test('user input card collects answers and submits atomically', () => {
+    const onSubmit = vi.fn();
+    render(() => (
+      <UserInputRequestCard
+        questions={[
+          {
+            id: 'scope',
+            header: 'Scope',
+            question: 'Which scope?',
+            options: [
+              { label: 'Narrow', description: 'Only this panel.' },
+              { label: 'Broad', description: 'Include recovery.' },
+            ],
+          },
+        ]}
+        onSubmit={onSubmit}
+      />
+    ));
+
+    fireEvent.click(screen.getByRole('button', { name: /Broad/ }));
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    expect(onSubmit).toHaveBeenCalledWith({ scope: { answers: ['Broad'] } });
   });
 });
 
