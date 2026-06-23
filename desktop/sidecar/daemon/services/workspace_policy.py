@@ -22,6 +22,7 @@ class WorkspacePolicySnapshot:
     workspace_root: Path
     workspace_hash: str
     permission_mode: Literal["ask", "auto", "full"]
+    collaboration_mode: Literal["default", "plan"] = "default"
     policy_version: str = "desktop-workspace-v1"
 
 
@@ -69,6 +70,7 @@ def get_workspace_policy_snapshot() -> WorkspacePolicySnapshot | None:
 # INSIDE workspace; it never grants outside-workspace file access.
 
 _VALID_PERMISSION_MODES = {"ask", "auto", "full"}
+_VALID_COLLABORATION_MODES = {"default", "plan"}
 
 
 def build_workspace_policy_snapshot(
@@ -76,6 +78,7 @@ def build_workspace_policy_snapshot(
     turn_id: str,
     cwd: str | Path,
     permission_mode: Literal["ask", "auto", "full"],
+    collaboration_mode: Literal["default", "plan"] = "default",
 ) -> WorkspacePolicySnapshot:
     """Build a snapshot from the given working directory.
 
@@ -87,6 +90,8 @@ def build_workspace_policy_snapshot(
 
     if permission_mode not in _VALID_PERMISSION_MODES:
         raise ValueError(f"invalid permission_mode {permission_mode!r}; expected one of {sorted(_VALID_PERMISSION_MODES)}")
+    if collaboration_mode not in _VALID_COLLABORATION_MODES:
+        raise ValueError(f"invalid collaboration_mode {collaboration_mode!r}; expected one of {sorted(_VALID_COLLABORATION_MODES)}")
 
     workspace_hash = hashlib.sha256(str(canonical).encode()).hexdigest()[:16]
 
@@ -97,6 +102,7 @@ def build_workspace_policy_snapshot(
         workspace_root=canonical,
         workspace_hash=workspace_hash,
         permission_mode=permission_mode,
+        collaboration_mode=collaboration_mode,
     )
 
 

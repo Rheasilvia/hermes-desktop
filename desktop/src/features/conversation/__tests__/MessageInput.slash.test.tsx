@@ -92,6 +92,40 @@ describe('MessageInput slash commands', () => {
     });
   });
 
+  test('shows the plan pill only while collaboration mode is plan', () => {
+    const { unmount } = render(() => <MessageInput onSend={vi.fn()} />);
+    expect(screen.queryByLabelText('Plan mode')).toBeNull();
+    unmount();
+
+    render(() => (
+      <MessageInput
+        onSend={vi.fn()}
+        collaborationMode="plan"
+      />
+    ));
+
+    expect(screen.getByLabelText('Plan mode').textContent).toContain('Plan');
+  });
+
+  test('Shift+Tab toggles collaboration mode without selecting slash completion', async () => {
+    const onToggle = vi.fn();
+    render(() => (
+      <MessageInput
+        onSend={vi.fn()}
+        onCollaborationModeToggle={onToggle}
+      />
+    ));
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    fireEvent.input(input, { target: { value: '/sk' } });
+    await screen.findByText('/skin');
+
+    fireEvent.keyDown(input, { key: 'Tab', shiftKey: true });
+
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(input.value).toBe('/sk');
+  });
+
   test('submits slash text through onSend on Cmd/Ctrl+Enter', async () => {
     const onSend = vi.fn();
     render(() => <MessageInput onSend={onSend} />);

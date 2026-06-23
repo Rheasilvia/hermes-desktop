@@ -57,13 +57,18 @@ class AgentExecutionService:
         agent: Any,
         session_id: str,
         turn_id: str,
+        collaboration_mode: str,
     ) -> list[tuple[str, bool, Any]]:
         make_callbacks = getattr(self._pool, "make_turn_callbacks", None)
         if not callable(make_callbacks):
             return []
 
         previous: list[tuple[str, bool, Any]] = []
-        callbacks = make_callbacks(session_id, turn_id)
+        callbacks = make_callbacks(
+            session_id,
+            turn_id,
+            collaboration_mode=collaboration_mode,
+        )
         for attr, callback in callbacks.items():
             previous.append((attr, hasattr(agent, attr), getattr(agent, attr, None)))
             setattr(agent, attr, callback)
@@ -148,12 +153,16 @@ class AgentExecutionService:
         turn_callback_snapshot: list[tuple[str, bool, Any]] = []
         workspace_cwd = getattr(entry, "built_cwd", None) or getattr(agent, "workspace_cwd", None)
         permission_mode_snapshot = "auto"
+        collaboration_mode_snapshot = "default"
         try:
-            permission_mode_snapshot = str(
-                self._session_svc.get_session_or_404(session_id).get("permissionMode") or "auto"
-            )
+            session_snapshot = self._session_svc.get_session_or_404(session_id)
+            permission_mode_snapshot = str(session_snapshot.get("permissionMode") or "auto")
+            runtime_snapshot = session_snapshot.get("runtime") if isinstance(session_snapshot, dict) else {}
+            if isinstance(runtime_snapshot, dict):
+                collaboration_mode_snapshot = str(runtime_snapshot.get("collaborationMode") or "default")
         except Exception:
             permission_mode_snapshot = "auto"
+            collaboration_mode_snapshot = "default"
         from .workspace_policy import (
             build_workspace_policy_snapshot,
             set_workspace_policy_snapshot,
@@ -163,7 +172,11 @@ class AgentExecutionService:
         if workspace_cwd:
             try:
                 policy_snapshot = build_workspace_policy_snapshot(
-                    session_id, turn_id, workspace_cwd, permission_mode_snapshot
+                    session_id,
+                    turn_id,
+                    workspace_cwd,
+                    permission_mode_snapshot,
+                    collaboration_mode=collaboration_mode_snapshot,
                 )
             except Exception as exc:
                 # Policy snapshot build failed — tool wrappers will deny all calls via POLICY_MISSING.
@@ -205,7 +218,19 @@ class AgentExecutionService:
         try:
             if agent is None:
                 raise RuntimeError(f"pooled agent missing for session {session_id}")
-            turn_callback_snapshot = self._install_turn_bound_callbacks(agent, session_id, turn_id)
+            turn_callback_snapshot = self._install_turn_bound_callbacks(
+                agent,
+                session_id,
+                turn_id,
+                collaboration_mode_snapshot,
+            )
+            callback_snapshot = self._install_prompt_callbacks(
+                agent,
+                session_id,
+                turn_id,
+                collaboration_mode_snapshot,
+            )
+            turn_callback_snapshot.extend(callback_snapshot)
 
             _t0 = time.time()
             llm_messages = self._state.get_messages_as_conversation(session_id)
@@ -217,6 +242,9 @@ class AgentExecutionService:
                 prepare_run_message,
                 prepare_turn_context,
             )
+            if collaboration_mode_snapshot == "plan":
+                from .plan_mode import append_plan_mode_instructions
+                context = append_plan_mode_instructions(context)
 
             # Inject turn-scoped context (e.g. expanded skill content or
             # selected @file refs) as a system message. It is visible to the
@@ -294,6 +322,8 @@ class AgentExecutionService:
                 final_text = result.get("final_response", "") or ""
             elif isinstance(result, str):
                 final_text = result
+
+            final_text = self._finalize_plan_stream(agent, session_id, turn_id, final_text)
 
             interrupted = isinstance(result, dict) and result.get("interrupted")
 
@@ -472,6 +502,117 @@ class AgentExecutionService:
                 if text:
                     parts.append(str(text))
         return "".join(parts)
+
+    def _install_prompt_callbacks(
+        self,
+        agent: Any,
+        session_id: str,
+        turn_id: str,
+        collaboration_mode: str,
+    ) -> list[tuple[str, bool, Any]]:
+        previous: list[tuple[str, bool, Any]] = []
+
+        def remember(attr: str, value: Any) -> None:
+            previous.append((attr, hasattr(agent, attr), getattr(agent, attr, None)))
+            setattr(agent, attr, value)
+
+        def clarify(question: str, choices: list[str] | None = None, *, timeout: int = 600) -> str:
+            return self._block_for_prompt(
+                "clarify.request",
+                session_id,
+                {"question": question, "choices": choices or []},
+                timeout=timeout,
+                turn_id=turn_id,
+            )
+
+        def request_user_input(args: dict[str, Any]) -> dict[str, Any]:
+            if collaboration_mode != "plan":
+                return {"error": "request_user_input is unavailable outside Plan Mode"}
+            questions = args.get("questions")
+            if not isinstance(questions, list) or not questions:
+                return {"error": "request_user_input requires at least one question"}
+            timeout = 600
+            auto_resolution_ms = args.get("autoResolutionMs")
+            if isinstance(auto_resolution_ms, (int, float)) and auto_resolution_ms > 0:
+                timeout = max(60, min(240, int(auto_resolution_ms / 1000)))
+            answers: dict[str, dict[str, list[str]]] = {}
+            for idx, question in enumerate(questions[:3]):
+                if not isinstance(question, dict):
+                    continue
+                qid = str(question.get("id") or f"question_{idx + 1}")
+                prompt = str(question.get("question") or "").strip()
+                if not prompt:
+                    continue
+                raw_options = question.get("options")
+                choices: list[str] = []
+                if isinstance(raw_options, list):
+                    for option in raw_options[:4]:
+                        if isinstance(option, dict):
+                            label = str(option.get("label") or "").strip()
+                            description = str(option.get("description") or "").strip()
+                            text = f"{label} — {description}" if label and description else label or description
+                        else:
+                            text = str(option or "").strip()
+                        if text:
+                            choices.append(text)
+                answer = clarify(prompt, choices or None, timeout=timeout)
+                answers[qid] = {"answers": [answer]}
+            return {"answers": answers}
+
+        remember("clarify_callback", clarify)
+        remember("request_user_input_callback", request_user_input)
+        remember("_desktop_collaboration_mode", collaboration_mode)
+        return previous
+
+    def _finalize_plan_stream(
+        self,
+        agent: Any,
+        session_id: str,
+        turn_id: str,
+        final_text: str,
+    ) -> str:
+        callback = getattr(agent, "stream_delta_callback", None)
+        if not getattr(callback, "_plan_mode", False):
+            return final_text
+
+        from .proposed_plan import parse_proposed_plan_blocks, strip_proposed_plan_blocks
+
+        parser = getattr(callback, "_plan_parser", None)
+        plan_event_count = int(getattr(callback, "_plan_event_count", 0) or 0)
+        if parser is not None:
+            tail = parser.finish()
+            if tail.visible_text:
+                payload = {"text": tail.visible_text, "turn_id": turn_id}
+                seq = self._ui.append(session_id, "message.delta", payload, turn_id=turn_id)
+                self._bus.publish(session_id, seq, "message.delta", payload)
+            for segment in tail.segments:
+                if segment["type"] == "delta" and segment["text"]:
+                    payload = {"text": segment["text"], "turn_id": turn_id}
+                    seq = self._ui.append(session_id, "plan.delta", payload, turn_id=turn_id)
+                    self._bus.publish(session_id, seq, "plan.delta", payload)
+                    plan_event_count += 1
+                elif segment["type"] == "end":
+                    payload = {"turn_id": turn_id}
+                    seq = self._ui.append(session_id, "plan.complete", payload, turn_id=turn_id)
+                    self._bus.publish(session_id, seq, "plan.complete", payload)
+                    plan_event_count += 1
+
+        visible_final = strip_proposed_plan_blocks(final_text)
+        streamed_visible = self._collect_streamed_text(session_id, 0, turn_id)
+        if plan_event_count > 0 or streamed_visible or not final_text:
+            return visible_final
+
+        parsed = parse_proposed_plan_blocks(final_text)
+        for segment in parsed.segments:
+            if segment["type"] == "delta" and segment["text"]:
+                payload = {"text": segment["text"], "turn_id": turn_id}
+                seq = self._ui.append(session_id, "plan.delta", payload, turn_id=turn_id)
+                self._bus.publish(session_id, seq, "plan.delta", payload)
+            elif segment["type"] == "end":
+                payload = {"turn_id": turn_id}
+                seq = self._ui.append(session_id, "plan.complete", payload, turn_id=turn_id)
+                self._bus.publish(session_id, seq, "plan.complete", payload)
+        return parsed.visible_text
 
     def _block_for_prompt(
         self,

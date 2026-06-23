@@ -131,6 +131,33 @@ def test_turn_projection_preserves_ordered_assistant_blocks(tmp_path):
     assert assistant["blocks"] == blocks
 
 
+def test_turn_projection_persists_plan_blocks(tmp_path):
+    from daemon.db.conversation_turns import list_turns
+    from daemon.services.session_service import SessionService
+
+    home = tmp_path / ".hermes"
+    sid = "sess-plan-block"
+    turn_id = "turn_plan"
+
+    append(home, sid, "user", {"text": "plan this"}, turn_id=turn_id)
+    append(home, sid, "message.delta", {"text": "I inspected the repo.\n"}, turn_id=turn_id)
+    append(home, sid, "plan.delta", {"text": "- Step one\n"}, turn_id=turn_id)
+    append(home, sid, "plan.delta", {"text": "- Step two\n"}, turn_id=turn_id)
+    append(home, sid, "plan.complete", {}, turn_id=turn_id)
+    append(home, sid, "message.complete", {"text": "I inspected the repo.\n"}, turn_id=turn_id)
+
+    turn = list_turns(home, sid)[0]
+    blocks = turn["assistant_blocks"]
+
+    assert [block["type"] for block in blocks] == ["text", "plan"]
+    assert blocks[1]["content"] == "- Step one\n- Step two\n"
+    assert blocks[1]["isStreaming"] is False
+
+    transcript = SessionService(home, state=None, meta=None).get_transcript(sid)  # type: ignore[arg-type]
+    assistant = next(message for message in transcript["messages"] if message["role"] == "assistant")
+    assert assistant["blocks"][1] == blocks[1]
+
+
 def test_turn_projection_deduplicates_complete_text_with_trimmed_leading_stream_whitespace(tmp_path):
     from daemon.db.conversation_turns import list_turns
 

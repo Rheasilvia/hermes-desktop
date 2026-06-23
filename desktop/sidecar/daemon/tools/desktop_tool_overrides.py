@@ -239,7 +239,7 @@ def install_desktop_tool_overrides() -> None:
     _import_required_tool_modules()
 
     # Step 2: capture originals BEFORE any override
-    _TOOL_NAMES = ["read_file", "write_file", "patch", "search_files",
+    _TOOL_NAMES = ["read_file", "write_file", "patch", "search_files", "todo",
                    "terminal", "process", "execute_code"]
     for name in _TOOL_NAMES:
         entry = registry.get_entry(name)
@@ -260,6 +260,109 @@ def install_desktop_tool_overrides() -> None:
     _INSTALLED = True
 
 
+def _request_user_input_schema() -> dict[str, Any]:
+    option_schema = {
+        "type": "object",
+        "properties": {
+            "label": {
+                "type": "string",
+                "description": "User-facing label (1-5 words).",
+            },
+            "description": {
+                "type": "string",
+                "description": "One short sentence explaining impact/tradeoff if selected.",
+            },
+        },
+        "required": ["label", "description"],
+        "additionalProperties": False,
+    }
+    question_schema = {
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "string",
+                "description": "Stable identifier for mapping answers (snake_case).",
+            },
+            "header": {
+                "type": "string",
+                "description": "Short header label shown in the UI.",
+            },
+            "question": {
+                "type": "string",
+                "description": "Single-sentence prompt shown to the user.",
+            },
+            "options": {
+                "type": "array",
+                "items": option_schema,
+                "description": "Provide 2-3 mutually exclusive choices.",
+            },
+        },
+        "required": ["id", "header", "question", "options"],
+        "additionalProperties": False,
+    }
+    return {
+        "name": "request_user_input",
+        "description": (
+            "Request user input for one to three short questions and wait for "
+            "the response. This desktop-only tool is available in Plan Mode."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "items": question_schema,
+                    "description": "Questions to show the user. Prefer 1 and do not exceed 3.",
+                },
+                "autoResolutionMs": {
+                    "type": "number",
+                    "description": "Optional auto-resolution window in milliseconds.",
+                },
+            },
+            "required": ["questions"],
+            "additionalProperties": False,
+        },
+    }
+
+
+def _update_plan_schema() -> dict[str, Any]:
+    return {
+        "name": "update_plan",
+        "description": (
+            "Updates the execution checklist. This desktop-only Codex-compatible "
+            "wrapper maps to Hermes todo state and is not available in Plan Mode."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "explanation": {
+                    "type": "string",
+                    "description": "Optional explanation for this plan update.",
+                },
+                "plan": {
+                    "type": "array",
+                    "description": "The list of task steps.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "step": {"type": "string", "description": "Task step text."},
+                            "status": {
+                                "type": "string",
+                                "enum": ["pending", "in_progress", "completed"],
+                                "description": "Step status.",
+                            },
+                        },
+                        "required": ["step", "status"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["plan"],
+            "additionalProperties": False,
+        },
+    }
+
+
 def _install_wrappers(registry) -> None:
     """Register desktop-policy wrappers for each tool. Called only once."""
     from ..services.workspace_policy import get_workspace_policy_snapshot, resolve_path
@@ -268,6 +371,15 @@ def _install_wrappers(registry) -> None:
 
     def _fail_closed(tool_name: str, args: Any) -> str:
         return json.dumps({"error": f"desktop policy: no workspace snapshot active for {tool_name}", "code": "POLICY_MISSING"})
+
+    def _is_plan_mode(snapshot: Any) -> bool:
+        return getattr(snapshot, "collaboration_mode", "default") == "plan"
+
+    def _plan_mode_denied(tool_name: str) -> str:
+        return json.dumps({
+            "error": f"{tool_name} is unavailable in desktop Plan Mode",
+            "code": "PLAN_MODE_RESTRICTED",
+        }, ensure_ascii=False)
 
     # Boundary note: file tools (read_file/write_file/patch/search_files) are
     # confined FIRST by workspace_policy.resolve_path — the Python path boundary
@@ -317,6 +429,8 @@ def _install_wrappers(registry) -> None:
             snapshot = get_workspace_policy_snapshot()
             if snapshot is None:
                 return _fail_closed(name, args)
+            if _is_plan_mode(snapshot):
+                return _plan_mode_denied(name)
             path = args.get("path", "") if isinstance(args, dict) else ""
             decision = resolve_path(snapshot, str(path), "write")
             # Outside-workspace denials are final — never route to approval flow.
@@ -340,6 +454,8 @@ def _install_wrappers(registry) -> None:
             snapshot = get_workspace_policy_snapshot()
             if snapshot is None:
                 return _fail_closed("patch", args)
+            if _is_plan_mode(snapshot):
+                return _plan_mode_denied("patch")
 
             if isinstance(args, dict) and "path" in args:
                 # Replace mode: single file write
@@ -429,6 +545,8 @@ def _install_wrappers(registry) -> None:
             snapshot = get_workspace_policy_snapshot()
             if snapshot is None:
                 return _fail_closed("terminal", args)
+            if _is_plan_mode(snapshot):
+                return _plan_mode_denied("terminal")
 
             if not isinstance(args, dict):
                 return original_entry.handler(args, **kwargs)
@@ -549,6 +667,8 @@ def _install_wrappers(registry) -> None:
             snapshot = get_workspace_policy_snapshot()
             if snapshot is None:
                 return _fail_closed("process", args)
+            if _is_plan_mode(snapshot):
+                return _plan_mode_denied("process")
 
             if not isinstance(args, dict):
                 return original_entry.handler(args, **kwargs)
@@ -599,6 +719,8 @@ def _install_wrappers(registry) -> None:
             snapshot = get_workspace_policy_snapshot()
             if snapshot is None:
                 return _fail_closed("execute_code", args)
+            if _is_plan_mode(snapshot):
+                return _plan_mode_denied("execute_code")
 
             from ..services.sandbox_runner import get_sandbox_runner
             runner = get_sandbox_runner()
@@ -634,6 +756,35 @@ def _install_wrappers(registry) -> None:
         return wrapper
 
     # -----------------------------------------------------------------------
+    # todo: execution-mode checklist only
+    # -----------------------------------------------------------------------
+
+    def _make_todo_wrapper():
+        original_entry = ORIGINAL_TOOLS.get("todo")
+        if original_entry is None:
+            return None
+
+        def wrapper(args, **kwargs) -> str:
+            snapshot = get_workspace_policy_snapshot()
+            if snapshot is not None and _is_plan_mode(snapshot):
+                return _plan_mode_denied("todo")
+            return original_entry.handler(args, **kwargs)
+
+        return wrapper
+
+    def _request_user_input_handler(args, **kwargs) -> str:
+        return json.dumps({
+            "error": "request_user_input must be handled by the desktop agent loop",
+            "code": "AGENT_LOOP_REQUIRED",
+        }, ensure_ascii=False)
+
+    def _update_plan_handler(args, **kwargs) -> str:
+        return json.dumps({
+            "error": "update_plan must be handled by the desktop agent loop",
+            "code": "AGENT_LOOP_REQUIRED",
+        }, ensure_ascii=False)
+
+    # -----------------------------------------------------------------------
     # Wire up wrappers
     # -----------------------------------------------------------------------
 
@@ -641,6 +792,7 @@ def _install_wrappers(registry) -> None:
     _TOOL_WRAPPERS["write_file"] = _make_file_write_wrapper("write_file")
     _TOOL_WRAPPERS["patch"] = _make_patch_wrapper()
     _TOOL_WRAPPERS["search_files"] = _make_file_read_wrapper("search_files")
+    _TOOL_WRAPPERS["todo"] = _make_todo_wrapper()
     _TOOL_WRAPPERS["terminal"] = _make_terminal_wrapper()
     _TOOL_WRAPPERS["process"] = _make_process_wrapper()
     _TOOL_WRAPPERS["execute_code"] = _make_execute_code_wrapper()
@@ -664,6 +816,25 @@ def _install_wrappers(registry) -> None:
             override=True,
         )
         log.info("[desktop] installed policy wrapper for tool: %s", name)
+
+    registry.register(
+        name="request_user_input",
+        toolset="desktop_plan",
+        schema=_request_user_input_schema(),
+        handler=_request_user_input_handler,
+        check_fn=lambda: True,
+        emoji="❓",
+        override=True,
+    )
+    registry.register(
+        name="update_plan",
+        toolset="desktop_plan",
+        schema=_update_plan_schema(),
+        handler=_update_plan_handler,
+        check_fn=lambda: True,
+        emoji="📋",
+        override=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -706,6 +877,9 @@ def _install_delegate_patch() -> None:
             parent_session_id = getattr(parent_agent, "session_id", None)
             if parent_session_id:
                 child._desktop_parent_session_id = str(parent_session_id)
+            collaboration_mode = getattr(parent_agent, "_desktop_collaboration_mode", None)
+            if collaboration_mode:
+                child._desktop_collaboration_mode = collaboration_mode
             snap = getattr(parent_agent, "_desktop_workspace_policy_snapshot", None)
             if snap is not None:
                 child._desktop_workspace_policy_snapshot = snap

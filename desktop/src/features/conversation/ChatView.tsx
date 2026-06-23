@@ -2,8 +2,8 @@ import type { Component } from 'solid-js';
 import { Show, For, createEffect, onMount, onCleanup, createMemo, createSignal, Switch, Match, untrack } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import type { TodoItem } from '@/types/gateway.js';
-import type { DesktopPermissionMode } from '@/types/index.js';
-import type { RenderedMessage, TodoListBlock } from '@/types/index.js';
+import type { CollaborationMode, DesktopPermissionMode } from '@/types/index.js';
+import type { PlanBlock, RenderedMessage, TodoListBlock } from '@/types/index.js';
 import type { MessageActionType } from '@/types/ui/message.js';
 import { chatStore } from '@/stores/chat.js';
 import { sessionUsage } from '@/stores/usage.js';
@@ -90,7 +90,7 @@ export function resolveMessageCopyText(message: RenderedMessage): string {
     return args ? `/${command} ${args}` : `/${command}`;
   }
   return message.blocks
-    .filter((b): b is TextBlock => b.type === 'text')
+    .filter((b): b is TextBlock | PlanBlock => b.type === 'text' || b.type === 'plan')
     .map((b) => b.content)
     .join('\n');
 }
@@ -130,11 +130,13 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const isLoading = () => chatStore.isLoadingMessages(sessionId());
   const diagnostics = createMemo(() => chatStore.getDiagnostics(sessionId()));
   const permissionMode = createMemo(() => sessionStore.activeSession?.permissionMode ?? 'auto');
+  const collaborationMode = createMemo<CollaborationMode>(() => sessionStore.activeSession?.runtime?.collaborationMode ?? 'default');
   const voiceConfig = createMemo(() => configStore.config);
   const sttEnabled = createMemo(() => isSttEnabled(voiceConfig()));
   const maxVoiceRecordingSeconds = createMemo(() => getVoiceRecordingLimit(voiceConfig()));
   const [permissionModePending, setPermissionModePending] = createSignal(false);
   const [permissionModeAppliesNextTurn, setPermissionModeAppliesNextTurn] = createSignal(false);
+  const [collaborationModePending, setCollaborationModePending] = createSignal(false);
   const environmentPanelVisible = createMemo(() => shouldShowEnvironmentOverlay({
     chatBodyWidth: chatBodyWidth(),
     environmentPanelOpen: uiStore.environmentPanelOpen,
@@ -312,6 +314,21 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       }
     } finally {
       setPermissionModePending(false);
+    }
+  };
+
+  const handleCollaborationModeToggle = async () => {
+    const sid = sessionId();
+    if (!sid || collaborationModePending()) return;
+    const nextMode: CollaborationMode = collaborationMode() === 'plan' ? 'default' : 'plan';
+    setCollaborationModePending(true);
+    try {
+      const updated = await sessionStore.updateRuntime(sid, { collaborationMode: nextMode });
+      if (!updated) {
+        cards.noticeCard('Could not update collaboration mode.');
+      }
+    } finally {
+      setCollaborationModePending(false);
     }
   };
 
@@ -869,6 +886,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                   permissionModePending={permissionModePending()}
                   permissionModeAppliesNextTurn={permissionModeAppliesNextTurn()}
                   onPermissionModeChange={handlePermissionModeChange}
+                  collaborationMode={collaborationMode()}
+                  onCollaborationModeToggle={handleCollaborationModeToggle}
                   isNewConversation={canEditWorkspace()}
                   onCwdChange={(path) => {
                     const sid = sessionId();

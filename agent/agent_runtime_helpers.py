@@ -49,7 +49,7 @@ def _ra():
 
 
 AGENT_RUNTIME_POST_HOOK_TOOL_NAMES = frozenset(
-    {"todo", "session_search", "memory", "clarify", "read_terminal", "delegate_task"}
+    {"todo", "update_plan", "request_user_input", "session_search", "memory", "clarify", "read_terminal", "delegate_task"}
 )
 
 
@@ -1814,8 +1814,19 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
             pass
         return result
 
+    def _desktop_plan_restricted(name: str) -> str:
+        return json.dumps({
+            "error": f"{name} is unavailable in desktop Plan Mode",
+            "code": "PLAN_MODE_RESTRICTED",
+        }, ensure_ascii=False)
+
+    def _desktop_mode() -> str:
+        return str(getattr(agent, "_desktop_collaboration_mode", "default") or "default")
+
     if function_name == "todo":
         def _execute(next_args: dict) -> Any:
+            if _desktop_mode() == "plan":
+                return _finish_agent_tool(_desktop_plan_restricted("todo"), next_args)
             from tools.todo_tool import todo_tool as _todo_tool
             return _finish_agent_tool(
                 _todo_tool(
@@ -1825,6 +1836,47 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
                 ),
                 next_args,
             )
+    elif function_name == "update_plan":
+        def _execute(next_args: dict) -> Any:
+            if _desktop_mode() == "plan":
+                return _finish_agent_tool(_desktop_plan_restricted("update_plan"), next_args)
+            plan = next_args.get("plan")
+            if not isinstance(plan, list):
+                return _finish_agent_tool(json.dumps({"error": "update_plan requires a plan array"}, ensure_ascii=False), next_args)
+            todos = []
+            for idx, item in enumerate(plan, start=1):
+                if not isinstance(item, dict):
+                    continue
+                status = str(item.get("status") or "pending").strip().lower()
+                if status not in {"pending", "in_progress", "completed"}:
+                    status = "pending"
+                todos.append({
+                    "id": str(idx),
+                    "content": str(item.get("step") or "").strip() or "(no description)",
+                    "status": status,
+                })
+            from tools.todo_tool import todo_tool as _todo_tool
+            return _finish_agent_tool(
+                _todo_tool(todos=todos, merge=False, store=agent._todo_store),
+                next_args,
+            )
+    elif function_name == "request_user_input":
+        def _execute(next_args: dict) -> Any:
+            if _desktop_mode() != "plan":
+                return _finish_agent_tool(json.dumps({
+                    "error": "request_user_input is unavailable outside desktop Plan Mode",
+                    "code": "PLAN_MODE_RESTRICTED",
+                }, ensure_ascii=False), next_args)
+            callback = getattr(agent, "request_user_input_callback", None)
+            if not callable(callback):
+                return _finish_agent_tool(json.dumps({
+                    "error": "request_user_input is not available in this execution context",
+                }, ensure_ascii=False), next_args)
+            try:
+                result = callback(next_args)
+            except Exception as exc:
+                result = {"error": f"Failed to get user input: {exc}"}
+            return _finish_agent_tool(json.dumps(result, ensure_ascii=False), next_args)
     elif function_name == "session_search":
         def _execute(next_args: dict) -> Any:
             session_db = agent._get_session_db_for_recall()

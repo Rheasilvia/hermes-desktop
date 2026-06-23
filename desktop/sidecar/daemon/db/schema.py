@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS session_desktop_meta (
     created_at     REAL NOT NULL DEFAULT (strftime('%s','now')),
     provider       TEXT,
     permission_mode TEXT NOT NULL DEFAULT 'auto',
-    reasoning_effort TEXT NOT NULL DEFAULT 'medium'
+    reasoning_effort TEXT NOT NULL DEFAULT 'medium',
+    collaboration_mode TEXT NOT NULL DEFAULT 'default'
 );
 
 CREATE INDEX IF NOT EXISTS idx_sdm_pinned      ON session_desktop_meta(pinned) WHERE pinned = 1;

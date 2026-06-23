@@ -5,6 +5,7 @@
 import { createSignal, createMemo } from 'solid-js';
 import type {
   DesktopPermissionMode,
+  CollaborationMode,
   ReasoningEffort,
   SessionListItem,
   SessionMeta,
@@ -35,9 +36,16 @@ function normalizeReasoningEffort(value: unknown): ReasoningEffort {
     : 'medium';
 }
 
+function normalizeCollaborationMode(value: unknown): CollaborationMode {
+  return value === 'plan' ? 'plan' : 'default';
+}
+
 function normalizeRuntime(value: unknown): SessionRuntime {
   const runtime = value && typeof value === 'object' ? value as Partial<SessionRuntime> : {};
-  return { reasoningEffort: normalizeReasoningEffort(runtime.reasoningEffort) };
+  return {
+    reasoningEffort: normalizeReasoningEffort(runtime.reasoningEffort),
+    collaborationMode: normalizeCollaborationMode(runtime.collaborationMode),
+  };
 }
 
 const activeSession = createMemo(() => {
@@ -338,6 +346,10 @@ export const sessionStore = {
 
   getSessionReasoningEffort(sessionId: string): ReasoningEffort {
     return this.getSessionRuntime(sessionId).reasoningEffort;
+  },
+
+  getSessionCollaborationMode(sessionId: string): CollaborationMode {
+    return this.getSessionRuntime(sessionId).collaborationMode;
   },
 
   async updateRuntime(

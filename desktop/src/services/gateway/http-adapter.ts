@@ -619,6 +619,21 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           event_seq: eventSeq,
         } as GatewayEventMap['message.complete']);
         break;
+      case 'plan.delta':
+        this.emit('plan.delta', {
+          session_id: sid,
+          text: String(payload.text ?? ''),
+          turn_id: turnId,
+          event_seq: eventSeq,
+        } as GatewayEventMap['plan.delta']);
+        break;
+      case 'plan.complete':
+        this.emit('plan.complete', {
+          session_id: sid,
+          turn_id: turnId,
+          event_seq: eventSeq,
+        } as GatewayEventMap['plan.complete']);
+        break;
       case 'reasoning.delta':
         this.emit('reasoning.delta', {
           session_id: sid,

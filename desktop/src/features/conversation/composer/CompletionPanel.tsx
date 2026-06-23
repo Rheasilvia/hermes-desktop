@@ -64,6 +64,7 @@ export const CompletionPanel: Component<CompletionPanelProps> = (props) => {
         if (props.items[selectedIndex()]) props.onSelect(props.items[selectedIndex()]!);
         break;
       case 'Tab':
+        if (e.shiftKey) return;
         e.preventDefault();
         e.stopPropagation();
         if (props.items[selectedIndex()]) props.onSelect(props.items[selectedIndex()]!);

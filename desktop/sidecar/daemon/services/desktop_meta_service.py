@@ -10,7 +10,9 @@ from pathlib import Path
 
 PERMISSION_MODES = frozenset({"ask", "auto", "full"})
 REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
+COLLABORATION_MODES = frozenset({"default", "plan"})
 DEFAULT_REASONING_EFFORT = "medium"
+DEFAULT_COLLABORATION_MODE = "default"
 
 
 def normalize_permission_mode(mode: str | None) -> str:
@@ -27,6 +29,15 @@ def normalize_reasoning_effort(effort: str | None, *, strict: bool = True) -> st
     if strict:
         raise ValueError(f"invalid reasoning effort: {effort}")
     return DEFAULT_REASONING_EFFORT
+
+
+def normalize_collaboration_mode(mode: str | None, *, strict: bool = True) -> str:
+    value = str(mode or "").strip().lower()
+    if value in COLLABORATION_MODES:
+        return value
+    if strict:
+        raise ValueError(f"invalid collaboration mode: {mode}")
+    return DEFAULT_COLLABORATION_MODE
 
 
 class DesktopMetaService:
@@ -46,7 +57,7 @@ class DesktopMetaService:
         try:
             row = conn.execute(
                 "SELECT session_id, pinned, archived, "
-                "archived_at, last_opened_at, created_at, provider, permission_mode, reasoning_effort "
+                "archived_at, last_opened_at, created_at, provider, permission_mode, reasoning_effort, collaboration_mode "
                 "FROM session_desktop_meta WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
@@ -60,24 +71,27 @@ class DesktopMetaService:
         provider: str = "",
         permission_mode: str = "auto",
         reasoning_effort: str = DEFAULT_REASONING_EFFORT,
+        collaboration_mode: str = DEFAULT_COLLABORATION_MODE,
     ) -> None:
         now = time.time()
         mode = normalize_permission_mode(permission_mode)
         effort = normalize_reasoning_effort(reasoning_effort)
+        collaboration = normalize_collaboration_mode(collaboration_mode)
         conn = self._connect()
         try:
             conn.execute(
                 """
                 INSERT INTO session_desktop_meta
-                    (session_id, pinned, archived, archived_at, last_opened_at, created_at, provider, permission_mode, reasoning_effort)
-                VALUES (?, 0, 0, NULL, ?, ?, ?, ?, ?)
+                    (session_id, pinned, archived, archived_at, last_opened_at, created_at, provider, permission_mode, reasoning_effort, collaboration_mode)
+                VALUES (?, 0, 0, NULL, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     last_opened_at = excluded.last_opened_at,
                     provider = excluded.provider,
                     permission_mode = excluded.permission_mode,
-                    reasoning_effort = excluded.reasoning_effort
+                    reasoning_effort = excluded.reasoning_effort,
+                    collaboration_mode = excluded.collaboration_mode
                 """,
-                (session_id, now, now, provider, mode, effort),
+                (session_id, now, now, provider, mode, effort, collaboration),
             )
             conn.commit()
         finally:
@@ -300,6 +314,57 @@ class DesktopMetaService:
             for row in rows:
                 result[row["session_id"]] = normalize_reasoning_effort(
                     row["reasoning_effort"],
+                    strict=False,
+                )
+            return result
+        finally:
+            conn.close()
+
+    def set_collaboration_mode(self, session_id: str, mode: str) -> str:
+        value = normalize_collaboration_mode(mode)
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                INSERT INTO session_desktop_meta (session_id, collaboration_mode)
+                VALUES (?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    collaboration_mode = excluded.collaboration_mode
+                """,
+                (session_id, value),
+            )
+            conn.commit()
+            return value
+        finally:
+            conn.close()
+
+    def get_collaboration_mode(self, session_id: str) -> str:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT collaboration_mode FROM session_desktop_meta WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if not row:
+                return DEFAULT_COLLABORATION_MODE
+            return normalize_collaboration_mode(row["collaboration_mode"], strict=False)
+        finally:
+            conn.close()
+
+    def get_collaboration_modes(self, session_ids: list[str]) -> dict[str, str]:
+        if not session_ids:
+            return {}
+        conn = self._connect()
+        try:
+            placeholders = ",".join("?" for _ in session_ids)
+            rows = conn.execute(
+                f"SELECT session_id, collaboration_mode FROM session_desktop_meta WHERE session_id IN ({placeholders})",
+                tuple(session_ids),
+            ).fetchall()
+            result = {sid: DEFAULT_COLLABORATION_MODE for sid in session_ids}
+            for row in rows:
+                result[row["session_id"]] = normalize_collaboration_mode(
+                    row["collaboration_mode"],
                     strict=False,
                 )
             return result

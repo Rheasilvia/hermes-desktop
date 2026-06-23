@@ -1060,6 +1060,11 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             )
         elif function_name == "todo":
             def _execute(next_args: dict) -> Any:
+                if str(getattr(agent, "_desktop_collaboration_mode", "default") or "default") == "plan":
+                    return json.dumps({
+                        "error": "todo is unavailable in desktop Plan Mode",
+                        "code": "PLAN_MODE_RESTRICTED",
+                    }, ensure_ascii=False)
                 from tools.todo_tool import todo_tool as _todo_tool
                 return _todo_tool(
                     todos=next_args.get("todos"),
@@ -1077,6 +1082,69 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             tool_duration = time.time() - tool_start_time
             if agent._should_emit_quiet_tool_messages():
                 agent._vprint(f"  {_get_cute_tool_message_impl('todo', function_args, tool_duration, result=function_result)}")
+        elif function_name == "update_plan":
+            def _execute(next_args: dict) -> Any:
+                if str(getattr(agent, "_desktop_collaboration_mode", "default") or "default") == "plan":
+                    return json.dumps({
+                        "error": "update_plan is unavailable in desktop Plan Mode",
+                        "code": "PLAN_MODE_RESTRICTED",
+                    }, ensure_ascii=False)
+                plan = next_args.get("plan")
+                if not isinstance(plan, list):
+                    return json.dumps({"error": "update_plan requires a plan array"}, ensure_ascii=False)
+                todos = []
+                for idx, item in enumerate(plan, start=1):
+                    if not isinstance(item, dict):
+                        continue
+                    status = str(item.get("status") or "pending").strip().lower()
+                    if status not in {"pending", "in_progress", "completed"}:
+                        status = "pending"
+                    todos.append({
+                        "id": str(idx),
+                        "content": str(item.get("step") or "").strip() or "(no description)",
+                        "status": status,
+                    })
+                from tools.todo_tool import todo_tool as _todo_tool
+                return _todo_tool(todos=todos, merge=False, store=agent._todo_store)
+            function_result, function_args = _run_agent_tool_execution_middleware(
+                agent,
+                function_name=function_name,
+                function_args=function_args,
+                effective_task_id=effective_task_id,
+                tool_call_id=getattr(tool_call, "id", "") or "",
+                execute=_execute,
+            )
+            tool_duration = time.time() - tool_start_time
+            if agent._should_emit_quiet_tool_messages():
+                agent._vprint(f"  {_get_cute_tool_message_impl('update_plan', function_args, tool_duration, result=function_result)}")
+        elif function_name == "request_user_input":
+            def _execute(next_args: dict) -> Any:
+                if str(getattr(agent, "_desktop_collaboration_mode", "default") or "default") != "plan":
+                    return json.dumps({
+                        "error": "request_user_input is unavailable outside desktop Plan Mode",
+                        "code": "PLAN_MODE_RESTRICTED",
+                    }, ensure_ascii=False)
+                callback = getattr(agent, "request_user_input_callback", None)
+                if not callable(callback):
+                    return json.dumps({
+                        "error": "request_user_input is not available in this execution context",
+                    }, ensure_ascii=False)
+                try:
+                    result = callback(next_args)
+                except Exception as exc:
+                    result = {"error": f"Failed to get user input: {exc}"}
+                return json.dumps(result, ensure_ascii=False)
+            function_result, function_args = _run_agent_tool_execution_middleware(
+                agent,
+                function_name=function_name,
+                function_args=function_args,
+                effective_task_id=effective_task_id,
+                tool_call_id=getattr(tool_call, "id", "") or "",
+                execute=_execute,
+            )
+            tool_duration = time.time() - tool_start_time
+            if agent._should_emit_quiet_tool_messages():
+                agent._vprint(f"  {_get_cute_tool_message_impl('request_user_input', function_args, tool_duration, result=function_result)}")
         elif function_name == "session_search":
             def _execute(next_args: dict) -> Any:
                 session_db = agent._get_session_db_for_recall()

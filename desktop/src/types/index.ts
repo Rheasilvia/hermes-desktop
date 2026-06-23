@@ -59,6 +59,7 @@ export type { DbMessage } from './db/message.js';
 export type {
   SessionMeta,
   DesktopPermissionMode,
+  CollaborationMode,
   ReasoningEffort,
   SessionRuntime,
   SessionRuntimeUpdateResult,
@@ -81,6 +82,7 @@ export type { ConversationMessage, ParsedToolCall, MessageAttachment } from './d
 // UI rendering types
 export type {
   MessageBlock, TextBlock, CodeBlock, ReasoningBlock,
+  PlanBlock,
   ToolCallBlock, RichContentBlock, RichContentKind, AttachmentBlock,
   TodoListBlock,
 } from './ui/blocks.js';

@@ -41,6 +41,8 @@ import type {
   PromptExecuteResult,
   MessageDeltaPayload,
   MessageCompletePayload,
+  PlanDeltaPayload,
+  PlanCompletePayload,
   MessageStatusPayload,
   ThinkingDeltaPayload,
   ReasoningDeltaPayload,
@@ -80,6 +82,8 @@ export interface GatewayEventMap {
   'message.start': MessageStartPayload;
   'message.delta': MessageDeltaPayload;
   'message.complete': MessageCompletePayload;
+  'plan.delta': PlanDeltaPayload;
+  'plan.complete': PlanCompletePayload;
   'thinking.delta': ThinkingDeltaPayload;
   'reasoning.delta': ReasoningDeltaPayload;
   'reasoning.available': ReasoningAvailablePayload;
@@ -426,7 +430,7 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   getConnectionState(): ConnectionState;
 }
 
-export type { DesktopPermissionMode, ReasoningEffort, SessionRuntime, SessionRuntimeUpdateResult, SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, WorkspaceChildrenResult, WorkspaceFileResult, GitDiffResult, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult } from '@/types/index.js';
+export type { CollaborationMode, DesktopPermissionMode, ReasoningEffort, SessionRuntime, SessionRuntimeUpdateResult, SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, WorkspaceChildrenResult, WorkspaceFileResult, GitDiffResult, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult } from '@/types/index.js';
 
 /** Factory options for creating a gateway adapter. */
 export interface GatewayAdapterOptions {

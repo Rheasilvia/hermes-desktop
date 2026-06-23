@@ -20,7 +20,7 @@ import { CompletionPanel, type CompletionItem } from './composer/CompletionPanel
 import { getGateway } from '@/stores/context.js';
 import { filterDesktopSlashCommands } from './slashCommandCuration.js';
 import type { CompletionEntry } from '@/services/gateway/types.js';
-import type { DesktopPermissionMode } from '@/types/index.js';
+import type { CollaborationMode, DesktopPermissionMode } from '@/types/index.js';
 import {
   attachmentsFromDisplayParts,
   compactDisplayParts,
@@ -57,6 +57,8 @@ interface MessageInputProps {
   permissionModePending?: boolean;
   permissionModeAppliesNextTurn?: boolean;
   onPermissionModeChange?: (mode: DesktopPermissionMode) => void;
+  collaborationMode?: CollaborationMode;
+  onCollaborationModeToggle?: () => void;
   /** For voice conversation mode — accessor returning the current streaming assistant text + pending flag. */
   pendingVoiceResponse?: () => { id: string; pending: boolean; text: string } | null;
   consumePendingVoiceResponse?: () => void;
@@ -764,6 +766,20 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
       return;
     }
 
+    if (
+      e.key === 'Tab' &&
+      e.shiftKey &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation?.();
+      props.onCollaborationModeToggle?.();
+      return;
+    }
+
     // While the slash autocomplete panel is open, let it own navigation +
     // Enter-to-select. preventDefault keeps the textarea caret/newline still;
     // we DON'T stopPropagation so the panel's document listener acts next.
@@ -1278,6 +1294,16 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
                   compactComposer(),
                 )}
               </div>
+            </Show>
+            <Show when={props.collaborationMode === 'plan'}>
+              <span
+                class={styles.planModePill}
+                title="Plan mode (Shift+Tab)"
+                aria-label="Plan mode"
+              >
+                <Icon name="clipboard-list" size={12} />
+                <span>Plan</span>
+              </span>
             </Show>
           </div>
 

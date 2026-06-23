@@ -93,6 +93,51 @@ def test_refresh_tool_snapshots_rebuilds_cached_agent_tools(pool, monkeypatch):
     ]
 
 
+def test_desktop_plan_toolset_is_added_to_restricted_agents(monkeypatch):
+    import model_tools
+
+    calls = []
+    tool_defs = [
+        {
+            "type": "function",
+            "function": {
+                "name": "request_user_input",
+                "description": "Ask the user",
+                "parameters": {"type": "object"},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "update_plan",
+                "description": "Update plan",
+                "parameters": {"type": "object"},
+            },
+        },
+    ]
+
+    def fake_get_tool_definitions(**kwargs):
+        calls.append(kwargs)
+        return tool_defs
+
+    monkeypatch.setattr(model_tools, "get_tool_definitions", fake_get_tool_definitions)
+    agent = _FakeAIAgent("s1")
+    agent.enabled_toolsets = ["coding"]
+    agent.disabled_toolsets = ["browser"]
+
+    AgentPool._ensure_desktop_plan_toolset(agent)
+
+    assert agent.enabled_toolsets == ["coding", "desktop_plan"]
+    assert agent.valid_tool_names == {"request_user_input", "update_plan"}
+    assert calls == [
+        {
+            "enabled_toolsets": ["coding", "desktop_plan"],
+            "disabled_toolsets": ["browser"],
+            "quiet_mode": True,
+        }
+    ]
+
+
 class TestAgentPoolEviction:
     """LRU eviction and running-agent pinning."""
 

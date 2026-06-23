@@ -1,4 +1,4 @@
-import type { DesktopPermissionMode, HermesConfig, ReasoningEffort, SessionRuntime } from '../types.js';
+import type { CollaborationMode, DesktopPermissionMode, HermesConfig, ReasoningEffort, SessionRuntime } from '../types.js';
 import type { HermesConfigRecord } from '@/services/api/types.js';
 
 export const API_PREFIX = '/desktop/api';
@@ -17,9 +17,16 @@ export function reasoningEffortOf(value: unknown): ReasoningEffort {
     : 'medium';
 }
 
+export function collaborationModeOf(value: unknown): CollaborationMode {
+  return value === 'plan' ? 'plan' : 'default';
+}
+
 export function sessionRuntimeOf(value: unknown): SessionRuntime {
   const runtime = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  return { reasoningEffort: reasoningEffortOf(runtime.reasoningEffort) };
+  return {
+    reasoningEffort: reasoningEffortOf(runtime.reasoningEffort),
+    collaborationMode: collaborationModeOf(runtime.collaborationMode),
+  };
 }
 
 export function setDotPath(target: HermesConfigRecord, path: string, value: unknown): void {

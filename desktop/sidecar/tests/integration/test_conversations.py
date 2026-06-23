@@ -47,6 +47,7 @@ class TestSessionCRUD:
         assert data["session_id"].startswith("desktop_")
         assert data["permissionMode"] == "auto"
         assert data["runtime"]["reasoningEffort"] == "medium"
+        assert data["runtime"]["collaborationMode"] == "default"
 
     def test_create_session_without_workspace_creates_default_workspace(
         self, client, monkeypatch, tmp_path
@@ -343,15 +344,28 @@ class TestSessionCRUD:
         data = resp.json()
         assert data == {
             "id": sid,
-            "runtime": {"reasoningEffort": "high"},
+            "runtime": {"reasoningEffort": "high", "collaborationMode": "default"},
             "appliedToActiveTurn": True,
             "appliesNextTurn": False,
         }
         assert client.get(f"/desktop/api/sessions/{sid}").json()["runtime"] == {
-            "reasoningEffort": "high"
+            "reasoningEffort": "high",
+            "collaborationMode": "default",
         }
         assert client.get("/desktop/api/sessions").json()[0]["runtime"] == {
-            "reasoningEffort": "high"
+            "reasoningEffort": "high",
+            "collaborationMode": "default",
+        }
+
+        plan_resp = client.patch(
+            f"/desktop/api/sessions/{sid}/runtime",
+            json={"collaborationMode": "plan"},
+        )
+
+        assert plan_resp.status_code == 200
+        assert plan_resp.json()["runtime"] == {
+            "reasoningEffort": "high",
+            "collaborationMode": "plan",
         }
 
     def test_session_runtime_patch_rejects_empty_and_invalid_values(self, client):
@@ -367,7 +381,8 @@ class TestSessionCRUD:
         assert empty.status_code == 422
         assert invalid.status_code == 422
         assert client.get(f"/desktop/api/sessions/{sid}").json()["runtime"] == {
-            "reasoningEffort": "medium"
+            "reasoningEffort": "medium",
+            "collaborationMode": "default",
         }
 
     def test_session_runtime_patch_returns_404_for_unknown_session(self, client):
@@ -384,13 +399,16 @@ class TestSessionCRUD:
         sid = created.json()["id"]
         client.patch(
             f"/desktop/api/sessions/{sid}/runtime",
-            json={"reasoningEffort": "xhigh"},
+            json={"reasoningEffort": "xhigh", "collaborationMode": "plan"},
         )
 
         branched = client.post(f"/desktop/api/sessions/{sid}/branch")
 
         assert branched.status_code == 200
-        assert branched.json()["runtime"] == {"reasoningEffort": "xhigh"}
+        assert branched.json()["runtime"] == {
+            "reasoningEffort": "xhigh",
+            "collaborationMode": "plan",
+        }
 
     def test_session_runtime_patch_does_not_mutate_running_agent(self, client):
         created = client.post("/desktop/api/sessions", json={})

@@ -12,7 +12,7 @@ import type { TodoItem } from '@/types/gateway.js';
 import type { RenderedMessage } from '@/types/ui/message.js';
 import type { LiveTurnState, LiveToolCall } from '@/types/ui/turn.js';
 import type { ParsedToolCall } from '@/types/domain/message.js';
-import type { MessageBlock, ReasoningBlock, ToolCallBlock, TextBlock } from '@/types/ui/blocks.js';
+import type { MessageBlock, PlanBlock, ReasoningBlock, ToolCallBlock, TextBlock } from '@/types/ui/blocks.js';
 import { parseBlocks } from '@/utils/messageParser.js';
 import { chatStates, setChatStates, nextBlockId } from './chat-state.js';
 
@@ -89,6 +89,42 @@ export function appendActivityReasoning(sessionId: string, text: string): void {
   });
 }
 
+export function appendActivityPlan(sessionId: string, text: string): void {
+  if (!text) return;
+  setChatStates(sessionId, 'liveState', 'activityBlocks', (blocks) => {
+    const last = blocks[blocks.length - 1];
+    if (last?.type === 'plan') {
+      return [
+        ...blocks.slice(0, -1),
+        { ...last, content: last.content + text, isStreaming: true },
+      ];
+    }
+    return [
+      ...blocks,
+      {
+        type: 'plan' as const,
+        id: nextBlockId(),
+        content: text,
+        isStreaming: true,
+      },
+    ];
+  });
+}
+
+export function completeActivityPlan(sessionId: string): void {
+  setChatStates(sessionId, 'liveState', 'activityBlocks', (blocks) => {
+    for (let idx = blocks.length - 1; idx >= 0; idx -= 1) {
+      const block = blocks[idx];
+      if (block.type === 'plan') {
+        return blocks.map((item, itemIdx) =>
+          itemIdx === idx ? { ...item, isStreaming: false } : item
+        );
+      }
+    }
+    return blocks;
+  });
+}
+
 export function syncActivityToolBlock(sessionId: string, toolId: string): void {
   const tool = chatStates[sessionId]?.liveState.activeTools.find((item) => item.id === toolId);
   if (!tool) return;
@@ -134,6 +170,9 @@ export function finalizeActivityBlocks(live: LiveTurnState, finalText: string | 
   const finalized = blocks.flatMap((block): MessageBlock[] => {
     if (block.type === 'reasoning') {
       return [{ ...block, isStreaming: false } satisfies ReasoningBlock];
+    }
+    if (block.type === 'plan') {
+      return [{ ...block, isStreaming: false } satisfies PlanBlock];
     }
     if (block.type === 'tool_call') {
       if (hasTodos && block.name === 'todo') return [];

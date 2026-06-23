@@ -12,21 +12,23 @@ def test_fresh_schema_defaults_reasoning_effort_to_medium(tmp_path):
         ensure_schema(conn)
         conn.execute("INSERT INTO session_desktop_meta (session_id) VALUES (?)", ("sess-1",))
         row = conn.execute(
-            "SELECT reasoning_effort FROM session_desktop_meta WHERE session_id = ?",
+            "SELECT reasoning_effort, collaboration_mode FROM session_desktop_meta WHERE session_id = ?",
             ("sess-1",),
         ).fetchone()
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
         meta_table = conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mcp_server_meta'"
         ).fetchone()
-        assert version == 10
+        assert version == 11
         assert row["reasoning_effort"] == "medium"
+        assert row["collaboration_mode"] == "default"
         assert meta_table is not None
         columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(session_desktop_meta)").fetchall()
         }
         assert "archived_at" in columns
+        assert "collaboration_mode" in columns
         index = conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sdm_archived_at'"
         ).fetchone()
@@ -66,12 +68,13 @@ def test_v7_schema_migrates_reasoning_effort_to_medium(tmp_path):
     try:
         ensure_schema(conn)
         row = conn.execute(
-            "SELECT reasoning_effort FROM session_desktop_meta WHERE session_id = ?",
+            "SELECT reasoning_effort, collaboration_mode FROM session_desktop_meta WHERE session_id = ?",
             ("sess-old",),
         ).fetchone()
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
-        assert version == 10
+        assert version == 11
         assert row["reasoning_effort"] == "medium"
+        assert row["collaboration_mode"] == "default"
     finally:
         conn.close()
 
@@ -109,8 +112,13 @@ def test_v8_schema_migrates_mcp_server_meta(tmp_path):
         table = conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mcp_server_meta'"
         ).fetchone()
-        assert version == 10
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(session_desktop_meta)").fetchall()
+        }
+        assert version == 11
         assert table is not None
+        assert "collaboration_mode" in columns
     finally:
         conn.close()
 
@@ -148,6 +156,7 @@ def test_set_archived_preserved_across_runtime_upsert(tmp_path):
     assert meta["archived"] == 1
     assert meta["archived_at"] is not None
     assert meta["provider"] == "anthropic"
+    assert meta["collaboration_mode"] == "default"
     assert service.get_archived_map(["sess-archive"]) == {"sess-archive": True}
 
     service.set_archived("sess-archive", False)
@@ -209,8 +218,13 @@ def test_v9_schema_migrates_archived_at_and_index(tmp_path):
             ORDER BY archived_at DESC
             """
         ).fetchall()
-        assert version == 10
+        migrated = conn.execute(
+            "SELECT collaboration_mode FROM session_desktop_meta WHERE session_id = ?",
+            ("archived-old",),
+        ).fetchone()
+        assert version == 11
         assert archived["archived_at"] == 1234.0
+        assert migrated["collaboration_mode"] == "default"
         assert active["archived_at"] is None
         assert any("idx_sdm_archived_at" in row["detail"] for row in query_plan)
     finally:

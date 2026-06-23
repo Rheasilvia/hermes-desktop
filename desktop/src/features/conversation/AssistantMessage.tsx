@@ -6,6 +6,7 @@ import type {
   TextBlock,
   CodeBlock as CodeBlockType,
   ReasoningBlock,
+  PlanBlock,
   ToolCallBlock,
   RichContentBlock,
   AttachmentBlock,
@@ -85,11 +86,25 @@ const ThinkingTextBlock: Component<{ block: ReasoningBlock }> = (props) => (
   <pre class={styles.thinkingText}>{props.block.content}</pre>
 );
 
+const PlanBlockView: Component<{ block: PlanBlock }> = (props) => {
+  const html = () => parseMarkdown(props.block.content);
+  return (
+    <div class={styles.planBlock}>
+      <div class={styles.planHeader}>
+        <Icon name="clipboard-list" size={14} />
+        <span>Plan</span>
+      </div>
+      <div class={styles.planContent} innerHTML={html()} />
+    </div>
+  );
+};
+
 function isRenderableBlock(block: MessageBlock): boolean {
   switch (block.type) {
     case 'text':
     case 'code':
     case 'reasoning':
+    case 'plan':
       return 'content' in block && String(block.content).trim().length > 0;
     case 'tool_call':
     case 'todo_list':
@@ -117,7 +132,7 @@ function buildBlockGroups(blocks: MessageBlock[]): BlockGroup[] {
       groups.push({ type: 'single', block });
     } else if (block.type === 'tool_call') {
       // Suppress todo tool cards when TodoPanel is present
-      if (hasTodoList && (block as ToolCallBlock).name === 'todo') continue;
+      if (hasTodoList && ((block as ToolCallBlock).name === 'todo' || (block as ToolCallBlock).name === 'update_plan')) continue;
       const last = groups[groups.length - 1];
       if (last?.type === 'activity_group') {
         last.blocks.push(block as ToolCallBlock);
@@ -267,6 +282,9 @@ const SingleGroupView: Component<{ group: Accessor<SingleGroup> }> = (props) => 
       </Show>
       <Show when={block().type === 'reasoning'}>
         <ThinkingTextBlock block={block() as ReasoningBlock} />
+      </Show>
+      <Show when={block().type === 'plan'}>
+        <PlanBlockView block={block() as PlanBlock} />
       </Show>
       <Show when={block().type === 'rich_content'}>
         <RichContentBlockView block={block() as RichContentBlock} />
