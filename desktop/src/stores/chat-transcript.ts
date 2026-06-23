@@ -82,13 +82,18 @@ export function liveStateFromTranscript(sessionId: string, liveTurn: TranscriptL
     ...makeLiveTurnState(sessionId),
     turnId: liveTurn.turn_id,
     lastEventSeq: liveTurn.last_event_seq,
-    status: 'streaming',
+    status: liveTurn.status === 'awaiting_user' ? 'awaiting_user' : 'streaming',
     streamingText: liveTurn.content,
     reasoningText: liveTurn.reasoning,
     activityBlocks,
     activeTools,
     todos: liveTurn.todos ?? [],
     todosToolId: liveTurn.todos?.length ? (activeTools.find((tool) => tool.name === 'todo')?.id ?? null) : null,
+    pendingUserInput: liveTurn.pending_user_input ? {
+      requestId: liveTurn.pending_user_input.request_id,
+      turnId: liveTurn.pending_user_input.turn_id ?? liveTurn.turn_id,
+      questions: liveTurn.pending_user_input.questions ?? [],
+    } : null,
   };
 }
 

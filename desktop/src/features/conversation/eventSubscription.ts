@@ -5,6 +5,7 @@ import type {
   ToolStartPayload, ToolProgressPayload, ToolCompletePayload,
   ToolGeneratingPayload, ToolErrorPayload,
   ApprovalRequestPayload, ClarifyRequestPayload,
+  UserInputRequestPayload, UserInputResponsePayload,
   SudoRequestPayload, SecretRequestPayload,
   BackgroundCompletePayload, BtwCompletePayload,
   SubagentStartPayload, SubagentProgressPayload,
@@ -62,6 +63,8 @@ export function useGatewayEvents(opts: {
   const onSudoRequest = (p: SudoRequestPayload) => chatStore.handleSudoRequest(p.session_id, p);
   const onSecretRequest = (p: SecretRequestPayload) => chatStore.handleSecretRequest(p.session_id, p);
   const onClarifyRequest = (p: ClarifyRequestPayload) => chatStore.handleClarifyRequest(p.session_id, p);
+  const onUserInputRequest = (p: UserInputRequestPayload) => chatStore.handleUserInputRequest(p.session_id, p);
+  const onUserInputResponse = (p: UserInputResponsePayload) => chatStore.handleUserInputResponse(p.session_id, p);
   const onBackgroundComplete = (p: BackgroundCompletePayload) => {
     backgroundTaskStore.handleComplete(p);
     nativeNotifications.backgroundDone(undefined, 'Background task complete');
@@ -104,6 +107,8 @@ export function useGatewayEvents(opts: {
     gw.on('sudo.request', onSudoRequest);
     gw.on('secret.request', onSecretRequest);
     gw.on('clarify.request', onClarifyRequest);
+    gw.on('user_input.request', onUserInputRequest);
+    gw.on('user_input.response', onUserInputResponse);
     gw.on('background.complete', onBackgroundComplete);
     gw.on('btw.complete', onBtwComplete);
     gw.on('subagent.start', onSubagentStart);
@@ -132,6 +137,8 @@ export function useGatewayEvents(opts: {
     gw.off('sudo.request', onSudoRequest);
     gw.off('secret.request', onSecretRequest);
     gw.off('clarify.request', onClarifyRequest);
+    gw.off('user_input.request', onUserInputRequest);
+    gw.off('user_input.response', onUserInputResponse);
     gw.off('background.complete', onBackgroundComplete);
     gw.off('btw.complete', onBtwComplete);
     gw.off('subagent.start', onSubagentStart);

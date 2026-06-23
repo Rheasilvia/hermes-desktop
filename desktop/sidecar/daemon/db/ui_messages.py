@@ -78,6 +78,48 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def append_in_conn(
+    conn: sqlite3.Connection,
+    session_id: str,
+    msg_type: str,
+    payload: Dict[str, Any],
+    turn_id: str | None = None,
+    *,
+    created_at: float | None = None,
+    ensure: bool = True,
+) -> int:
+    """Append a ui_messages row using an existing transaction."""
+    if ensure:
+        _ensure_schema(conn)
+    row = conn.execute(
+        "SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq "
+        "FROM ui_messages WHERE session_id = ?",
+        (session_id,),
+    ).fetchone()
+    seq = row["next_seq"]
+
+    timestamp = time.time() if created_at is None else created_at
+    payload_to_store = dict(payload)
+    if turn_id:
+        payload_to_store.setdefault("turn_id", turn_id)
+
+    conn.execute(
+        "INSERT INTO ui_messages (session_id, seq, type, turn_id, payload_json, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            session_id,
+            seq,
+            msg_type,
+            turn_id,
+            json.dumps(payload_to_store, ensure_ascii=False),
+            timestamp,
+        ),
+    )
+    from .conversation_turns import apply_event
+    apply_event(conn, session_id, turn_id, seq, msg_type, payload_to_store, timestamp)
+    return seq
+
+
 def append(
     hermes_home: Path,
     session_id: str,
@@ -92,35 +134,7 @@ def append(
     """
     conn = _connect(hermes_home)
     try:
-        _ensure_schema(conn)
-
-        # Obtain next seq for this session (COALESCE + 1)
-        row = conn.execute(
-            "SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq "
-            "FROM ui_messages WHERE session_id = ?",
-            (session_id,),
-        ).fetchone()
-        seq = row["next_seq"]
-
-        created_at = time.time()
-        payload_to_store = dict(payload)
-        if turn_id:
-            payload_to_store.setdefault("turn_id", turn_id)
-
-        conn.execute(
-            "INSERT INTO ui_messages (session_id, seq, type, turn_id, payload_json, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                session_id,
-                seq,
-                msg_type,
-                turn_id,
-                json.dumps(payload_to_store, ensure_ascii=False),
-                created_at,
-            ),
-        )
-        from .conversation_turns import apply_event
-        apply_event(conn, session_id, turn_id, seq, msg_type, payload_to_store, created_at)
+        seq = append_in_conn(conn, session_id, msg_type, payload, turn_id=turn_id)
         conn.commit()
         return seq
     finally:

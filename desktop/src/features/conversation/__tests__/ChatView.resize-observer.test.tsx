@@ -39,6 +39,7 @@ vi.mock('@/stores/chat.js', () => ({
       activeTools: [],
       pendingPermission: null,
       pendingClarify: null,
+      pendingUserInput: null,
       memoryContext: null,
       todos: [],
       status: 'idle',

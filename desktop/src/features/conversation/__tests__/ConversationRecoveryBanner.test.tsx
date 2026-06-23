@@ -29,6 +29,18 @@ describe('ConversationRecoveryBanner', () => {
     expect(screen.getByText('2 late events dropped')).toBeDefined();
   });
 
+  test('shows awaiting user input as a waiting state', () => {
+    render(() => (
+      <ConversationRecoveryBanner
+        turnState="awaiting_user"
+        connectionState="connected"
+        diagnostics={{ lastEventAt: Date.now(), droppedLateEvents: 0 }}
+      />
+    ));
+
+    expect(screen.getByText('Waiting for your input...')).toBeDefined();
+  });
+
   test('shows reconnecting state even when the current turn is streaming', () => {
     render(() => (
       <ConversationRecoveryBanner

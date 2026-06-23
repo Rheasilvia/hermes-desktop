@@ -507,7 +507,21 @@ class SessionService:
 
             status = str(turn.get("status") or "running")
             tools = turn.get("tools") or []
-            if status == "running":
+            if status in {"running", "awaiting_user"}:
+                pending_user_input = None
+                if status == "awaiting_user":
+                    try:
+                        from ..db.user_input_prompts import get_pending_for_turn
+                        pending = get_pending_for_turn(self._hermes_home, session_id, turn_id)
+                        if pending is not None:
+                            pending_user_input = {
+                                "request_id": pending["request_id"],
+                                "turn_id": pending["turn_id"],
+                                "questions": pending.get("questions") or [],
+                                "status": "pending",
+                            }
+                    except Exception:
+                        pending_user_input = None
                 live_turn = {
                     "turn_id": turn_id,
                     "status": status,
@@ -522,6 +536,8 @@ class SessionService:
                     "started_at": started_at,
                     "updated_at": turn.get("updated_at") or started_at,
                 }
+                if pending_user_input is not None:
+                    live_turn["pending_user_input"] = pending_user_input
                 continue
 
             content = str(turn.get("assistant_content") or "")

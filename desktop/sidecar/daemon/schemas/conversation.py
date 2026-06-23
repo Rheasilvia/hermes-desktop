@@ -81,6 +81,12 @@ class ClarifyRespondRequest(BaseModel):
     answer: str
 
 
+class UserInputRespondRequest(BaseModel):
+    session_id: str
+    request_id: str
+    answers: dict
+
+
 class SudoRespondRequest(BaseModel):
     request_id: str
     password: str = ""

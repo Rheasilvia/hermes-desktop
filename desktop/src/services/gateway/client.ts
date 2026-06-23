@@ -191,6 +191,11 @@ export class GatewayClient {
       this.call('clarify.respond', params),
   };
 
+  userInput = {
+    respond: (params: { session_id: string; request_id: string; answers: import('./types.js').UserInputAnswersPayload }): Promise<void> =>
+      this.call('user_input.respond', params),
+  };
+
   sudo = {
     respond: (params: { request_id: string; password: string }): Promise<void> =>
       this.call('sudo.respond', params),

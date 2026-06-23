@@ -44,6 +44,7 @@ class AgentExecutionService:
         event_bus: Any,
         agent_pool: Any,
         session_service: Any,
+        user_input_prompts: Any | None = None,
     ) -> None:
         self._hermes_home = hermes_home
         self._state = state
@@ -51,6 +52,7 @@ class AgentExecutionService:
         self._bus = event_bus
         self._pool = agent_pool
         self._session_svc = session_service
+        self._user_input_prompts = user_input_prompts
 
     def _install_turn_bound_callbacks(
         self,
@@ -396,6 +398,54 @@ class AgentExecutionService:
             self._pool.mark_idle(session_id, threading.current_thread())
             log.info("[perf] _run_turn total wall-clock: %.2fs", time.time() - _t0_total)
 
+    def resume_user_input_turn(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        request_id: str,
+        questions: list[dict[str, Any]],
+        answers: dict[str, Any],
+        response_seq: int | None = None,
+    ) -> bool:
+        """Resume a durable user-input prompt after the original worker died.
+
+        The Python stack that was waiting inside the tool callback cannot be
+        resurrected after process exit.  Instead we continue the same desktop
+        turn with a recovery prompt that carries the user's answers.
+        """
+        entry = self._pool.get_or_create(session_id)
+        if entry.running:
+            return False
+
+        prompt = self._format_user_input_recovery_prompt(request_id, questions, answers)
+        self._pool.mark_running(session_id, turn_id)
+        thread = threading.Thread(
+            target=self._run_turn,
+            args=(session_id, prompt, int(response_seq or 0), turn_id, None),
+            daemon=True,
+            name=f"agent-user-input-resume-{session_id[:8]}",
+        )
+        self._pool.set_thread(session_id, thread)
+        thread.start()
+        return True
+
+    def _format_user_input_recovery_prompt(
+        self,
+        request_id: str,
+        questions: list[dict[str, Any]],
+        answers: dict[str, Any],
+    ) -> str:
+        return (
+            "You were waiting for the user's response to a desktop Plan Mode "
+            "request_user_input call. The app or sidecar restarted, so continue "
+            "the same turn from the durable response below. Do not ask the same "
+            "questions again unless the answers are insufficient.\n\n"
+            f"request_id: {request_id}\n"
+            f"questions: {questions}\n"
+            f"answers: {answers}"
+        )
+
     def _get_usage(self, session_id: str, agent: Any) -> dict[str, Any] | None:
         """Return frontend-compatible usage from the durable session aggregate."""
 
@@ -528,35 +578,16 @@ class AgentExecutionService:
         def request_user_input(args: dict[str, Any]) -> dict[str, Any]:
             if collaboration_mode != "plan":
                 return {"error": "request_user_input is unavailable outside Plan Mode"}
-            questions = args.get("questions")
-            if not isinstance(questions, list) or not questions:
+            if self._user_input_prompts is None:
+                return {"error": "request_user_input is unavailable in this desktop process"}
+            questions = self._user_input_prompts.normalize_questions(args.get("questions"))
+            if not questions:
                 return {"error": "request_user_input requires at least one question"}
-            timeout = 600
-            auto_resolution_ms = args.get("autoResolutionMs")
-            if isinstance(auto_resolution_ms, (int, float)) and auto_resolution_ms > 0:
-                timeout = max(60, min(240, int(auto_resolution_ms / 1000)))
-            answers: dict[str, dict[str, list[str]]] = {}
-            for idx, question in enumerate(questions[:3]):
-                if not isinstance(question, dict):
-                    continue
-                qid = str(question.get("id") or f"question_{idx + 1}")
-                prompt = str(question.get("question") or "").strip()
-                if not prompt:
-                    continue
-                raw_options = question.get("options")
-                choices: list[str] = []
-                if isinstance(raw_options, list):
-                    for option in raw_options[:4]:
-                        if isinstance(option, dict):
-                            label = str(option.get("label") or "").strip()
-                            description = str(option.get("description") or "").strip()
-                            text = f"{label} — {description}" if label and description else label or description
-                        else:
-                            text = str(option or "").strip()
-                        if text:
-                            choices.append(text)
-                answer = clarify(prompt, choices or None, timeout=timeout)
-                answers[qid] = {"answers": [answer]}
+            answers = self._user_input_prompts.request_and_wait(
+                session_id=session_id,
+                turn_id=turn_id,
+                questions=questions,
+            )
             return {"answers": answers}
 
         remember("clarify_callback", clarify)

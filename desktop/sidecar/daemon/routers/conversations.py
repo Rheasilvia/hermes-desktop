@@ -27,6 +27,7 @@ from ..schemas.conversation import (
     UpdateSessionRuntimeRequest,
     SetSessionProviderRequest,
     SudoRespondRequest,
+    UserInputRespondRequest,
 )
 from ..services.dependencies import (
     get_agent_execution_service,
@@ -35,6 +36,7 @@ from ..services.dependencies import (
     get_session_service,
     get_title_service,
     get_ui_message_service,
+    get_user_input_prompt_service,
 )
 from ..services.exceptions import SessionNotFoundError
 
@@ -375,6 +377,7 @@ async def interrupt_session(
     pool=Depends(get_agent_pool),
     ui=Depends(get_ui_message_service),
     bus=Depends(get_event_bus),
+    user_input=Depends(get_user_input_prompt_service),
 ):
     # force_reset interrupts the agent AND frees the session even if its turn
     # thread is wedged (e.g. a stalled provider stream that never returns), so
@@ -385,6 +388,7 @@ async def interrupt_session(
         payload = {"reason": "user_interrupt", "turn_id": turn_id}
         seq = ui.append(session_id, "turn.interrupted", payload, turn_id=turn_id)
         bus.publish(session_id, seq, "turn.interrupted", payload)
+        user_input.cancel_turn(session_id, turn_id, "user_interrupt")
     pool.force_reset(session_id)
     return {"ok": True}
 
@@ -443,6 +447,45 @@ async def clarify_respond(
     elif hasattr(agent, "resolve_clarify"):
         agent.resolve_clarify(body.request_id, body.answer)
     return {"ok": True}
+
+
+@router.post("/user-input/respond")
+async def user_input_respond(
+    body: UserInputRespondRequest,
+    user_input=Depends(get_user_input_prompt_service),
+    exec_svc=Depends(get_agent_execution_service),
+):
+    prompt = user_input.answer(
+        session_id=body.session_id,
+        request_id=body.request_id,
+        answers=body.answers,
+    )
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="NO_PENDING_USER_INPUT_REQUEST")
+
+    if user_input.wake_waiter(body.request_id, prompt.get("answers") or body.answers):
+        return {"ok": True, "resumed": "worker"}
+
+    claimed = user_input.claim_recovery(body.request_id)
+    if claimed is None:
+        return {"ok": True, "resumed": False}
+
+    try:
+        started = exec_svc.resume_user_input_turn(
+            session_id=claimed["session_id"],
+            turn_id=claimed["turn_id"],
+            request_id=body.request_id,
+            questions=claimed.get("questions") or [],
+            answers=claimed.get("answers") or {},
+            response_seq=claimed.get("response_seq"),
+        )
+    except Exception as exc:
+        user_input.mark_failed(body.request_id, str(exc))
+        raise
+    if not started:
+        user_input.mark_failed(body.request_id, "RECOVERY_NOT_STARTED")
+        return {"ok": True, "resumed": False}
+    return {"ok": True, "resumed": "recovery"}
 
 
 @router.post("/sudo/respond")

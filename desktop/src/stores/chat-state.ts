@@ -46,6 +46,7 @@ export function makeLiveTurnState(sessionId: string): LiveTurnState {
     errorAction: null,
     pendingPermission: null,
     pendingClarify: null,
+    pendingUserInput: null,
     memoryContext: null,
   };
 }

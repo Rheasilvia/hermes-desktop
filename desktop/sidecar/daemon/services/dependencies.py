@@ -14,6 +14,7 @@ from .profile_service import ProfileService
 from .session_service import SessionService
 from .session_state_service import SessionStateService
 from .ui_message_service import UIMessageService
+from .user_input_prompt_service import UserInputPromptService
 
 
 def _home_key(home) -> str:
@@ -116,6 +117,15 @@ def get_ui_message_service(request: Request) -> UIMessageService:
     )
 
 
+def get_user_input_prompt_service(request: Request) -> UserInputPromptService:
+    if not hasattr(request.app.state, "user_input_prompt_svc"):
+        request.app.state.user_input_prompt_svc = UserInputPromptService(
+            hermes_home=request.app.state.cfg.hermes_home,
+            event_bus=request.app.state.event_bus,
+        )
+    return request.app.state.user_input_prompt_svc
+
+
 def get_session_service(request: Request) -> SessionService:
     return _cached_service(
         request,
@@ -157,6 +167,7 @@ def get_agent_execution_service(request: Request):
             event_bus=get_event_bus(request),
             agent_pool=get_agent_pool(request),
             session_service=get_session_service(request),
+            user_input_prompts=get_user_input_prompt_service(request),
         ),
     )
 

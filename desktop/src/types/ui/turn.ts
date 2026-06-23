@@ -2,6 +2,9 @@
  * Ephemeral live-turn state — not persisted, exists only during active streaming.
  */
 
+import type { TodoItem, UserInputQuestionPayload, UserInputAnswersPayload } from '../gateway.js';
+import type { MessageBlock } from './blocks.js';
+
 export type TurnStatus =
   | 'idle'
   | 'submitting'
@@ -32,13 +35,17 @@ export interface PendingClarify {
   choices: string[] | null;
 }
 
+export interface PendingUserInput {
+  requestId: string;
+  turnId: string | null;
+  questions: UserInputQuestionPayload[];
+  answers?: UserInputAnswersPayload | null;
+}
+
 export interface MemoryContextItem {
   category: string;
   content: string;
 }
-
-import type { TodoItem } from '../gateway.js';
-import type { MessageBlock } from './blocks.js';
 
 export interface LiveTurnState {
   sessionId: string;
@@ -58,6 +65,7 @@ export interface LiveTurnState {
   errorAction: { label: string; route: string } | null;
   pendingPermission: PendingPermission | null;
   pendingClarify: PendingClarify | null;
+  pendingUserInput: PendingUserInput | null;
   memoryContext: MemoryContextItem[] | null;
 }
 

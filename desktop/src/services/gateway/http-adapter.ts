@@ -72,6 +72,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
   readonly provider: GatewayAdapter['provider'];
   readonly approval: GatewayAdapter['approval'];
   readonly clarify: GatewayAdapter['clarify'];
+  readonly userInput: GatewayAdapter['userInput'];
   readonly sudo: GatewayAdapter['sudo'];
   readonly secret: GatewayAdapter['secret'];
   readonly cron: GatewayAdapter['cron'];
@@ -133,6 +134,16 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           session_id: params.session_id,
           request_id: params.request_id,
           answer: params.answer,
+        });
+      },
+    };
+
+    this.userInput = {
+      respond: async (params): Promise<void> => {
+        await this.http.post(`${API_PREFIX}/user-input/respond`, {
+          session_id: params.session_id,
+          request_id: params.request_id,
+          answers: params.answers,
         });
       },
     };
@@ -787,6 +798,43 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           question: String(payload.question ?? ''),
           choices: (payload.choices as string[]) ?? [],
         } as GatewayEventMap['clarify.request']);
+        break;
+      case 'user_input.request': {
+        const questions = Array.isArray(payload.questions) ? payload.questions : [];
+        this.emit('user_input.request', {
+          session_id: sid,
+          request_id: String(payload.request_id ?? ''),
+          turn_id: turnId,
+          event_seq: eventSeq,
+          questions: questions.map((item) => {
+            const question = (item ?? {}) as Record<string, unknown>;
+            const options = Array.isArray(question.options) ? question.options : [];
+            return {
+              id: String(question.id ?? ''),
+              header: String(question.header ?? ''),
+              question: String(question.question ?? ''),
+              options: options.map((option) => {
+                const opt = (option ?? {}) as Record<string, unknown>;
+                return {
+                  label: String(opt.label ?? ''),
+                  description: String(opt.description ?? ''),
+                };
+              }),
+            };
+          }),
+          status: String(payload.status ?? 'pending') as GatewayEventMap['user_input.request']['status'],
+        } as GatewayEventMap['user_input.request']);
+        break;
+      }
+      case 'user_input.response':
+        this.emit('user_input.response', {
+          session_id: sid,
+          request_id: String(payload.request_id ?? ''),
+          turn_id: turnId,
+          event_seq: eventSeq,
+          answers: (payload.answers ?? {}) as GatewayEventMap['user_input.response']['answers'],
+          status: String(payload.status ?? 'answered') as GatewayEventMap['user_input.response']['status'],
+        } as GatewayEventMap['user_input.response']);
         break;
       case 'message.start':
         this.emit('message.start', {

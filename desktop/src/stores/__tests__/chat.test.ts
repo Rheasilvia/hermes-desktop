@@ -7,6 +7,59 @@ const SESSION_TOOL_COMPLETE = 'test-session-tool-complete';
 const SESSION_NULL_SUMMARY = 'test-session-null-summary';
 const SESSION_MSG_COMPLETE = 'test-session-msg-complete';
 const SESSION_TOOL_IDENTITY = 'test-session-tool-identity';
+const SESSION_USER_INPUT = 'test-session-user-input';
+
+describe('request_user_input live state', () => {
+  beforeEach(() => {
+    chatStore.clearMessages(SESSION_USER_INPUT);
+  });
+
+  it('stores pending user input and marks the turn awaiting_user', () => {
+    chatStore.handleUserInputRequest(SESSION_USER_INPUT, {
+      session_id: SESSION_USER_INPUT,
+      request_id: 'req-1',
+      turn_id: 'turn-1',
+      event_seq: 7,
+      questions: [
+        {
+          id: 'scope',
+          header: 'Scope',
+          question: 'Which scope?',
+          options: [{ label: 'Broad', description: 'Include recovery.' }],
+        },
+      ],
+      status: 'pending',
+    });
+
+    const live = chatStore.getLiveState(SESSION_USER_INPUT);
+    expect(live.status).toBe('awaiting_user');
+    expect(live.turnId).toBe('turn-1');
+    expect(live.pendingUserInput?.requestId).toBe('req-1');
+    expect(chatStore.isStreaming(SESSION_USER_INPUT)).toBe(true);
+  });
+
+  it('clears pending user input when a response arrives', () => {
+    chatStore.handleUserInputRequest(SESSION_USER_INPUT, {
+      session_id: SESSION_USER_INPUT,
+      request_id: 'req-1',
+      turn_id: 'turn-1',
+      questions: [
+        { id: 'scope', header: 'Scope', question: 'Which scope?', options: [] },
+      ],
+    });
+    chatStore.handleUserInputResponse(SESSION_USER_INPUT, {
+      session_id: SESSION_USER_INPUT,
+      request_id: 'req-1',
+      turn_id: 'turn-1',
+      answers: { scope: { answers: ['Broad'] } },
+      status: 'answered',
+    });
+
+    const live = chatStore.getLiveState(SESSION_USER_INPUT);
+    expect(live.status).toBe('accepted');
+    expect(live.pendingUserInput).toBeNull();
+  });
+});
 
 describe('handleToolComplete', () => {
   beforeEach(() => {

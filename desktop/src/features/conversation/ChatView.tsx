@@ -34,6 +34,7 @@ import { ConversationRecoveryBanner } from './ConversationRecoveryBanner.js';
 import { ChatEnvironmentOverlay } from './ChatEnvironmentOverlay.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { ClarificationCard } from './ClarificationCard.js';
+import { UserInputRequestCard } from './UserInputRequestCard.js';
 import { MemoryContextCard } from './MemoryContextCard.js';
 import { TodoPanel } from './TodoPanel.js';
 import { JumpToBottom } from './JumpToBottom.js';
@@ -151,7 +152,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const liveTools = createMemo(() => liveState().activeTools);
 
   const blockingPromptActive = createMemo(() =>
-    Boolean(liveState().pendingPermission || liveState().pendingClarify)
+    Boolean(liveState().pendingPermission || liveState().pendingClarify || liveState().pendingUserInput)
   );
 
   // ── Extracted modules ─────────────────────────────────────────────────
@@ -669,8 +670,21 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const promptDockItems = createMemo<PromptDockItem[]>(() => {
     const items: PromptDockItem[] = [];
     const live = liveState();
+    const userInput = live.pendingUserInput;
     const permission = live.pendingPermission;
     const clarify = live.pendingClarify;
+
+    if (userInput) {
+      items.push({
+        id: `user-input-${userInput.requestId}`,
+        content: (
+          <UserInputRequestCard
+            questions={userInput.questions}
+            onSubmit={(answers) => void chatStore.respondUserInput(sessionId(), userInput.requestId, answers)}
+          />
+        ),
+      });
+    }
 
     if (permission) {
       items.push({
@@ -699,7 +713,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       });
     }
 
-    if (!permission && !clarify && (showFloatingPanel() || panelExiting())) {
+    if (!userInput && !permission && !clarify && (showFloatingPanel() || panelExiting())) {
       items.push({
         id: 'todo-panel',
         content: (

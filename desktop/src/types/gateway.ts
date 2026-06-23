@@ -88,6 +88,11 @@ export const CLARIFY_METHODS = {
   RESPOND: 'clarify.respond',
 } as const;
 
+/** User input methods. */
+export const USER_INPUT_METHODS = {
+  RESPOND: 'user_input.respond',
+} as const;
+
 /** Sudo methods. */
 export const SUDO_METHODS = {
   RESPOND: 'sudo.respond',
@@ -107,6 +112,7 @@ export type GatewayMethod =
   | typeof MODEL_METHODS[keyof typeof MODEL_METHODS]
   | typeof APPROVAL_METHODS[keyof typeof APPROVAL_METHODS]
   | typeof CLARIFY_METHODS[keyof typeof CLARIFY_METHODS]
+  | typeof USER_INPUT_METHODS[keyof typeof USER_INPUT_METHODS]
   | typeof SUDO_METHODS[keyof typeof SUDO_METHODS]
   | typeof SECRET_METHODS[keyof typeof SECRET_METHODS]
   | 'complete.slash'
@@ -413,6 +419,41 @@ export interface ClarifyRequestPayload {
   question: string;
   choices?: string[] | null;
   request_id: string;
+}
+
+export interface UserInputOptionPayload {
+  label: string;
+  description: string;
+}
+
+export interface UserInputQuestionPayload {
+  id: string;
+  header: string;
+  question: string;
+  options: UserInputOptionPayload[];
+}
+
+export interface UserInputAnswersPayload {
+  [questionId: string]: { answers: string[] };
+}
+
+/** Durable request_user_input event payload. */
+export interface UserInputRequestPayload {
+  session_id: string;
+  request_id: string;
+  turn_id?: string;
+  event_seq?: number;
+  questions: UserInputQuestionPayload[];
+  status?: 'pending' | 'answered' | 'resumed' | 'failed';
+}
+
+export interface UserInputResponsePayload {
+  session_id: string;
+  request_id: string;
+  turn_id?: string;
+  event_seq?: number;
+  answers: UserInputAnswersPayload;
+  status?: 'answered' | 'resumed';
 }
 
 /** Sudo request event payload. */
