@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -341,6 +342,127 @@ _SEATBELT_PLATFORM_DEFAULTS = r"""; macOS platform defaults included when a spli
 _SEATBELT_EXECUTABLE = "/usr/bin/sandbox-exec"
 
 
+# Maximum directory depth to descend when discovering git repositories under a
+# workspace. Caps the cost of scanning very large monorepos so policy building
+# stays cheap on the hot path. ``maxdepth`` counts levels below the workspace
+# root, so 0 = only ``<ws>/.git``.
+_DEFAULT_GIT_SCAN_MAXDEPTH = 8
+
+
+def _parse_gitdir_pointer(dot_git_path: Path) -> Path | None:
+    """Parse a ``.git`` file (submodule / worktree pointer).
+
+    Returns the resolved gitdir it points at, or ``None`` if the file is not a
+    well-formed ``gitdir: <path>`` pointer.
+    """
+    try:
+        text = dot_git_path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    # gitdir: /abs/path  or  gitdir: ../rel/path
+    marker = "gitdir:"
+    if not text.startswith(marker):
+        return None
+    raw_target = text[len(marker):].strip()
+    if not raw_target:
+        return None
+    # Resolve relative pointers against the pointer's parent directory.
+    target = Path(raw_target)
+    if not target.is_absolute():
+        target = dot_git_path.parent / target
+    try:
+        return target.resolve()
+    except OSError:
+        return None
+
+
+def _discover_git_hook_dirs(
+    workspace_root: str | Path,
+    maxdepth: int = _DEFAULT_GIT_SCAN_MAXDEPTH,
+) -> list[Path]:
+    """Find all ``.git/hooks`` directories under ``workspace_root`` to protect.
+
+    Covers the top-level ``<ws>/.git/hooks`` plus nested/bare repositories:
+      - ``<ws>/x.git/hooks`` (bare repo)
+      - ``<ws>/mono/repo-a/.git/hooks`` (nested working clone)
+      - submodule ``.git`` *files* (``gitdir: <path>`` pointers) whose target
+        resolves **inside** the workspace.
+
+    Gitdir pointers that resolve *outside* the workspace are deliberately
+    skipped: outside-workspace paths are already write-denied by the L1
+    workspace boundary, so there is nothing to re-protect there.
+
+    Returns canonical, de-duplicated paths.
+    """
+    ws_root = Path(workspace_root)
+    try:
+        ws_canonical = ws_root.resolve()
+    except OSError:
+        ws_canonical = ws_root
+
+    found: set[Path] = set()
+
+    def _try_add_hooks_dir(candidate_hooks: Path) -> None:
+        try:
+            resolved = candidate_hooks.resolve()
+        except OSError:
+            resolved = candidate_hooks
+        # Only protect hooks dirs that live inside the workspace; ones outside
+        # are already covered by the L1 boundary.
+        try:
+            resolved.relative_to(ws_canonical)
+        except ValueError:
+            return
+        if resolved.is_dir():
+            found.add(resolved)
+
+    # 1. Top-level <ws>/.git/hooks
+    _try_add_hooks_dir(ws_root / ".git" / "hooks")
+
+    # 2. Walk the tree for nested / bare repos.
+    # Depth tracking: os.walk yields (dirpath, dirnames, filenames). We prune
+    # dirnames to control descent depth and to avoid descending into any ``.git``
+    # directory's internals (we only care about the hooks subdir inside it).
+    if maxdepth > 0:
+        for dirpath, dirnames, filenames in os.walk(ws_root):
+            rel = Path(dirpath).resolve()
+            try:
+                depth = len(rel.relative_to(ws_canonical).parts)
+            except ValueError:
+                # dirpath escaped the workspace via symlink; stop descending.
+                dirnames[:] = []
+                continue
+
+            # Inspect entries at this level for git repositories.
+            for name in list(dirnames):
+                entry = Path(dirpath) / name
+                is_git_dir_name = name == ".git" or name.endswith(".git")
+                if not is_git_dir_name:
+                    continue
+                if entry.is_dir():
+                    # Working clone (.git) or bare repo (foo.git).
+                    _try_add_hooks_dir(entry / "hooks")
+                    # Never descend into a git directory's internals beyond hooks.
+                    dirnames.remove(name)
+                # else: it's a .git *file* (pointer) — handled via filenames path.
+
+            for fname in filenames:
+                if fname != ".git":
+                    continue
+                pointer = Path(dirpath) / fname
+                if not pointer.is_file():
+                    continue
+                target = _parse_gitdir_pointer(pointer)
+                if target is not None:
+                    _try_add_hooks_dir(target / "hooks")
+
+            # Prune descent when we hit the depth cap.
+            if depth >= maxdepth:
+                dirnames[:] = []
+
+    return sorted(found)
+
+
 def _build_executable_roots_policy(
     executable_roots: list[str] | None,
 ) -> tuple[str, list[tuple[str, str]]]:
@@ -430,15 +552,33 @@ def _build_seatbelt_policy(
 
     exec_policy, exec_params = _build_executable_roots_policy(executable_roots)
 
-    dynamic_policy = """
+    # Discover every git hooks directory under the workspace (top-level,
+    # nested working clones, bare repos, and in-workspace submodule pointers).
+    # Each is write-denied separately below so an agent cannot plant a hook in
+    # a nested/bare repo and have it run on the next git operation.
+    hook_dirs = _discover_git_hook_dirs(workspace_root)
+
+    hook_deny_rules: list[str] = []
+    hook_params: list[tuple[str, str]] = []
+    for index, hook_dir in enumerate(hook_dirs):
+        key = f"WS_GIT_HOOK_{index}"
+        hook_params.append((key, str(hook_dir)))
+        hook_deny_rules.append(
+            f'(deny file-write* (subpath (param "{key}")))'
+        )
+    hook_deny_block = "\n".join(hook_deny_rules)
+
+    dynamic_policy = f"""
 ; Workspace access
 (allow file-read* file-write* file-test-existence
   (subpath (param "WORKSPACE_ROOT")))
 
 ; .git/hooks and .git/config are an unsandboxed code-execution surface (a hook
 ; runs on the next git op; config sets core.hooksPath / aliases). Deny writes
-; there while leaving the rest of .git and all reads working.
-(deny file-write* (subpath (param "WS_GIT_HOOKS")))
+; to every discovered hooks directory (top-level, nested clones, bare repos)
+; and to the top-level config, while leaving the rest of .git and all reads
+; working.
+{hook_deny_block}
 (deny file-write* (literal (param "WS_GIT_CONFIG")))
 
 ; Deny entire hermes home directory (config.yaml, .env, gateway_state, credentials).
@@ -447,9 +587,9 @@ def _build_seatbelt_policy(
 """
     params: list[tuple[str, str]] = [
         ("WORKSPACE_ROOT", workspace_root),
-        ("WS_GIT_HOOKS", str(Path(workspace_root) / ".git" / "hooks")),
         ("WS_GIT_CONFIG", str(Path(workspace_root) / ".git" / "config")),
         ("HERMES_HOME", hermes_home),
+        *hook_params,
         *exec_params,
     ]
     policy = "\n".join([

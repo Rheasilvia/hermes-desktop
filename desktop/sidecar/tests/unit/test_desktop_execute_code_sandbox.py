@@ -248,15 +248,34 @@ class TestBuildSeatbeltPolicy:
         assert deny_pos > allow_pos, "hermes home deny must appear after the workspace allow"
 
     def test_policy_denies_git_hooks_and_config(self, tmp_path):
-        """.git/hooks and .git/config are denied for writes (code-exec surface)."""
+        """Every discovered .git/hooks dir + top-level config are denied for writes."""
         from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        # The finder only protects hooks dirs that actually exist, so create
+        # the top-level hooks dir (and a nested bare repo hooks dir) to exercise
+        # the discovery + multi-deny path.
+        (tmp_path / ".git" / "hooks").mkdir(parents=True)
+        (tmp_path / "vendor" / "sub.git" / "hooks").mkdir(parents=True)
 
         policy, params = _build_seatbelt_policy(str(tmp_path))
 
-        assert ("WS_GIT_HOOKS", str(tmp_path / ".git" / "hooks")) in params
         assert ("WS_GIT_CONFIG", str(tmp_path / ".git" / "config")) in params
-        assert '(deny file-write* (subpath (param "WS_GIT_HOOKS")))' in policy
         assert '(deny file-write* (literal (param "WS_GIT_CONFIG")))' in policy
+
+        # Top-level hooks dir is discovered and denied as WS_GIT_HOOK_0.
+        top_hooks = str((tmp_path / ".git" / "hooks").resolve())
+        assert ("WS_GIT_HOOK_0", top_hooks) in params
+        assert '(deny file-write* (subpath (param "WS_GIT_HOOK_0")))' in policy
+        # The literal path must not be interpolated into the policy text.
+        assert top_hooks not in policy
+
+        # Nested bare repo hooks dir is discovered and denied as WS_GIT_HOOK_1.
+        bare_hooks = str((tmp_path / "vendor" / "sub.git" / "hooks").resolve())
+        assert ("WS_GIT_HOOK_1", bare_hooks) in params
+        assert '(deny file-write* (subpath (param "WS_GIT_HOOK_1")))' in policy
+
+        # No legacy single-key name should remain.
+        assert "WS_GIT_HOOKS" not in policy
 
     def test_policy_does_not_allow_arbitrary_tmp_read_write(self, tmp_path):
         """The process sandbox must not allow symlink escapes into world temp dirs.
