@@ -2772,7 +2772,7 @@ class TestSchemaInit:
         }
         assert "idx_sessions_title_unique" not in indexes
         assert migrated_db.set_session_title("s1", "Shared Title") is True
-        assert migrated_db.set_session_title("s2", "Shared Title") is True
+        assert migrated_db.set_session_title("s2", "Shared Title", enforce_unique=False) is True
         migrated_db.close()
 
     def test_reconciliation_adds_missing_columns(self, tmp_path):
@@ -2922,7 +2922,8 @@ class TestTitleLabels:
         db.create_session("s1", "cli")
         db.create_session("s2", "cli")
         db.set_session_title("s1", "my project")
-        assert db.set_session_title("s2", "my project") is True
+        # Tauri desktop path: titles may repeat (enforce_unique=False)
+        assert db.set_session_title("s2", "my project", enforce_unique=False) is True
         assert db.get_session("s1")["title"] == "my project"
         assert db.get_session("s2")["title"] == "my project"
 
@@ -2955,7 +2956,7 @@ class TestTitleLabels:
         db.set_session_title("s1", "refactoring auth")
         time.sleep(0.01)
         db.create_session("s2", "cli")
-        db.set_session_title("s2", "refactoring auth")
+        db.set_session_title("s2", "refactoring auth", enforce_unique=False)
 
         result = db.get_session_by_title("refactoring auth")
         assert result is not None

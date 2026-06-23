@@ -2045,17 +2045,54 @@ class SessionDB:
         ).fetchone()
         return row is not None
 
-    def set_session_title(self, session_id: str, title: str) -> bool:
+    def set_session_title(self, session_id: str, title: str, enforce_unique: bool = True) -> bool:
         """Set or update a session's title.
 
         Returns True if session was found and title was set.
         Raises ValueError if the title fails validation (too long, invalid
-        characters). Titles are labels, not identities, and may repeat across
-        sessions; updates are scoped by session ID.
+        characters), or — when ``enforce_unique`` is True (the default) — if the
+        title is already in use by another, non-ancestor session.
         Empty/whitespace-only strings are normalized to None (clearing the title).
+
+        ``enforce_unique`` lets the Tauri desktop surface opt out of the
+        uniqueness guard (titles are labels there and may repeat); TUI / CLI /
+        gateway keep the default. Titles may always repeat at the DB level — the
+        unique index was dropped in v15 so auto-title never fails — this guard is
+        a higher-level UX check for explicit renames only.
         """
         title = self.sanitize_title(title)
         def _do(conn):
+            if title and enforce_unique:
+                # Check uniqueness (allow the same session to keep its own title)
+                cursor = conn.execute(
+                    "SELECT id FROM sessions WHERE title = ? AND id != ?",
+                    (title, session_id),
+                )
+                conflict = cursor.fetchone()
+                if conflict:
+                    conflict_id = conflict["id"]
+                    # A compression continuation is the live, projected-forward
+                    # head of its conversation; its compressed predecessors are
+                    # ended and hidden from the session list (list_sessions_rich
+                    # projects roots → tip). When the title that "conflicts" is
+                    # held by such a hidden ancestor, the user has no way to free
+                    # it — renaming the visible tip back to the base name would
+                    # dead-end with "already in use by <session they can't see>".
+                    # Treat this as a transfer: move the title off the ancestor
+                    # onto the continuation. Uniqueness is preserved (still only
+                    # one session carries the exact title) and the parent-link
+                    # lineage is untouched.
+                    if self._is_compression_ancestor(
+                        conn, ancestor_id=conflict_id, descendant_id=session_id
+                    ):
+                        conn.execute(
+                            "UPDATE sessions SET title = NULL WHERE id = ?",
+                            (conflict_id,),
+                        )
+                    else:
+                        raise ValueError(
+                            f"Title '{title}' is already in use by session {conflict_id}"
+                        )
             cursor = conn.execute(
                 "UPDATE sessions SET title = ? WHERE id = ?",
                 (title, session_id),
