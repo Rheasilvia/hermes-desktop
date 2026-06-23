@@ -2395,6 +2395,25 @@ DEFAULT_CONFIG = {
         # for restricted networks, audited environments, or air-gapped
         # systems where any runtime install is unacceptable.
         "allow_lazy_installs": True,
+        # Desktop terminal dangerous-command approval. When approval_required is
+        # True, terminal commands matching any pattern in dangerous_commands are
+        # routed through the human approval flow regardless of permissionMode
+        # (even in "full" mode). Users edit this list via the Security tab;
+        # these are the shipped defaults.
+        "approval_required": True,
+        "dangerous_commands": [
+            "rm -rf",
+            "sudo",
+            "curl | sh",
+            "curl|sh",
+            "wget | sh",
+            "wget|sh",
+            "chmod 777",
+            "git config core.hooksPath",
+            "launchctl",
+            "crontab",
+            "defaults write",
+        ],
     },
 
     "cron": {

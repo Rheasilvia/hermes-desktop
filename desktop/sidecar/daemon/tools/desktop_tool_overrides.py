@@ -517,6 +517,64 @@ def _install_wrappers(registry) -> None:
     # terminal: workdir enforcement + best-effort command path scan
     # -----------------------------------------------------------------------
 
+    def _dangerous_command_gate(command: str, session_id: str) -> str:
+        """Enforce ``security.dangerous_commands`` for the terminal tool.
+
+        If the command matches any user-configured dangerous pattern (or the
+        built-in defaults when the key is absent), route it through the human
+        approval flow regardless of ``permissionMode`` — even in ``full`` mode.
+        Returns ``"allow"`` (approved or non-dangerous) or ``"deny"``.
+
+        This closes a dead-config gap: the Security tab already let users list
+        dangerous command fragments, but the sidecar never read them, so the
+        protection was silently absent.
+        """
+        try:
+            from hermes_constants import get_hermes_home
+            hermes_home = get_hermes_home()
+        except Exception:
+            hermes_home = str(_PathUtil.home() / ".hermes")
+
+        try:
+            from ..readers.hermes_config import read_security_config
+            from ..services.command_safety import (
+                DEFAULT_DANGEROUS_PATTERNS,
+                command_matches_patterns,
+            )
+            sec = read_security_config(hermes_home)
+        except Exception:
+            log.exception("[desktop] dangerous-command gate: config read failed; fail-open")
+            return "allow"
+
+        if not sec.get("approval_required", True):
+            return "allow"
+
+        patterns = sec.get("dangerous_commands")
+        if patterns is None:
+            patterns = list(DEFAULT_DANGEROUS_PATTERNS)
+        if not command_matches_patterns(str(command), patterns):
+            return "allow"
+
+        import tools.path_approval as _pa
+
+        # Force an approval prompt even under permission_mode "full": temporarily
+        # flip the per-thread mode to "ask" so request_path_approval() does not
+        # short-circuit to "once" (path_approval.py full-mode branch).
+        token = _pa._permission_mode.set("ask")  # type: ignore[attr-defined]
+        try:
+            decision = _pa.request_path_approval(
+                path="",
+                operation=f"terminal:dangerous",
+                session_id=session_id,
+                session_key=f"terminal:{command}",
+            )
+        finally:
+            _pa._permission_mode.reset(token)  # type: ignore[attr-defined]
+
+        if decision == "deny":
+            return "deny"
+        return "allow"
+
     def _make_terminal_wrapper():
         import re
         original_entry = ORIGINAL_TOOLS.get("terminal")
@@ -605,6 +663,17 @@ def _install_wrappers(registry) -> None:
                                 })
                     except Exception:
                         pass  # don't block on parse errors
+
+            # 3.5. Dangerous-command approval gate (security.dangerous_commands).
+            # Must run BEFORE dispatch so it covers both local (seatbelt) and
+            # non-local backends. Enforced regardless of permissionMode.
+            if command:
+                gate = _dangerous_command_gate(str(command), str(snapshot.session_id))
+                if gate == "deny":
+                    return json.dumps({
+                        "error": "terminal denied by user (dangerous command approval)",
+                        "code": "DENIED",
+                    })
 
             # 4. Pass through with canonical workdir. For local desktop terminal,
             # command parsing is only an early rejection layer; the subprocess

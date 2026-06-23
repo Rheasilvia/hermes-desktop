@@ -470,3 +470,123 @@ class TestProcessOwnershipEnforcement:
             f"process kill with unknown ID must be denied, got: {result}"
         )
         entries["process"].handler.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests: terminal dangerous-command approval gate (security.dangerous_commands)
+# ---------------------------------------------------------------------------
+
+
+class TestTerminalDangerousCommandGate:
+    """The terminal wrapper must route commands matching
+    security.dangerous_commands through the human approval flow, regardless of
+    permissionMode (even in 'full'). Non-dangerous commands must not be gated."""
+
+    def _gate_config(self, dangerous_commands):
+        """Patch read_security_config to return a fixed dangerous list."""
+        return patch(
+            "daemon.readers.hermes_config.read_security_config",
+            return_value={
+                "dangerous_commands": dangerous_commands,
+                "approval_required": True,
+            },
+        )
+
+    def test_dangerous_command_approved_proceeds(self, installed_wrappers):
+        wrappers, entries, tmp_path = installed_wrappers
+        wrapper = wrappers["terminal"]
+
+        with self._gate_config(["rm -rf"]), patch(
+            "tools.path_approval.request_path_approval", return_value="once"
+        ) as mock_pa:
+            result_json = wrapper({"command": "rm -rf build", "workdir": str(tmp_path)})
+        result = json.loads(result_json)
+
+        assert result.get("result") == "ok"
+        mock_pa.assert_called_once()
+        entries["terminal"].handler.assert_called_once()
+
+    def test_dangerous_command_denied_blocks_execution(self, installed_wrappers):
+        wrappers, entries, tmp_path = installed_wrappers
+        wrapper = wrappers["terminal"]
+
+        with self._gate_config(["rm -rf"]), patch(
+            "tools.path_approval.request_path_approval", return_value="deny"
+        ):
+            result_json = wrapper({"command": "rm -rf build", "workdir": str(tmp_path)})
+        result = json.loads(result_json)
+
+        assert result.get("code") == "DENIED"
+        entries["terminal"].handler.assert_not_called()
+
+    def test_non_dangerous_command_skips_approval(self, installed_wrappers):
+        """A command that does not match any dangerous pattern never calls approval."""
+        wrappers, entries, tmp_path = installed_wrappers
+        wrapper = wrappers["terminal"]
+
+        with self._gate_config(["rm -rf"]), patch(
+            "tools.path_approval.request_path_approval", return_value="once"
+        ) as mock_pa:
+            result_json = wrapper({"command": "ls -la", "workdir": str(tmp_path)})
+        result = json.loads(result_json)
+
+        assert result.get("result") == "ok"
+        mock_pa.assert_not_called()
+
+    def test_gate_forces_approval_even_in_full_mode(self, installed_wrappers):
+        """A dangerous command must still prompt when permission_mode is 'full'.
+
+        request_path_approval short-circuits to 'once' under 'full' mode, so the
+        gate temporarily flips the per-thread mode to 'ask'. We assert the mode
+        is 'ask' at the time request_path_approval reads it.
+        """
+        wrappers, entries, tmp_path = installed_wrappers
+        wrapper = wrappers["terminal"]
+
+        import tools.path_approval as pa
+
+        pa.set_workspace_context(
+            str(tmp_path), "sess1", "turn1", permission_mode="full"
+        )
+        try:
+            captured_modes = []
+
+            def _capture(*a, **kw):
+                captured_modes.append(pa.get_permission_mode())
+                return "once"
+
+            with self._gate_config(["sudo"]), patch(
+                "tools.path_approval.request_path_approval", side_effect=_capture
+            ):
+                result_json = wrapper({"command": "sudo ls", "workdir": str(tmp_path)})
+            result = json.loads(result_json)
+        finally:
+            pa.reset_workspace_context(
+                pa.set_workspace_context(None, None, None, permission_mode="auto")
+            )
+
+        assert result.get("result") == "ok"
+        assert captured_modes == ["ask"], (
+            f"gate must force mode to 'ask' during dangerous-command approval, "
+            f"got {captured_modes}"
+        )
+
+    def test_approval_required_false_skips_gate(self, installed_wrappers):
+        """When security.approval_required is False, no approval is requested."""
+        wrappers, entries, tmp_path = installed_wrappers
+        wrapper = wrappers["terminal"]
+
+        with patch(
+            "daemon.readers.hermes_config.read_security_config",
+            return_value={
+                "dangerous_commands": ["rm -rf"],
+                "approval_required": False,
+            },
+        ), patch(
+            "tools.path_approval.request_path_approval", return_value="once"
+        ) as mock_pa:
+            result_json = wrapper({"command": "rm -rf build", "workdir": str(tmp_path)})
+        result = json.loads(result_json)
+
+        assert result.get("result") == "ok"
+        mock_pa.assert_not_called()
