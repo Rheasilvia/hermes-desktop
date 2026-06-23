@@ -288,6 +288,21 @@ export interface MessageCompletePayload {
   event_seq?: number;
 }
 
+/** Proposed plan delta event payload. */
+export interface PlanDeltaPayload {
+  session_id: string;
+  text: string;
+  turn_id?: string;
+  event_seq?: number;
+}
+
+/** Proposed plan completion event payload. */
+export interface PlanCompletePayload {
+  session_id: string;
+  turn_id?: string;
+  event_seq?: number;
+}
+
 /** Message status payload. */
 export interface MessageStatusPayload {
   cost_usd?: number;

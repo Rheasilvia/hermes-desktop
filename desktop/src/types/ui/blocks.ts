@@ -10,6 +10,7 @@ export type MessageBlock =
   | CodeBlock
   | ToolCallBlock
   | ReasoningBlock
+  | PlanBlock
   | RichContentBlock
   | AttachmentBlock
   | TodoListBlock;
@@ -25,6 +26,13 @@ export interface TextBlock {
   type: 'text';
   id: string;
   content: string;
+}
+
+export interface PlanBlock {
+  type: 'plan';
+  id: string;
+  content: string;
+  isStreaming: boolean;
 }
 
 export interface CodeBlock {

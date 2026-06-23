@@ -10,6 +10,8 @@ import { produce } from 'solid-js/store';
 import type {
   MessageDeltaPayload,
   MessageCompletePayload,
+  PlanDeltaPayload,
+  PlanCompletePayload,
   ReasoningDeltaPayload,
   ToolStartPayload,
   ToolProgressPayload,
@@ -55,6 +57,8 @@ import {
   latestMatchingToolIndex,
   appendActivityText,
   appendActivityReasoning,
+  appendActivityPlan,
+  completeActivityPlan,
   syncActivityToolBlock,
   syncActivityTodoBlock,
   finalizeActivityBlocks,
@@ -317,6 +321,22 @@ export const chatStore = {
     noteLiveEvent(sessionId);
     setChatStates(sessionId, 'liveState', 'reasoningText', (t) => t + payload.text);
     appendActivityReasoning(sessionId, payload.text);
+  },
+
+  handlePlanDelta(sessionId: string, payload: PlanDeltaPayload): void {
+    if (dropIfInterrupted(sessionId)) return;
+    if (!noteTurnEvent(sessionId, payload)) return;
+    noteLiveEvent(sessionId);
+    appendActivityPlan(sessionId, payload.text);
+    setChatStates(sessionId, 'liveState', 'status', 'streaming');
+  },
+
+  handlePlanComplete(sessionId: string, payload: PlanCompletePayload): void {
+    if (dropIfInterrupted(sessionId)) return;
+    if (!noteTurnEvent(sessionId, payload)) return;
+    noteLiveEvent(sessionId);
+    completeActivityPlan(sessionId);
+    setChatStates(sessionId, 'liveState', 'status', 'streaming');
   },
 
   handleToolStart(sessionId: string, payload: ToolStartPayload): void {

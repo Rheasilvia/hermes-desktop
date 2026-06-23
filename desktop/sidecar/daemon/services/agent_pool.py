@@ -22,6 +22,8 @@ log = logging.getLogger(__name__)
 
 TURN_SCOPED_UI_MESSAGE_TYPES = {
     "message.delta",
+    "plan.delta",
+    "plan.complete",
     "reasoning.delta",
     "tool.start",
     "tool.generating",
@@ -241,14 +243,20 @@ class AgentPool:
         agent pick the runtime up on the next build.
         """
         effort = runtime.get("reasoningEffort")
-        if effort is None:
+        collaboration_mode = runtime.get("collaborationMode")
+        if effort is None and collaboration_mode is None:
             return False
+        parsed = None
+        normalized_collaboration_mode = None
         try:
-            from hermes_constants import parse_reasoning_effort
-            from .desktop_meta_service import normalize_reasoning_effort
+            from .desktop_meta_service import normalize_collaboration_mode, normalize_reasoning_effort
 
-            normalized = normalize_reasoning_effort(str(effort))
-            parsed = parse_reasoning_effort(normalized)
+            if effort is not None:
+                from hermes_constants import parse_reasoning_effort
+                normalized = normalize_reasoning_effort(str(effort))
+                parsed = parse_reasoning_effort(normalized)
+            if collaboration_mode is not None:
+                normalized_collaboration_mode = normalize_collaboration_mode(str(collaboration_mode))
         except Exception:
             log.debug("invalid runtime patch ignored for %s: %r", session_id, runtime, exc_info=True)
             return False
@@ -257,7 +265,10 @@ class AgentPool:
             entry = self._agents.get(session_id)
             if entry is None or entry.running:
                 return False
-            entry.agent.reasoning_config = parsed
+            if parsed is not None:
+                entry.agent.reasoning_config = parsed
+            if normalized_collaboration_mode is not None:
+                entry.agent._desktop_collaboration_mode = normalized_collaboration_mode
             entry.last_used = time.time()
             return True
 
@@ -358,25 +369,31 @@ class AgentPool:
         # Step 1: Read provider/runtime from desktop meta; cwd is canonical in state.db.
         provider = None
         reasoning_effort = "medium"
+        collaboration_mode = "default"
         _t0 = time.time()
         try:
             conn = desktop_connect(self._hermes_home)
             ensure_schema(conn)
             row = conn.execute(
-                "SELECT provider, reasoning_effort FROM session_desktop_meta WHERE session_id = ?",
+                "SELECT provider, reasoning_effort, collaboration_mode FROM session_desktop_meta WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
             if row:
                 provider = row["provider"]
                 try:
-                    from .desktop_meta_service import normalize_reasoning_effort
+                    from .desktop_meta_service import normalize_collaboration_mode, normalize_reasoning_effort
 
                     reasoning_effort = normalize_reasoning_effort(
                         row["reasoning_effort"],
                         strict=False,
                     )
+                    collaboration_mode = normalize_collaboration_mode(
+                        row["collaboration_mode"],
+                        strict=False,
+                    )
                 except Exception:
                     reasoning_effort = "medium"
+                    collaboration_mode = "default"
             conn.close()
         except Exception as e:
             log.debug(f"Failed to read session_desktop_meta: {e}")
@@ -495,6 +512,7 @@ class AgentPool:
         if cwd:
             agent.workspace_cwd = cwd
             agent.session_cwd = cwd
+        agent._desktop_collaboration_mode = collaboration_mode
 
         # Wire callbacks
         _t0_init = time.time()
@@ -528,6 +546,8 @@ class AgentPool:
                 reasoning_config=parse_reasoning_effort(reasoning_effort),
                 platform="desktop",
             )
+
+        self._ensure_desktop_plan_toolset(agent)
 
         # Store cwd on agent for system prompt and tool CWD.
         if cwd:
@@ -574,6 +594,30 @@ class AgentPool:
                  time.time() - _t0_init, time.time() - _t0_total, provider, model)
         return agent, model, provider, cwd
 
+    @staticmethod
+    def _ensure_desktop_plan_toolset(agent: Any) -> None:
+        """Keep Tauri-only plan tools available even with restricted toolsets."""
+        enabled = getattr(agent, "enabled_toolsets", None)
+        if enabled is None or "desktop_plan" in enabled:
+            return
+        try:
+            next_enabled = [*list(enabled), "desktop_plan"]
+            from model_tools import get_tool_definitions
+            agent.enabled_toolsets = next_enabled
+            new_defs = get_tool_definitions(
+                enabled_toolsets=next_enabled,
+                disabled_toolsets=getattr(agent, "disabled_toolsets", None),
+                quiet_mode=True,
+            )
+            agent.tools = new_defs
+            agent.valid_tool_names = (
+                {tool["function"]["name"] for tool in new_defs}
+                if new_defs
+                else set()
+            )
+        except Exception:
+            log.debug("failed to ensure desktop_plan toolset", exc_info=True)
+
     def _evict_if_needed(self) -> None:
         """Evict least-recently-used idle agents until under capacity."""
         now = time.time()
@@ -607,7 +651,13 @@ class AgentPool:
 
     # ── callback factories ────────────────────────────────────────────────
 
-    def make_turn_callbacks(self, session_id: str, turn_id: str) -> Dict[str, Callable]:
+    def make_turn_callbacks(
+        self,
+        session_id: str,
+        turn_id: str,
+        *,
+        collaboration_mode: str = "default",
+    ) -> Dict[str, Callable]:
         """Create callbacks that are explicitly bound to a concrete turn.
 
         Desktop streaming/tool callbacks can be invoked from helper threads or
@@ -617,7 +667,11 @@ class AgentPool:
         """
         tool_start_cb = self._make_tool_start_cb(session_id, turn_id=turn_id)
         return {
-            "stream_delta_callback": self._make_stream_delta_cb(session_id, turn_id=turn_id),
+            "stream_delta_callback": self._make_stream_delta_cb(
+                session_id,
+                turn_id=turn_id,
+                collaboration_mode=collaboration_mode,
+            ),
             "tool_start_callback": tool_start_cb,
             "tool_complete_callback": self._make_tool_complete_cb(
                 session_id,
@@ -674,9 +728,46 @@ class AgentPool:
         except Exception:
             log.exception("_emit_ui_message failed for %s/%s", session_id, msg_type)
 
-    def _make_stream_delta_cb(self, session_id: str, *, turn_id: str | None = None) -> Callable[[str], None]:
+    def _make_stream_delta_cb(
+        self,
+        session_id: str,
+        *,
+        turn_id: str | None = None,
+        collaboration_mode: str = "default",
+    ) -> Callable[[str], None]:
+        parser = None
+        if collaboration_mode == "plan":
+            from .proposed_plan import ProposedPlanParser
+            parser = ProposedPlanParser()
+
         def cb(delta: str) -> None:
-            self._emit_ui_message(session_id, "message.delta", {"text": delta}, turn_id=turn_id)
+            if parser is None:
+                self._emit_ui_message(session_id, "message.delta", {"text": delta}, turn_id=turn_id)
+                return
+            parsed = parser.push(delta)
+            if parsed.visible_text:
+                self._emit_ui_message(
+                    session_id,
+                    "message.delta",
+                    {"text": parsed.visible_text},
+                    turn_id=turn_id,
+                )
+            for segment in parsed.segments:
+                if segment["type"] == "delta" and segment["text"]:
+                    self._emit_ui_message(
+                        session_id,
+                        "plan.delta",
+                        {"text": segment["text"]},
+                        turn_id=turn_id,
+                    )
+                    cb._plan_event_count += 1  # type: ignore[attr-defined]
+                elif segment["type"] == "end":
+                    self._emit_ui_message(session_id, "plan.complete", {}, turn_id=turn_id)
+                    cb._plan_event_count += 1  # type: ignore[attr-defined]
+
+        cb._plan_parser = parser  # type: ignore[attr-defined]
+        cb._plan_mode = collaboration_mode == "plan"  # type: ignore[attr-defined]
+        cb._plan_event_count = 0  # type: ignore[attr-defined]
         return cb
 
     def _make_tool_start_cb(self, session_id: str, *, turn_id: str | None = None) -> Callable:
@@ -712,8 +803,8 @@ class AgentPool:
                 "summary": (result or "")[:500],
                 "duration_s": duration_s,
             }
-            # Extract todos from todo tool result (matches tui_gateway/server.py behavior)
-            if name == "todo":
+            # Extract todos from todo/update_plan result (matches tui_gateway/server.py behavior)
+            if name in {"todo", "update_plan"}:
                 try:
                     data = json.loads(result) if isinstance(result, str) else result
                     if isinstance(data, dict) and isinstance(data.get("todos"), list):

@@ -34,7 +34,10 @@ function makeGateway(overrides: Partial<GatewayAdapter> = {}): GatewayAdapter {
     patch: Partial<SessionRuntime>,
   ) => ({
     id: sessionId,
-    runtime: { reasoningEffort: patch.reasoningEffort ?? 'medium' },
+    runtime: {
+      reasoningEffort: patch.reasoningEffort ?? 'medium',
+      collaborationMode: patch.collaborationMode ?? 'default',
+    },
     appliedToActiveTurn: true,
     appliesNextTurn: false,
   }));
@@ -51,7 +54,7 @@ function makeGateway(overrides: Partial<GatewayAdapter> = {}): GatewayAdapter {
 async function renderSelector(gateway = makeGateway(), compact = false) {
   initializeStores(gateway);
   sessionStore.setSessionModel('session-1', 'openai', 'gpt-5');
-  sessionStore.applyRuntime('session-1', { reasoningEffort: 'medium' });
+  sessionStore.applyRuntime('session-1', { reasoningEffort: 'medium', collaborationMode: 'default' });
   render(() => <ModelSelector sessionId="session-1" compact={compact} />);
   return gateway;
 }

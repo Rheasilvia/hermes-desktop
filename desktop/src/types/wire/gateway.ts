@@ -1,7 +1,8 @@
 export type {
   RpcRequest, RpcResponse, RpcError, RpcResult, GatewayEvent, GatewayMethod,
   GatewayReadyPayload, GatewaySkin, SessionInfoPayload, SessionUsagePayload,
-  MessageStartPayload, PromptExecuteResult, MessageDeltaPayload, MessageCompletePayload, MessageStatusPayload,
+  MessageStartPayload, PromptExecuteResult, MessageDeltaPayload, MessageCompletePayload,
+  PlanDeltaPayload, PlanCompletePayload, MessageStatusPayload,
   ThinkingDeltaPayload, ReasoningDeltaPayload, ReasoningAvailablePayload,
   StatusUpdatePayload, ToolStartPayload, ToolProgressPayload, ToolCompletePayload,
   ToolGeneratingPayload, ToolErrorPayload, ApprovalRequestPayload, ClarifyRequestPayload,

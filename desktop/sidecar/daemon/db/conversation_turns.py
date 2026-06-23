@@ -254,6 +254,34 @@ def _append_reasoning_block(blocks: list[dict[str, Any]], text: str, seq: int) -
     ]
 
 
+def _append_plan_block(blocks: list[dict[str, Any]], text: str, seq: int) -> list[dict[str, Any]]:
+    if not text:
+        return blocks
+    if blocks and blocks[-1].get("type") == "plan":
+        next_blocks = [dict(block) for block in blocks]
+        next_blocks[-1]["content"] = f"{next_blocks[-1].get('content') or ''}{text}"
+        next_blocks[-1]["isStreaming"] = True
+        return next_blocks
+    return [
+        *blocks,
+        {
+            "type": "plan",
+            "id": f"plan-{seq}",
+            "content": text,
+            "isStreaming": True,
+        },
+    ]
+
+
+def _complete_plan_block(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    next_blocks = [dict(block) for block in blocks]
+    for idx in range(len(next_blocks) - 1, -1, -1):
+        if next_blocks[idx].get("type") == "plan":
+            next_blocks[idx] = {**next_blocks[idx], "isStreaming": False}
+            return next_blocks
+    return next_blocks
+
+
 def _tool_status_for_block(status: Any) -> str:
     if status == "error":
         return "error"
@@ -355,6 +383,8 @@ def _finalize_assistant_blocks(blocks: list[dict[str, Any]], final_text: str, se
     for block in next_blocks:
         if block.get("type") == "reasoning":
             finalized.append({**block, "isStreaming": False, "tokenCount": block.get("tokenCount")})
+        elif block.get("type") == "plan":
+            finalized.append({**block, "isStreaming": False})
         elif block.get("type") == "tool_call":
             status = block.get("status")
             finalized.append({**block, "status": "error" if status == "error" else "complete"})
@@ -473,6 +503,17 @@ def apply_event(
             (text, created_at, seq, session_id, turn_id),
         )
         blocks = _append_reasoning_block(_load_assistant_blocks(row), text, seq)
+        _store_assistant_blocks(conn, session_id, turn_id, blocks, created_at, seq)
+        return
+
+    if msg_type == "plan.delta":
+        text = str(payload.get("text") or "")
+        blocks = _append_plan_block(_load_assistant_blocks(row), text, seq)
+        _store_assistant_blocks(conn, session_id, turn_id, blocks, created_at, seq)
+        return
+
+    if msg_type == "plan.complete":
+        blocks = _complete_plan_block(_load_assistant_blocks(row))
         _store_assistant_blocks(conn, session_id, turn_id, blocks, created_at, seq)
         return
 

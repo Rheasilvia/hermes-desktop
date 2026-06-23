@@ -11,7 +11,10 @@ function makeGateway(): GatewayAdapter {
     patch: Partial<SessionRuntime>,
   ) => ({
     id: sessionId,
-    runtime: { reasoningEffort: patch.reasoningEffort ?? 'medium' },
+    runtime: {
+      reasoningEffort: patch.reasoningEffort ?? 'medium',
+      collaborationMode: patch.collaborationMode ?? 'default',
+    },
     appliedToActiveTurn: true,
     appliesNextTurn: false,
   }));
@@ -30,7 +33,7 @@ describe('reasoning command palette actions', () => {
     const gateway = makeGateway();
     initializeStores(gateway);
     sessionStore.setActiveSession('session-1');
-    sessionStore.applyRuntime('session-1', { reasoningEffort: 'medium' });
+    sessionStore.applyRuntime('session-1', { reasoningEffort: 'medium', collaborationMode: 'default' });
 
     updateActiveReasoningEffort('high');
 
@@ -45,7 +48,7 @@ describe('reasoning command palette actions', () => {
     const gateway = makeGateway();
     initializeStores(gateway);
     sessionStore.setActiveSession('session-1');
-    sessionStore.applyRuntime('session-1', { reasoningEffort: 'medium' });
+    sessionStore.applyRuntime('session-1', { reasoningEffort: 'medium', collaborationMode: 'default' });
 
     cycleActiveReasoningEffort();
 

@@ -27,6 +27,7 @@ function hasRenderableAssistantBlocks(message: RenderedMessage): boolean {
       case 'text':
       case 'code':
       case 'reasoning':
+      case 'plan':
         return 'content' in block && String(block.content).trim().length > 0;
       case 'tool_call':
       case 'todo_list':

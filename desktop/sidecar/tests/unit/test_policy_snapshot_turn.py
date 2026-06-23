@@ -232,3 +232,49 @@ def test_invalid_cwd_does_not_crash_turn(tmp_path):
     completes = [e for e in bus.published if e["type"] == "message.complete"]
     assert completes, "turn must complete even when workspace_cwd is invalid"
     assert completes[0]["payload"]["text"] == "survived"
+
+
+def test_plan_mode_injects_turn_scoped_instructions(tmp_path):
+    """Plan Mode instructions are injected for this turn without changing core prompt construction."""
+    captured_history: list = []
+
+    class _AgentCaptureContext:
+        model = "test-model"
+        workspace_cwd = None
+        context_compressor = None
+
+        def run_conversation(self, user_message, conversation_history):
+            captured_history.extend(conversation_history)
+            snapshot = get_workspace_policy_snapshot()
+            assert snapshot is not None
+            assert snapshot.collaboration_mode == "plan"
+            return {"final_response": "<proposed_plan>\n- inspect\n</proposed_plan>"}
+
+    agent = _AgentCaptureContext()
+    sid = "sess-plan-mode"
+    ui = _FakeUIStore()
+    bus = _FakeBus()
+    entry = _FakeEntry(agent, cwd=str(tmp_path))
+
+    session_svc = MagicMock()
+    session_svc.get_session_or_404.return_value = {
+        "permissionMode": "auto",
+        "runtime": {"collaborationMode": "plan"},
+    }
+    svc = AgentExecutionService(
+        hermes_home=tmp_path,
+        state=_FakeState(),
+        ui_messages=ui,
+        event_bus=bus,
+        agent_pool=_FakePool(entry),
+        session_service=session_svc,
+    )
+
+    turn_id = "turn-plan-mode"
+    user_seq = ui.append(sid, "user", {"text": "plan"}, turn_id=turn_id)
+    svc._run_turn(sid, "plan", user_seq, turn_id)
+
+    assert captured_history
+    assert captured_history[0]["role"] == "system"
+    assert "Plan Mode (Desktop)" in captured_history[0]["content"]
+    assert "<proposed_plan>" in captured_history[0]["content"]

@@ -71,6 +71,7 @@ class DesktopMetaStore(Protocol):
         provider: str | None = None,
         permission_mode: str = "auto",
         reasoning_effort: str = "medium",
+        collaboration_mode: str = "default",
     ) -> None:
         """Insert or update a session_desktop_meta row."""
         ...
@@ -129,6 +130,18 @@ class DesktopMetaStore(Protocol):
 
     def get_reasoning_efforts(self, session_ids: list[str]) -> dict[str, str]:
         """Batch fetch reasoning efforts for multiple sessions."""
+        ...
+
+    def set_collaboration_mode(self, session_id: str, mode: str) -> str:
+        """Persist the conversation collaboration mode and return the normalized value."""
+        ...
+
+    def get_collaboration_mode(self, session_id: str) -> str:
+        """Return the stored collaboration mode for a session, defaulting to default."""
+        ...
+
+    def get_collaboration_modes(self, session_ids: list[str]) -> dict[str, str]:
+        """Batch fetch collaboration modes for multiple sessions."""
         ...
 
 

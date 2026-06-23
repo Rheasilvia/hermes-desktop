@@ -44,7 +44,7 @@ def _fresh_overrides_module():
 # ---------------------------------------------------------------------------
 
 def _build_mocks(tool_names=("read_file", "write_file", "patch",
-                              "search_files", "terminal", "process",
+                              "search_files", "todo", "terminal", "process",
                               "execute_code")):
     """Build a consistent set of mocks for the three modules we patch."""
     fake_entries = {name: _make_fake_entry(name) for name in tool_names}
@@ -222,6 +222,58 @@ class TestWrapperPassThroughWithSnapshot:
         result = json.loads(result_json)
         assert result.get("result") == "ok"
 
+    def test_plan_mode_blocks_mutating_tools_but_allows_read_tools(self):
+        """Plan Mode denies mutating desktop tools while preserving read/search access."""
+        import pathlib
+        import tempfile
+        from daemon.services.workspace_policy import PolicyDecision
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            canonical_path = pathlib.Path(tmpdir)
+            fake_snapshot = MagicMock()
+            fake_snapshot.collaboration_mode = "plan"
+            fake_snapshot.cwd = canonical_path
+            fake_snapshot.workspace_root = canonical_path
+
+            fake_decision = PolicyDecision(
+                allowed=True,
+                requires_approval=False,
+                reason="path is within workspace",
+                resolved_path=canonical_path / "file.txt",
+            )
+
+            fake_workspace_policy = MagicMock()
+            fake_workspace_policy.get_workspace_policy_snapshot = MagicMock(return_value=fake_snapshot)
+            fake_workspace_policy.resolve_path = MagicMock(return_value=fake_decision)
+
+            overrides = _fresh_overrides_module()
+            fake_entries, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
+            registered_wrappers: dict[str, MagicMock] = {}
+
+            def capture_register(**kwargs):
+                if kwargs.get("override"):
+                    registered_wrappers[kwargs["name"]] = kwargs["handler"]
+
+            fake_registry.register.side_effect = capture_register
+
+            with patch.dict(sys.modules, {
+                "tools.registry": fake_registry_module,
+                "model_tools": fake_model_tools,
+                "daemon.services.workspace_policy": fake_workspace_policy,
+            }):
+                overrides.install_desktop_tool_overrides()
+
+                read_result = json.loads(registered_wrappers["read_file"]({"path": "file.txt"}))
+                write_result = json.loads(registered_wrappers["write_file"]({"path": "file.txt", "content": "x"}))
+                todo_result = json.loads(registered_wrappers["todo"]({"todos": []}))
+
+        assert read_result.get("result") == "ok"
+        assert write_result.get("code") == "PLAN_MODE_RESTRICTED"
+        assert todo_result.get("code") == "PLAN_MODE_RESTRICTED"
+        fake_entries["read_file"].handler.assert_called_once()
+        fake_entries["write_file"].handler.assert_not_called()
+        fake_entries["todo"].handler.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Test 4: importing shared tool modules does not install desktop overrides
@@ -231,7 +283,7 @@ class TestInstallFailsOnMissingTool:
     """V2: install_desktop_tool_overrides must raise RuntimeError if any expected tool is missing."""
 
     def test_missing_tool_raises_runtime_error(self):
-        """If any of the 7 expected tool originals is not found, install must raise RuntimeError.
+        """If any expected tool original is not found, install must raise RuntimeError.
 
         V1 bug: missing tools are silently skipped.
         """
@@ -239,8 +291,8 @@ class TestInstallFailsOnMissingTool:
 
         overrides = _fresh_overrides_module()
 
-        # Only provide 6 of the 7 required tools (missing "execute_code")
-        tool_names = ["read_file", "write_file", "patch", "search_files", "terminal", "process"]
+        # Provide every required original except "execute_code".
+        tool_names = ["read_file", "write_file", "patch", "search_files", "todo", "terminal", "process"]
         fake_entries = {name: _make_fake_entry(name) for name in tool_names}
 
         fake_registry = MagicMock()
@@ -279,6 +331,8 @@ class TestSharedImportDoesNotInstallOverrides:
         import tools.registry  # noqa: F401
 
         assert overrides._INSTALLED is False
+        assert tools.registry.registry.get_entry("request_user_input") is None
+        assert tools.registry.registry.get_entry("update_plan") is None
 
     def test_installed_only_after_explicit_call(self):
         """_INSTALLED must remain False until install_desktop_tool_overrides() is called."""
@@ -295,3 +349,26 @@ class TestSharedImportDoesNotInstallOverrides:
             overrides.install_desktop_tool_overrides()
 
         assert overrides._INSTALLED is True
+
+    def test_plan_tools_registered_only_by_desktop_install(self):
+        """Desktop-only plan tools are registered by the Tauri sidecar install hook."""
+        overrides = _fresh_overrides_module()
+        _, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
+
+        registered: dict[str, dict] = {}
+
+        def capture_register(**kwargs):
+            registered[kwargs["name"]] = kwargs
+
+        fake_registry.register.side_effect = capture_register
+
+        with patch.dict(sys.modules, {
+            "tools.registry": fake_registry_module,
+            "model_tools": fake_model_tools,
+        }):
+            overrides.install_desktop_tool_overrides()
+
+        assert "request_user_input" in registered
+        assert registered["request_user_input"]["toolset"] == "desktop_plan"
+        assert "update_plan" in registered
+        assert registered["update_plan"]["toolset"] == "desktop_plan"

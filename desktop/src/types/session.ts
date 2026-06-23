@@ -10,9 +10,11 @@ import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
 export type DesktopPermissionMode = 'ask' | 'auto' | 'full';
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type CollaborationMode = 'default' | 'plan';
 
 export interface SessionRuntime {
   reasoningEffort: ReasoningEffort;
+  collaborationMode: CollaborationMode;
 }
 
 export interface SessionRuntimeUpdateResult {

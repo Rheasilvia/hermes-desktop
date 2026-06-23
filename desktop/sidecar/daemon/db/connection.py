@@ -168,6 +168,20 @@ def _migrate(conn: sqlite3.Connection, current_version: int) -> None:
         current_version = 10
 
     if current_version < 11:
+        try:
+            conn.execute(
+                "ALTER TABLE session_desktop_meta "
+                "ADD COLUMN collaboration_mode TEXT NOT NULL DEFAULT 'default'"
+            )
+        except Exception:
+            pass  # column already exists
+        conn.execute(
+            "UPDATE session_desktop_meta "
+            "SET collaboration_mode = 'default' "
+            "WHERE collaboration_mode IS NULL "
+            "OR TRIM(collaboration_mode) = '' "
+            "OR LOWER(collaboration_mode) NOT IN ('default', 'plan')"
+        )
         conn.executescript(PROFILE_DDL)
         conn.execute("UPDATE schema_version SET version = ?", (11,))
 

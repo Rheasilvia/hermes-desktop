@@ -56,7 +56,7 @@ function emptySessionMeta(
     archived: false,
     archivedAt: null,
     permissionMode: 'auto',
-    runtime: { reasoningEffort: 'medium' },
+    runtime: { reasoningEffort: 'medium', collaborationMode: 'default' },
     ...overrides,
   };
 }

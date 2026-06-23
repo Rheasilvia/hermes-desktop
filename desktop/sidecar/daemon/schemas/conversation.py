@@ -46,6 +46,7 @@ class SetPermissionModeRequest(BaseModel):
 
 class UpdateSessionRuntimeRequest(BaseModel):
     reasoningEffort: Optional[str] = None
+    collaborationMode: Optional[str] = None
 
 
 class PromptExecuteRequest(BaseModel):

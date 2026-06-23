@@ -17,7 +17,12 @@ from typing import Any
 from .exceptions import SessionNotFoundError
 from .interfaces import DesktopMetaStore, SessionStateStore
 from .path_validation import resolve_existing_cwd, resolve_under_cwd
-from .desktop_meta_service import DEFAULT_REASONING_EFFORT, normalize_permission_mode
+from .desktop_meta_service import (
+    DEFAULT_COLLABORATION_MODE,
+    DEFAULT_REASONING_EFFORT,
+    normalize_collaboration_mode,
+    normalize_permission_mode,
+)
 
 log = logging.getLogger(__name__)
 
@@ -154,6 +159,12 @@ class SessionService:
                 return "auto"
         return "auto"
 
+    def _runtime_for_session(self, session_id: str) -> dict[str, str]:
+        return {
+            "reasoningEffort": self._meta.get_reasoning_effort(session_id),
+            "collaborationMode": self._meta.get_collaboration_mode(session_id),
+        }
+
     # ── Session CRUD ──────────────────────────────────────────────────────
 
     def create_session(
@@ -165,6 +176,7 @@ class SessionService:
         provider: str | None = None,
         permission_mode: str | None = None,
         reasoning_effort: str | None = None,
+        collaboration_mode: str | None = None,
     ) -> dict:
         if not any((cwd, system_prompt, model, provider)):
             reusable = self.find_reusable_empty_session()
@@ -182,6 +194,9 @@ class SessionService:
             permission_mode or self.resolve_default_permission_mode()
         )
         resolved_reasoning_effort = reasoning_effort or DEFAULT_REASONING_EFFORT
+        resolved_collaboration_mode = normalize_collaboration_mode(
+            collaboration_mode or DEFAULT_COLLABORATION_MODE
+        )
         resolved_cwd = (
             str(resolve_existing_cwd(cwd))
             if cwd
@@ -200,6 +215,7 @@ class SessionService:
             provider=provider or resolved_provider or "",
             permission_mode=resolved_permission_mode,
             reasoning_effort=resolved_reasoning_effort,
+            collaboration_mode=resolved_collaboration_mode,
         )
 
         info = self._state.get_session(sid) or {}
@@ -216,7 +232,7 @@ class SessionService:
             "archivedAt": None,
             "model_configured": bool(resolved_model),
             "permissionMode": resolved_permission_mode,
-            "runtime": {"reasoningEffort": self._meta.get_reasoning_effort(sid)},
+            "runtime": self._runtime_for_session(sid),
         }
 
     def find_reusable_empty_session(self) -> dict | None:
@@ -234,7 +250,7 @@ class SessionService:
                     "cwd": row.get("cwd") or str(ensure_default_workspace()),
                     "model_configured": bool(row.get("model")),
                     "permissionMode": self._meta.get_permission_mode(row["id"]),
-                    "runtime": {"reasoningEffort": self._meta.get_reasoning_effort(row["id"])},
+                    "runtime": self._runtime_for_session(row["id"]),
                     "reused": True,
                 }
         return None
@@ -263,7 +279,7 @@ class SessionService:
             return None
         meta = self._meta.get_meta(session_id) or {}
         permission_mode = self._meta.get_permission_mode(session_id)
-        reasoning_effort = self._meta.get_reasoning_effort(session_id)
+        runtime = self._runtime_for_session(session_id)
         return {
             "id": row.get("id", session_id),
             "source": row.get("source", "desktop"),
@@ -277,7 +293,7 @@ class SessionService:
             "archived": bool(meta.get("archived")),
             "archivedAt": meta.get("archived_at"),
             "permissionMode": permission_mode,
-            "runtime": {"reasoningEffort": reasoning_effort},
+            "runtime": runtime,
         }
 
     def get_session_or_404(self, session_id: str) -> dict:
@@ -305,6 +321,7 @@ class SessionService:
         meta_providers = self._meta.get_providers(session_ids) if session_ids else {}
         permission_modes = self._meta.get_permission_modes(session_ids) if session_ids else {}
         reasoning_efforts = self._meta.get_reasoning_efforts(session_ids) if session_ids else {}
+        collaboration_modes = self._meta.get_collaboration_modes(session_ids) if session_ids else {}
         archive_states = archive_states or (
             self._meta.get_archive_states(session_ids) if session_ids else {}
         )
@@ -323,7 +340,8 @@ class SessionService:
                 "archivedAt": archive_states.get(r["id"], {}).get("archived_at"),
                 "permissionMode": permission_modes.get(r["id"], "auto"),
                 "runtime": {
-                    "reasoningEffort": reasoning_efforts.get(r["id"], DEFAULT_REASONING_EFFORT)
+                    "reasoningEffort": reasoning_efforts.get(r["id"], DEFAULT_REASONING_EFFORT),
+                    "collaborationMode": collaboration_modes.get(r["id"], DEFAULT_COLLABORATION_MODE),
                 },
             }
             for r in rows
@@ -365,23 +383,28 @@ class SessionService:
 
     def update_runtime(self, session_id: str, patch: dict[str, Any]) -> dict:
         self.get_session_or_404(session_id)
-        if not patch or "reasoningEffort" not in patch:
-            raise ValueError("runtime patch must include reasoningEffort")
-        value = self._meta.set_reasoning_effort(session_id, patch.get("reasoningEffort"))
+        if not patch or not ({"reasoningEffort", "collaborationMode"} & set(patch)):
+            raise ValueError("runtime patch must include reasoningEffort or collaborationMode")
+        if "reasoningEffort" in patch:
+            self._meta.set_reasoning_effort(session_id, patch.get("reasoningEffort"))
+        if "collaborationMode" in patch:
+            self._meta.set_collaboration_mode(session_id, patch.get("collaborationMode"))
         session = self.get_session_or_404(session_id)
-        session["runtime"] = {"reasoningEffort": value}
+        session["runtime"] = self._runtime_for_session(session_id)
         return session
 
     def branch_session(self, session_id: str) -> dict:
         parent = self.get_session_or_404(session_id)
         permission_mode = self._meta.get_permission_mode(session_id)
         reasoning_effort = self._meta.get_reasoning_effort(session_id)
+        collaboration_mode = self._meta.get_collaboration_mode(session_id)
         return self.create_session(
             cwd=parent.get("cwd"),
             model=parent.get("model") or None,
             provider=parent.get("provider") or None,
             permission_mode=permission_mode,
             reasoning_effort=reasoning_effort,
+            collaboration_mode=collaboration_mode,
         )
 
     def rename_session(self, session_id: str, title: str) -> None:

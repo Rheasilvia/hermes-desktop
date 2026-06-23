@@ -18,7 +18,7 @@ function row(overrides: Partial<SessionListItem> = {}): SessionListItem {
     archived: false,
     archivedAt: null,
     permissionMode: 'auto',
-    runtime: { reasoningEffort: 'medium' },
+    runtime: { reasoningEffort: 'medium', collaborationMode: 'default' },
     ...overrides,
   };
 }
@@ -55,7 +55,7 @@ function meta(overrides: Partial<SessionMeta> = {}): SessionMeta {
     archived: false,
     archivedAt: null,
     permissionMode: 'auto',
-    runtime: { reasoningEffort: 'medium' },
+    runtime: { reasoningEffort: 'medium', collaborationMode: 'default' },
     ...overrides,
   };
 }
@@ -91,7 +91,10 @@ function gatewayWithSessions(initial: SessionListItem[]) {
         ),
         updateRuntime: vi.fn(async (sessionId, patch) => ({
           id: sessionId,
-          runtime: { reasoningEffort: patch.reasoningEffort ?? 'medium' },
+          runtime: {
+            reasoningEffort: patch.reasoningEffort ?? 'medium',
+            collaborationMode: patch.collaborationMode ?? 'default',
+          },
           appliedToActiveTurn: true,
           appliesNextTurn: false,
         })),
@@ -137,8 +140,8 @@ describe('sessionStore runtime', () => {
 
   it('hydrates reasoning effort per session from the backend list', async () => {
     const { gateway } = gatewayWithSessions([
-      row({ id: 'session-low', runtime: { reasoningEffort: 'low' } }),
-      row({ id: 'session-high', runtime: { reasoningEffort: 'high' } }),
+      row({ id: 'session-low', runtime: { reasoningEffort: 'low', collaborationMode: 'default' } }),
+      row({ id: 'session-high', runtime: { reasoningEffort: 'high', collaborationMode: 'default' } }),
     ]);
     initializeStores(gateway);
 
@@ -150,7 +153,7 @@ describe('sessionStore runtime', () => {
 
   it('optimistically updates runtime and rolls back on backend failure', async () => {
     const { gateway } = gatewayWithSessions([
-      row({ id: 'session-1', runtime: { reasoningEffort: 'medium' } }),
+      row({ id: 'session-1', runtime: { reasoningEffort: 'medium', collaborationMode: 'default' } }),
     ]);
     vi.mocked(gateway.session.updateRuntime).mockRejectedValueOnce(new Error('SESSION_RUNTIME_FAILED'));
     initializeStores(gateway);
@@ -163,6 +166,23 @@ describe('sessionStore runtime', () => {
     expect(result).toBeNull();
     expect(sessionStore.getSessionReasoningEffort('session-1')).toBe('medium');
     expect(sessionStore.error).toBe('SESSION_RUNTIME_FAILED');
+  });
+
+  it('hydrates and updates collaboration mode per session', async () => {
+    const { gateway } = gatewayWithSessions([
+      row({ id: 'session-1', runtime: { reasoningEffort: 'medium', collaborationMode: 'plan' } }),
+    ]);
+    initializeStores(gateway);
+    await sessionStore.loadSessions();
+
+    expect(sessionStore.getSessionCollaborationMode('session-1')).toBe('plan');
+
+    await sessionStore.updateRuntime('session-1', { collaborationMode: 'default' });
+
+    expect(gateway.session.updateRuntime).toHaveBeenCalledWith('session-1', {
+      collaborationMode: 'default',
+    });
+    expect(sessionStore.getSessionCollaborationMode('session-1')).toBe('default');
   });
 });
 

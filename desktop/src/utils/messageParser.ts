@@ -12,7 +12,7 @@
 import type { ConversationMessage, ParsedToolCall } from '../types/domain/message.js';
 import type {
   MessageBlock, TextBlock, CodeBlock, ReasoningBlock, ToolCallBlock,
-  RichContentBlock, RichContentKind, TodoListBlock,
+  RichContentBlock, RichContentKind, TodoListBlock, PlanBlock,
 } from '../types/ui/blocks.js';
 import type { RenderedMessage } from '../types/ui/message.js';
 
@@ -122,6 +122,15 @@ export function hydratePersistedBlocks(
           content: reasoning.content ?? '',
           isStreaming: opts.isStreaming ?? reasoning.isStreaming ?? false,
           tokenCount: reasoning.tokenCount ?? null,
+        }];
+      }
+      case 'plan': {
+        const plan = block as PlanBlock;
+        return [{
+          type: 'plan',
+          id: plan.id || nextId(),
+          content: plan.content ?? '',
+          isStreaming: opts.isStreaming ?? plan.isStreaming ?? false,
         }];
       }
       case 'tool_call': {
