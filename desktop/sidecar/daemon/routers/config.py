@@ -4,12 +4,13 @@ from fastapi import APIRouter, Request
 
 from ..schemas.config import ConfigReadResponse, ConfigSaveRequest, ConfigSaveResponse
 from ..services.config_service import ConfigService
+from ..services.dependencies import get_active_hermes_home
 
 router = APIRouter(tags=["config"])
 
 
 def _service(request: Request) -> ConfigService:
-    return ConfigService(request.app.state.cfg.hermes_home)
+    return ConfigService(get_active_hermes_home(request))
 
 
 @router.get("/config", response_model=ConfigReadResponse)

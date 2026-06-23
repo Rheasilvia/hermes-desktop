@@ -20,6 +20,7 @@ import { GatewayView } from '@/features/gateway/GatewayView.js';
 import { CronView } from '@/features/cron/index.js';
 import { ArchivedChatsView } from './ArchivedChatsView.js';
 import { GeneralTab } from './tabs/GeneralTab.js';
+import { ProfileTab } from './tabs/ProfileTab.js';
 import { AgentTab } from './tabs/AgentTab.js';
 import { MemoryTab } from './tabs/MemoryTab.js';
 import { SecurityTab } from './tabs/SecurityTab.js';
@@ -30,6 +31,7 @@ import styles from './SettingsView.module.css';
 
 type SettingsSectionId =
   | 'general'
+  | 'profile'
   | 'agent'
   | 'memory-settings'
   | 'security'
@@ -62,6 +64,7 @@ const NAV_GROUPS: SettingsNavGroup[] = [
     label: 'Personal',
     items: [
       { id: 'general', label: 'General', icon: 'settings' },
+      { id: 'profile', label: 'Profile', icon: 'user' },
       { id: 'agent', label: 'Agent', icon: 'bot' },
       { id: 'memory-settings', label: 'Memory settings', icon: 'brain' },
       { id: 'security', label: 'Security', icon: 'lock' },
@@ -243,6 +246,11 @@ export const SettingsView: Component = () => {
           <Match when={activeSection() === 'general'}>
             <SettingsModule title="General" description="Application preferences">
               <GeneralTab />
+            </SettingsModule>
+          </Match>
+          <Match when={activeSection() === 'profile'}>
+            <SettingsModule title="Profile" description="Profile identity and runtime scope">
+              <ProfileTab />
             </SettingsModule>
           </Match>
           <Match when={activeSection() === 'agent'}>

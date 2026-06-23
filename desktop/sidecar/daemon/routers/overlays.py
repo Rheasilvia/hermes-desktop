@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import logging
+import os
+from contextlib import contextmanager
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
 from ..overlays import loader
+from ..services.dependencies import get_active_hermes_home
 
 log = logging.getLogger(__name__)
 
@@ -13,7 +17,20 @@ router = APIRouter()
 ALLOWED_DOMAINS = {"cron", "model"}
 
 
-def _sync_model_overlay_to_env(hermes_home, entity_id: str, body: dict) -> None:
+@contextmanager
+def _hermes_home_env(hermes_home: Path):
+    previous = os.environ.get("HERMES_HOME")
+    os.environ["HERMES_HOME"] = str(hermes_home)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("HERMES_HOME", None)
+        else:
+            os.environ["HERMES_HOME"] = previous
+
+
+def _sync_model_overlay_to_env(hermes_home: Path, entity_id: str, body: dict) -> None:
     """When patching model overlay with api_key/base_url, also write to ~/.hermes/.env
     so TUI/CLI credential resolution can find the values."""
     try:
@@ -26,7 +43,8 @@ def _sync_model_overlay_to_env(hermes_home, entity_id: str, body: dict) -> None:
 
                 for env_var in _provider_env_vars(entity_id):
                     try:
-                        save_env_value(env_var, body["api_key"])
+                        with _hermes_home_env(hermes_home):
+                            save_env_value(env_var, body["api_key"])
                     except Exception:
                         log.warning("overlay sync: failed to write %s to .env", env_var)
             except Exception:
@@ -39,7 +57,8 @@ def _sync_model_overlay_to_env(hermes_home, entity_id: str, body: dict) -> None:
 
                 pconfig = PROVIDER_REGISTRY.get(entity_id)
                 if pconfig and pconfig.base_url_env_var:
-                    save_env_value(pconfig.base_url_env_var, body["base_url"])
+                    with _hermes_home_env(hermes_home):
+                        save_env_value(pconfig.base_url_env_var, body["base_url"])
             except Exception:
                 log.warning("overlay sync: failed to write base_url to .env for %s", entity_id)
     except Exception:
@@ -53,7 +72,7 @@ async def patch_overlay(domain: str, entity_id: str, request: Request):
     body = await request.json()
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail="VALIDATION")
-    cfg = request.app.state.cfg
+    hermes_home = get_active_hermes_home(request)
 
     # Drop a base_url that is merely the provider registry default — persisting it
     # would defeat dynamic base_url resolution (e.g. sk-kimi- → api.kimi.com/coding)
@@ -64,10 +83,10 @@ async def patch_overlay(domain: str, entity_id: str, request: Request):
             body.pop("base_url", None)
             body.pop("base_url_source", None)
 
-    result = loader.update(cfg.hermes_home, domain, entity_id, body)
+    result = loader.update(hermes_home, domain, entity_id, body)
 
     # Sync model overlay changes to .env so all runtime paths see them
     if domain == "model":
-        _sync_model_overlay_to_env(cfg.hermes_home, entity_id, body)
+        _sync_model_overlay_to_env(hermes_home, entity_id, body)
 
     return result

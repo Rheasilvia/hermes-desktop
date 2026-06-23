@@ -78,6 +78,7 @@ vi.mock('../ArchivedChatsView.js', () => ({
 }));
 
 vi.mock('../tabs/GeneralTab.js', () => ({ GeneralTab: () => <div>General content</div> }));
+vi.mock('../tabs/ProfileTab.js', () => ({ ProfileTab: () => <div>Profile content</div> }));
 vi.mock('../tabs/AgentTab.js', () => ({ AgentTab: () => <div>Agent content</div> }));
 vi.mock('../tabs/MemoryTab.js', () => ({ MemoryTab: () => <div>Memory settings content</div> }));
 vi.mock('../tabs/SecurityTab.js', () => ({ SecurityTab: () => <div>Security content</div> }));
@@ -106,6 +107,7 @@ describe('SettingsView navigation', () => {
     expect(screen.getByText('Personal')).not.toBeNull();
     expect(screen.getByText('Tools')).not.toBeNull();
     expect(screen.getByText('Archived')).not.toBeNull();
+    expect(screen.getByRole('link', { name: /Profile/i }).getAttribute('href')).toBe('/settings/profile');
     expect(screen.getByRole('link', { name: /Sessions/i }).getAttribute('href')).toBe('/settings/sessions');
     expect(screen.getByRole('link', { name: /Memory files/i }).getAttribute('href')).toBe('/settings/memory');
     expect(screen.getByRole('link', { name: /Archived chats/i }).getAttribute('href')).toBe('/settings/archived-chats');

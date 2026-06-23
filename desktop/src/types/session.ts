@@ -113,7 +113,10 @@ export interface SessionListItem {
   title: string;
   model: string;
   provider: string | null;
+  profileId?: string;
+  profileName?: string;
   started_at: string;
+  last_active?: string | number | null;
   message_count: number;
   tool_call_count: number;
   last_message?: string;
