@@ -30,7 +30,10 @@ class SessionStateService:
         self._db.delete_session(session_id)
 
     def set_session_title(self, session_id: str, title: str) -> None:
-        self._db.set_session_title(session_id, title)
+        # Tauri desktop treats titles as labels that may repeat across sessions;
+        # opt out of the shared SessionDB uniqueness guard (TUI / CLI / gateway
+        # keep it). See hermes_state.SessionDB.set_session_title(enforce_unique=).
+        self._db.set_session_title(session_id, title, enforce_unique=False)
 
     def list_sessions_rich(
         self,

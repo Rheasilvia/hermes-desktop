@@ -239,6 +239,7 @@ class TestMaybeAutoTitle:
                 failure_callback=None,
                 main_runtime=None,
                 title_callback=None,
+                agent=None,
             )
 
     def test_forwards_failure_callback_to_worker(self):
@@ -265,6 +266,7 @@ class TestMaybeAutoTitle:
                 failure_callback=_cb,
                 main_runtime=None,
                 title_callback=None,
+                agent=None,
             )
 
     def test_skips_if_no_response(self):

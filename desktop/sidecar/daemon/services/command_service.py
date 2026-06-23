@@ -110,12 +110,12 @@ _PAGE_MANAGED: dict[str, str] = {
 _DEFERRED = frozenset({
     "retry", "steer", "goal", "subgoal", "undo", "background", "compress",
     "compact", "yolo", "fast", "reasoning", "personality", "verbose",
-    "footer", "codex-runtime", "reload", "reload-mcp", "reload-skills",
+    "footer", "timestamps", "codex-runtime", "reload", "reload-mcp", "reload-skills",
 })
 
 # Terminal/TUI-only commands with no Desktop equivalent.
 _TERMINAL_ONLY = frozenset({
-    "redraw", "statusbar", "skin", "indicator", "busy", "mouse",
+    "redraw", "statusbar", "skin", "indicator", "busy", "mouse", "prompt",
     "copy", "paste", "image", "quit", "exit", "details", "handoff", "snapshot",
 })
 
@@ -132,7 +132,7 @@ _DESKTOP_TRIMMED = frozenset({
     "status", "help", "platforms", "agents",
     "profile", "gquota", "insights", "debug", "save",
     "rollback", "curator", "kanban", "update", "version",
-    "suggestions", "blueprint", "credits",
+    "suggestions", "blueprint", "credits", "billing",
 })
 
 # Catalog/help "supported" flag derives from this union — single source of truth,
