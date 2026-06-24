@@ -334,8 +334,6 @@ def test_quick_exec_uses_sandbox_runner_without_shell_true(tmp_path, monkeypatch
         lambda: {"quick_commands": {"build": {"type": "exec", "command": "echo ok"}}},
     )
     monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", lambda: runner)
-    subprocess_run = Mock(side_effect=AssertionError("subprocess.run must not be called directly"))
-    monkeypatch.setattr("daemon.services.command_service.subprocess.run", subprocess_run)
 
     result = _make_service_with_cwd(tmp_path, workspace).exec(
         session_id="s1",
@@ -349,7 +347,40 @@ def test_quick_exec_uses_sandbox_runner_without_shell_true(tmp_path, monkeypatch
     command = runner.run.call_args.kwargs["command"]
     assert command[:2] in (["/bin/sh", "-lc"], ["sh", "-lc"])
     assert runner.run.call_args.kwargs["workspace_root"] == str(workspace.resolve())
-    subprocess_run.assert_not_called()
+    assert runner.run.call_args.kwargs["sandbox_mode"] == "workspace-write"
+    assert runner.run.call_args.kwargs["network_access"] == "restricted"
+    assert runner.run.call_args.kwargs["env"]["TMPDIR"] == str(workspace / ".hermes-sandbox" / "tmp")
+
+
+def test_quick_exec_uses_desktop_sandbox_settings(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runner = Mock()
+    runner.run.return_value = SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
+    monkeypatch.setattr(
+        "hermes_cli.config.load_config",
+        lambda: {"quick_commands": {"build": {"type": "exec", "command": "echo ok"}}},
+    )
+    monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", lambda: runner)
+    from daemon.store import settings as settings_store
+
+    settings_store.save(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "desktop_sandbox": {"mode": "read-only", "network_access": "enabled"},
+        },
+    )
+
+    result = _make_service_with_cwd(tmp_path, workspace).exec(
+        session_id="s1",
+        command="build",
+        args="",
+    )
+
+    assert result.kind == "output"
+    assert runner.run.call_args.kwargs["sandbox_mode"] == "read-only"
+    assert runner.run.call_args.kwargs["network_access"] == "enabled"
 
 
 def test_plugin_commands_are_disabled_in_desktop(tmp_path, monkeypatch):

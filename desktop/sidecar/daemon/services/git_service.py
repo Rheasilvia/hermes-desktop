@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -29,25 +28,43 @@ class GitService:
 
     def diff(self, session_id: str) -> GitDiffResult:
         workspace = self._workspace(session_id)
-        result = _run_git(workspace, ["diff", "--no-ext-diff", "--no-color", "--unified=3"])
+        sandbox_policy = self._sandbox_policy("git diff")
+        result = _run_git(
+            workspace,
+            ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--unified=3"],
+            hermes_home=self._hermes_home,
+            sandbox_policy=sandbox_policy,
+        )
         if result.returncode != 0:
             stderr = (result.stderr or "").lower()
             if result.returncode == 128 or "not a git repository" in stderr:
                 return _empty_diff(workspace)
+            if result.returncode == -1 and "sandbox policy error" in stderr:
+                raise GitServiceError(409, result.stderr.strip())
             raise GitServiceError(500, f"git diff failed: {result.stderr.strip()}")
         return parse_git_diff(result.stdout, str(workspace))
 
     def branches(self, session_id: str) -> GitBranchInfo:
         workspace = self._workspace(session_id)
-        current = _run_git(workspace, ["branch", "--show-current"])
+        sandbox_policy = self._sandbox_policy("git branches")
+        current = _run_git(
+            workspace,
+            ["branch", "--show-current"],
+            hermes_home=self._hermes_home,
+            sandbox_policy=sandbox_policy,
+        )
         refs = _run_git(
             workspace,
             ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+            hermes_home=self._hermes_home,
+            sandbox_policy=sandbox_policy,
         )
         if refs.returncode != 0:
             stderr = refs.stderr.strip()
             if refs.returncode == 128 or "not a git repository" in stderr.lower():
                 return GitBranchInfo(current="", branches=[])
+            if refs.returncode == -1 and "sandbox policy error" in stderr.lower():
+                raise GitServiceError(409, stderr)
             raise GitServiceError(500, f"git branch failed: {stderr}")
         current_name = current.stdout.strip()
         branches = [line.strip() for line in refs.stdout.splitlines() if line.strip()]
@@ -57,29 +74,27 @@ class GitService:
 
     def checkout(self, session_id: str, branch: str) -> dict[str, bool]:
         workspace = self._workspace(session_id)
+        sandbox_policy = self._sandbox_policy("git checkout")
+        if sandbox_policy["mode"] == "read-only":
+            raise GitServiceError(403, "SANDBOX_READ_ONLY")
         branches = set(self.branches(session_id).branches)
         if branch not in branches:
             raise GitServiceError(400, "BRANCH_NOT_FOUND")
-        try:
-            from .sandbox_runner import get_sandbox_runner
-
-            runner = get_sandbox_runner()
-        except Exception:
-            runner = None
-        if runner is None:
-            raise GitServiceError(409, "SANDBOX_UNAVAILABLE")
-
-        result = runner.run(
-            command=["git", "-c", "core.hooksPath=/dev/null", "switch", "--", branch],
-            cwd=str(workspace),
-            env=_git_env(workspace),
+        result = _run_git(
+            workspace,
+            ["switch", "--", branch],
+            hermes_home=self._hermes_home,
+            sandbox_policy=sandbox_policy,
             timeout=30,
-            workspace_root=str(workspace),
-            hermes_home=str(self._hermes_home),
         )
         if result.returncode != 0:
             raise GitServiceError(500, result.stderr.strip() or "GIT_CHECKOUT_FAILED")
         return {"ok": True}
+
+    def _sandbox_policy(self, context: str) -> dict[str, str]:
+        from .desktop_sandbox_policy import load_desktop_sandbox_policy
+
+        return load_desktop_sandbox_policy(self._hermes_home, context=context)
 
     def _workspace(self, session_id: str) -> Path:
         session = self._session_service.get_session(session_id)
@@ -95,7 +110,9 @@ class GitService:
 
 
 def _git_env(workspace: Path) -> dict[str, str]:
-    return {
+    from .sandbox_runner import with_workspace_scratch_env
+
+    return with_workspace_scratch_env({
         "HOME": str(workspace),
         "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
         "GIT_CONFIG_NOSYSTEM": "1",
@@ -104,18 +121,38 @@ def _git_env(workspace: Path) -> dict[str, str]:
         "GIT_EXTERNAL_DIFF": "",
         "NO_COLOR": "1",
         "TERM": "dumb",
-    }
+    }, workspace)
 
 
-def _run_git(workspace: Path, args: list[str], *, timeout: int = 10) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", "-c", "core.hooksPath=/dev/null", *args],
+def _run_git(
+    workspace: Path,
+    args: list[str],
+    *,
+    hermes_home: Path,
+    sandbox_policy: dict[str, str],
+    timeout: int = 10,
+):
+    try:
+        from .sandbox_runner import get_sandbox_runner
+
+        runner = get_sandbox_runner()
+    except Exception:
+        runner = None
+    if runner is None:
+        raise GitServiceError(409, "SANDBOX_UNAVAILABLE")
+    try:
+        env = _git_env(workspace)
+    except Exception as exc:
+        raise GitServiceError(409, f"SANDBOX_UNAVAILABLE: {exc}") from exc
+    return runner.run(
+        command=["git", "-c", "core.hooksPath=/dev/null", *args],
         cwd=str(workspace),
-        env=_git_env(workspace),
+        env=env,
         timeout=timeout,
-        capture_output=True,
-        text=True,
-        check=False,
+        workspace_root=str(workspace),
+        hermes_home=str(hermes_home),
+        sandbox_mode=sandbox_policy["mode"],
+        network_access=sandbox_policy["network_access"],
     )
 
 

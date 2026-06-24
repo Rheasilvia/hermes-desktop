@@ -15,7 +15,8 @@ import os
 import subprocess
 import sys
 import tempfile
-from types import ModuleType
+import threading
+from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -54,7 +55,7 @@ def _fresh_overrides_module() -> ModuleType:
 
 def _build_fake_registry_and_entries(
     tool_names=("read_file", "write_file", "patch",
-                "search_files", "terminal", "process", "execute_code"),
+                "search_files", "todo", "terminal", "process", "execute_code"),
 ):
     """Create fake entries, registry, registry_module, and model_tools mocks."""
     fake_entries = {name: _make_fake_entry(name) for name in tool_names}
@@ -231,8 +232,33 @@ class TestBuildSeatbeltPolicy:
         policy, params = _build_seatbelt_policy(workspace_root)
 
         assert '(subpath (param "WORKSPACE_ROOT"))' in policy
+        assert '(path-ancestors (param "WORKSPACE_ROOT"))' in policy
         assert workspace_root not in policy  # the literal path must not appear in policy text
         assert ("WORKSPACE_ROOT", workspace_root) in params
+
+    def test_policy_allows_only_workspace_local_scratch_writes(self, tmp_path):
+        """Runner-owned temp files need a narrow write carveout even in read-only mode."""
+        from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        policy, params = _build_seatbelt_policy(str(tmp_path), sandbox_mode="read-only")
+        scratch = str((tmp_path / ".hermes-sandbox" / "tmp").resolve())
+
+        assert ("SCRATCH_ROOT_0", scratch) in params
+        assert '(allow file-read* file-write* file-test-existence (literal (param "SCRATCH_ROOT_0")))' in policy
+        assert '(allow file-read* file-write* file-test-existence (subpath (param "SCRATCH_ROOT_0")))' in policy
+        assert scratch not in policy
+
+    def test_policy_rejects_symlinked_workspace_scratch(self, tmp_path):
+        """A repo-controlled scratch symlink must not grant write access outside workspace."""
+        from daemon.services.sandbox_runner import SandboxPolicyError, _build_seatbelt_policy
+
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (tmp_path / ".hermes-sandbox").mkdir()
+        (tmp_path / ".hermes-sandbox" / "tmp").symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(SandboxPolicyError, match="scratch root must not be a symlink"):
+            _build_seatbelt_policy(str(tmp_path), sandbox_mode="read-only")
 
     def test_policy_denies_hermes_home_via_param(self, tmp_path):
         """The hermes home deny uses a (param …) and appears after the workspace allow."""
@@ -259,8 +285,8 @@ class TestBuildSeatbeltPolicy:
 
         policy, params = _build_seatbelt_policy(str(tmp_path))
 
-        assert ("WS_GIT_CONFIG", str(tmp_path / ".git" / "config")) in params
-        assert '(deny file-write* (literal (param "WS_GIT_CONFIG")))' in policy
+        assert ("WS_GIT_CONFIG_0", str((tmp_path / ".git" / "config").resolve())) in params
+        assert '(deny file-write* (literal (param "WS_GIT_CONFIG_0")))' in policy
 
         # Top-level hooks dir is discovered and denied as WS_GIT_HOOK_0.
         top_hooks = str((tmp_path / ".git" / "hooks").resolve())
@@ -276,6 +302,112 @@ class TestBuildSeatbeltPolicy:
 
         # No legacy single-key name should remain.
         assert "WS_GIT_HOOKS" not in policy
+        assert "WS_GIT_CONFIG\"" not in policy
+
+    def test_policy_denies_nested_git_config(self, tmp_path):
+        """Nested repo configs are write-denied like top-level .git/config."""
+        from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        (tmp_path / ".git").mkdir()
+        (tmp_path / "sub" / ".git").mkdir(parents=True)
+
+        policy, params = _build_seatbelt_policy(str(tmp_path))
+        config_params = sorted((key, value) for key, value in params if key.startswith("WS_GIT_CONFIG_"))
+
+        assert len(config_params) == 2
+        assert any(value == str((tmp_path / ".git" / "config").resolve()) for _, value in config_params)
+        assert any(value == str((tmp_path / "sub" / ".git" / "config").resolve()) for _, value in config_params)
+        for key, _value in config_params:
+            assert f'(deny file-write* (literal (param "{key}")))' in policy
+
+    def test_policy_denies_future_created_git_metadata_paths(self, tmp_path):
+        """Terminal commands can create nested repos after policy construction."""
+        from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        policy, params = _build_seatbelt_policy(str(tmp_path))
+
+        assert not any(key.startswith("WS_GIT_HOOK_") for key, _value in params)
+        assert r'(regex #"/(\.git|[^/]+\.git)/hooks(/|$)")' in policy
+        assert r'(regex #"/(\.git|[^/]+\.git)/config$")' in policy
+        assert str(tmp_path) not in policy
+
+    def test_policy_respects_sandbox_mode_and_network_access(self, tmp_path):
+        from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        read_only_policy, _params = _build_seatbelt_policy(
+            str(tmp_path),
+            sandbox_mode="read-only",
+            network_access="restricted",
+        )
+        write_policy, _params = _build_seatbelt_policy(
+            str(tmp_path),
+            sandbox_mode="workspace-write",
+            network_access="enabled",
+        )
+
+        assert "(allow file-read* file-test-existence" in read_only_policy
+        assert (
+            '(allow file-read* file-write* file-test-existence\n'
+            '  (subpath (param "WORKSPACE_ROOT")))'
+        ) not in read_only_policy
+        assert "(allow network-outbound)" not in read_only_policy
+        assert "(allow network-inbound)" not in read_only_policy
+        assert (
+            '(allow file-read* file-write* file-test-existence\n'
+            '  (subpath (param "WORKSPACE_ROOT")))'
+        ) in write_policy
+        assert "(allow network-outbound)" in write_policy
+        assert "(allow network-inbound)" in write_policy
+
+    def test_policy_denies_protected_metadata_writes(self, tmp_path):
+        from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        policy, params = _build_seatbelt_policy(str(tmp_path))
+
+        metadata_params = sorted((key, value) for key, value in params if key.startswith("WS_METADATA_"))
+        assert metadata_params == [
+            ("WS_METADATA_0", str(tmp_path.resolve() / ".codex")),
+            ("WS_METADATA_1", str(tmp_path.resolve() / ".agents")),
+            ("WS_METADATA_2", str(tmp_path.resolve() / ".hermes")),
+        ]
+        for key, _value in metadata_params:
+            assert f'(deny file-write* (literal (param "{key}")))' in policy
+            assert f'(deny file-write* (subpath (param "{key}")))' in policy
+        assert r'(regex #"/\.codex(/|$)")' in policy
+        assert r'(regex #"/\.agents(/|$)")' in policy
+        assert r'(regex #"/\.hermes(/|$)")' in policy
+
+    def test_policy_denies_future_created_nested_metadata_paths(self, tmp_path):
+        """Protected metadata names stay read-only at any depth."""
+        from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        policy, _params = _build_seatbelt_policy(str(tmp_path))
+
+        for expected in (
+            r'(regex #"/\.codex(/|$)")',
+            r'(regex #"/\.agents(/|$)")',
+            r'(regex #"/\.hermes(/|$)")',
+        ):
+            assert expected in policy
+
+    def test_policy_denies_protected_metadata_symlink_target(self, tmp_path):
+        from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        target = tmp_path / "real-metadata"
+        target.mkdir()
+        (tmp_path / ".codex").symlink_to(target, target_is_directory=True)
+
+        policy, params = _build_seatbelt_policy(str(tmp_path))
+        metadata_values = [value for key, value in params if key.startswith("WS_METADATA_")]
+
+        assert str((tmp_path / ".codex").resolve()) in metadata_values
+        assert str(target.resolve()) in metadata_values
+        for key, value in params:
+            if key.startswith("WS_METADATA_") and value == str(target.resolve()):
+                assert f'(deny file-write* (subpath (param "{key}")))' in policy
+                break
+        else:
+            raise AssertionError("resolved metadata symlink target was not protected")
 
     def test_policy_does_not_allow_arbitrary_tmp_read_write(self, tmp_path):
         """The process sandbox must not allow symlink escapes into world temp dirs.
@@ -292,6 +424,10 @@ class TestBuildSeatbeltPolicy:
         for temp_dir in ("/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"):
             assert f'(allow file-read* file-test-existence file-write* (subpath "{temp_dir}"))' not in policy
             assert f'(allow file-read* file-write* (subpath "{temp_dir}"))' not in policy
+
+        assert 'xcrun_db(-[A-Za-z0-9]+)?' in policy
+        assert '(subpath "/var/folders")' not in policy
+        assert '(subpath "/private/var/folders")' not in policy
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +566,7 @@ class TestExecuteCodeCallsSandboxRunner:
         monkeypatch.setenv("TMP", "/tmp/original-tmp")
         monkeypatch.setenv("TEMP", "/tmp/original-temp")
         monkeypatch.setenv("HERMES_EXECUTE_CODE_SOCKET_DIR", "/tmp/original-socket")
+        monkeypatch.setenv("HOME", "/Users/example")
         monkeypatch.setattr(tempfile, "tempdir", "/tmp/cached-tempdir")
 
         original_entry = _dto.ORIGINAL_TOOLS.get("execute_code")
@@ -443,6 +580,7 @@ class TestExecuteCodeCallsSandboxRunner:
                 "tmp": os.environ.get("TMP"),
                 "temp": os.environ.get("TEMP"),
                 "socket_dir": os.environ.get("HERMES_EXECUTE_CODE_SOCKET_DIR"),
+                "home": os.environ.get("HOME"),
                 "gettempdir": _cet.tempfile.gettempdir(),
             })
             return json.dumps({"result": "ok"})
@@ -456,23 +594,72 @@ class TestExecuteCodeCallsSandboxRunner:
             with patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=mock_runner):
                 result_json = wrapper({"language": "python", "code": "print('hello')"})
 
-            scratch = str(tmp_path / ".hermes-sandbox")
+            scratch = str(tmp_path / ".hermes-sandbox" / "tmp")
             assert json.loads(result_json).get("result") == "ok"
             assert seen == [{
                 "tmpdir": scratch,
                 "tmp": scratch,
                 "temp": scratch,
                 "socket_dir": scratch,
+                "home": scratch,
                 "gettempdir": scratch,
             }]
             assert os.environ["TMPDIR"] == "/tmp/original-tmpdir"
             assert os.environ["TMP"] == "/tmp/original-tmp"
             assert os.environ["TEMP"] == "/tmp/original-temp"
             assert os.environ["HERMES_EXECUTE_CODE_SOCKET_DIR"] == "/tmp/original-socket"
+            assert os.environ["HOME"] == "/Users/example"
             assert tempfile.tempdir == "/tmp/cached-tempdir"
-            assert (tmp_path / ".hermes-sandbox").is_dir()
+            assert (tmp_path / ".hermes-sandbox" / "tmp").is_dir()
         finally:
             original_entry.handler = saved_handler
+
+    def test_workspace_temp_env_serializes_global_environment(self, tmp_path):
+        """Process-wide env/tempfile mutations must not overlap across desktop turns."""
+        import daemon.tools.desktop_tool_overrides as _dto
+
+        ws1 = tmp_path / "ws1"
+        ws2 = tmp_path / "ws2"
+        ws1.mkdir()
+        ws2.mkdir()
+        snap1 = SimpleNamespace(workspace_root=ws1)
+        snap2 = SimpleNamespace(workspace_root=ws2)
+        started2 = threading.Event()
+        entered1 = threading.Event()
+        entered2 = threading.Event()
+        release1 = threading.Event()
+        release2 = threading.Event()
+        seen: list[str] = []
+
+        def worker(snapshot, entered, release, *, started=None):
+            if started is not None:
+                started.set()
+            with _dto._workspace_sandbox_temp_env(snapshot):
+                seen.append(os.environ["TMPDIR"])
+                entered.set()
+                release.wait(timeout=2)
+
+        t1 = threading.Thread(target=worker, args=(snap1, entered1, release1))
+        t2 = threading.Thread(
+            target=worker,
+            args=(snap2, entered2, release2),
+            kwargs={"started": started2},
+        )
+        t1.start()
+        assert entered1.wait(timeout=1)
+        t2.start()
+        assert started2.wait(timeout=1)
+        assert not entered2.wait(timeout=0.1)
+        release1.set()
+        assert entered2.wait(timeout=1)
+        release2.set()
+        t1.join(timeout=1)
+        t2.join(timeout=1)
+
+        assert seen == [
+            str(ws1 / ".hermes-sandbox" / "tmp"),
+            str(ws2 / ".hermes-sandbox" / "tmp"),
+        ]
 
 
 class TestExecuteCodeSocketTempDir:
@@ -493,7 +680,7 @@ class TestSandboxRunnerPopen:
 
         executable_root = tmp_path / "uv-python-runtime"
         policy, params = _build_seatbelt_policy(
-            "/workspace",
+            str(tmp_path),
             executable_roots=[str(executable_root)],
         )
 
@@ -516,8 +703,12 @@ class TestSandboxRunnerPopen:
 
         monkeypatch.setattr(sr, "_RAW_POPEN", fake_raw_popen)
         monkeypatch.setattr(
-            sr, "_build_seatbelt_policy",
-            lambda workspace_root, hermes_home=None: ("POLICY", [("WORKSPACE_ROOT", str(tmp_path))]),
+            sr,
+            "_build_seatbelt_policy",
+            lambda workspace_root, hermes_home=None, **_kwargs: (
+                "POLICY",
+                [("WORKSPACE_ROOT", str(tmp_path))],
+            ),
         )
 
         snapshot = MagicMock()
@@ -580,7 +771,7 @@ class TestSandboxRunnerPopen:
             calls.append(argv)
             return MagicMock()
 
-        def fake_build_policy(workspace_root, hermes_home=None, executable_roots=None):
+        def fake_build_policy(workspace_root, hermes_home=None, executable_roots=None, **_kwargs):
             policies.append({
                 "workspace_root": workspace_root,
                 "executable_roots": executable_roots,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -235,6 +236,12 @@ _SEATBELT_PLATFORM_DEFAULTS = r"""; macOS platform defaults included when a spli
 
 ; Do not grant broad read/write access to world-writable temp directories.
 ; Desktop tools that need scratch space must stage it under the workspace.
+; Apple's /usr/bin developer-tool shims (including /usr/bin/python3) create a
+; narrow xcrun cache file under Darwin's per-user temp directory before exec.
+; Allow only those cache files, not arbitrary temp paths.
+(allow file-read* file-write* file-test-existence
+  (regex #"^/private/var/folders/[^/]+/[^/]+/T/xcrun_db(-[A-Za-z0-9]+)?$")
+  (regex #"^/var/folders/[^/]+/[^/]+/T/xcrun_db(-[A-Za-z0-9]+)?$"))
 
 ; Allow reading standard config directories.
 (allow file-read* (subpath "/etc"))
@@ -347,6 +354,85 @@ _SEATBELT_EXECUTABLE = "/usr/bin/sandbox-exec"
 # stays cheap on the hot path. ``maxdepth`` counts levels below the workspace
 # root, so 0 = only ``<ws>/.git``.
 _DEFAULT_GIT_SCAN_MAXDEPTH = 8
+
+class SandboxPolicyError(RuntimeError):
+    pass
+
+
+def _workspace_scratch_path(workspace_root: str | Path) -> Path:
+    return Path(workspace_root) / ".hermes-sandbox" / "tmp"
+
+
+def _canonical_workspace_root(workspace_root: str | Path) -> Path:
+    try:
+        return Path(workspace_root).resolve(strict=True)
+    except OSError as exc:
+        raise SandboxPolicyError(f"workspace root is unavailable: {exc}") from exc
+
+
+def _reject_symlink(path: Path, *, label: str) -> None:
+    if path.is_symlink():
+        raise SandboxPolicyError(f"{label} must not be a symlink: {path}")
+
+
+def _validate_scratch_root(root: str | Path, workspace_root: str | Path) -> Path:
+    workspace = _canonical_workspace_root(workspace_root)
+    root_path = Path(root)
+    _reject_symlink(root_path.parent, label="desktop sandbox scratch parent")
+    _reject_symlink(root_path, label="desktop sandbox scratch root")
+    try:
+        resolved = root_path.resolve()
+    except OSError as exc:
+        raise SandboxPolicyError(f"desktop sandbox scratch root is unavailable: {exc}") from exc
+    try:
+        resolved.relative_to(workspace)
+    except ValueError as exc:
+        raise SandboxPolicyError(
+            f"desktop sandbox scratch root escapes workspace ({resolved} not under {workspace})"
+        ) from exc
+    return resolved
+
+
+def ensure_workspace_sandbox_scratch(workspace_root: str | Path) -> Path:
+    """Create and validate the workspace-local scratch root used by sandboxed children."""
+    workspace = _canonical_workspace_root(workspace_root)
+    scratch_parent = workspace / ".hermes-sandbox"
+    scratch = scratch_parent / "tmp"
+
+    _reject_symlink(scratch_parent, label="desktop sandbox scratch parent")
+    if scratch_parent.exists() and not scratch_parent.is_dir():
+        raise SandboxPolicyError(f"desktop sandbox scratch parent is not a directory: {scratch_parent}")
+    scratch_parent.mkdir(mode=0o700, exist_ok=True)
+    _reject_symlink(scratch_parent, label="desktop sandbox scratch parent")
+
+    _reject_symlink(scratch, label="desktop sandbox scratch root")
+    if scratch.exists() and not scratch.is_dir():
+        raise SandboxPolicyError(f"desktop sandbox scratch root is not a directory: {scratch}")
+    scratch.mkdir(mode=0o700, exist_ok=True)
+    _reject_symlink(scratch, label="desktop sandbox scratch root")
+    _validate_scratch_root(scratch, workspace)
+
+    (scratch / "gitconfig").touch(exist_ok=True)
+    (scratch / "xdg-config").mkdir(parents=True, exist_ok=True)
+    (scratch / "xdg-cache").mkdir(parents=True, exist_ok=True)
+    try:
+        scratch.chmod(0o700)
+    except OSError:
+        pass
+    return scratch
+
+
+def with_workspace_scratch_env(env: dict[str, str], workspace_root: str | Path) -> dict[str, str]:
+    scratch = ensure_workspace_sandbox_scratch(workspace_root)
+    updated = dict(env)
+    scratch_str = str(scratch)
+    for key in ("TMPDIR", "TMP", "TEMP", "HERMES_EXECUTE_CODE_SOCKET_DIR"):
+        updated[key] = scratch_str
+    updated["HOME"] = scratch_str
+    updated["GIT_CONFIG_GLOBAL"] = str(scratch / "gitconfig")
+    updated["XDG_CONFIG_HOME"] = str(scratch / "xdg-config")
+    updated["XDG_CACHE_HOME"] = str(scratch / "xdg-cache")
+    return updated
 
 
 def _parse_gitdir_pointer(dot_git_path: Path) -> Path | None:
@@ -463,6 +549,66 @@ def _discover_git_hook_dirs(
     return sorted(found)
 
 
+def _discover_git_config_paths(
+    workspace_root: str | Path,
+    maxdepth: int = _DEFAULT_GIT_SCAN_MAXDEPTH,
+) -> list[Path]:
+    """Find ``config`` files/paths for git directories under ``workspace_root``."""
+    ws_root = Path(workspace_root)
+    try:
+        ws_canonical = ws_root.resolve()
+    except OSError:
+        ws_canonical = ws_root
+
+    found: set[Path] = set()
+
+    def _try_add_config(candidate_config: Path) -> None:
+        try:
+            resolved = candidate_config.resolve()
+        except OSError:
+            resolved = candidate_config
+        try:
+            resolved.relative_to(ws_canonical)
+        except ValueError:
+            return
+        found.add(resolved)
+
+    _try_add_config(ws_root / ".git" / "config")
+
+    if maxdepth > 0:
+        for dirpath, dirnames, filenames in os.walk(ws_root):
+            rel = Path(dirpath).resolve()
+            try:
+                depth = len(rel.relative_to(ws_canonical).parts)
+            except ValueError:
+                dirnames[:] = []
+                continue
+
+            for name in list(dirnames):
+                entry = Path(dirpath) / name
+                is_git_dir_name = name == ".git" or name.endswith(".git")
+                if not is_git_dir_name:
+                    continue
+                if entry.is_dir():
+                    _try_add_config(entry / "config")
+                    dirnames.remove(name)
+
+            for fname in filenames:
+                if fname != ".git":
+                    continue
+                pointer = Path(dirpath) / fname
+                if not pointer.is_file():
+                    continue
+                target = _parse_gitdir_pointer(pointer)
+                if target is not None:
+                    _try_add_config(target / "config")
+
+            if depth >= maxdepth:
+                dirnames[:] = []
+
+    return sorted(found)
+
+
 def _build_executable_roots_policy(
     executable_roots: list[str] | None,
 ) -> tuple[str, list[tuple[str, str]]]:
@@ -522,10 +668,93 @@ def _resolved_executable_root(command: list[str], env: dict | None = None) -> st
     return _executable_root(resolved)
 
 
+def _build_workspace_access_policy(sandbox_mode: str) -> str:
+    if sandbox_mode == "read-only":
+        return """; Workspace access (read-only)
+(allow file-read-metadata file-test-existence
+  (path-ancestors (param "WORKSPACE_ROOT")))
+(allow file-read* file-test-existence
+  (subpath (param "WORKSPACE_ROOT")))"""
+    return """; Workspace access
+(allow file-read-metadata file-test-existence
+  (path-ancestors (param "WORKSPACE_ROOT")))
+(allow file-read* file-write* file-test-existence
+  (subpath (param "WORKSPACE_ROOT")))"""
+
+
+def _build_network_policy(network_access: str) -> str:
+    if network_access == "enabled":
+        return """; Explicit desktop sandbox network access
+(allow network-outbound)
+(allow network-inbound)"""
+    return ""
+
+
+def _build_future_git_metadata_deny_policy() -> str:
+    """Deny Git execution metadata paths created after policy construction."""
+    return r"""; Future-created Git execution metadata
+(deny file-write*
+  (require-all
+    (subpath (param "WORKSPACE_ROOT"))
+    (regex #"/(\.git|[^/]+\.git)/hooks(/|$)")))
+(deny file-write*
+  (require-all
+    (subpath (param "WORKSPACE_ROOT"))
+    (regex #"/(\.git|[^/]+\.git)/config$")))"""
+
+
+def _build_future_metadata_deny_policy(
+    protected_metadata_names: tuple[str, ...] | list[str],
+) -> str:
+    rules: list[str] = ["; Future-created desktop/user metadata paths"]
+    for name in protected_metadata_names:
+        if "/" in name or not name.startswith("."):
+            continue
+        escaped = re.escape(name)
+        rules.append(
+            f"""(deny file-write*
+  (require-all
+    (subpath (param "WORKSPACE_ROOT"))
+    (regex #"/{escaped}(/|$)")))"""
+        )
+    return "\n".join(rules) if len(rules) > 1 else ""
+
+
+def _build_scratch_policy(
+    scratch_roots: list[str] | tuple[str, ...] | None,
+    *,
+    workspace_root: str | Path,
+) -> tuple[str, list[tuple[str, str]]]:
+    if not scratch_roots:
+        return "", []
+
+    rules: list[str] = ["; Desktop sandbox scratch for runner-owned temp files"]
+    params: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for root in scratch_roots:
+        resolved = str(_validate_scratch_root(root, workspace_root))
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        key = f"SCRATCH_ROOT_{len(params)}"
+        params.append((key, resolved))
+        rules.append(
+            f'(allow file-read* file-write* file-test-existence (literal (param "{key}")))'
+        )
+        rules.append(
+            f'(allow file-read* file-write* file-test-existence (subpath (param "{key}")))'
+        )
+    return "\n".join(rules), params
+
+
 def _build_seatbelt_policy(
     workspace_root: str,
     hermes_home: str | None = None,
     executable_roots: list[str] | None = None,
+    sandbox_mode: str = "workspace-write",
+    network_access: str = "restricted",
+    protected_metadata_names: tuple[str, ...] | list[str] | None = None,
+    scratch_roots: list[str] | tuple[str, ...] | None = None,
 ) -> tuple[str, list[tuple[str, str]]]:
     """Build the seatbelt policy and its ``-D`` parameter list.
 
@@ -536,6 +765,11 @@ def _build_seatbelt_policy(
     """
     if hermes_home is None:
         hermes_home = str(Path.home() / ".hermes")
+    if sandbox_mode not in {"read-only", "workspace-write"}:
+        sandbox_mode = "workspace-write"
+    if network_access not in {"restricted", "enabled"}:
+        network_access = "restricted"
+    protected_metadata_names = tuple(protected_metadata_names or (".codex", ".agents", ".hermes"))
 
     # Canonicalize so the -D params match the REAL paths seatbelt evaluates
     # (e.g. macOS /var -> /private/var, /tmp -> /private/tmp); mirrors codex's
@@ -550,7 +784,14 @@ def _build_seatbelt_policy(
     except OSError:
         pass
 
+    if scratch_roots is None:
+        scratch_roots = [str(_workspace_scratch_path(workspace_root))]
+
     exec_policy, exec_params = _build_executable_roots_policy(executable_roots)
+    scratch_policy, scratch_params = _build_scratch_policy(
+        scratch_roots,
+        workspace_root=workspace_root,
+    )
 
     # Discover every git hooks directory under the workspace (top-level,
     # nested working clones, bare repos, and in-workspace submodule pointers).
@@ -567,29 +808,69 @@ def _build_seatbelt_policy(
             f'(deny file-write* (subpath (param "{key}")))'
         )
     hook_deny_block = "\n".join(hook_deny_rules)
+    config_paths = _discover_git_config_paths(workspace_root)
+    config_deny_rules: list[str] = []
+    config_params: list[tuple[str, str]] = []
+    for index, config_path in enumerate(config_paths):
+        key = f"WS_GIT_CONFIG_{index}"
+        config_params.append((key, str(config_path)))
+        config_deny_rules.append(f'(deny file-write* (literal (param "{key}")))')
+    config_deny_block = "\n".join(config_deny_rules)
+
+    metadata_deny_rules: list[str] = []
+    metadata_params: list[tuple[str, str]] = []
+    for index, name in enumerate(protected_metadata_names):
+        if "/" in name or not name.startswith("."):
+            continue
+        metadata_path = Path(workspace_root) / name
+        paths = [metadata_path]
+        try:
+            resolved_metadata_path = metadata_path.resolve()
+            if resolved_metadata_path != metadata_path:
+                paths.append(resolved_metadata_path)
+        except OSError:
+            pass
+        for metadata_path_variant in dict.fromkeys(str(path) for path in paths):
+            key = f"WS_METADATA_{len(metadata_params)}"
+            metadata_params.append((key, metadata_path_variant))
+            metadata_deny_rules.append(f'(deny file-write* (literal (param "{key}")))')
+            metadata_deny_rules.append(f'(deny file-write* (subpath (param "{key}")))')
+    metadata_deny_block = "\n".join(metadata_deny_rules)
+    future_git_metadata_deny_block = _build_future_git_metadata_deny_policy()
+    future_metadata_deny_block = _build_future_metadata_deny_policy(protected_metadata_names)
+    workspace_access_policy = _build_workspace_access_policy(sandbox_mode)
+    network_policy = _build_network_policy(network_access)
 
     dynamic_policy = f"""
-; Workspace access
-(allow file-read* file-write* file-test-existence
-  (subpath (param "WORKSPACE_ROOT")))
+{workspace_access_policy}
+
+{scratch_policy}
 
 ; .git/hooks and .git/config are an unsandboxed code-execution surface (a hook
 ; runs on the next git op; config sets core.hooksPath / aliases). Deny writes
-; to every discovered hooks directory (top-level, nested clones, bare repos)
-; and to the top-level config, while leaving the rest of .git and all reads
+; to every discovered hooks directory and config, while leaving reads
 ; working.
 {hook_deny_block}
-(deny file-write* (literal (param "WS_GIT_CONFIG")))
+{config_deny_block}
+{future_git_metadata_deny_block}
+
+; Desktop/user metadata paths are not part of the editable project surface.
+{metadata_deny_block}
+{future_metadata_deny_block}
 
 ; Deny entire hermes home directory (config.yaml, .env, gateway_state, credentials).
 ; This takes precedence over the workspace allow above when hermes_home is inside workspace_root.
 (deny file-read* file-write* (subpath (param "HERMES_HOME")))
+
+{network_policy}
 """
     params: list[tuple[str, str]] = [
         ("WORKSPACE_ROOT", workspace_root),
-        ("WS_GIT_CONFIG", str(Path(workspace_root) / ".git" / "config")),
         ("HERMES_HOME", hermes_home),
         *hook_params,
+        *config_params,
+        *metadata_params,
+        *scratch_params,
         *exec_params,
     ]
     policy = "\n".join([
@@ -622,8 +903,20 @@ class MacOSSandboxRunner:
         timeout: int,
         workspace_root: str,
         hermes_home: str | None = None,
+        sandbox_mode: str = "workspace-write",
+        network_access: str = "restricted",
+        protected_metadata_names: tuple[str, ...] | list[str] | None = None,
     ) -> SandboxResult:
-        policy, params = _build_seatbelt_policy(workspace_root, hermes_home)
+        try:
+            policy, params = _build_seatbelt_policy(
+                workspace_root,
+                hermes_home,
+                sandbox_mode=sandbox_mode,
+                network_access=network_access,
+                protected_metadata_names=protected_metadata_names,
+            )
+        except SandboxPolicyError as exc:
+            return SandboxResult(-1, "", f"sandbox policy error: {exc}")
         define_args = [f"-D{key}={value}" for key, value in params]
         argv = [_SEATBELT_EXECUTABLE, "-p", policy, *define_args, "--", *command]
         try:
@@ -668,11 +961,21 @@ class MacOSSandboxRunner:
                 sandbox_command = [str(resolved), *command[1:]]
                 executable_roots = [_executable_root(resolved)]
         if executable_roots is None:
-            policy, params = _build_seatbelt_policy(str(snapshot.workspace_root))
+            policy, params = _build_seatbelt_policy(
+                str(snapshot.workspace_root),
+                hermes_home=str(snapshot.hermes_home) if getattr(snapshot, "hermes_home", None) else None,
+                sandbox_mode=getattr(snapshot, "sandbox_mode", "workspace-write"),
+                network_access=getattr(snapshot, "network_access", "restricted"),
+                protected_metadata_names=getattr(snapshot, "protected_metadata_names", None),
+            )
         else:
             policy, params = _build_seatbelt_policy(
                 str(snapshot.workspace_root),
+                hermes_home=str(snapshot.hermes_home) if getattr(snapshot, "hermes_home", None) else None,
                 executable_roots=executable_roots,
+                sandbox_mode=getattr(snapshot, "sandbox_mode", "workspace-write"),
+                network_access=getattr(snapshot, "network_access", "restricted"),
+                protected_metadata_names=getattr(snapshot, "protected_metadata_names", None),
             )
         define_args = [f"-D{key}={value}" for key, value in params]
         sandboxed_cmd = [_SEATBELT_EXECUTABLE, "-p", policy, *define_args, "--", *sandbox_command]

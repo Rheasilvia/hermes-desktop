@@ -4,7 +4,6 @@ import contextlib
 import io
 import os
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -132,7 +131,7 @@ _DESKTOP_TRIMMED = frozenset({
     "status", "help", "platforms", "agents",
     "profile", "gquota", "insights", "debug", "save",
     "rollback", "curator", "kanban", "update", "version",
-    "suggestions", "blueprint", "credits", "billing",
+    "suggestions", "blueprint", "credits", "billing", "pet", "learn",
 })
 
 # Catalog/help "supported" flag derives from this union — single source of truth,
@@ -401,12 +400,22 @@ class CommandService:
             if not command:
                 return CommandResult(kind="error", message=f"Quick command /{name} has no command.")
             shell = "/bin/sh" if os.path.exists("/bin/sh") else "sh"
-            env = {
-                "HOME": str(workspace),
-                "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
-                "NO_COLOR": "1",
-                "TERM": "dumb",
-            }
+            from .desktop_sandbox_policy import load_desktop_sandbox_policy
+            from .sandbox_runner import SandboxPolicyError, with_workspace_scratch_env
+
+            sandbox_policy = load_desktop_sandbox_policy(
+                self._hermes_home,
+                context=f"quick command /{name}",
+            )
+            try:
+                env = with_workspace_scratch_env({
+                    "HOME": str(workspace),
+                    "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
+                    "NO_COLOR": "1",
+                    "TERM": "dumb",
+                }, workspace)
+            except SandboxPolicyError as exc:
+                return CommandResult(kind="error", message=f"SANDBOX_UNAVAILABLE: {exc}")
             result = runner.run(
                 command=[shell, "-lc", command],
                 cwd=str(workspace),
@@ -414,6 +423,8 @@ class CommandService:
                 timeout=30,
                 workspace_root=str(workspace),
                 hermes_home=str(self._hermes_home),
+                sandbox_mode=sandbox_policy["mode"],
+                network_access=sandbox_policy["network_access"],
             )
             output = "\n".join(p for p in [result.stdout, result.stderr] if p).strip()
             if result.returncode != 0:

@@ -170,6 +170,11 @@ class AgentExecutionService:
             set_workspace_policy_snapshot,
             reset_workspace_policy_snapshot,
         )
+        from .desktop_sandbox_policy import load_desktop_sandbox_policy
+        desktop_sandbox_snapshot = load_desktop_sandbox_policy(
+            self._hermes_home,
+            context=f"turn {turn_id}",
+        )
         policy_snapshot = None
         if workspace_cwd:
             try:
@@ -179,6 +184,9 @@ class AgentExecutionService:
                     workspace_cwd,
                     permission_mode_snapshot,
                     collaboration_mode=collaboration_mode_snapshot,
+                    sandbox_mode=desktop_sandbox_snapshot["mode"],
+                    network_access=desktop_sandbox_snapshot["network_access"],
+                    hermes_home=self._hermes_home,
                 )
             except Exception as exc:
                 # Policy snapshot build failed — tool wrappers will deny all calls via POLICY_MISSING.

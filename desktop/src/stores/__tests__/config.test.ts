@@ -26,7 +26,11 @@ beforeEach(() => {
     put: vi.fn(),
   });
   api.register('settings', {
-    get: vi.fn().mockResolvedValue({ schema_version: 1, ui: {} }),
+    get: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      ui: {},
+      desktop_sandbox: { mode: 'workspace-write', network_access: 'restricted' },
+    }),
     put: vi.fn().mockImplementation(async (s) => s),
   });
 });

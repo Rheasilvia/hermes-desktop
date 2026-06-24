@@ -17,12 +17,25 @@ def test_settings_load_returns_defaults_when_missing(tmp_path):
     out = settings_store.load(tmp_path)
     assert out["schema_version"] == SETTINGS_SCHEMA_VERSION
     assert "ui" in out
+    assert out["desktop_sandbox"] == {
+        "mode": "workspace-write",
+        "network_access": "restricted",
+    }
 
 
 def test_settings_save_roundtrip(tmp_path):
-    payload = {"schema_version": SETTINGS_SCHEMA_VERSION, "ui": {"theme": "dark"}}
+    payload = {
+        "schema_version": SETTINGS_SCHEMA_VERSION,
+        "ui": {"theme": "dark"},
+        "desktop_sandbox": {"mode": "read-only", "network_access": "enabled"},
+    }
     settings_store.save(tmp_path, payload)
-    assert settings_store.load(tmp_path)["ui"]["theme"] == "dark"
+    out = settings_store.load(tmp_path)
+    assert out["ui"]["theme"] == "dark"
+    assert out["desktop_sandbox"] == {
+        "mode": "read-only",
+        "network_access": "enabled",
+    }
 
 
 def test_settings_save_rejects_wrong_schema(tmp_path):

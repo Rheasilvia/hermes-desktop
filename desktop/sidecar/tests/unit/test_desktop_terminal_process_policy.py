@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import subprocess
 import sys
 from types import ModuleType
@@ -48,7 +49,7 @@ def _fresh_overrides_module() -> ModuleType:
 
 def _build_fake_registry_and_entries(
     tool_names=("read_file", "write_file", "patch",
-                "search_files", "terminal", "process", "execute_code"),
+                "search_files", "todo", "terminal", "process", "execute_code"),
 ):
     """Create fake entries, registry, registry_module, and model_tools mocks."""
     fake_entries = {name: _make_fake_entry(name) for name in tool_names}
@@ -293,6 +294,56 @@ class TestTerminalWrapper:
         assert subprocess.Popen is original_global_popen
         assert mock_runner.popen.call_count == 2
 
+    def test_local_terminal_handler_runs_with_workspace_scratch_tmpdir(
+        self, installed_wrappers, monkeypatch
+    ):
+        """Local terminal must use workspace-local scratch for TMPDIR and Git config."""
+        import tools.environments.local as local_env
+
+        wrappers, entries, tmp_path = installed_wrappers
+        wrapper = wrappers["terminal"]
+        monkeypatch.setenv("TMPDIR", "/tmp/outside-hermes")
+        monkeypatch.setenv("HOME", "/Users/example")
+        seen = []
+
+        def capturing_terminal_handler(args, **kwargs):
+            seen.append({
+                "tmpdir": os.environ.get("TMPDIR"),
+                "tmp": os.environ.get("TMP"),
+                "temp": os.environ.get("TEMP"),
+                "home": os.environ.get("HOME"),
+                "git_config_global": os.environ.get("GIT_CONFIG_GLOBAL"),
+                "xdg_config_home": os.environ.get("XDG_CONFIG_HOME"),
+                "tempfile_tempdir": local_env.tempfile.tempdir,
+                "tempfile_gettempdir": local_env.tempfile.gettempdir(),
+            })
+            return json.dumps({"result": "ok"})
+
+        entries["terminal"].handler = MagicMock(side_effect=capturing_terminal_handler)
+
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=MagicMock()),
+        ):
+            result_json = wrapper({"command": "python -c 'print(1)'", "workdir": str(tmp_path)})
+
+        scratch = tmp_path / ".hermes-sandbox" / "tmp"
+        assert json.loads(result_json).get("result") == "ok"
+        assert seen == [{
+            "tmpdir": str(scratch),
+            "tmp": str(scratch),
+            "temp": str(scratch),
+            "home": str(scratch),
+            "git_config_global": str(scratch / "gitconfig"),
+            "xdg_config_home": str(scratch / "xdg-config"),
+            "tempfile_tempdir": None,
+            "tempfile_gettempdir": str(scratch),
+        }]
+        assert scratch.is_dir()
+        assert (scratch / "gitconfig").is_file()
+        assert os.environ.get("TMPDIR") == "/tmp/outside-hermes"
+        assert os.environ.get("HOME") == "/Users/example"
+
     def test_local_terminal_background_registers_process_for_same_session(self, installed_wrappers):
         """terminal(background=true) must register the returned proc id for later process calls."""
         wrappers, entries, tmp_path = installed_wrappers
@@ -479,8 +530,9 @@ class TestProcessOwnershipEnforcement:
 
 class TestTerminalDangerousCommandGate:
     """The terminal wrapper must route commands matching
-    security.dangerous_commands through the human approval flow, regardless of
-    permissionMode (even in 'full'). Non-dangerous commands must not be gated."""
+    security.dangerous_commands through the human approval flow when approvals
+    are enabled. Non-dangerous commands and explicit approval bypasses must not
+    be gated."""
 
     def _gate_config(self, dangerous_commands):
         """Patch read_security_config to return a fixed dangerous list."""
@@ -533,43 +585,62 @@ class TestTerminalDangerousCommandGate:
         assert result.get("result") == "ok"
         mock_pa.assert_not_called()
 
-    def test_gate_forces_approval_even_in_full_mode(self, installed_wrappers):
-        """A dangerous command must still prompt when permission_mode is 'full'.
-
-        request_path_approval short-circuits to 'once' under 'full' mode, so the
-        gate temporarily flips the per-thread mode to 'ask'. We assert the mode
-        is 'ask' at the time request_path_approval reads it.
-        """
+    def test_full_mode_skips_dangerous_command_approval(self, installed_wrappers):
+        """permission_mode='full' skips dangerous-command approval, but still executes via wrapper."""
         wrappers, entries, tmp_path = installed_wrappers
         wrapper = wrappers["terminal"]
 
         import tools.path_approval as pa
 
-        pa.set_workspace_context(
+        tokens = pa.set_workspace_context(
             str(tmp_path), "sess1", "turn1", permission_mode="full"
         )
         try:
-            captured_modes = []
-
-            def _capture(*a, **kw):
-                captured_modes.append(pa.get_permission_mode())
-                return "once"
-
             with self._gate_config(["sudo"]), patch(
-                "tools.path_approval.request_path_approval", side_effect=_capture
-            ):
+                "tools.path_approval.request_path_approval", return_value="deny"
+            ) as mock_pa:
                 result_json = wrapper({"command": "sudo ls", "workdir": str(tmp_path)})
             result = json.loads(result_json)
         finally:
-            pa.reset_workspace_context(
-                pa.set_workspace_context(None, None, None, permission_mode="auto")
-            )
+            pa.reset_workspace_context(tokens)
 
         assert result.get("result") == "ok"
-        assert captured_modes == ["ask"], (
-            f"gate must force mode to 'ask' during dangerous-command approval, "
-            f"got {captured_modes}"
-        )
+        mock_pa.assert_not_called()
+        entries["terminal"].handler.assert_called_once()
+
+    def test_approvals_mode_off_skips_dangerous_command_approval(self, installed_wrappers):
+        """approvals.mode=off skips the prompt without bypassing the terminal wrapper."""
+        wrappers, entries, tmp_path = installed_wrappers
+        wrapper = wrappers["terminal"]
+
+        with self._gate_config(["rm -rf"]), patch(
+            "tools.approval._get_approval_mode", return_value="off"
+        ), patch(
+            "tools.path_approval.request_path_approval", return_value="deny"
+        ) as mock_pa:
+            result_json = wrapper({"command": "rm -rf build", "workdir": str(tmp_path)})
+        result = json.loads(result_json)
+
+        assert result.get("result") == "ok"
+        mock_pa.assert_not_called()
+        entries["terminal"].handler.assert_called_once()
+
+    def test_session_yolo_skips_dangerous_command_approval(self, installed_wrappers):
+        """Session YOLO skips the prompt without bypassing the terminal wrapper."""
+        wrappers, entries, tmp_path = installed_wrappers
+        wrapper = wrappers["terminal"]
+
+        with self._gate_config(["sudo"]), patch(
+            "tools.approval.is_session_yolo_enabled", return_value=True
+        ), patch(
+            "tools.path_approval.request_path_approval", return_value="deny"
+        ) as mock_pa:
+            result_json = wrapper({"command": "sudo ls", "workdir": str(tmp_path)})
+        result = json.loads(result_json)
+
+        assert result.get("result") == "ok"
+        mock_pa.assert_not_called()
+        entries["terminal"].handler.assert_called_once()
 
     def test_approval_required_false_skips_gate(self, installed_wrappers):
         """When security.approval_required is False, no approval is requested."""

@@ -24,7 +24,22 @@ import sys
 
 import pytest
 
-_HAS_SEATBELT = sys.platform == "darwin" and os.path.exists("/usr/bin/sandbox-exec")
+def _can_apply_seatbelt() -> bool:
+    if sys.platform != "darwin" or not os.path.exists("/usr/bin/sandbox-exec"):
+        return False
+    try:
+        result = subprocess.run(
+            ["/usr/bin/sandbox-exec", "-p", "(version 1)\n(allow default)", "--", "/usr/bin/true"],
+            capture_output=True,
+            timeout=2.0,
+            check=False,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+_HAS_SEATBELT = _can_apply_seatbelt()
 
 
 # ---------------------------------------------------------------------------
@@ -210,13 +225,14 @@ class TestSeatbeltIntegration:
 
     def test_normal_git_operations_still_work(self, tmp_path):
         """Guard against over-protection: ordinary git ops must succeed in-sandbox."""
-        from daemon.services.sandbox_runner import _build_seatbelt_policy
+        from daemon.services.sandbox_runner import _build_seatbelt_policy, with_workspace_scratch_env
 
         _run_git("init", "-q", str(tmp_path))
         _run_git("-C", str(tmp_path), "config", "user.email", "t@t")
         _run_git("-C", str(tmp_path), "config", "user.name", "t")
         policy, params = _build_seatbelt_policy(str(tmp_path))
         define_args = [f"-D{k}={v}" for k, v in params]
+        env = with_workspace_scratch_env(os.environ.copy(), tmp_path)
 
         (tmp_path / "README").write_text("hello\n", encoding="utf-8")
 
@@ -225,7 +241,7 @@ class TestSeatbeltIntegration:
             argv = [
                 "/usr/bin/sandbox-exec", "-p", policy, *define_args, "--", *cmd
             ]
-            proc = subprocess.run(argv, cwd=str(tmp_path), capture_output=True, text=True)
+            proc = subprocess.run(argv, cwd=str(tmp_path), env=env, capture_output=True, text=True)
             # git log on an empty repo exits non-zero; treat that as acceptable.
             # The security-relevant assertion is that it is NOT a seatbelt denial
             # (no "Operation not permitted" / sandbox violation in stderr).

@@ -82,6 +82,10 @@ export interface Provider {
 export interface Settings {
   schema_version: number;
   ui: Record<string, unknown>;
+  desktop_sandbox: {
+    mode: 'read-only' | 'workspace-write';
+    network_access: 'restricted' | 'enabled';
+  };
 }
 
 export interface ProfileInfo {

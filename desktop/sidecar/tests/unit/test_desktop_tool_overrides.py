@@ -295,6 +295,56 @@ class TestWrapperPassThroughWithSnapshot:
         fake_entries["write_file"].handler.assert_not_called()
         fake_entries["todo"].handler.assert_not_called()
 
+    def test_dangerous_command_config_read_failure_requires_approval(self):
+        """Dangerous command gate must fail closed when runtime config cannot be read."""
+        import pathlib
+        import tempfile
+        from daemon.services.workspace_policy import (
+            build_workspace_policy_snapshot,
+            reset_workspace_policy_snapshot,
+            set_workspace_policy_snapshot,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = pathlib.Path(tmpdir)
+            snap = build_workspace_policy_snapshot("sess", "turn", tmpdir, "full")
+            token = set_workspace_policy_snapshot(snap)
+            overrides = _fresh_overrides_module()
+            fake_entries, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
+            registered_wrappers: dict[str, MagicMock] = {}
+
+            def capture_register(**kwargs):
+                if kwargs.get("override"):
+                    registered_wrappers[kwargs["name"]] = kwargs["handler"]
+
+            fake_registry.register.side_effect = capture_register
+
+            fake_config_reader = MagicMock()
+            fake_config_reader.read_security_config.side_effect = RuntimeError("boom")
+
+            try:
+                with (
+                    patch.dict(sys.modules, {
+                        "tools.registry": fake_registry_module,
+                        "model_tools": fake_model_tools,
+                        "daemon.readers.hermes_config": fake_config_reader,
+                    }),
+                    patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+                    patch("tools.path_approval.request_path_approval", return_value="deny") as request_approval,
+                ):
+                    overrides.install_desktop_tool_overrides()
+                    result_json = registered_wrappers["terminal"]({
+                        "command": "rm -rf build",
+                        "workdir": str(workspace),
+                    })
+            finally:
+                reset_workspace_policy_snapshot(token)
+
+        result = json.loads(result_json)
+        assert result.get("code") == "DENIED"
+        request_approval.assert_called_once()
+        fake_entries["terminal"].handler.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Test 4: importing shared tool modules does not install desktop overrides

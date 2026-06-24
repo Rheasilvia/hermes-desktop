@@ -22,8 +22,12 @@ class WorkspacePolicySnapshot:
     workspace_root: Path
     workspace_hash: str
     permission_mode: Literal["ask", "auto", "full"]
+    sandbox_mode: Literal["read-only", "workspace-write"] = "workspace-write"
+    network_access: Literal["restricted", "enabled"] = "restricted"
+    hermes_home: Path | None = None
+    protected_metadata_names: tuple[str, ...] = (".codex", ".agents", ".hermes")
     collaboration_mode: Literal["default", "plan"] = "default"
-    policy_version: str = "desktop-workspace-v1"
+    policy_version: str = "desktop-workspace-v2"
 
 
 @dataclass(frozen=True)
@@ -71,6 +75,48 @@ def get_workspace_policy_snapshot() -> WorkspacePolicySnapshot | None:
 
 _VALID_PERMISSION_MODES = {"ask", "auto", "full"}
 _VALID_COLLABORATION_MODES = {"default", "plan"}
+_VALID_SANDBOX_MODES = {"read-only", "workspace-write"}
+_VALID_NETWORK_ACCESS = {"restricted", "enabled"}
+_DEFAULT_PROTECTED_METADATA_NAMES = (".codex", ".agents", ".hermes")
+
+
+def _normalized_relative_parts(path: Path, root: Path) -> tuple[str, ...] | None:
+    """Return lexical relative parts without following symlinks.
+
+    ``Path.resolve()`` intentionally follows parent symlinks. For write-protected
+    names like ``.codex`` and ``.git/config`` we also need to honor the logical
+    path the caller supplied, so ``.codex -> real-dir`` cannot bypass a deny rule.
+    """
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return None
+    parts: list[str] = []
+    for part in rel.parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+                continue
+            return None
+        parts.append(part)
+    return tuple(parts)
+
+
+def _protected_write_reason(
+    snapshot: WorkspacePolicySnapshot,
+    rel_parts: tuple[str, ...],
+) -> str | None:
+    protected = set(getattr(snapshot, "protected_metadata_names", _DEFAULT_PROTECTED_METADATA_NAMES))
+    for part in rel_parts:
+        if part in protected:
+            return f"{part} is read-only inside the workspace"
+    if ".git" in rel_parts:
+        tail = rel_parts[rel_parts.index(".git") + 1:]
+        if tail[:1] in (("hooks",), ("config",)):
+            return ".git/hooks and .git/config are read-only inside the workspace"
+    return None
 
 
 def build_workspace_policy_snapshot(
@@ -79,6 +125,10 @@ def build_workspace_policy_snapshot(
     cwd: str | Path,
     permission_mode: Literal["ask", "auto", "full"],
     collaboration_mode: Literal["default", "plan"] = "default",
+    sandbox_mode: Literal["read-only", "workspace-write"] = "workspace-write",
+    network_access: Literal["restricted", "enabled"] = "restricted",
+    hermes_home: str | Path | None = None,
+    protected_metadata_names: tuple[str, ...] | None = None,
 ) -> WorkspacePolicySnapshot:
     """Build a snapshot from the given working directory.
 
@@ -92,8 +142,15 @@ def build_workspace_policy_snapshot(
         raise ValueError(f"invalid permission_mode {permission_mode!r}; expected one of {sorted(_VALID_PERMISSION_MODES)}")
     if collaboration_mode not in _VALID_COLLABORATION_MODES:
         raise ValueError(f"invalid collaboration_mode {collaboration_mode!r}; expected one of {sorted(_VALID_COLLABORATION_MODES)}")
+    if sandbox_mode not in _VALID_SANDBOX_MODES:
+        raise ValueError(f"invalid sandbox_mode {sandbox_mode!r}; expected one of {sorted(_VALID_SANDBOX_MODES)}")
+    if network_access not in _VALID_NETWORK_ACCESS:
+        raise ValueError(f"invalid network_access {network_access!r}; expected one of {sorted(_VALID_NETWORK_ACCESS)}")
 
     workspace_hash = hashlib.sha256(str(canonical).encode()).hexdigest()[:16]
+    resolved_hermes_home: Path | None = None
+    if hermes_home is not None:
+        resolved_hermes_home = Path(hermes_home).expanduser().resolve()
 
     return WorkspacePolicySnapshot(
         session_id=session_id,
@@ -102,6 +159,10 @@ def build_workspace_policy_snapshot(
         workspace_root=canonical,
         workspace_hash=workspace_hash,
         permission_mode=permission_mode,
+        sandbox_mode=sandbox_mode,
+        network_access=network_access,
+        hermes_home=resolved_hermes_home,
+        protected_metadata_names=tuple(protected_metadata_names or _DEFAULT_PROTECTED_METADATA_NAMES),
         collaboration_mode=collaboration_mode,
     )
 
@@ -151,6 +212,7 @@ def resolve_path(
     # Make absolute relative to cwd
     if not raw.is_absolute():
         raw = snapshot.cwd / raw
+    logical_rel_parts = _normalized_relative_parts(raw, snapshot.workspace_root)
 
     # Try to canonicalize — if the target exists, use strict resolution
     if raw.exists():
@@ -203,13 +265,15 @@ def resolve_path(
     # normal git operations are unaffected.
     if access == "write":
         rel_parts = canonical.relative_to(snapshot.workspace_root).parts
-        if ".git" in rel_parts:
-            tail = rel_parts[rel_parts.index(".git") + 1:]
-            if tail[:1] in (("hooks",), ("config",)):
+        for candidate_parts in (logical_rel_parts, rel_parts):
+            if candidate_parts is None:
+                continue
+            reason = _protected_write_reason(snapshot, candidate_parts)
+            if reason is not None:
                 return PolicyDecision(
                     allowed=False,
                     requires_approval=False,
-                    reason=".git/hooks and .git/config are read-only inside the workspace",
+                    reason=reason,
                 )
 
     approval_key = _make_approval_key(snapshot, access, canonical)

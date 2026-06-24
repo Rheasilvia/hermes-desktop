@@ -204,6 +204,9 @@ _SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
 _DESKTOP_HIDDEN_CONFIG_FIELDS = {
     "voice.record_key",
 }
+_DESKTOP_LOCAL_CONFIG_KEYS = {
+    "desktop_sandbox",
+}
 
 _CATEGORY_MERGE: dict[str, str] = {
     "privacy": "security",
@@ -329,7 +332,18 @@ def _normalize_config(config: dict[str, Any]) -> dict[str, Any]:
         result["model_context_length"] = context_length if isinstance(context_length, int) else 0
     else:
         result["model_context_length"] = 0
-    return {k: v for k, v in result.items() if not str(k).startswith("_")}
+    return {
+        k: v
+        for k, v in result.items()
+        if not str(k).startswith("_") and k not in _DESKTOP_LOCAL_CONFIG_KEYS
+    }
+
+
+def _without_desktop_local_keys(config: dict[str, Any]) -> dict[str, Any]:
+    result = dict(config)
+    for key in _DESKTOP_LOCAL_CONFIG_KEYS:
+        result.pop(key, None)
+    return result
 
 
 def _get_dot(config: dict[str, Any], path: str) -> Any:
@@ -354,7 +368,7 @@ def _set_dot(config: dict[str, Any], path: str, value: Any) -> None:
 
 
 def _denormalize_config(config: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
-    result = dict(config)
+    result = _without_desktop_local_keys(config)
     context_length = result.pop("model_context_length", None)
     model_value = result.get("model")
     if isinstance(model_value, str) and model_value:
@@ -385,7 +399,7 @@ class ConfigService:
     def get_defaults(self) -> dict[str, Any]:
         from hermes_cli.config import DEFAULT_CONFIG
 
-        return copy.deepcopy(DEFAULT_CONFIG)
+        return _without_desktop_local_keys(copy.deepcopy(DEFAULT_CONFIG))
 
     def get_schema(self) -> dict[str, Any]:
         return _schema(self.get_defaults())
@@ -405,6 +419,8 @@ class ConfigService:
                 normalized_current = _normalize_config(current)
                 normalized_incoming = _normalize_config(incoming)
                 for path in changed_paths:
+                    if path.split(".", 1)[0] in _DESKTOP_LOCAL_CONFIG_KEYS:
+                        continue
                     value = _get_dot(normalized_incoming, path)
                     if value is None and _get_dot(normalized_current, path) is None:
                         continue
