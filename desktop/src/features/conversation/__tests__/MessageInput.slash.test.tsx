@@ -784,6 +784,60 @@ describe('MessageInput slash commands', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  test('Enter while IME composition is active does not send even when keydown is not composing', async () => {
+    const onSend = vi.fn();
+    render(() => <MessageInput onSend={onSend} />);
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    fireEvent.input(input, { target: { value: 'ni hao' } });
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  test('plain Enter sends after IME composition ends', async () => {
+    const onSend = vi.fn();
+    render(() => <MessageInput onSend={onSend} />);
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    fireEvent.compositionStart(input);
+    fireEvent.input(input, { target: { value: 'ni hao' } });
+    fireEvent.compositionEnd(input);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    expect(onSend).toHaveBeenCalledWith('ni hao', undefined);
+  });
+
+  test('Enter immediately after composition ends does not send committed IME text', async () => {
+    const onSend = vi.fn();
+    render(() => <MessageInput onSend={onSend} />);
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    fireEvent.compositionStart(input);
+    input.value = '你好';
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  test('composition end syncs committed CJK text without a trailing input event', async () => {
+    const onSend = vi.fn();
+    render(() => <MessageInput onSend={onSend} />);
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    fireEvent.compositionStart(input);
+    fireEvent.input(input, { target: { value: 'ni' } });
+    input.value = '你好';
+    fireEvent.compositionEnd(input);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    expect(onSend).toHaveBeenCalledWith('你好', undefined);
+  });
+
   test('updates token usage when context usage changes after render', async () => {
     let setUsage!: (usage: ContextUsageProps) => void;
 
