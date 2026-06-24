@@ -109,32 +109,126 @@ describe('prompt card keyboard handling', () => {
     expect(onMaskedSubmit).toHaveBeenCalledWith('secret-1', 'token');
   });
 
-  test('user input card collects answers and submits atomically', () => {
+  test('user input card pages through questions and submits answers atomically', () => {
     const onSubmit = vi.fn();
     render(() => (
       <UserInputRequestCard
-        questions={[
-          {
-            id: 'scope',
-            header: 'Scope',
-            question: 'Which scope?',
-            options: [
-              { label: 'Narrow', description: 'Only this panel.' },
-              { label: 'Broad', description: 'Include recovery.' },
-            ],
-          },
-        ]}
+        questions={userInputQuestions()}
         onSubmit={onSubmit}
       />
     ));
 
     fireEvent.click(screen.getByRole('button', { name: /Broad/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(onSubmit).not.toHaveBeenCalled();
 
+    fireEvent.click(screen.getByRole('button', { name: /Loose/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
-    expect(onSubmit).toHaveBeenCalledWith({ scope: { answers: ['Broad'] } });
+    expect(onSubmit).toHaveBeenCalledWith({
+      scope: { answers: ['Broad'] },
+      density: { answers: ['Loose'] },
+    });
+  });
+
+  test('user input card keeps selected answers when paging backward', () => {
+    render(() => (
+      <UserInputRequestCard
+        questions={userInputQuestions()}
+        onSubmit={vi.fn()}
+      />
+    ));
+
+    fireEvent.click(screen.getByRole('button', { name: /Broad/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous question' }));
+
+    expect(screen.getByRole('button', { name: /Broad/ }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('user input card free text overrides the selected option', () => {
+    const onSubmit = vi.fn();
+    render(() => (
+      <UserInputRequestCard
+        questions={[userInputQuestions()[0]]}
+        onSubmit={onSubmit}
+      />
+    ));
+
+    const input = screen.getByPlaceholderText('No, and tell Codex what to do differently') as HTMLInputElement;
+    fireEvent.input(input, { target: { value: 'Use the safer path' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    expect(onSubmit).toHaveBeenCalledWith({ scope: { answers: ['Use the safer path'] } });
+  });
+
+  test('user input card dismiss button submits empty answers', () => {
+    const onSubmit = vi.fn();
+    render(() => (
+      <UserInputRequestCard
+        questions={userInputQuestions()}
+        onSubmit={onSubmit}
+      />
+    ));
+
+    fireEvent.click(screen.getByRole('button', { name: /Dismiss/ }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      scope: { answers: [] },
+      density: { answers: [] },
+    });
+  });
+
+  test('user input card Escape submits empty answers', () => {
+    const onSubmit = vi.fn();
+    render(() => (
+      <UserInputRequestCard
+        questions={[userInputQuestions()[0]]}
+        onSubmit={onSubmit}
+      />
+    ));
+
+    fireEvent.keyDown(screen.getByLabelText('User input request'), { key: 'Escape' });
+
+    expect(onSubmit).toHaveBeenCalledWith({ scope: { answers: [] } });
+  });
+
+  test('user input card uses paginated layout for a single question', () => {
+    render(() => (
+      <UserInputRequestCard
+        questions={[userInputQuestions()[0]]}
+        onSubmit={vi.fn()}
+      />
+    ));
+
+    expect(screen.getByText('1 of 1')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Previous question' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Next question' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Submit' })).toBeTruthy();
   });
 });
+
+function userInputQuestions() {
+  return [
+    {
+      id: 'scope',
+      header: 'Scope',
+      question: 'Which scope?',
+      options: [
+        { label: 'Narrow', description: 'Only this panel.' },
+        { label: 'Broad', description: 'Include recovery.' },
+      ],
+    },
+    {
+      id: 'density',
+      header: 'Density',
+      question: 'Choose a density.',
+      options: [
+        { label: 'Compact', description: 'Show more detail.' },
+        { label: 'Loose', description: 'Use more breathing room.' },
+      ],
+    },
+  ];
+}
 
 function approvalPermission(): PendingPermission {
   return {
