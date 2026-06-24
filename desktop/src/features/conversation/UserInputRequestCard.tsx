@@ -127,7 +127,7 @@ export const UserInputRequestCard: Component<UserInputRequestCardProps> = (props
             disabled={currentPage() === 0 || submitting()}
             onClick={goPrevious}
           >
-            <Icon name="chevron-left" size={18} strokeWidth={2.2} />
+            <Icon name="chevron-left" size={14} strokeWidth={2} />
           </button>
           <span class={styles.pageCount}>{currentPage() + 1} of {pageCount()}</span>
           <button
@@ -137,7 +137,7 @@ export const UserInputRequestCard: Component<UserInputRequestCardProps> = (props
             disabled={isLastPage() || !canUsePrimary()}
             onClick={goNext}
           >
-            <Icon name="chevron-right" size={18} strokeWidth={2.2} />
+            <Icon name="chevron-right" size={14} strokeWidth={2} />
           </button>
         </div>
       </div>
@@ -170,12 +170,12 @@ export const UserInputRequestCard: Component<UserInputRequestCardProps> = (props
                           title={option.description || 'Option details'}
                           aria-label={option.description || 'Option details'}
                         >
-                          <Icon name="info" size={15} strokeWidth={2} />
+                          <Icon name="info" size={12} strokeWidth={2} />
                         </span>
                         <Show when={selected()}>
                           <span class={styles.optionArrows} aria-hidden="true">
-                            <Icon name="arrow-up" size={17} strokeWidth={1.7} />
-                            <Icon name="arrow-down" size={17} strokeWidth={1.7} />
+                            <Icon name="arrow-up" size={13} strokeWidth={1.8} />
+                            <Icon name="arrow-down" size={13} strokeWidth={1.8} />
                           </span>
                         </Show>
                       </button>
@@ -187,14 +187,14 @@ export const UserInputRequestCard: Component<UserInputRequestCardProps> = (props
               <div class={styles.footer}>
                 <label class={styles.freeTextWrap} for={inputId}>
                   <span class={styles.freeTextIcon} aria-hidden="true">
-                    <Icon name="pencil" size={17} strokeWidth={1.8} />
+                    <Icon name="pencil" size={13} strokeWidth={1.8} />
                   </span>
                   <input
                     id={inputId}
                     class={styles.freeText}
                     value={freeTextFor(question())}
                     disabled={submitting()}
-                    placeholder="No, and tell Codex what to do differently"
+                    placeholder="No, describe what to do differently"
                     onInput={(event) => setFreeText(question().id, event.currentTarget.value)}
                   />
                 </label>
@@ -212,7 +212,7 @@ export const UserInputRequestCard: Component<UserInputRequestCardProps> = (props
                   <button class={styles.primary} type="submit" disabled={!canUsePrimary()}>
                     <span>{isLastPage() ? 'Submit' : 'Continue'}</span>
                     <span class={styles.returnIcon} aria-hidden="true">
-                      <Icon name="corner-down-left" size={18} strokeWidth={2} />
+                      <Icon name="corner-down-left" size={14} strokeWidth={2} />
                     </span>
                   </button>
                 </div>

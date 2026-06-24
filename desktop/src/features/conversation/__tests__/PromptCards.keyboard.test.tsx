@@ -154,7 +154,7 @@ describe('prompt card keyboard handling', () => {
       />
     ));
 
-    const input = screen.getByPlaceholderText('No, and tell Codex what to do differently') as HTMLInputElement;
+    const input = screen.getByPlaceholderText('No, describe what to do differently') as HTMLInputElement;
     fireEvent.input(input, { target: { value: 'Use the safer path' } });
     fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
 
