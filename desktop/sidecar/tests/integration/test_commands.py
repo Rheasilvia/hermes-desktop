@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 
 def test_commands_catalog_includes_registry_commands(client, auth):
     r = client.get("/desktop/api/commands/catalog", headers=auth)
@@ -61,6 +63,76 @@ def test_complete_path_fuzzy_file_candidates(client, auth, workspace_grant, tmp_
     assert r.json()["items"] == [
         {"text": "@file:docs/mydoc.txt", "display": "mydoc.txt", "meta": "docs"}
     ]
+
+
+def test_complete_path_does_not_run_git_subprocess(client, auth, workspace_grant, tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    docs = workspace / "docs"
+    git_dir = workspace / ".git"
+    docs.mkdir(parents=True)
+    git_dir.mkdir()
+    (git_dir / "config").write_text(
+        "[core]\n\tfsmonitor = sh -c 'echo pwned > ../outside-marker'\n",
+        encoding="utf-8",
+    )
+    (docs / "mydoc.txt").write_text("hello", encoding="utf-8")
+    created = client.post(
+        "/desktop/api/sessions",
+        json={"cwd": str(workspace)},
+        headers=workspace_grant,
+    )
+    sid = created.json()["session_id"]
+
+    def fail_subprocess_run(*_args, **_kwargs):
+        raise AssertionError("path completion must not run git or any subprocess")
+
+    monkeypatch.setattr("subprocess.run", fail_subprocess_run)
+
+    r = client.post(
+        "/desktop/api/commands/complete/path",
+        json={"word": "@my", "session_id": sid},
+        headers=auth,
+    )
+
+    assert r.status_code == 200
+    assert r.json()["items"] == [
+        {"text": "@file:docs/mydoc.txt", "display": "mydoc.txt", "meta": "docs"}
+    ]
+    assert (tmp_path / "outside-marker").exists() is False
+
+
+def test_complete_path_does_not_follow_symlink_outside_workspace(client, auth, workspace_grant, tmp_path):
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    outside.mkdir()
+    (outside / "secret.txt").write_text("nope", encoding="utf-8")
+    try:
+        (workspace / "linkout").symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink unavailable: {exc}")
+    created = client.post(
+        "/desktop/api/sessions",
+        json={"cwd": str(workspace)},
+        headers=workspace_grant,
+    )
+    sid = created.json()["session_id"]
+
+    nested = client.post(
+        "/desktop/api/commands/complete/path",
+        json={"word": "@file:linkout/s", "session_id": sid},
+        headers=auth,
+    )
+    root = client.post(
+        "/desktop/api/commands/complete/path",
+        json={"word": "@folder:l", "session_id": sid},
+        headers=auth,
+    )
+
+    assert nested.status_code == 200
+    assert nested.json()["items"] == []
+    assert root.status_code == 200
+    assert "@folder:linkout/" not in [item["text"] for item in root.json()["items"]]
 
 
 def test_complete_path_honors_file_and_folder_prefixes(client, auth, workspace_grant, tmp_path):

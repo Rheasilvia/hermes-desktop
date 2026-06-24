@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import threading
 import time
 
@@ -47,7 +46,7 @@ def _normalize_completion_path(path_part: str) -> str:
 def completion_root(*, cwd: str | None = None, fallback: str | None = None) -> str:
     raw = cwd or fallback or os.environ.get("TERMINAL_CWD") or os.getcwd()
     try:
-        resolved = os.path.abspath(os.path.expanduser(str(raw)))
+        resolved = os.path.realpath(os.path.expanduser(str(raw)))
         if os.path.isdir(resolved):
             return resolved
     except Exception:
@@ -55,7 +54,17 @@ def completion_root(*, cwd: str | None = None, fallback: str | None = None) -> s
     return os.getcwd()
 
 
+def _within_root(path: str, root: str) -> bool:
+    try:
+        candidate = os.path.realpath(path)
+        root_abs = os.path.realpath(root)
+        return candidate == root_abs or candidate.startswith(root_abs + os.sep)
+    except Exception:
+        return False
+
+
 def _list_repo_files(root: str) -> list[str]:
+    root = os.path.realpath(root)
     now = time.monotonic()
     with _fuzzy_cache_lock:
         cached = _fuzzy_cache.get(root)
@@ -64,60 +73,26 @@ def _list_repo_files(root: str) -> list[str]:
 
     files: list[str] = []
     try:
-        top_result = subprocess.run(
-            ["git", "-C", root, "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            timeout=2.0,
-            check=False,
-        )
-        if top_result.returncode == 0:
-            top = top_result.stdout.decode("utf-8", "replace").strip()
-            list_result = subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    top,
-                    "ls-files",
-                    "-z",
-                    "--cached",
-                    "--others",
-                    "--exclude-standard",
-                ],
-                capture_output=True,
-                timeout=2.0,
-                check=False,
-            )
-            if list_result.returncode == 0:
-                for path in list_result.stdout.decode("utf-8", "replace").split("\0"):
-                    if not path:
-                        continue
-                    rel = os.path.relpath(os.path.join(top, path), root).replace(os.sep, "/")
-                    if rel.startswith("../"):
-                        continue
-                    files.append(rel)
-                    if len(files) >= _FUZZY_CACHE_MAX_FILES:
-                        break
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-
-    if not files:
-        try:
-            for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-                dirnames[:] = [
-                    name
-                    for name in dirnames
-                    if name not in _FUZZY_FALLBACK_EXCLUDES and not name.startswith(".")
-                ]
-                rel_dir = os.path.relpath(dirpath, root)
-                for filename in filenames:
-                    rel = filename if rel_dir == "." else f"{rel_dir}/{filename}"
-                    files.append(rel.replace(os.sep, "/"))
-                    if len(files) >= _FUZZY_CACHE_MAX_FILES:
-                        break
+        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if name not in _FUZZY_FALLBACK_EXCLUDES and not name.startswith(".")
+                and _within_root(os.path.join(dirpath, name), root)
+            ]
+            rel_dir = os.path.relpath(dirpath, root)
+            for filename in filenames:
+                full = os.path.join(dirpath, filename)
+                if not _within_root(full, root):
+                    continue
+                rel = filename if rel_dir == "." else f"{rel_dir}/{filename}"
+                files.append(rel.replace(os.sep, "/"))
                 if len(files) >= _FUZZY_CACHE_MAX_FILES:
                     break
-        except OSError:
-            pass
+            if len(files) >= _FUZZY_CACHE_MAX_FILES:
+                break
+    except OSError:
+        pass
 
     with _fuzzy_cache_lock:
         _fuzzy_cache[root] = (now, files)
@@ -168,6 +143,7 @@ def _fuzzy_basename_rank(name: str, query: str) -> tuple[int, int] | None:
 def complete_path(word: str, *, root: str) -> list[dict[str, str]]:
     if not word:
         return []
+    root = os.path.realpath(root)
 
     items: list[dict[str, str]] = []
     is_context = word.startswith("@")
@@ -226,8 +202,8 @@ def complete_path(word: str, *, root: str) -> list[dict[str, str]]:
 
     search_dir = search_dir if os.path.isabs(search_dir) else os.path.join(root, search_dir)
     try:
-        search_abs = os.path.abspath(search_dir)
-        root_abs = os.path.abspath(root)
+        search_abs = os.path.realpath(search_dir)
+        root_abs = os.path.realpath(root)
         if not (search_abs == root_abs or search_abs.startswith(root_abs + os.sep)):
             return []
     except Exception:
@@ -245,6 +221,8 @@ def complete_path(word: str, *, root: str) -> list[dict[str, str]]:
         if is_context and not prefix_tag and entry.startswith("."):
             continue
         full = os.path.join(search_dir, entry)
+        if not _within_root(full, root):
+            continue
         is_dir = os.path.isdir(full)
         if prefix_tag and want_dir != is_dir:
             continue

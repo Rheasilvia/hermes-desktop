@@ -2,9 +2,10 @@
 
 The desktop settings UI exposes a user-editable list of dangerous command
 patterns (``security.dangerous_commands`` in ``~/.hermes/config.yaml``). A
-command matching any of those patterns must be routed through the human approval
-flow before execution, regardless of the session's ``permissionMode`` (even in
-``full`` mode). This module is the pure-function matcher for that contract.
+command matching any of those patterns is routed through the human approval flow
+before execution when approvals are enabled; ``permissionMode=full``, YOLO, and
+``approvals.mode=off`` skip only the prompt, not the desktop sandbox. This module
+is the pure-function matcher for that contract.
 
 Matching is intentionally substring-based to match the UI semantics: the user
 types command fragments such as ``rm -rf`` or ``sudo``, and any terminal command

@@ -142,6 +142,109 @@ def test_snapshot_is_set_during_turn(tmp_path):
     assert snapshot.turn_id == turn_id
 
 
+def test_snapshot_reads_desktop_sandbox_settings(tmp_path):
+    """Turn-scoped policy snapshot must read desktop sandbox settings from SQLite."""
+    from daemon.store.settings import save as save_settings
+
+    captured: list = []
+
+    class _AgentCapture:
+        model = "test-model"
+        workspace_cwd = None
+        context_compressor = None
+
+        def run_conversation(self, user_message, conversation_history):
+            captured.append(get_workspace_policy_snapshot())
+            return {"final_response": "ok"}
+
+    save_settings(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "ui": {},
+            "desktop_sandbox": {"mode": "read-only", "network_access": "enabled"},
+        },
+    )
+
+    agent = _AgentCapture()
+    sid = "sess-sandbox-settings"
+    ui = _FakeUIStore()
+    bus = _FakeBus()
+    entry = _FakeEntry(agent, cwd=str(tmp_path))
+    session_svc = MagicMock()
+    session_svc.get_session_or_404.return_value = {"permissionMode": "full"}
+    svc = AgentExecutionService(
+        hermes_home=tmp_path,
+        state=_FakeState(),
+        ui_messages=ui,
+        event_bus=bus,
+        agent_pool=_FakePool(entry),
+        session_service=session_svc,
+    )
+
+    turn_id = "turn-sandbox-settings"
+    user_seq = ui.append(sid, "user", {"text": "hi"}, turn_id=turn_id)
+    svc._run_turn(sid, "hi", user_seq, turn_id)
+
+    snapshot = captured[0]
+    assert snapshot.sandbox_mode == "read-only"
+    assert snapshot.network_access == "enabled"
+    assert snapshot.permission_mode == "full"
+    assert snapshot.hermes_home == tmp_path.resolve()
+
+
+def test_snapshot_malformed_desktop_sandbox_setting_uses_default(tmp_path):
+    """Malformed DB values must not disable the desktop command sandbox."""
+    import json
+    from daemon.db.connection import connect, ensure_schema
+
+    captured: list = []
+
+    class _AgentCapture:
+        model = "test-model"
+        workspace_cwd = None
+        context_compressor = None
+
+        def run_conversation(self, user_message, conversation_history):
+            captured.append(get_workspace_policy_snapshot())
+            return {"final_response": "ok"}
+
+    conn = connect(tmp_path)
+    ensure_schema(conn)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO desktop_settings (key, value) VALUES (?, ?)",
+            ("desktop_sandbox", json.dumps({"mode": "off", "network_access": "open"})),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    agent = _AgentCapture()
+    sid = "sess-sandbox-malformed"
+    ui = _FakeUIStore()
+    bus = _FakeBus()
+    entry = _FakeEntry(agent, cwd=str(tmp_path))
+    session_svc = MagicMock()
+    session_svc.get_session_or_404.return_value = {"permissionMode": "auto"}
+    svc = AgentExecutionService(
+        hermes_home=tmp_path,
+        state=_FakeState(),
+        ui_messages=ui,
+        event_bus=bus,
+        agent_pool=_FakePool(entry),
+        session_service=session_svc,
+    )
+
+    turn_id = "turn-sandbox-malformed"
+    user_seq = ui.append(sid, "user", {"text": "hi"}, turn_id=turn_id)
+    svc._run_turn(sid, "hi", user_seq, turn_id)
+
+    snapshot = captured[0]
+    assert snapshot.sandbox_mode == "workspace-write"
+    assert snapshot.network_access == "restricted"
+
+
 # ---------------------------------------------------------------------------
 # Test 2: snapshot is cleared after turn returns
 # ---------------------------------------------------------------------------

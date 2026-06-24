@@ -1,5 +1,7 @@
+#![cfg_attr(target_os = "macos", allow(dead_code, unused_imports))]
+
 use once_cell::sync::Lazy;
-use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -8,6 +10,12 @@ use std::thread;
 use tauri::{AppHandle, Emitter};
 
 static TERMINAL_SESSION: Lazy<Mutex<Option<TerminalSession>>> = Lazy::new(|| Mutex::new(None));
+
+#[cfg(target_os = "macos")]
+fn macos_terminal_unavailable_error() -> String {
+    "Desktop terminal is unavailable on macOS until its PTY is launched through the desktop sandbox"
+        .into()
+}
 
 #[derive(Debug, Serialize, Clone)]
 pub struct TerminalStartResult {
@@ -70,73 +78,82 @@ pub fn terminal_start(
     cols: u16,
     rows: u16,
 ) -> Result<TerminalStartResult, String> {
+    #[cfg(target_os = "macos")]
     {
-        let guard = TERMINAL_SESSION
+        let _ = (app, cwd, cols, rows);
+        return Err(macos_terminal_unavailable_error());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        {
+            let guard = TERMINAL_SESSION
+                .lock()
+                .map_err(|_| "terminal session lock poisoned".to_string())?;
+            if let Some(session) = guard.as_ref() {
+                return Ok(session.start_result(true));
+            }
+        }
+
+        let cwd_path = resolve_cwd(cwd)?;
+        let cwd_string = cwd_path.to_string_lossy().to_string();
+        let shell = default_shell();
+        let size = sanitize_size(cols, rows);
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(size)
+            .map_err(|e| format!("failed to open terminal: {e}"))?;
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| format!("failed to open terminal reader: {e}"))?;
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| format!("failed to open terminal writer: {e}"))?;
+        let mut cmd = CommandBuilder::new(&shell);
+        cmd.cwd(cwd_path.as_os_str());
+        // Spawn the shell as a proper interactive session (mirrors the Electron
+        // reference in apps/desktop/electron/main.cjs::posixShellSpec). Without
+        // these flags zsh/bash skip rc loading and the prompt looks wrong.
+        for arg in shell_args(&shell) {
+            cmd.arg(arg);
+        }
+        scrub_terminal_env(&mut cmd);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        cmd.env("TERM_PROGRAM", "Hermes");
+        cmd.env("HERMES_DESKTOP_TERMINAL", "1");
+
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .map_err(|e| format!("failed to start terminal shell: {e}"))?;
+        let pid = child.process_id();
+        let killer = child.clone_killer();
+        let id = format!("terminal-{}", pid.unwrap_or_else(rand::random::<u32>));
+        let writer = Arc::new(Mutex::new(writer));
+
+        let session = TerminalSession {
+            id: id.clone(),
+            pid,
+            shell,
+            cwd: cwd_string,
+            master: pair.master,
+            writer,
+            killer,
+        };
+        let result = session.start_result(false);
+        let mut guard = TERMINAL_SESSION
             .lock()
             .map_err(|_| "terminal session lock poisoned".to_string())?;
-        if let Some(session) = guard.as_ref() {
-            return Ok(session.start_result(true));
-        }
+        *guard = Some(session);
+        drop(guard);
+
+        spawn_reader(app.clone(), id.clone(), reader);
+        spawn_waiter(app, id, child);
+        Ok(result)
     }
-
-    let cwd_path = resolve_cwd(cwd)?;
-    let cwd_string = cwd_path.to_string_lossy().to_string();
-    let shell = default_shell();
-    let size = sanitize_size(cols, rows);
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(size)
-        .map_err(|e| format!("failed to open terminal: {e}"))?;
-    let reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|e| format!("failed to open terminal reader: {e}"))?;
-    let writer = pair
-        .master
-        .take_writer()
-        .map_err(|e| format!("failed to open terminal writer: {e}"))?;
-    let mut cmd = CommandBuilder::new(&shell);
-    cmd.cwd(cwd_path.as_os_str());
-    // Spawn the shell as a proper interactive session (mirrors the Electron
-    // reference in apps/desktop/electron/main.cjs::posixShellSpec). Without
-    // these flags zsh/bash skip rc loading and the prompt looks wrong.
-    for arg in shell_args(&shell) {
-        cmd.arg(arg);
-    }
-    scrub_terminal_env(&mut cmd);
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
-    cmd.env("TERM_PROGRAM", "Hermes");
-    cmd.env("HERMES_DESKTOP_TERMINAL", "1");
-
-    let child = pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| format!("failed to start terminal shell: {e}"))?;
-    let pid = child.process_id();
-    let killer = child.clone_killer();
-    let id = format!("terminal-{}", pid.unwrap_or_else(rand::random::<u32>));
-    let writer = Arc::new(Mutex::new(writer));
-
-    let session = TerminalSession {
-        id: id.clone(),
-        pid,
-        shell,
-        cwd: cwd_string,
-        master: pair.master,
-        writer,
-        killer,
-    };
-    let result = session.start_result(false);
-    let mut guard = TERMINAL_SESSION
-        .lock()
-        .map_err(|_| "terminal session lock poisoned".to_string())?;
-    *guard = Some(session);
-    drop(guard);
-
-    spawn_reader(app.clone(), id.clone(), reader);
-    spawn_waiter(app, id, child);
-    Ok(result)
 }
 
 #[tauri::command]
@@ -403,11 +420,24 @@ mod tests {
         assert_eq!(shell_args("/bin/sh"), vec!["-i"]);
         // PowerShell drops its logo banner; cmd needs nothing.
         assert_eq!(shell_args("/usr/bin/pwsh"), vec!["-NoLogo"]);
-        assert_eq!(shell_args("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"), vec!["-NoLogo"]);
-        assert_eq!(shell_args("C:\\Windows\\System32\\cmd.exe"), Vec::<String>::new());
+        assert_eq!(
+            shell_args("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
+            vec!["-NoLogo"]
+        );
+        assert_eq!(
+            shell_args("C:\\Windows\\System32\\cmd.exe"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_terminal_start_is_fail_closed_until_sandboxed() {
+        assert!(macos_terminal_unavailable_error().contains("desktop sandbox"));
     }
 
     #[cfg(unix)]
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn pty_spawn_write_resize_smoke() {
         use std::io::{Read, Write};

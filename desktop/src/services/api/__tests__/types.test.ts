@@ -38,7 +38,11 @@ describe('types', () => {
       models: [],
       desktop: { visible: true },
     };
-    const s: Settings = { schema_version: 1, ui: {} };
+    const s: Settings = {
+      schema_version: 1,
+      ui: {},
+      desktop_sandbox: { mode: 'workspace-write', network_access: 'restricted' },
+    };
     expect(list.items[0].id).toBe('job_test_001');
     expect(p.desktop.visible).toBe(true);
     expect(s.schema_version).toBe(1);

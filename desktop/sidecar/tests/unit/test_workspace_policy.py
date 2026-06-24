@@ -39,7 +39,10 @@ class TestBuildWorkspacePolicySnapshot:
         snap = _snapshot(tmp_path)
         assert snap.cwd == tmp_path.resolve()
         assert snap.workspace_root == snap.cwd
-        assert snap.policy_version == "desktop-workspace-v1"
+        assert snap.policy_version == "desktop-workspace-v2"
+        assert snap.sandbox_mode == "workspace-write"
+        assert snap.network_access == "restricted"
+        assert snap.protected_metadata_names == (".codex", ".agents", ".hermes")
         assert len(snap.workspace_hash) == 16
 
     def test_workspace_hash_is_hex(self, tmp_path):
@@ -57,6 +60,18 @@ class TestBuildWorkspacePolicySnapshot:
         f.write_text("x")
         with pytest.raises(ValueError):
             build_workspace_policy_snapshot("s", "t", str(f), "auto")
+
+    def test_invalid_sandbox_mode_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="sandbox_mode"):
+            build_workspace_policy_snapshot(
+                "s", "t", str(tmp_path), "auto", sandbox_mode="off"  # type: ignore[arg-type]
+            )
+
+    def test_invalid_network_access_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="network_access"):
+            build_workspace_policy_snapshot(
+                "s", "t", str(tmp_path), "auto", network_access="open"  # type: ignore[arg-type]
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +266,58 @@ class TestResolvePathGitProtection:
         snap = _snapshot(tmp_path)
         decision = resolve_path(snap, ".git/config", "read")
         assert decision.allowed
+
+
+class TestResolvePathMetadataProtection:
+    def test_write_protected_metadata_dirs_denied(self, tmp_path):
+        snap = _snapshot(tmp_path)
+        for name in (".codex", ".agents", ".hermes"):
+            (tmp_path / name).mkdir()
+            decision = resolve_path(snap, f"{name}/settings.json", "write")
+            assert not decision.allowed
+            assert name in decision.reason
+
+    def test_create_protected_metadata_dir_denied(self, tmp_path):
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, ".codex", "write")
+        assert not decision.allowed
+        assert ".codex" in decision.reason
+
+    def test_read_protected_metadata_allowed_by_python_boundary(self, tmp_path):
+        (tmp_path / ".codex").mkdir()
+        (tmp_path / ".codex" / "settings.json").write_text("{}", encoding="utf-8")
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, ".codex/settings.json", "read")
+        assert decision.allowed
+
+    def test_write_protected_metadata_symlink_alias_denied(self, tmp_path):
+        target = tmp_path / "real-metadata"
+        target.mkdir()
+        (tmp_path / ".codex").symlink_to(target, target_is_directory=True)
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, ".codex/settings.json", "write")
+        assert not decision.allowed
+        assert ".codex" in decision.reason
+
+
+class TestResolvePathGitSymlinkProtection:
+    def test_write_git_config_symlink_alias_denied(self, tmp_path):
+        target = tmp_path / "real-git"
+        target.mkdir()
+        (tmp_path / ".git").symlink_to(target, target_is_directory=True)
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, ".git/config", "write")
+        assert not decision.allowed
+        assert ".git" in decision.reason
+
+    def test_write_git_hook_symlink_alias_denied(self, tmp_path):
+        target = tmp_path / "real-git"
+        (target / "hooks").mkdir(parents=True)
+        (tmp_path / ".git").symlink_to(target, target_is_directory=True)
+        snap = _snapshot(tmp_path)
+        decision = resolve_path(snap, ".git/hooks/pre-commit", "write")
+        assert not decision.allowed
+        assert ".git" in decision.reason
 
 
 # ---------------------------------------------------------------------------

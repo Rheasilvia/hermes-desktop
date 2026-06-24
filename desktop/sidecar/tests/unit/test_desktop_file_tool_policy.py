@@ -47,7 +47,7 @@ def _fresh_overrides_module() -> ModuleType:
 
 def _build_fake_registry_and_entries(
     tool_names=("read_file", "write_file", "patch",
-                "search_files", "terminal", "process", "execute_code"),
+                "search_files", "todo", "terminal", "process", "execute_code"),
 ):
     """Create fake entries, registry, registry_module, and model_tools mocks."""
     fake_entries = {name: _make_fake_entry(name) for name in tool_names}
@@ -193,6 +193,30 @@ class TestWriteFileWrapper:
         entries["write_file"].handler.assert_not_called()
         assert not outside_target.exists()
 
+    def test_write_file_read_only_sandbox_is_pre_denied(self, installed_wrappers):
+        """Desktop read-only sandbox mode rejects mutating file tools before the handler."""
+        from daemon.services.workspace_policy import (
+            build_workspace_policy_snapshot,
+            reset_workspace_policy_snapshot,
+            set_workspace_policy_snapshot,
+        )
+
+        wrappers, entries, tmp_path = installed_wrappers
+        snap = build_workspace_policy_snapshot(
+            "sess2", "turn2", str(tmp_path), "auto", sandbox_mode="read-only"
+        )
+        token = set_workspace_policy_snapshot(snap)
+        try:
+            result = json.loads(wrappers["write_file"]({
+                "path": str(tmp_path / "output.txt"),
+                "content": "data",
+            }))
+        finally:
+            reset_workspace_policy_snapshot(token)
+
+        assert result.get("code") == "SANDBOX_READ_ONLY"
+        entries["write_file"].handler.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Tests 5-6: search_files
@@ -334,6 +358,31 @@ class TestPatchWrapper:
 
         assert result.get("result") == "ok"
         entries["patch"].handler.assert_called_once()
+
+    def test_patch_read_only_sandbox_is_pre_denied(self, installed_wrappers):
+        from daemon.services.workspace_policy import (
+            build_workspace_policy_snapshot,
+            reset_workspace_policy_snapshot,
+            set_workspace_policy_snapshot,
+        )
+
+        wrappers, entries, tmp_path = installed_wrappers
+        target_file = tmp_path / "main.py"
+        target_file.write_text("x = 1\n")
+        snap = build_workspace_policy_snapshot(
+            "sess2", "turn2", str(tmp_path), "auto", sandbox_mode="read-only"
+        )
+        token = set_workspace_policy_snapshot(snap)
+        try:
+            result = json.loads(wrappers["patch"]({
+                "path": str(target_file),
+                "content": "x = 2\n",
+            }))
+        finally:
+            reset_workspace_policy_snapshot(token)
+
+        assert result.get("code") == "SANDBOX_READ_ONLY"
+        entries["patch"].handler.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
