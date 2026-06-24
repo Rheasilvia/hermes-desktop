@@ -126,11 +126,30 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   let voiceErrorTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingComposerWidth: number | null = null;
   let composerResizeFrame: number | null = null;
+  let imeComposing = false;
+  let suppressImeEnter = false;
+  let suppressImeEnterTimer: ReturnType<typeof setTimeout> | undefined;
 
   const clearVoiceErrorTimer = () => {
     if (!voiceErrorTimer) return;
     clearTimeout(voiceErrorTimer);
     voiceErrorTimer = undefined;
+  };
+
+  const clearImeEnterSuppression = () => {
+    suppressImeEnter = false;
+    if (!suppressImeEnterTimer) return;
+    clearTimeout(suppressImeEnterTimer);
+    suppressImeEnterTimer = undefined;
+  };
+
+  const suppressNextImeEnter = () => {
+    clearImeEnterSuppression();
+    suppressImeEnter = true;
+    suppressImeEnterTimer = setTimeout(() => {
+      suppressImeEnter = false;
+      suppressImeEnterTimer = undefined;
+    }, 0);
   };
 
   const clearVoiceError = () => {
@@ -183,7 +202,10 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     },
     onError: showVoiceError,
   });
-  onCleanup(clearVoiceErrorTimer);
+  onCleanup(() => {
+    clearVoiceErrorTimer();
+    clearImeEnterSuppression();
+  });
   let referenceRequestId = 0;
   let historyCursor = -1;
   let historyDraftSnapshot: ComposerHistoryEntry | null = null;
@@ -728,6 +750,20 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   });
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    // IME composition: Enter confirms candidate text, not chat submission.
+    // Track composition events as well as KeyboardEvent.isComposing because
+    // some CJK IME/browser combinations report the confirming Enter as false.
+    if (imeComposing || e.isComposing) {
+      return;
+    }
+
+    if (suppressImeEnter && e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      clearImeEnterSuppression();
+      return;
+    }
+
     // While the slash autocomplete panel is open, let it own navigation +
     // Enter-to-select. preventDefault keeps the textarea caret/newline still;
     // we DON'T stopPropagation so the panel's document listener acts next.
@@ -809,12 +845,8 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
         return;
       }
     }
-    // Enter sends the message (Shift+Enter inserts a newline). During IME
-    // composition (e.g. 中文, 日本語) Enter confirms a character — we must NOT
-    // send in that case. Cmd/Ctrl+Enter also sends as a power-user shortcut
-    // and IME fallback; the condition below covers that since both modifiers
-    // set isComposing to false.
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    // Enter sends the message (Shift+Enter inserts a newline).
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       e.stopImmediatePropagation();
       setSlashPanelOpen(false);
@@ -822,8 +854,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     }
   };
 
-  const handleInput = (e: Event) => {
-    const target = e.target as HTMLTextAreaElement;
+  const syncTextareaValue = (target: HTMLTextAreaElement) => {
     const nextValue = target.value;
     const current = text();
     resetHistoryBrowse();
@@ -833,6 +864,21 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     setText(nextValue);
     autoResize(target);
     props.onComposerActivity?.();
+  };
+
+  const handleInput = (e: Event) => {
+    syncTextareaValue(e.target as HTMLTextAreaElement);
+  };
+
+  const handleCompositionStart = () => {
+    clearImeEnterSuppression();
+    imeComposing = true;
+  };
+
+  const handleCompositionEnd = (e: CompositionEvent) => {
+    imeComposing = false;
+    syncTextareaValue(e.currentTarget as HTMLTextAreaElement);
+    suppressNextImeEnter();
   };
 
   const autoResize = (el: HTMLTextAreaElement) => {
@@ -1179,6 +1225,8 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
             value={text()}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
             onPaste={handlePaste}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
