@@ -1,5 +1,6 @@
 import { Component, For, Show, createSignal, onMount, onCleanup, createMemo, JSX } from 'solid-js';
 import { A, useLocation, useNavigate } from '@solidjs/router';
+import { Portal } from 'solid-js/web';
 import { ROUTES } from '@/routes';
 import { sessionStore } from '@/stores/session.js';
 import { chatStore } from '@/stores/chat.js';
@@ -493,27 +494,29 @@ export const Sidebar: Component = () => {
 
       {/* ── Context menu ────────────────────────────────────────────────── */}
       <Show when={contextMenuOpen() && contextMenuSession()}>
-        <div
-          data-context-menu
-          class={styles.contextDropdown}
-          style={{
-            left: `${contextMenuPosition().x}px`,
-            top: `${contextMenuPosition().y}px`,
-          }}
-        >
-          <For each={contextActions()}>
-            {(action) => (
-              <button
-                type="button"
-                class={`${styles.dropdownItem} ${action.danger ? styles.dropdownDanger : ''}`}
-                onClick={action.action}
-              >
-                <Icon name={action.icon} size={13} />
-                <span>{action.label}</span>
-              </button>
-            )}
-          </For>
-        </div>
+        <Portal mount={document.body}>
+          <div
+            data-context-menu
+            class={styles.contextDropdown}
+            style={{
+              left: `${contextMenuPosition().x}px`,
+              top: `${contextMenuPosition().y}px`,
+            }}
+          >
+            <For each={contextActions()}>
+              {(action) => (
+                <button
+                  type="button"
+                  class={`${styles.dropdownItem} ${action.danger ? styles.dropdownDanger : ''}`}
+                  onClick={action.action}
+                >
+                  <Icon name={action.icon} size={13} />
+                  <span>{action.label}</span>
+                </button>
+              )}
+            </For>
+          </div>
+        </Portal>
       </Show>
 
       {/* ── Rename modal ────────────────────────────────────────────────── */}

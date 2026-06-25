@@ -7,6 +7,8 @@ export interface ButtonProps {
   disabled?: boolean;
   fullWidth?: boolean;
   type?: 'button' | 'submit' | 'reset';
+  title?: string;
+  'aria-label'?: string;
   onClick?: JSX.EventHandler<HTMLButtonElement, MouseEvent>;
   children: JSX.Element;
 }
@@ -27,6 +29,8 @@ export const Button: Component<ButtonProps> = (props) => {
     <button
       class={classList()}
       type={props.type ?? 'button'}
+      title={props.title}
+      aria-label={props['aria-label']}
       disabled={props.disabled}
       onClick={props.onClick}
     >
