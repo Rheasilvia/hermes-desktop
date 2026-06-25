@@ -286,14 +286,57 @@ class TestWrapperPassThroughWithSnapshot:
 
                 read_result = json.loads(registered_wrappers["read_file"]({"path": "file.txt"}))
                 write_result = json.loads(registered_wrappers["write_file"]({"path": "file.txt", "content": "x"}))
+                patch_result = json.loads(registered_wrappers["patch"]({"path": "file.txt", "content": "x"}))
+                execute_code_result = json.loads(registered_wrappers["execute_code"]({"code": "print(1)"}))
+                process_result = json.loads(registered_wrappers["process"]({"action": "list"}))
                 todo_result = json.loads(registered_wrappers["todo"]({"todos": []}))
 
         assert read_result.get("result") == "ok"
         assert write_result.get("code") == "PLAN_MODE_RESTRICTED"
+        assert patch_result.get("code") == "PLAN_MODE_RESTRICTED"
+        assert execute_code_result.get("code") == "PLAN_MODE_RESTRICTED"
+        assert process_result.get("code") == "PLAN_MODE_RESTRICTED"
         assert todo_result.get("code") == "PLAN_MODE_RESTRICTED"
         fake_entries["read_file"].handler.assert_called_once()
         fake_entries["write_file"].handler.assert_not_called()
+        fake_entries["patch"].handler.assert_not_called()
+        fake_entries["execute_code"].handler.assert_not_called()
+        fake_entries["process"].handler.assert_not_called()
         fake_entries["todo"].handler.assert_not_called()
+
+    def test_agent_runtime_blocks_update_plan_in_desktop_plan_mode(self):
+        """update_plan is denied by the agent runtime in desktop Plan Mode."""
+        from agent.agent_runtime_helpers import invoke_tool
+
+        fake_agent = MagicMock()
+        fake_agent._desktop_collaboration_mode = "plan"
+        fake_agent.session_id = "sess"
+        fake_agent._current_turn_id = "turn"
+        fake_agent._current_api_request_id = "req"
+
+        def run_middleware(_name, args, execute, **_kwargs):
+            return execute(args)
+
+        fake_middleware = MagicMock()
+        fake_middleware.run_tool_execution_middleware.side_effect = run_middleware
+        fake_model_tools = MagicMock()
+        fake_model_tools._emit_post_tool_call_hook = MagicMock()
+
+        with patch.dict(sys.modules, {
+            "hermes_cli.middleware": fake_middleware,
+            "model_tools": fake_model_tools,
+        }):
+            result_json = invoke_tool(
+                fake_agent,
+                "update_plan",
+                {"plan": [{"step": "inspect", "status": "in_progress"}]},
+                "task",
+                skip_tool_request_middleware=True,
+            )
+
+        result = json.loads(result_json)
+        assert result.get("code") == "PLAN_MODE_RESTRICTED"
+        assert "update_plan" in result.get("error", "")
 
     def test_dangerous_command_config_read_failure_requires_approval(self):
         """Dangerous command gate must fail closed when runtime config cannot be read."""
