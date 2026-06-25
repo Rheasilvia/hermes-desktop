@@ -107,6 +107,12 @@ describe('MessageInput slash commands', () => {
     expect(screen.getByLabelText('Plan mode').textContent).toContain('Plan');
   });
 
+  test('uses follow-up queue copy while streaming', () => {
+    render(() => <MessageInput onSend={vi.fn()} isStreaming />);
+
+    expect(screen.getByPlaceholderText('Keep typing to queue follow-up changes')).toBeTruthy();
+  });
+
   test('Shift+Tab toggles collaboration mode without selecting slash completion', async () => {
     const onToggle = vi.fn();
     render(() => (
@@ -830,18 +836,43 @@ describe('MessageInput slash commands', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  test('plain Enter sends after IME composition ends', async () => {
+  test('plain Enter sends after the IME commit Enter is released', async () => {
     const onSend = vi.fn();
     render(() => <MessageInput onSend={onSend} />);
 
     const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
     fireEvent.compositionStart(input);
     fireEvent.input(input, { target: { value: 'ni hao' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false });
     fireEvent.compositionEnd(input);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    expect(onSend).not.toHaveBeenCalled();
+
+    fireEvent.keyUp(input, { key: 'Enter' });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
 
     expect(onSend).toHaveBeenCalledWith('ni hao', undefined);
+  });
+
+  test('plain Enter queues after the IME commit Enter is released while streaming', async () => {
+    const onSend = vi.fn();
+    render(() => <MessageInput onSend={onSend} isStreaming />);
+
+    const input = screen.getByPlaceholderText('Keep typing to queue follow-up changes') as HTMLTextAreaElement;
+    fireEvent.compositionStart(input);
+    fireEvent.input(input, { target: { value: 'ni hao' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false });
+    input.value = '你好';
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    expect(onSend).not.toHaveBeenCalled();
+
+    fireEvent.keyUp(input, { key: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    expect(onSend).toHaveBeenCalledWith('你好', undefined);
   });
 
   test('Enter immediately after composition ends does not send committed IME text', async () => {
@@ -850,11 +881,50 @@ describe('MessageInput slash commands', () => {
 
     const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
     fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false });
     input.value = '你好';
     fireEvent.compositionEnd(input);
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false });
 
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  test('plain Enter sends after IME composition commits without Enter', async () => {
+    const onSend = vi.fn();
+    render(() => <MessageInput onSend={onSend} />);
+
+    const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: ' ', code: 'Space', isComposing: true });
+    input.value = '你好';
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false });
+
+    expect(onSend).toHaveBeenCalledWith('你好', undefined);
+  });
+
+  test('IME commit guard expires if Enter keyup is missing', async () => {
+    vi.useFakeTimers();
+    const onSend = vi.fn();
+    try {
+      render(() => <MessageInput onSend={onSend} />);
+
+      const input = screen.getByPlaceholderText('Message Hermes...') as HTMLTextAreaElement;
+      fireEvent.compositionStart(input);
+      fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false });
+      input.value = '你好';
+      fireEvent.compositionEnd(input);
+      fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false });
+
+      expect(onSend).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1100);
+      fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false });
+
+      expect(onSend).toHaveBeenCalledWith('你好', undefined);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('composition end syncs committed CJK text without a trailing input event', async () => {
@@ -866,7 +936,7 @@ describe('MessageInput slash commands', () => {
     fireEvent.input(input, { target: { value: 'ni' } });
     input.value = '你好';
     fireEvent.compositionEnd(input);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.keyUp(input, { key: 'Enter' });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
 
     expect(onSend).toHaveBeenCalledWith('你好', undefined);

@@ -25,6 +25,28 @@ describe('composerQueueStore', () => {
     expect(composerQueueStore.getQueuedPrompts('sess_a')).toEqual([]);
   });
 
+  it('removes one queued prompt while preserving FIFO order', () => {
+    const first = composerQueueStore.enqueue('sess_a', { text: 'first' });
+    const second = composerQueueStore.enqueue('sess_a', { text: 'second' });
+    const third = composerQueueStore.enqueue('sess_a', { text: 'third' });
+
+    expect(composerQueueStore.remove('sess_a', second?.id)?.text).toBe('second');
+    expect(composerQueueStore.getQueuedPrompts('sess_a').map((entry) => entry.text)).toEqual(['first', 'third']);
+    const persisted = JSON.parse(window.localStorage.getItem('hermes.tauri.composerQueue.v1') ?? '{}') as { sess_a?: Array<{ text: string }> };
+    expect(persisted.sess_a?.map((entry) => entry.text)).toEqual(['first', 'third']);
+    expect(composerQueueStore.dequeue('sess_a')?.id).toBe(first?.id);
+    expect(composerQueueStore.dequeue('sess_a')?.id).toBe(third?.id);
+  });
+
+  it('returns null when removing a missing queued prompt', () => {
+    composerQueueStore.enqueue('sess_a', { text: 'first' });
+
+    expect(composerQueueStore.remove('sess_a', 'missing')).toBeNull();
+    expect(composerQueueStore.remove('missing-session', 'missing')).toBeNull();
+    expect(composerQueueStore.remove('sess_a', null)).toBeNull();
+    expect(composerQueueStore.getQueuedPrompts('sess_a').map((entry) => entry.text)).toEqual(['first']);
+  });
+
   it('clones attachments so queued entries are not mutated by caller state', () => {
     const attachments = [{ id: 'file:/tmp/a.txt', kind: 'file' as const, name: 'a.txt', path: '/tmp/a.txt', refText: '@file:/tmp/a.txt', size: 1 }];
     const entry = composerQueueStore.enqueue('sess_a', { text: 'inspect', attachments });

@@ -1,7 +1,7 @@
 import type { Component } from 'solid-js';
 import { Show, For, createEffect, onMount, onCleanup, createMemo, createSignal, Switch, Match, untrack } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
-import type { TodoItem } from '@/types/gateway.js';
+import type { TodoItem, UserInputAnswersPayload, UserInputQuestionPayload } from '@/types/gateway.js';
 import type { CollaborationMode, DesktopPermissionMode } from '@/types/index.js';
 import type { PlanBlock, RenderedMessage, TodoListBlock } from '@/types/index.js';
 import type { MessageActionType } from '@/types/ui/message.js';
@@ -36,6 +36,7 @@ import { Icon } from '@/ui/atoms/Icon.js';
 import { ClarificationCard } from './ClarificationCard.js';
 import { UserInputRequestCard } from './UserInputRequestCard.js';
 import { MemoryContextCard } from './MemoryContextCard.js';
+import { QueuedPromptDock } from './QueuedPromptDock.js';
 import { TodoPanel } from './TodoPanel.js';
 import { JumpToBottom } from './JumpToBottom.js';
 import { PromptDock, type PromptDockItem } from './turn/PromptDock.js';
@@ -53,6 +54,13 @@ import styles from './ChatView.module.css';
 interface ChatViewProps {
   sessionId?: string;
 }
+
+const ESCAPE_PRIORITY_SURFACE_SELECTOR = [
+  '[role="dialog"][aria-modal="true"]',
+  '[data-context-menu]',
+  '[data-completion-panel]',
+].join(',');
+const STEER_UNAVAILABLE_WARNING = 'Steer unavailable; still queued for next turn.';
 
 export interface PromptDisplayMetadata {
   text: string;
@@ -108,16 +116,44 @@ export function resolveMessageEditDraft(message: RenderedMessage): string {
     .trim();
 }
 
+function emptyUserInputAnswers(questions: UserInputQuestionPayload[]): UserInputAnswersPayload {
+  const answers: UserInputAnswersPayload = {};
+  for (const question of questions) {
+    answers[question.id] = { answers: [] };
+  }
+  return answers;
+}
+
+function isPlainEscape(event: KeyboardEvent): boolean {
+  return event.key === 'Escape' &&
+    !event.repeat &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey;
+}
+
+function eventPathHasPrioritySurface(event: KeyboardEvent): boolean {
+  const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+  return path.some((target) =>
+    target instanceof Element && target.matches(ESCAPE_PRIORITY_SURFACE_SELECTOR)
+  );
+}
+
 export const ChatView: Component<ChatViewProps> = (props) => {
   const navigate = useNavigate();
   const sessionId = () => props.sessionId ?? '';
+  let rootRef: HTMLDivElement | undefined;
   let chatBodyRef: HTMLDivElement | undefined;
   let messageInputResizeRef: HTMLDivElement | undefined;
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
   const [connectionState, setConnectionState] = createSignal<ConnectionState>(uiStore.connectionState);
   const [chatBodyWidth, setChatBodyWidth] = createSignal<number | null>(null);
+  const [steeringQueuedId, setSteeringQueuedId] = createSignal<string | null>(null);
+  const [queuedSteerWarning, setQueuedSteerWarning] = createSignal<string | null>(null);
   let wasBusy = false;
   let suppressNextAutoDrain = false;
+  let escapePrioritySurfaceAtKeydown = false;
   const autoTtsPlayed = new Set<string>();
 
   const cwd = createMemo(() => sessionStore.activeSession?.cwd ?? null);
@@ -150,6 +186,26 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   });
 
   const liveTools = createMemo(() => liveState().activeTools);
+  const queuedPrompts = createMemo(() => composerQueueStore.getQueuedPrompts(sessionId()));
+  const firstQueuedPrompt = createMemo(() => queuedPrompts()[0] ?? null);
+  const steerFirstQueuedDisabledReason = createMemo(() => {
+    const entry = firstQueuedPrompt();
+    const text = entry?.text.trim() ?? '';
+    if (!entry) return 'No queued follow-up to steer.';
+    if (steeringQueuedId()) return 'Steering first queued follow-up...';
+    if (!isStreaming()) return 'No active turn to steer.';
+    if (connectionState() !== 'connected' || !getGateway()) return 'Gateway is not connected.';
+    if (!text) return 'Cannot steer an empty queued follow-up.';
+    if (entry.attachments.length > 0 || (entry.displayParts?.length ?? 0) > 0) {
+      return 'Queued follow-ups with attachments stay queued for the next turn.';
+    }
+    if (text.startsWith('/')) return 'Slash commands stay queued for the next turn.';
+    return null;
+  });
+  const canSteerFirstQueued = createMemo(() => steerFirstQueuedDisabledReason() == null);
+  createEffect(() => {
+    if (queuedPrompts().length === 0) setQueuedSteerWarning(null);
+  });
 
   const blockingPromptActive = createMemo(() =>
     Boolean(liveState().pendingPermission || liveState().pendingClarify || liveState().pendingUserInput)
@@ -492,6 +548,102 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     }
   };
 
+  const stopCurrentTurn = () => {
+    const sid = sessionId();
+    if (!sid || !isStreaming()) return false;
+    suppressNextAutoDrain = true;
+    void chatStore.cancelMessage(sid);
+    return true;
+  };
+
+  const dismissActiveChatPanel = () => {
+    const sid = sessionId();
+    if (!sid) return false;
+    const live = liveState();
+    if (live.pendingUserInput) {
+      void chatStore.respondUserInput(
+        sid,
+        live.pendingUserInput.requestId,
+        emptyUserInputAnswers(live.pendingUserInput.questions),
+      );
+      return true;
+    }
+    if (live.pendingPermission) {
+      handlePermissionCancel();
+      return true;
+    }
+    if (live.pendingClarify) {
+      void chatStore.respondClarify(sid, live.pendingClarify.requestId, '');
+      return true;
+    }
+    if (cards.commandCard()) {
+      cards.dismissCommandCard();
+      return true;
+    }
+    if (showFloatingPanel() || panelExiting()) {
+      handleTodoPanelClose();
+      return true;
+    }
+    return false;
+  };
+
+  const hasPriorityEscapeSurface = (event: KeyboardEvent) =>
+    escapePrioritySurfaceAtKeydown ||
+    eventPathHasPrioritySurface(event) ||
+    Boolean(document.querySelector(ESCAPE_PRIORITY_SURFACE_SELECTOR));
+
+  const isChatEscapeTarget = (event: KeyboardEvent) => {
+    if (!rootRef) return true;
+    const target = event.target;
+    if (
+      target instanceof Node &&
+      target !== document &&
+      target !== document.body &&
+      !rootRef.contains(target)
+    ) {
+      return false;
+    }
+
+    const active = document.activeElement;
+    return !(
+      active instanceof Node &&
+      active !== document.body &&
+      active !== document.documentElement &&
+      !rootRef.contains(active)
+    );
+  };
+
+  const handleChatEscapeCapture = (event: KeyboardEvent) => {
+    if (!isPlainEscape(event)) {
+      escapePrioritySurfaceAtKeydown = false;
+      return;
+    }
+    escapePrioritySurfaceAtKeydown =
+      eventPathHasPrioritySurface(event) ||
+      Boolean(document.querySelector(ESCAPE_PRIORITY_SURFACE_SELECTOR));
+  };
+
+  const handleChatEscape = (event: KeyboardEvent) => {
+    if (!isPlainEscape(event)) return;
+    const prioritySurfaceOpen = hasPriorityEscapeSurface(event);
+    escapePrioritySurfaceAtKeydown = false;
+    if (event.defaultPrevented || prioritySurfaceOpen || !isChatEscapeTarget(event)) return;
+
+    if (dismissActiveChatPanel() || stopCurrentTurn()) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
+  onMount(() => {
+    window.addEventListener('keydown', handleChatEscapeCapture, true);
+    window.addEventListener('keydown', handleChatEscape);
+    onCleanup(() => {
+      window.removeEventListener('keydown', handleChatEscapeCapture, true);
+      window.removeEventListener('keydown', handleChatEscape);
+    });
+  });
+
   // ── Date separators ───────────────────────────────────────────────────
 
   function computeDateSeparators(msgs: RenderedMessage[]): Map<number, string> {
@@ -631,8 +783,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const handleSend = async (text: string, attachments?: QueuedAttachment[], displayParts?: UserDisplayPart[]) => {
     const trimmed = text.trim();
     if (isStreaming()) {
-      const entry = composerQueueStore.enqueue(sessionId(), { text: trimmed || text, attachments, displayParts });
-      if (entry) cards.noticeCard('Queued for the next turn.');
+      composerQueueStore.enqueue(sessionId(), { text: trimmed || text, attachments, displayParts });
+      setQueuedSteerWarning(null);
       return;
     }
     if (!attachments?.length && trimmed.startsWith('/')) {
@@ -665,6 +817,36 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     }
   };
 
+  const handleRemoveQueuedPrompt = (id: string) => {
+    composerQueueStore.remove(sessionId(), id);
+  };
+
+  const handleSteerFirstQueuedPrompt = async () => {
+    const entry = firstQueuedPrompt();
+    const sid = sessionId();
+    const text = entry?.text.trim() ?? '';
+    const gateway = getGateway();
+    if (!entry || !sid || !gateway || steerFirstQueuedDisabledReason()) {
+      setQueuedSteerWarning(STEER_UNAVAILABLE_WARNING);
+      return;
+    }
+
+    setSteeringQueuedId(entry.id);
+    try {
+      const result = await gateway.session.steer(sid, text);
+      if (result?.status === 'queued') {
+        setQueuedSteerWarning(null);
+        composerQueueStore.remove(sid, entry.id);
+        return;
+      }
+      setQueuedSteerWarning(STEER_UNAVAILABLE_WARNING);
+    } catch {
+      setQueuedSteerWarning(STEER_UNAVAILABLE_WARNING);
+    } finally {
+      if (steeringQueuedId() === entry.id) setSteeringQueuedId(null);
+    }
+  };
+
   // ── Prompt dock items ─────────────────────────────────────────────────
 
   const promptDockItems = createMemo<PromptDockItem[]>(() => {
@@ -673,6 +855,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     const userInput = live.pendingUserInput;
     const permission = live.pendingPermission;
     const clarify = live.pendingClarify;
+    const queued = queuedPrompts();
 
     if (userInput) {
       items.push({
@@ -758,15 +941,31 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       });
     }
 
+    if (!userInput && !permission && !clarify && queued.length > 0) {
+      items.push({
+        id: 'queued-prompts',
+        content: (
+          <QueuedPromptDock
+            entries={queued}
+            onRemove={handleRemoveQueuedPrompt}
+            canSteerFirst={canSteerFirstQueued()}
+            steerDisabledReason={steerFirstQueuedDisabledReason() ?? undefined}
+            warning={queuedSteerWarning()}
+            onSteerFirst={() => void handleSteerFirstQueuedPrompt()}
+          />
+        ),
+      });
+    }
+
     return items;
   });
 
   // ── Render ────────────────────────────────────────────────────────────
 
   return (
-	    <div class={styles.chatView}>
-	      <Show when={error()}>
-	        <ErrorBanner
+    <div class={styles.chatView} ref={(el) => { rootRef = el; }}>
+      <Show when={error()}>
+        <ErrorBanner
           message={error()!}
           action={errorAction()}
           onRetry={() => handleSend('')}
@@ -806,10 +1005,18 @@ export const ChatView: Component<ChatViewProps> = (props) => {
               </div>
             </Match>
             <Match when={isEmpty()}>
-              <EmptyChatState onSuggestionClick={(idx) => {
-                const suggestions = ['Debug my code', 'Review my PR', 'Plan a feature'];
-                handleSend(suggestions[idx] ?? '');
-              }} />
+              <div
+                class={styles.emptyState}
+                classList={{ [styles.emptyStateWithEnvironment]: environmentPanelVisible() }}
+                data-testid="chat-empty-state"
+              >
+                <div class={styles.emptyStateColumn}>
+                  <EmptyChatState onSuggestionClick={(idx) => {
+                    const suggestions = ['Debug my code', 'Review my PR', 'Plan a feature'];
+                    handleSend(suggestions[idx] ?? '');
+                  }} />
+                </div>
+              </div>
             </Match>
             <Match when={true}>
               <div
@@ -879,10 +1086,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                 <MessageInput
                   sessionId={sessionId()}
                   onSend={handleSend}
-                  onStop={() => {
-                    suppressNextAutoDrain = true;
-                    void chatStore.cancelMessage(sessionId());
-                  }}
+                  onStop={() => { stopCurrentTurn(); }}
                   disabled={blockingPromptActive() || !modelStore.activeModel}
                   isStreaming={isStreaming()}
                   modelSlot={(dimmed, disabled, compact) => (

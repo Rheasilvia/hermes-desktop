@@ -99,6 +99,7 @@ const SIMPLE_REF_RE = /^@(diff|staged)$/;
 const VOICE_ERROR_DISMISS_MS = 3000;
 const COMPACT_COMPOSER_ENTER_WIDTH = 560;
 const COMPACT_COMPOSER_EXIT_WIDTH = 592;
+const IME_COMMIT_ENTER_GUARD_MS = 1000;
 
 function shouldUseCompactComposer(width: number, currentCompact: boolean): boolean {
   if (width <= 0) return false;
@@ -129,8 +130,9 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   let pendingComposerWidth: number | null = null;
   let composerResizeFrame: number | null = null;
   let imeComposing = false;
-  let suppressImeEnter = false;
-  let suppressImeEnterTimer: ReturnType<typeof setTimeout> | undefined;
+  let imeCompositionHadPlainEnter = false;
+  let imeCommitEnterGuard = false;
+  let imeCommitEnterGuardTimer: ReturnType<typeof setTimeout> | undefined;
 
   const clearVoiceErrorTimer = () => {
     if (!voiceErrorTimer) return;
@@ -138,20 +140,20 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     voiceErrorTimer = undefined;
   };
 
-  const clearImeEnterSuppression = () => {
-    suppressImeEnter = false;
-    if (!suppressImeEnterTimer) return;
-    clearTimeout(suppressImeEnterTimer);
-    suppressImeEnterTimer = undefined;
+  const clearImeCommitEnterGuard = () => {
+    imeCommitEnterGuard = false;
+    if (!imeCommitEnterGuardTimer) return;
+    clearTimeout(imeCommitEnterGuardTimer);
+    imeCommitEnterGuardTimer = undefined;
   };
 
-  const suppressNextImeEnter = () => {
-    clearImeEnterSuppression();
-    suppressImeEnter = true;
-    suppressImeEnterTimer = setTimeout(() => {
-      suppressImeEnter = false;
-      suppressImeEnterTimer = undefined;
-    }, 0);
+  const startImeCommitEnterGuard = () => {
+    clearImeCommitEnterGuard();
+    imeCommitEnterGuard = true;
+    imeCommitEnterGuardTimer = setTimeout(() => {
+      imeCommitEnterGuard = false;
+      imeCommitEnterGuardTimer = undefined;
+    }, IME_COMMIT_ENTER_GUARD_MS);
   };
 
   const clearVoiceError = () => {
@@ -206,7 +208,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   });
   onCleanup(() => {
     clearVoiceErrorTimer();
-    clearImeEnterSuppression();
+    clearImeCommitEnterGuard();
   });
   let referenceRequestId = 0;
   let historyCursor = -1;
@@ -752,17 +754,22 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   });
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    const isPlainEnter = e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
     // IME composition: Enter confirms candidate text, not chat submission.
     // Track composition events as well as KeyboardEvent.isComposing because
     // some CJK IME/browser combinations report the confirming Enter as false.
     if (imeComposing || e.isComposing) {
+      if (isPlainEnter) {
+        imeCompositionHadPlainEnter = true;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
       return;
     }
 
-    if (suppressImeEnter && e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+    if (imeCommitEnterGuard && isPlainEnter) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      clearImeEnterSuppression();
       return;
     }
 
@@ -870,6 +877,12 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     }
   };
 
+  const handleKeyUp = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && imeCommitEnterGuard) {
+      clearImeCommitEnterGuard();
+    }
+  };
+
   const syncTextareaValue = (target: HTMLTextAreaElement) => {
     const nextValue = target.value;
     const current = text();
@@ -887,14 +900,19 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   };
 
   const handleCompositionStart = () => {
-    clearImeEnterSuppression();
+    clearImeCommitEnterGuard();
+    imeCompositionHadPlainEnter = false;
     imeComposing = true;
   };
 
   const handleCompositionEnd = (e: CompositionEvent) => {
+    const shouldGuardEnterCommit = imeCompositionHadPlainEnter;
+    imeCompositionHadPlainEnter = false;
     imeComposing = false;
     syncTextareaValue(e.currentTarget as HTMLTextAreaElement);
-    suppressNextImeEnter();
+    if (shouldGuardEnterCommit) {
+      startImeCommitEnterGuard();
+    }
   };
 
   const autoResize = (el: HTMLTextAreaElement) => {
@@ -1241,12 +1259,13 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
             value={text()}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
+            onKeyUp={handleKeyUp}
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
             onPaste={handlePaste}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
-            placeholder={props.placeholder ?? 'Message Hermes...'}
+            placeholder={props.placeholder ?? (props.isStreaming ? 'Keep typing to queue follow-up changes' : 'Message Hermes...')}
             disabled={props.disabled}
             rows={1}
           />

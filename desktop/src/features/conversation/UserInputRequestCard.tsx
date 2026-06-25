@@ -92,6 +92,7 @@ export const UserInputRequestCard: Component<UserInputRequestCardProps> = (props
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') {
       event.preventDefault();
+      event.stopPropagation();
       submitAnswers(true);
       return;
     }

@@ -23,6 +23,8 @@ from ..schemas.conversation import (
     PromptExecuteRequest,
     SecretRespondRequest,
     SetPermissionModeRequest,
+    SessionSteerRequest,
+    SessionSteerResponse,
     UpdateSessionRequest,
     UpdateSessionRuntimeRequest,
     SetSessionProviderRequest,
@@ -391,6 +393,35 @@ async def interrupt_session(
         user_input.cancel_turn(session_id, turn_id, "user_interrupt")
     pool.force_reset(session_id)
     return {"ok": True}
+
+
+@router.post("/sessions/{session_id}/steer", response_model=SessionSteerResponse)
+async def steer_session(
+    session_id: str,
+    body: SessionSteerRequest,
+    session_svc=Depends(get_session_service),
+    pool=Depends(get_agent_pool),
+):
+    if session_svc.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="TEXT_REQUIRED")
+
+    if not pool.is_running(session_id):
+        return SessionSteerResponse(status="rejected", text=text)
+
+    agent = pool.get_agent_for_session(session_id)
+    if agent is None or not hasattr(agent, "steer"):
+        return SessionSteerResponse(status="rejected", text=text)
+
+    try:
+        accepted = bool(agent.steer(text))
+    except Exception as exc:
+        log.warning("steer failed for session %s: %s", session_id, exc)
+        raise HTTPException(status_code=500, detail="STEER_FAILED")
+    return SessionSteerResponse(status="queued" if accepted else "rejected", text=text)
 
 
 # ── Approval / Clarify respond ────────────────────────────────────────────────

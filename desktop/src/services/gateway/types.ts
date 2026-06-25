@@ -157,9 +157,15 @@ export interface SessionMethods {
   branch(sessionId: string): Promise<SessionMeta>;
   resume(sessionId: string): Promise<void>;
   interrupt(sessionId: string): Promise<void>;
+  steer(sessionId: string, text: string): Promise<SessionSteerResponse>;
   undo(sessionId: string): Promise<{ removed: number }>;
   messages(sessionId: string): Promise<SessionMessage[]>;
   transcript(sessionId: string): Promise<SessionTranscript>;
+}
+
+export interface SessionSteerResponse {
+  status?: 'queued' | 'rejected';
+  text?: string;
 }
 
 /** Prompt method group. */

@@ -30,6 +30,12 @@ export const ClarificationCard: Component<ClarificationCardProps> = (props) => {
   };
 
   const handleCardKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      props.onRespond('');
+      return;
+    }
     if (e.target instanceof HTMLInputElement) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -51,6 +57,12 @@ export const ClarificationCard: Component<ClarificationCardProps> = (props) => {
   };
 
   const handleFreeText = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      props.onRespond('');
+      return;
+    }
     if (e.key === 'Enter' && freeText().trim()) {
       props.onRespond(freeText().trim());
     }

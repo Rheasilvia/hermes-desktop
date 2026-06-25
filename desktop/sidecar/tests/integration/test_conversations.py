@@ -434,6 +434,46 @@ class TestSessionCRUD:
             assert entry.agent.reasoning_config == {"enabled": True, "effort": "low"}
             client.app.state.agent_pool.mark_idle(sid)
 
+    def test_session_steer_calls_running_agent_steer(self, client):
+        created = client.post("/desktop/api/sessions", json={})
+        sid = created.json()["id"]
+
+        from daemon.services.agent_pool import AgentPool
+
+        class _FakeAgent:
+            def __init__(self):
+                self.steers = []
+
+            def steer(self, text):
+                self.steers.append(text)
+                return True
+
+        with patch.object(AgentPool, "_build_agent", return_value=(_FakeAgent(), "gpt-4", "openai")):
+            entry = client.app.state.agent_pool.get_or_create(sid)
+            client.app.state.agent_pool.mark_running(sid)
+
+            resp = client.post(
+                f"/desktop/api/sessions/{sid}/steer",
+                json={"text": "  nudge the current run  "},
+            )
+
+            assert resp.status_code == 200
+            assert resp.json() == {"status": "queued", "text": "nudge the current run"}
+            assert entry.agent.steers == ["nudge the current run"]
+            client.app.state.agent_pool.mark_idle(sid)
+
+    def test_session_steer_rejects_when_session_is_idle(self, client):
+        created = client.post("/desktop/api/sessions", json={})
+        sid = created.json()["id"]
+
+        resp = client.post(
+            f"/desktop/api/sessions/{sid}/steer",
+            json={"text": "nudge the current run"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "rejected", "text": "nudge the current run"}
+
     def test_set_permission_mode_rejects_invalid_value(self, client):
         created = client.post("/desktop/api/sessions", json={})
         sid = created.json()["id"]

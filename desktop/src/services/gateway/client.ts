@@ -35,6 +35,7 @@ import type {
   WorkspaceFileResult,
   GitDiffResult,
   GitBranchInfo,
+  SessionSteerResponse,
 } from './types.js';
 import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
@@ -132,6 +133,8 @@ export class GatewayClient {
     resume: (sessionId: string): Promise<void> =>
       this.call('session.resume', { session_id: sessionId }),
     interrupt: (): Promise<void> => this.call('session.interrupt'),
+    steer: (sessionId: string, text: string): Promise<SessionSteerResponse> =>
+      this.call('session.steer', { session_id: sessionId, text }),
     undo: (sessionId: string): Promise<{ removed: number }> =>
       this.call('session.undo', { session_id: sessionId }),
     messages: (sessionId: string): Promise<SessionMessage[]> =>

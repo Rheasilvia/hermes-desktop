@@ -21,6 +21,9 @@ describe('conversation split layout CSS', () => {
     const messageListRule = ruleBody(css, '.messageList');
     const messageListWithEnvironmentRule = ruleBody(css, '.messageListWithEnvironment');
     const messageColumnRule = ruleBody(css, '.messageColumn');
+    const emptyStateRule = ruleBody(css, '.emptyState');
+    const emptyStateWithEnvironmentRule = ruleBody(css, '.emptyStateWithEnvironment');
+    const emptyStateColumnRule = ruleBody(css, '.emptyStateColumn');
     const inputAreaRule = ruleBody(css, '.inputArea');
     const inputAreaWithEnvironmentRule = ruleBody(css, '.inputAreaWithEnvironment');
     const inputColumnRule = ruleBody(css, '.inputColumn');
@@ -37,6 +40,10 @@ describe('conversation split layout CSS', () => {
     expect(messageListWithEnvironmentRule).toContain('padding-right: calc(var(--conversation-chat-gutter) + var(--environment-popover-reserved-width))');
     expect(messageColumnRule).toContain('width: min(100%, var(--conversation-chat-max-width))');
     expect(messageColumnRule).toContain('margin-inline: auto');
+    expect(emptyStateRule).toContain('padding: var(--space-4) var(--conversation-chat-gutter) 52px');
+    expect(emptyStateWithEnvironmentRule).toContain('padding-right: calc(var(--conversation-chat-gutter) + var(--environment-popover-reserved-width))');
+    expect(emptyStateColumnRule).toContain('width: min(100%, var(--conversation-chat-max-width))');
+    expect(emptyStateColumnRule).toContain('margin-inline: auto');
     expect(inputAreaRule).toContain('padding: 8px var(--conversation-chat-gutter) 24px');
     expect(inputAreaWithEnvironmentRule).toContain('padding-right: calc(var(--conversation-chat-gutter) + var(--environment-popover-reserved-width))');
     expect(inputColumnRule).toContain('width: min(100%, var(--conversation-chat-max-width))');
@@ -151,6 +158,26 @@ describe('conversation split layout CSS', () => {
     expect(css).not.toContain('toolMenu');
   });
 
+  it('anchors the terminal xterm surface to an inset content area', () => {
+    const css = readConversationCss('TerminalPanel.module.css');
+    const panelRule = ruleBody(css, '.terminalPanel');
+    const hostRule = ruleBody(css, '.terminalHost');
+    const mountRule = ruleBody(css, '.xtermMount');
+    const xtermRule = ruleBody(css, '.xtermMount :global(.xterm)');
+
+    expect(panelRule).toContain('--terminal-content-inline-padding: var(--space-3)');
+    expect(panelRule).toContain('--terminal-content-block-padding: var(--space-2)');
+    expect(hostRule).toContain('position: relative');
+    expect(hostRule).toContain('flex: 1');
+    expect(hostRule).toContain('cursor: text');
+    expect(mountRule).toContain('position: absolute');
+    expect(mountRule).toContain('inset: var(--terminal-content-block-padding) var(--terminal-content-inline-padding)');
+    expect(mountRule).toContain('overflow: hidden');
+    expect(xtermRule).toContain('height: 100%');
+    expect(css).toContain('background: var(--terminal-host-bg) !important');
+    expect(css).not.toContain('terminalHeader');
+  });
+
   it('anchors the right tools pane as a split-grid sibling with a top-to-bottom divider', () => {
     const css = readShellCss('AppLayout.module.css');
     const titleBarCss = readShellCss('TitleBar.module.css');
@@ -167,6 +194,7 @@ describe('conversation split layout CSS', () => {
     const leftHandleRule = ruleBody(css, '.leftDragHandle');
     const rightPaneRule = ruleBody(css, '.rightToolsPane');
     const overlayPaneRule = ruleBody(css, '.rightToolsPaneOverlay');
+    const hiddenPaneRule = ruleBody(css, '.rightToolsPaneHidden');
     const rightToolsContentRule = ruleBody(css, '.rightToolsContent');
     const separatorRule = ruleBody(css, '.rightDiffSeparator');
     const handleRule = ruleBody(css, '.rightDragHandle');
@@ -176,6 +204,7 @@ describe('conversation split layout CSS', () => {
     const toolTabsRule = ruleBody(titleBarCss, '.toolTabs');
     const toolTabListRule = ruleBody(titleBarCss, '.toolTabList');
     const toolTabActiveRule = ruleBody(titleBarCss, '.toolTabActive');
+    const toolTabRenameInputRule = ruleBody(titleBarCss, '.toolTabRenameInput');
     const toolMenuRule = ruleBody(titleBarCss, '.toolMenu');
 
     expect(layoutRule).toContain('--tools-dock-min-width: 380px');
@@ -220,6 +249,7 @@ describe('conversation split layout CSS', () => {
     expect(overlayPaneRule).toContain('top: 0');
     expect(overlayPaneRule).toContain('right: 0');
     expect(overlayPaneRule).toContain('bottom: 0');
+    expect(hiddenPaneRule).toContain('display: none');
     expect(rightToolsContentRule).toContain('flex: 1');
     expect(rightToolsContentRule).toContain('min-height: 0');
     expect(separatorRule).toContain('position: absolute');
@@ -250,6 +280,7 @@ describe('conversation split layout CSS', () => {
     expect(toolTabsRule).toContain('flex: 1 1 auto');
     expect(toolTabListRule).toContain('overflow-x: auto');
     expect(toolTabActiveRule).toContain('background: color-mix(in srgb, var(--color-on-surface) 5%, var(--color-surface))');
+    expect(toolTabRenameInputRule).toContain('height: 22px');
     expect(toolMenuRule).toContain('z-index: var(--z-dropdown)');
     expect(toolMenuRule).not.toContain('var(--z-overlay)');
   });
