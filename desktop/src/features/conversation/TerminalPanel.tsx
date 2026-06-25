@@ -7,7 +7,6 @@ import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import type { Component } from 'solid-js';
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
-import { Icon } from '@/ui/atoms/Icon.js';
 import styles from './TerminalPanel.module.css';
 
 interface TerminalPanelProps {
@@ -118,8 +117,53 @@ const fallbackTerminalSize = {
   rows: 24,
 };
 
+const maxPendingOutputChunks = 64;
+
+const terminalControlSequencePattern = /\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-_]/g;
+
+const stripTerminalControlSequences = (value: string) =>
+  value.replace(terminalControlSequencePattern, '');
+
+const ctrlKeyToTerminalInput = (key: string) => {
+  if (key.length !== 1) return null;
+  const code = key.toUpperCase().charCodeAt(0);
+  if (code >= 64 && code <= 95) {
+    return String.fromCharCode(code - 64);
+  }
+  return null;
+};
+
+const keyToTerminalInput = (event: KeyboardEvent) => {
+  if (event.isComposing || event.metaKey) return null;
+
+  if (event.ctrlKey) {
+    return ctrlKeyToTerminalInput(event.key);
+  }
+
+  const keyMap: Record<string, string> = {
+    ArrowDown: '\x1b[B',
+    ArrowLeft: '\x1b[D',
+    ArrowRight: '\x1b[C',
+    ArrowUp: '\x1b[A',
+    Backspace: '\x7f',
+    Delete: '\x1b[3~',
+    End: '\x1b[F',
+    Enter: '\r',
+    Escape: '\x1b',
+    Home: '\x1b[H',
+    PageDown: '\x1b[6~',
+    PageUp: '\x1b[5~',
+    Tab: '\t',
+  };
+  const mapped = keyMap[event.key];
+  if (mapped) return event.altKey ? `\x1b${mapped}` : mapped;
+  if (event.key.length === 1) return event.altKey ? `\x1b${event.key}` : event.key;
+  return null;
+};
+
 export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   let host: HTMLDivElement | undefined;
+  let xtermHost: HTMLDivElement | undefined;
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
   let webglAddon: WebglAddon | null = null;
@@ -131,7 +175,13 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   let pendingFrame: number | null = null;
   let themeObserver: MutationObserver | null = null;
   let textEncoder: TextEncoder | null = null;
+  let textDecoder: TextDecoder | null = null;
   let runningStatus = 'Terminal running';
+  let terminalEventsReady = false;
+  let disposed = false;
+  let focusingHost = false;
+  let xtermDataEpoch = 0;
+  const pendingOutput = new Map<string, number[][]>();
 
   const [sessionId, setSessionId] = createSignal<string | null>(null);
   const [starting, setStarting] = createSignal(false);
@@ -139,6 +189,11 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   const [status, setStatus] = createSignal('Terminal idle');
   const [error, setError] = createSignal<string | null>(null);
   const [hasOutput, setHasOutput] = createSignal(false);
+  // Latched once a start attempt fails so auto-start (onMount, the active
+  // effect, and the ResizeObserver) stops retrying. A persistent PTY spawn
+  // failure otherwise re-fires on every layout tick, flashing the error and
+  // hammering the backend.
+  const [startBlocked, setStartBlocked] = createSignal(false);
 
   const resolveThemeName = (): TerminalThemeName => {
     if (typeof document === 'undefined') return 'light';
@@ -151,42 +206,83 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     terminal.options.theme = terminalThemes[resolveThemeName()];
   };
 
-  const workspaceTitle = () => {
-    const cwd = props.cwd?.trim();
-    if (!cwd) return 'Terminal';
-    const normalized = cwd.replace(/[\\/]+$/, '');
-    const name = normalized.split(/[\\/]/).filter(Boolean).pop();
-    return name ? name : 'Terminal';
-  };
-
-  const statusTone = () => {
-    if (error()) return 'error';
-    if (starting()) return 'starting';
-    if (running()) return hasOutput() ? 'running' : 'waiting';
-    if (status() === 'Terminal stopped') return 'stopped';
-    return 'idle';
-  };
-
-  const compactStatus = () => {
-    switch (statusTone()) {
-      case 'error':
-        return 'Error';
-      case 'starting':
-        return 'Starting';
-      case 'running':
-        return 'Running';
-      case 'waiting':
-        return 'Waiting';
-      case 'stopped':
-        return 'Stopped';
-      default:
-        return 'Idle';
-    }
-  };
-
   const hostIsReady = () => {
     if (!host) return false;
     return host.clientWidth > 0 && host.clientHeight > 0;
+  };
+
+  const focusTerminal = () => {
+    if (!props.active) return;
+    if (host && document.activeElement !== host) {
+      focusingHost = true;
+      host.focus({ preventScroll: true });
+      focusingHost = false;
+    }
+    terminal?.focus();
+  };
+
+  const handleHostFocus = () => {
+    if (focusingHost || !props.active) return;
+    terminal?.focus();
+  };
+
+  const markOutputRendered = () => {
+    setHasOutput(true);
+    setStatus(runningStatus);
+  };
+
+  const hasVisibleTerminalText = (data: number[]) => {
+    if (!textDecoder) textDecoder = new TextDecoder();
+    const text = textDecoder.decode(new Uint8Array(data), { stream: true });
+    return stripTerminalControlSequences(text).replace(/[\x00-\x1f\x7f\s%]/g, '').length > 0;
+  };
+
+  const writeTerminalData = (data: number[]) => {
+    const visible = hasVisibleTerminalText(data);
+    terminal?.write(new Uint8Array(data), () => {
+      if (visible) markOutputRendered();
+    });
+  };
+
+  const sendTerminalInput = (input: string) => {
+    const id = sessionId();
+    if (!id || !running()) return;
+    if (!textEncoder) textEncoder = new TextEncoder();
+    const bytes = Array.from(textEncoder.encode(input));
+    void invoke('terminal_write', { id, data: bytes }).catch((err) => setError(String(err)));
+  };
+
+  const handleHostKeyDown = (event: KeyboardEvent) => {
+    const input = keyToTerminalInput(event);
+    if (!input) return;
+    const epoch = xtermDataEpoch;
+    if (event.target === host) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    queueMicrotask(() => {
+      if (!disposed && xtermDataEpoch === epoch) {
+        sendTerminalInput(input);
+      }
+    });
+  };
+
+  const queuePendingOutput = (id: string, data: number[]) => {
+    const chunks = pendingOutput.get(id) ?? [];
+    chunks.push(data);
+    if (chunks.length > maxPendingOutputChunks) {
+      chunks.splice(0, chunks.length - maxPendingOutputChunks);
+    }
+    pendingOutput.set(id, chunks);
+  };
+
+  const drainPendingOutput = (id: string) => {
+    const chunks = pendingOutput.get(id);
+    if (!chunks) return;
+    pendingOutput.delete(id);
+    for (const chunk of chunks) {
+      writeTerminalData(chunk);
+    }
   };
 
   const scheduleFrame = (callback: () => void) => {
@@ -211,9 +307,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     if (options.refresh) {
       terminal.refresh(0, Math.max(terminal.rows - 1, 0));
     }
-    if (options.focus && props.active) {
-      terminal.focus();
-    }
+    if (options.focus) focusTerminal();
     const id = sessionId();
     if (!id || !running()) return true;
     void invoke('terminal_resize', {
@@ -234,12 +328,13 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   };
 
   const ensureStarted = async () => {
-    if (sessionId() || starting()) return;
+    if (disposed || sessionId() || starting() || startBlocked()) return;
     if (!terminal) return;
     if (!isTauri()) {
       setStatus('Terminal is available in the desktop app.');
       return;
     }
+    if (!terminalEventsReady) return;
     if (!hostIsReady()) {
       setStatus('Waiting for terminal layout...');
       return;
@@ -257,45 +352,36 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
         cols: terminal.cols || fallbackTerminalSize.cols,
         rows: terminal.rows || fallbackTerminalSize.rows,
       });
+      if (disposed) {
+        void invoke('terminal_stop', { id: result.id }).catch(() => {});
+        return;
+      }
       runningStatus = `${result.reused ? 'Attached' : 'Running'} ${result.shell} in ${result.cwd}`;
       setSessionId(result.id);
       setRunning(true);
       setStatus(runningStatus);
+      drainPendingOutput(result.id);
       fitAndResize({ focus: true, refresh: true });
     } catch (err) {
+      if (disposed) return;
       setError(String(err));
       setStatus('Terminal failed to start');
+      setStartBlocked(true);
     } finally {
-      setStarting(false);
+      if (!disposed) setStarting(false);
     }
   };
 
-  const stopTerminal = async () => {
-    const id = sessionId();
-    if (!id) return;
-    try {
-      await invoke('terminal_stop', { id });
-      setRunning(false);
-      setSessionId(null);
-      setHasOutput(false);
-      setError(null);
-      setStatus('Terminal stopped');
-    } catch (err) {
-      setError(String(err));
-    }
-  };
-
-  const restartTerminal = async () => {
-    await stopTerminal();
-    terminal?.reset();
-    setSessionId(null);
-    setHasOutput(false);
+  const retryTerminalStart = () => {
+    if (starting()) return;
+    setStartBlocked(false);
     setError(null);
-    await ensureStarted();
+    setStatus('Terminal idle');
+    void ensureStarted();
   };
 
   onMount(async () => {
-    if (!host) return;
+    if (!host || !xtermHost) return;
     terminal = new XTerm({
       allowProposedApi: true,
       convertEol: true,
@@ -303,7 +389,11 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
       cursorStyle: 'block',
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
       fontSize: 12,
+      fontWeight: 'normal',
+      fontWeightBold: 'bold',
+      letterSpacing: 0,
       lineHeight: 1.2,
+      minimumContrastRatio: 4.5,
       scrollback: 5000,
       theme: terminalThemes[resolveThemeName()],
     });
@@ -312,21 +402,23 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     terminal.loadAddon(new WebLinksAddon());
     terminal.loadAddon(new Unicode11Addon());
     terminal.unicode.activeVersion = '11';
-    terminal.open(host);
-    // WebGL renderer matches the dashboard + Electron paths; xterm's default
-    // DOM renderer paints SGR via CSS classes that visibly mute against our
-    // skins. Load after open() (needs a mounted canvas); fall back silently.
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => {
-        webgl.dispose();
-        if (webglAddon === webgl) webglAddon = null;
-      });
-      terminal.loadAddon(webgl);
-      webglAddon = webgl;
-    } catch (err) {
-      // WebGL unavailable (headless test env, disabled GPU) — DOM renderer keeps working.
-      console.warn('[hermes-terminal] WebGL unavailable; falling back to DOM', err);
+    terminal.open(xtermHost);
+    // Tauri's macOS WebView can report a healthy WebGL canvas while painting
+    // blank. Keep DOM rendering on the local desktop path; browser preview and
+    // other non-Tauri hosts can still use WebGL when available.
+    if (!isTauri()) {
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => {
+          webgl.dispose();
+          if (webglAddon === webgl) webglAddon = null;
+        });
+        terminal.loadAddon(webgl);
+        webglAddon = webgl;
+      } catch (err) {
+        // WebGL unavailable (headless test env, disabled GPU) — DOM renderer keeps working.
+        console.warn('[hermes-terminal] WebGL unavailable; falling back to DOM', err);
+      }
     }
     if (typeof MutationObserver !== 'undefined') {
       themeObserver = new MutationObserver(applyTerminalTheme);
@@ -335,17 +427,60 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
         attributeFilter: ['data-theme'],
       });
     }
-    activateTerminalSurface();
-
     dataDisposable = terminal.onData((data) => {
       const id = sessionId();
       if (!id || !running()) return;
+      xtermDataEpoch += 1;
       // xterm hands us a string; the PTY backend takes raw bytes so non-UTF-8
       // key sequences round-trip correctly. Encode once and forward.
-      if (!textEncoder) textEncoder = new TextEncoder();
-      const bytes = Array.from(textEncoder.encode(data));
-      void invoke('terminal_write', { id, data: bytes }).catch((err) => setError(String(err)));
+      sendTerminalInput(data);
     });
+
+    if (isTauri()) {
+      const { listen } = await import('@tauri-apps/api/event');
+      if (disposed) return;
+      unlistenData = await listen<TerminalDataEvent>('terminal_data', (event) => {
+        const current = sessionId();
+        if (!current) {
+          queuePendingOutput(event.payload.id, event.payload.data);
+          return;
+        }
+        if (event.payload.id !== current) return;
+        writeTerminalData(event.payload.data);
+      });
+      if (disposed) {
+        unlistenData();
+        unlistenData = null;
+        return;
+      }
+      unlistenExit = await listen<TerminalExitEvent>('terminal_exit', (event) => {
+        const current = sessionId();
+        if (!current || event.payload.id !== current) return;
+        setRunning(false);
+        setSessionId(null);
+        setHasOutput(false);
+        setStatus(event.payload.signal
+          ? `Terminal exited: ${event.payload.signal}`
+          : `Terminal exited with code ${event.payload.code}`);
+      });
+      if (disposed) {
+        unlistenExit();
+        unlistenExit = null;
+        return;
+      }
+      unlistenError = await listen<TerminalErrorEvent>('terminal_error', (event) => {
+        const current = sessionId();
+        if (!current || event.payload.id !== current) return;
+        setError(event.payload.error);
+        setStatus('Terminal error');
+      });
+      if (disposed) {
+        unlistenError();
+        unlistenError = null;
+        return;
+      }
+    }
+    terminalEventsReady = true;
 
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
@@ -359,32 +494,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
       resizeObserver.observe(host);
     }
 
-    if (isTauri()) {
-      const { listen } = await import('@tauri-apps/api/event');
-      unlistenData = await listen<TerminalDataEvent>('terminal_data', (event) => {
-        const current = sessionId();
-        if (!current || event.payload.id !== current) return;
-        setHasOutput(true);
-        setStatus(runningStatus);
-        terminal?.write(new Uint8Array(event.payload.data));
-      });
-      unlistenExit = await listen<TerminalExitEvent>('terminal_exit', (event) => {
-        const current = sessionId();
-        if (!current || event.payload.id !== current) return;
-        setRunning(false);
-        setSessionId(null);
-        setHasOutput(false);
-        setStatus(event.payload.signal
-          ? `Terminal exited: ${event.payload.signal}`
-          : `Terminal exited with code ${event.payload.code}`);
-      });
-      unlistenError = await listen<TerminalErrorEvent>('terminal_error', (event) => {
-        const current = sessionId();
-        if (!current || event.payload.id !== current) return;
-        setError(event.payload.error);
-        setStatus('Terminal error');
-      });
-    }
+    activateTerminalSurface();
 
     if (props.active) {
       await ensureStarted();
@@ -397,6 +507,13 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   });
 
   onCleanup(() => {
+    disposed = true;
+    terminalEventsReady = false;
+    pendingOutput.clear();
+    const id = sessionId();
+    if (id) {
+      void invoke('terminal_stop', { id }).catch(() => {});
+    }
     if (pendingFrame !== null && typeof cancelAnimationFrame === 'function') {
       cancelAnimationFrame(pendingFrame);
     }
@@ -420,58 +537,39 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
 
   return (
     <div class={styles.terminalPanel}>
-      <div class={styles.terminalHeader}>
+      <div
+        ref={host}
+        class={styles.terminalHost}
+        data-testid="terminal-host"
+        onPointerDown={focusTerminal}
+        onFocus={handleHostFocus}
+        onKeyDown={handleHostKeyDown}
+        tabIndex={0}
+      >
         <div
-          class={styles.terminalTitle}
-          title={props.cwd ?? workspaceTitle()}
-        >
-          <Icon name="terminal" size={15} />
-          <span class={styles.terminalTitleText}>{workspaceTitle()}</span>
-        </div>
-        <div class={styles.headerActions}>
-          <div
-            class={styles.statusPill}
-            classList={{
-              [styles.statusRunning]: statusTone() === 'running',
-              [styles.statusWaiting]: statusTone() === 'waiting' || statusTone() === 'starting',
-              [styles.statusStopped]: statusTone() === 'stopped' || statusTone() === 'idle',
-              [styles.statusError]: statusTone() === 'error',
-            }}
-            title={status()}
-            aria-label={`Terminal status: ${status()}`}
-          >
-            <span class={styles.statusDot} aria-hidden="true" />
-            {compactStatus()}
-          </div>
-          <button
-            type="button"
-            class={styles.actionButton}
-            onClick={() => void restartTerminal()}
-            title="Restart terminal"
-            aria-label="Restart terminal"
-            disabled={starting()}
-          >
-            <Icon name="refresh-cw" size={14} />
-          </button>
-          <button
-            type="button"
-            class={styles.actionButton}
-            onClick={() => void stopTerminal()}
-            title="Stop terminal"
-            aria-label="Stop terminal"
-            disabled={!sessionId() || starting()}
-          >
-            <Icon name="square" size={13} />
-          </button>
-        </div>
-      </div>
-      <div ref={host} class={styles.terminalHost} data-testid="terminal-host">
+          ref={xtermHost}
+          class={styles.xtermMount}
+          data-testid="xterm-mount"
+          aria-hidden="true"
+        />
         <Show when={hostMessage()}>
           {(message) => <div class={styles.hostStatus} role="status">{message()}</div>}
         </Show>
       </div>
       <Show when={error()}>
-        {(message) => <div class={styles.error} role="status">{message()}</div>}
+        {(message) => (
+          <div class={styles.error} role="status">
+            <span class={styles.errorText}>{message()}</span>
+            <button
+              type="button"
+              class={styles.retryButton}
+              onClick={retryTerminalStart}
+              disabled={starting()}
+            >
+              Retry
+            </button>
+          </div>
+        )}
       </Show>
     </div>
   );

@@ -9,7 +9,7 @@ import {
 } from 'solid-js';
 import { isTauri } from '@tauri-apps/api/core';
 import { Icon, type IconName } from '@/ui/atoms/Icon';
-import { sidePanelStore, type ToolTabView } from '@/stores/side-panel';
+import { sidePanelStore, type ToolTab, type ToolTabView } from '@/stores/side-panel';
 import styles from './TitleBar.module.css';
 
 interface ToolTabItem {
@@ -49,6 +49,11 @@ const TOOL_TAB_ITEMS: ToolTabItem[] = [
 const toolTabItemForView = (view: ToolTabView): ToolTabItem =>
   TOOL_TAB_ITEMS.find(item => item.view === view) ?? TOOL_TAB_ITEMS[0]!;
 
+interface ToolDockToolbarProps {
+  terminalCwd?: string | null;
+  terminalTitle?: string | null;
+}
+
 type WindowHandle = {
   startDragging: () => Promise<void>;
   toggleMaximize: () => Promise<void>;
@@ -69,9 +74,38 @@ function isInteractiveTitleBarTarget(target: EventTarget | null): boolean {
     && target.closest('button, a, input, textarea, select, [role="button"], [role="tab"], [role="menuitem"]') != null;
 }
 
-export const ToolDockToolbar: Component = () => {
+export const ToolDockToolbar: Component<ToolDockToolbarProps> = (props) => {
   const [toolMenuOpen, setToolMenuOpen] = createSignal(false);
+  const [editingTabId, setEditingTabId] = createSignal<string | null>(null);
+  const [editingTitle, setEditingTitle] = createSignal('');
   let toolMenuRoot: HTMLDivElement | undefined;
+  let renameInput: HTMLInputElement | undefined;
+
+  const tabTitle = (tab: ToolTab) => tab.title.trim() || toolTabItemForView(tab.kind).title;
+
+  const startRenamingTab = (tab: ToolTab) => {
+    if (tab.kind !== 'terminal') return;
+    setEditingTabId(tab.id);
+    setEditingTitle(tabTitle(tab));
+    queueMicrotask(() => {
+      renameInput?.focus();
+      renameInput?.select();
+    });
+  };
+
+  const cancelRenamingTab = () => {
+    setEditingTabId(null);
+    setEditingTitle('');
+  };
+
+  const commitRenamingTab = (tab: ToolTab) => {
+    if (editingTabId() !== tab.id) return;
+    const title = editingTitle().trim();
+    if (title) {
+      sidePanelStore.renameTab(tab.id, title);
+    }
+    cancelRenamingTab();
+  };
 
   const handleDocumentPointerDown = (event: PointerEvent) => {
     if (!toolMenuOpen()) return;
@@ -119,7 +153,9 @@ export const ToolDockToolbar: Component = () => {
   };
 
   const activateToolTab = (item: ToolTabItem) => {
-    sidePanelStore.openTab(item.view);
+    sidePanelStore.openTab(item.view, item.view === 'terminal'
+      ? { cwd: props.terminalCwd, title: props.terminalTitle }
+      : undefined);
     setToolMenuOpen(false);
   };
 
@@ -136,29 +172,61 @@ export const ToolDockToolbar: Component = () => {
     sidePanelStore.clearToolMenuOpenRequest();
   });
 
-  const renderToolTab = (view: ToolTabView) => {
-    const item = toolTabItemForView(view);
-    const selected = () => sidePanelStore.activeView() === view;
-    const closeLabel = `Close ${item.title} tab`;
+  const renderToolTab = (tab: ToolTab) => {
+    const item = toolTabItemForView(tab.kind);
+    const selected = () => sidePanelStore.activeTabId() === tab.id;
+    const title = () => tabTitle(tab);
+    const closeLabel = `Close ${title()} tab`;
+    const editing = () => editingTabId() === tab.id;
     return (
       <div
         class={styles.toolTabItem}
         classList={{ [styles.toolTabActive]: selected() }}
-        title={item.title}
+        title={title()}
         onMouseDown={blockDrag}
       >
-        <button
-          type="button"
-          role="tab"
-          class={styles.toolTab}
-          aria-label={item.title}
-          aria-selected={selected()}
-          onMouseDown={blockDrag}
-          onClick={() => sidePanelStore.setActiveView(view)}
+        <Show
+          when={editing()}
+          fallback={(
+            <button
+              type="button"
+              role="tab"
+              class={styles.toolTab}
+              aria-label={title()}
+              aria-selected={selected()}
+              onMouseDown={blockDrag}
+              onClick={() => sidePanelStore.setActiveTab(tab.id)}
+              onDblClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                startRenamingTab(tab);
+              }}
+            >
+              <Icon name={item.icon} size={15} strokeWidth={1.7} />
+              <span class={styles.toolTabLabel}>{title()}</span>
+            </button>
+          )}
         >
-          <Icon name={item.icon} size={15} strokeWidth={1.7} />
-          <span class={styles.toolTabLabel}>{item.title}</span>
-        </button>
+          <input
+            ref={(el) => { renameInput = el; }}
+            class={styles.toolTabRenameInput}
+            aria-label={`Rename ${title()} tab`}
+            value={editingTitle()}
+            onInput={(event) => setEditingTitle(event.currentTarget.value)}
+            onMouseDown={blockDrag}
+            onDblClick={(event) => event.stopPropagation()}
+            onBlur={() => commitRenamingTab(tab)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitRenamingTab(tab);
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                cancelRenamingTab();
+              }
+            }}
+          />
+        </Show>
         <button
           type="button"
           class={styles.toolTabClose}
@@ -167,7 +235,10 @@ export const ToolDockToolbar: Component = () => {
           onMouseDown={blockDrag}
           onClick={(event) => {
             event.stopPropagation();
-            sidePanelStore.closeTab(view);
+            if (editingTabId() === tab.id) {
+              cancelRenamingTab();
+            }
+            sidePanelStore.closeTab(tab.id);
           }}
         >
           <Icon name="x" size={13} strokeWidth={2} />
@@ -192,7 +263,7 @@ export const ToolDockToolbar: Component = () => {
         <div class={styles.toolTabs}>
           <div class={styles.toolTabList} role="tablist" aria-label="Tool tabs">
             <For each={sidePanelStore.openTabs()}>
-              {(view) => renderToolTab(view)}
+              {(tab) => renderToolTab(tab)}
             </For>
           </div>
           <div class={styles.addToolRoot} ref={(el) => { toolMenuRoot = el; }}>
@@ -212,7 +283,8 @@ export const ToolDockToolbar: Component = () => {
               <div class={styles.toolMenu} role="menu" aria-label="Add tool tab">
                 <For each={TOOL_TAB_ITEMS}>
                   {(item) => {
-                    const isOpen = () => sidePanelStore.openTabs().includes(item.view);
+                    const isOpen = () => item.view !== 'terminal'
+                      && sidePanelStore.openTabs().some((tab) => tab.kind === item.view);
                     return (
                       <button
                         type="button"

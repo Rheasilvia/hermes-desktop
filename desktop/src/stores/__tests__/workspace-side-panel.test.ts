@@ -30,30 +30,61 @@ async function flushPromises() {
   await Promise.resolve();
 }
 
+const tabKinds = (tabs: Array<{ kind: string }>) => tabs.map((tab) => tab.kind);
+
 describe('sidePanelStore', () => {
   it('opens to the tools tab shell by default and supports direct tab activation', async () => {
     vi.resetModules();
     const { sidePanelStore } = await import('../side-panel.js');
 
-    sidePanelStore.open('terminal');
+    sidePanelStore.open('terminal', { cwd: '/repo/PreDoc' });
     sidePanelStore.setPanelWidth(640);
 
     expect(sidePanelStore.isOpen()).toBe(true);
     expect(sidePanelStore.activeView()).toBe('terminal');
-    expect(sidePanelStore.openTabs()).toEqual(['terminal']);
+    expect(tabKinds(sidePanelStore.openTabs())).toEqual(['terminal']);
+    expect(sidePanelStore.activeTab()?.title).toBe('PreDoc');
 
     sidePanelStore.setActiveView('review');
 
     expect(sidePanelStore.activeView()).toBe('review');
-    expect(sidePanelStore.openTabs()).toEqual(['terminal', 'review']);
+    expect(tabKinds(sidePanelStore.openTabs())).toEqual(['terminal', 'review']);
 
     sidePanelStore.close();
     sidePanelStore.open();
 
     expect(sidePanelStore.isOpen()).toBe(true);
-    expect(sidePanelStore.activeView()).toBe('menu');
-    expect(sidePanelStore.openTabs()).toEqual(['terminal', 'review']);
+    expect(sidePanelStore.activeView()).toBe('review');
+    expect(tabKinds(sidePanelStore.openTabs())).toEqual(['terminal', 'review']);
     expect(sidePanelStore.panelWidth()).toBe(640);
+  });
+
+  it('creates multiple terminal instances while keeping other tools singleton', async () => {
+    vi.resetModules();
+    const { sidePanelStore } = await import('../side-panel.js');
+
+    const first = sidePanelStore.openTab('terminal', { cwd: '/repo/PreDoc' });
+    const second = sidePanelStore.openTab('terminal', { cwd: '/repo/PreDoc' });
+    sidePanelStore.openTab('files');
+    sidePanelStore.openTab('files');
+
+    expect(first.id).not.toBe(second.id);
+    expect(tabKinds(sidePanelStore.openTabs())).toEqual(['terminal', 'terminal', 'files']);
+    expect(sidePanelStore.openTabs().map((tab) => tab.title)).toEqual(['PreDoc', 'PreDoc 2', 'Open file']);
+    expect(sidePanelStore.activeTabId()).toBe('tool-files');
+  });
+
+  it('renames tabs with non-empty titles only', async () => {
+    vi.resetModules();
+    const { sidePanelStore } = await import('../side-panel.js');
+
+    const tab = sidePanelStore.openTab('terminal', { cwd: '/repo/PreDoc' });
+
+    sidePanelStore.renameTab(tab.id, '  Shell A  ');
+    expect(sidePanelStore.openTabs()[0]?.title).toBe('Shell A');
+
+    sidePanelStore.renameTab(tab.id, '   ');
+    expect(sidePanelStore.openTabs()[0]?.title).toBe('Shell A');
   });
 });
 
@@ -68,23 +99,24 @@ describe('sidePanelStore.closeTab', () => {
 
     sidePanelStore.closeTab('files');
 
-    expect(sidePanelStore.openTabs()).toEqual(['terminal']);
+    expect(tabKinds(sidePanelStore.openTabs())).toEqual(['terminal']);
     expect(sidePanelStore.activeView()).toBe('terminal');
     expect(sidePanelStore.isOpen()).toBe(true);
   });
 
-  it('reassigns the active view to the first remaining tab when the active tab is closed', async () => {
+  it('reassigns the active view to the right neighbor when the active tab is closed', async () => {
     vi.resetModules();
     const { sidePanelStore } = await import('../side-panel.js');
 
     sidePanelStore.openTab('terminal');
     sidePanelStore.openTab('files');
+    sidePanelStore.openTab('review');
     sidePanelStore.setActiveView('files');
 
     sidePanelStore.closeTab('files');
 
-    expect(sidePanelStore.openTabs()).toEqual(['terminal']);
-    expect(sidePanelStore.activeView()).toBe('terminal');
+    expect(tabKinds(sidePanelStore.openTabs())).toEqual(['terminal', 'review']);
+    expect(sidePanelStore.activeView()).toBe('review');
     expect(sidePanelStore.isOpen()).toBe(true);
   });
 
@@ -93,9 +125,10 @@ describe('sidePanelStore.closeTab', () => {
     const { sidePanelStore } = await import('../side-panel.js');
 
     sidePanelStore.openTab('terminal');
+    const tabId = sidePanelStore.activeTabId();
     expect(sidePanelStore.isOpen()).toBe(true);
 
-    sidePanelStore.closeTab('terminal');
+    sidePanelStore.closeTab(tabId!);
 
     expect(sidePanelStore.openTabs()).toEqual([]);
     expect(sidePanelStore.activeView()).toBe('menu');

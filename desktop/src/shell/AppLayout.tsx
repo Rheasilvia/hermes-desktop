@@ -29,6 +29,14 @@ interface AppLayoutProps {
 
 const LAYOUT_RESIZE_SETTLE_MS = 120;
 
+const terminalTitleFromWorkspacePath = (path: string | null) => {
+  const cwd = path?.trim();
+  if (!cwd) return 'Terminal';
+  const normalized = cwd.replace(/[\\/]+$/, '');
+  const name = normalized.split(/[\\/]/).filter(Boolean).pop();
+  return name || 'Terminal';
+};
+
 export const AppLayout: Component<AppLayoutProps> = (props) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -42,6 +50,7 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
   let sidebarDragFrame: number | null = null;
   let rightDragFrame: number | null = null;
   let layoutResizeEndTimer: ReturnType<typeof setTimeout> | undefined;
+  let activeDragCancel: (() => void) | null = null;
   const [initializing, setInitializing] = createSignal(true);
   const [layoutWidth, setLayoutWidth] = createSignal(0);
   const [layoutResizing, setLayoutResizing] = createSignal(false);
@@ -65,6 +74,10 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
   );
   const rightToolsVisible = createMemo(() =>
     sidePanelStore.isOpen() && isConversationRoute(),
+  );
+  const rightToolsMounted = createMemo(() =>
+    rightToolsVisible()
+    || (isConversationRoute() && sidePanelStore.openTabs().some((tab) => tab.kind === 'terminal')),
   );
   const rightToolsOverlay = createMemo(() =>
     rightToolsVisible() && rightToolsOverlayMode(),
@@ -138,6 +151,9 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
   );
   const rightToolsWorkspacePath = createMemo(() =>
     sessionStore.activeSession?.cwd ?? null,
+  );
+  const rightToolsTerminalTitle = createMemo(() =>
+    terminalTitleFromWorkspacePath(rightToolsWorkspacePath()),
   );
   const mainFrameStyle = createMemo<JSX.CSSProperties>(() => {
     return {
@@ -299,8 +315,31 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
     return nextWidth;
   };
 
+  const cancelSidebarDragWidth = () => {
+    if (sidebarDragFrame !== null) {
+      cancelAnimationFrame(sidebarDragFrame);
+      sidebarDragFrame = null;
+    }
+    pendingSidebarDragWidth = null;
+    setSidebarDragWidth(null);
+  };
+
+  const cancelRightDragWidth = () => {
+    if (rightDragFrame !== null) {
+      cancelAnimationFrame(rightDragFrame);
+      rightDragFrame = null;
+    }
+    pendingRightDragWidth = null;
+    setRightDragWidth(null);
+  };
+
+  const cancelActiveDrag = () => {
+    activeDragCancel?.();
+  };
+
   const handleLeftSidebarDragStart = (e: MouseEvent) => {
     e.preventDefault();
+    cancelActiveDrag();
     if (!showPrimarySidebar()) return;
     if (leftDragHandleEl) leftDragHandleEl.classList.add(styles.leftDragHandleActive);
     if (layoutRef) layoutRef.classList.add(styles.layoutDragging);
@@ -316,22 +355,40 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
       scheduleSidebarDragWidth(lastWidth);
     };
 
-    const onUp = () => {
+    let finished = false;
+    let cancelDrag = () => {};
+    const finish = (commit: boolean) => {
+      if (finished) return;
+      finished = true;
       if (leftDragHandleEl) leftDragHandleEl.classList.remove(styles.leftDragHandleActive);
       if (layoutRef) layoutRef.classList.remove(styles.layoutDragging);
-      const committedWidth = flushSidebarDragWidth(lastWidth);
-      uiStore.setSidebarWidth(committedWidth);
-      setSidebarDragWidth(null);
+      if (commit) {
+        const committedWidth = flushSidebarDragWidth(lastWidth);
+        uiStore.setSidebarWidth(committedWidth);
+        setSidebarDragWidth(null);
+      } else {
+        cancelSidebarDragWidth();
+      }
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      window.removeEventListener('blur', cancelDrag);
+      if (activeDragCancel === cancelDrag) activeDragCancel = null;
     };
+
+    const onUp = () => {
+      finish(true);
+    };
+    cancelDrag = () => finish(false);
+    activeDragCancel = cancelDrag;
 
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', cancelDrag);
   };
 
   const handleRightToolsDragStart = (e: MouseEvent) => {
     e.preventDefault();
+    cancelActiveDrag();
     if (!rightToolsDocked()) return;
     if (rightDragHandleEl) rightDragHandleEl.classList.add(styles.rightDragHandleActive);
     if (layoutRef) layoutRef.classList.add(styles.layoutDragging);
@@ -348,18 +405,35 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
       scheduleRightDragWidth(lastWidth);
     };
 
-    const onUp = () => {
+    let finished = false;
+    let cancelDrag = () => {};
+    const finish = (commit: boolean) => {
+      if (finished) return;
+      finished = true;
       if (rightDragHandleEl) rightDragHandleEl.classList.remove(styles.rightDragHandleActive);
       if (layoutRef) layoutRef.classList.remove(styles.layoutDragging);
-      const committedWidth = flushRightDragWidth(lastWidth);
-      sidePanelStore.setPanelWidth(clampToolsDockWidth(committedWidth, containerWidth));
-      setRightDragWidth(null);
+      if (commit) {
+        const committedWidth = flushRightDragWidth(lastWidth);
+        sidePanelStore.setPanelWidth(clampToolsDockWidth(committedWidth, containerWidth));
+        setRightDragWidth(null);
+      } else {
+        cancelRightDragWidth();
+      }
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      window.removeEventListener('blur', cancelDrag);
+      if (activeDragCancel === cancelDrag) activeDragCancel = null;
     };
+
+    const onUp = () => {
+      finish(true);
+    };
+    cancelDrag = () => finish(false);
+    activeDragCancel = cancelDrag;
 
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', cancelDrag);
   };
 
   onMount(async () => {
@@ -461,6 +535,7 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
   });
 
   onCleanup(() => {
+    cancelActiveDrag();
     if (layoutResizeFrame !== null) {
       cancelAnimationFrame(layoutResizeFrame);
     }
@@ -555,14 +630,20 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
               </main>
             </div>
           </div>
-          <Show when={rightToolsVisible()}>
+          <Show when={rightToolsMounted()}>
             <div
               class={styles.rightToolsPane}
-              classList={{ [styles.rightToolsPaneOverlay]: rightToolsOverlay() }}
+              classList={{
+                [styles.rightToolsPaneOverlay]: rightToolsOverlay(),
+                [styles.rightToolsPaneHidden]: !rightToolsVisible(),
+              }}
               style={rightToolsPaneStyle()}
               data-testid="right-tools-dock"
             >
-              <ToolDockToolbar />
+              <ToolDockToolbar
+                terminalCwd={rightToolsWorkspacePath()}
+                terminalTitle={rightToolsTerminalTitle()}
+              />
               <div class={styles.rightToolsContent} data-testid="right-tools-content">
                 <RightToolPanel
                   sessionId={rightToolsSessionId()}
@@ -571,6 +652,7 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
                   contentWidth={rightToolsContentWidth()}
                   resizeMode={rightToolsContentResizeMode()}
                   resizing={rightToolsContentResizing()}
+                  visible={rightToolsVisible()}
                 />
               </div>
             </div>

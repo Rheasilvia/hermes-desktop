@@ -10,6 +10,7 @@ const { sidePanelState } = vi.hoisted(() => ({
   sidePanelState: {
     open: false,
     activeView: 'menu',
+    openTabs: [] as Array<{ id: string; kind: string; title: string; cwd: string | null }>,
     panelWidth: 500,
     setPanelWidth: vi.fn((width: number) => {
       sidePanelState.panelWidth = width;
@@ -60,11 +61,13 @@ vi.mock('@/shell/TitleBar', () => ({
 }));
 
 vi.mock('@/shell/ToolDockToolbar', () => ({
-  ToolDockToolbar: () => (
+  ToolDockToolbar: (props: { terminalCwd?: string | null; terminalTitle?: string | null }) => (
     <div
       role="toolbar"
       aria-label="Tool dock toolbar"
       data-testid="tool-dock-toolbar"
+      data-terminal-cwd={props.terminalCwd ?? ''}
+      data-terminal-title={props.terminalTitle ?? ''}
     />
   ),
 }));
@@ -75,6 +78,7 @@ vi.mock('@/features/conversation/RightToolPanel.js', () => ({
     overlay?: boolean;
     resizeMode?: 'live' | 'deferred';
     resizing?: boolean;
+    visible?: boolean;
   }) => (
     <aside
       aria-label="Right tools dock"
@@ -83,6 +87,7 @@ vi.mock('@/features/conversation/RightToolPanel.js', () => ({
       data-overlay={String(Boolean(props.overlay))}
       data-resize-mode={props.resizeMode ?? 'none'}
       data-resizing={String(Boolean(props.resizing))}
+      data-visible={String(props.visible !== false)}
     />
   ),
 }));
@@ -91,6 +96,7 @@ vi.mock('@/stores/side-panel.js', () => ({
   sidePanelStore: {
     isOpen: () => sidePanelState.open,
     activeView: () => sidePanelState.activeView,
+    openTabs: () => sidePanelState.openTabs,
     panelWidth: () => sidePanelState.panelWidth,
     setPanelWidth: sidePanelState.setPanelWidth,
   },
@@ -202,6 +208,7 @@ describe('AppLayout sidebar titlebar controls', () => {
     locationState.pathname = '/conversation/test-session';
     sidePanelState.open = false;
     sidePanelState.activeView = 'menu';
+    sidePanelState.openTabs = [];
     sidePanelState.panelWidth = 500;
     sidePanelState.setPanelWidth.mockClear();
     uiStore.setSidebarCollapsed(false);
@@ -318,7 +325,24 @@ describe('AppLayout sidebar titlebar controls', () => {
     expect(screen.getByTestId('workspace-split-grid').style.gridTemplateColumns).toBe('minmax(0, 1fr) 500px');
     expect(screen.getByTestId('right-tools-separator').style.top).toBe('0px');
     expect(screen.getByTestId('right-tools-drag-handle').style.top).toBe('0px');
-    expect(screen.getByTestId('tool-dock-toolbar')).toBeTruthy();
+    expect(screen.getByTestId('tool-dock-toolbar').getAttribute('data-terminal-title')).toBe('repo');
+    expect(screen.getByTestId('tool-dock-toolbar').getAttribute('data-terminal-cwd')).toBe('/repo');
+    expect(screen.getByTestId('right-tool-panel').getAttribute('data-visible')).toBe('true');
+  });
+
+  test('keeps terminal tabs mounted without occupying layout when the dock is hidden', () => {
+    sidePanelState.open = false;
+    sidePanelState.activeView = 'terminal';
+    sidePanelState.openTabs = [{ id: 'terminal-1', kind: 'terminal', title: 'repo', cwd: '/repo' }];
+
+    render(() => <AppLayout><div>Conversation</div></AppLayout>);
+
+    expect(screen.queryByTestId('right-tools-dock')).not.toBeNull();
+    expect(screen.getByTestId('right-tools-dock').className).toContain('rightToolsPaneHidden');
+    expect(screen.getByTestId('right-tool-panel').getAttribute('data-visible')).toBe('false');
+    expect(screen.getByTestId('workspace-split-grid').style.gridTemplateColumns).toBe('minmax(0, 1fr)');
+    expect(screen.queryByTestId('right-tools-separator')).toBeNull();
+    expect(screen.queryByTestId('right-tools-drag-handle')).toBeNull();
   });
 
   test('settings routes do not render the conversation right tools dock', () => {
@@ -470,6 +494,34 @@ describe('AppLayout sidebar titlebar controls', () => {
     expect(innerPanel.getAttribute('data-resizing')).toBe('false');
   });
 
+  test('right tools drag blur cancels width and clears the global pointer guard', async () => {
+    sidePanelState.open = true;
+    sidePanelState.activeView = 'review';
+    const resizeLayout = stubLayoutResize(1400);
+
+    render(() => <AppLayout><div>Conversation</div></AppLayout>);
+    resizeLayout(1400);
+
+    const splitGrid = screen.getByTestId('workspace-split-grid');
+    const layout = screen.getByTestId('app-layout');
+    const dragHandle = screen.getByTestId('right-tools-drag-handle');
+
+    await fireEvent.mouseDown(dragHandle, { clientX: 600, button: 0 });
+    await fireEvent.mouseMove(document, { clientX: 520 });
+    flushRaf();
+
+    expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr) 580px');
+    expect(layout.getAttribute('data-right-tools-dragging')).toBe('true');
+    expect(layout.className).toContain('layoutDragging');
+
+    window.dispatchEvent(new Event('blur'));
+
+    expect(splitGrid.style.gridTemplateColumns).toBe('minmax(0, 1fr) 500px');
+    expect(layout.getAttribute('data-right-tools-dragging')).toBeNull();
+    expect(layout.className).not.toContain('layoutDragging');
+    expect(sidePanelState.setPanelWidth).not.toHaveBeenCalled();
+  });
+
   test('window resize shrinks the dock before entering overlay without persisting panel width', async () => {
     const resizeLayout = stubLayoutResize(1240);
     sidePanelState.open = true;
@@ -559,5 +611,31 @@ describe('AppLayout sidebar titlebar controls', () => {
 
     expect(setSidebarWidth).toHaveBeenCalledTimes(1);
     expect(setSidebarWidth).toHaveBeenCalledWith(300);
+  });
+
+  test('left sidebar drag blur cancels width and clears the global pointer guard', async () => {
+    const setSidebarWidth = vi.spyOn(uiStore, 'setSidebarWidth');
+
+    render(() => <AppLayout><div>Conversation</div></AppLayout>);
+
+    const layout = screen.getByTestId('app-layout');
+    const dock = screen.getByTestId('sidebar-dock');
+    const separator = screen.getByTestId('left-sidebar-separator');
+    const dragHandle = screen.getByTestId('left-sidebar-drag-handle');
+
+    await fireEvent.mouseDown(dragHandle, { clientX: 240, button: 0 });
+    await fireEvent.mouseMove(document, { clientX: 300 });
+    flushRaf();
+
+    expect(dock.style.width).toBe('300px');
+    expect(separator.style.left).toBe('300px');
+    expect(layout.className).toContain('layoutDragging');
+
+    window.dispatchEvent(new Event('blur'));
+
+    expect(dock.style.width).toBe('240px');
+    expect(separator.style.left).toBe('240px');
+    expect(layout.className).not.toContain('layoutDragging');
+    expect(setSidebarWidth).not.toHaveBeenCalled();
   });
 });

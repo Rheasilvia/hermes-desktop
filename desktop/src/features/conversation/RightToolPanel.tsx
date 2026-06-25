@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { Match, Show, Switch, createEffect, createSignal } from 'solid-js';
+import { For, Match, Switch, createEffect, createMemo } from 'solid-js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 import { gitViewStore } from '@/stores/git-view.js';
 import { WorkspaceTreeView } from '@/features/workspace/WorkspaceTreeView.js';
@@ -16,10 +16,10 @@ interface RightToolPanelProps {
   contentWidth?: number | null;
   resizeMode?: 'live' | 'deferred';
   resizing?: boolean;
+  visible?: boolean;
 }
 
 export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
-  const [terminalMounted, setTerminalMounted] = createSignal(false);
   const bodyFrozen = () => Boolean(
     props.resizing
     && props.resizeMode === 'deferred'
@@ -30,11 +30,9 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
     return { width: `${props.contentWidth}px` };
   };
 
-  createEffect(() => {
-    if (sidePanelStore.activeView() === 'terminal') {
-      setTerminalMounted(true);
-    }
-  });
+  const terminalTabs = createMemo(() =>
+    sidePanelStore.openTabs().filter((tab) => tab.kind === 'terminal'),
+  );
 
   createEffect(() => {
     if (sidePanelStore.activeView() === 'review') {
@@ -87,17 +85,22 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
             </div>
           </Match>
         </Switch>
-        <Show when={terminalMounted()}>
-          <div
-            class={`${styles.page} ${sidePanelStore.activeView() === 'terminal' ? '' : styles.hiddenPage}`}
-            aria-hidden={sidePanelStore.activeView() !== 'terminal'}
-          >
-            <TerminalPanel
-              active={sidePanelStore.activeView() === 'terminal'}
-              cwd={props.workspacePath}
-            />
-          </div>
-        </Show>
+        <For each={terminalTabs()}>
+          {(tab) => {
+            const active = () => sidePanelStore.activeTabId() === tab.id;
+            return (
+              <div
+                class={`${styles.page} ${active() ? '' : styles.hiddenPage}`}
+                aria-hidden={!active()}
+              >
+                <TerminalPanel
+                  active={props.visible !== false && active()}
+                  cwd={tab.cwd}
+                />
+              </div>
+            );
+          }}
+        </For>
       </div>
     </aside>
   );

@@ -1,21 +1,15 @@
-#![cfg_attr(target_os = "macos", allow(dead_code, unused_imports))]
-
 use once_cell::sync::Lazy;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter};
 
-static TERMINAL_SESSION: Lazy<Mutex<Option<TerminalSession>>> = Lazy::new(|| Mutex::new(None));
-
-#[cfg(target_os = "macos")]
-fn macos_terminal_unavailable_error() -> String {
-    "Desktop terminal is unavailable on macOS until its PTY is launched through the desktop sandbox"
-        .into()
-}
+static TERMINAL_SESSIONS: Lazy<Mutex<HashMap<String, TerminalSession>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Serialize, Clone)]
 pub struct TerminalStartResult {
@@ -78,23 +72,7 @@ pub fn terminal_start(
     cols: u16,
     rows: u16,
 ) -> Result<TerminalStartResult, String> {
-    #[cfg(target_os = "macos")]
     {
-        let _ = (app, cwd, cols, rows);
-        return Err(macos_terminal_unavailable_error());
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        {
-            let guard = TERMINAL_SESSION
-                .lock()
-                .map_err(|_| "terminal session lock poisoned".to_string())?;
-            if let Some(session) = guard.as_ref() {
-                return Ok(session.start_result(true));
-            }
-        }
-
         let cwd_path = resolve_cwd(cwd)?;
         let cwd_string = cwd_path.to_string_lossy().to_string();
         let shell = default_shell();
@@ -144,10 +122,10 @@ pub fn terminal_start(
             killer,
         };
         let result = session.start_result(false);
-        let mut guard = TERMINAL_SESSION
+        let mut guard = TERMINAL_SESSIONS
             .lock()
-            .map_err(|_| "terminal session lock poisoned".to_string())?;
-        *guard = Some(session);
+            .map_err(|_| "terminal sessions lock poisoned".to_string())?;
+        guard.insert(id.clone(), session);
         drop(guard);
 
         spawn_reader(app.clone(), id.clone(), reader);
@@ -159,15 +137,12 @@ pub fn terminal_start(
 #[tauri::command]
 pub fn terminal_write(id: String, data: Vec<u8>) -> Result<(), String> {
     let writer = {
-        let guard = TERMINAL_SESSION
+        let guard = TERMINAL_SESSIONS
             .lock()
-            .map_err(|_| "terminal session lock poisoned".to_string())?;
+            .map_err(|_| "terminal sessions lock poisoned".to_string())?;
         let session = guard
-            .as_ref()
-            .ok_or_else(|| "terminal is not running".to_string())?;
-        if session.id != id {
-            return Err("terminal session not found".into());
-        }
+            .get(&id)
+            .ok_or_else(|| "terminal session not found".to_string())?;
         session.writer.clone()
     };
 
@@ -182,15 +157,12 @@ pub fn terminal_write(id: String, data: Vec<u8>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn terminal_resize(id: String, cols: u16, rows: u16) -> Result<(), String> {
-    let guard = TERMINAL_SESSION
+    let guard = TERMINAL_SESSIONS
         .lock()
-        .map_err(|_| "terminal session lock poisoned".to_string())?;
+        .map_err(|_| "terminal sessions lock poisoned".to_string())?;
     let session = guard
-        .as_ref()
-        .ok_or_else(|| "terminal is not running".to_string())?;
-    if session.id != id {
-        return Err("terminal session not found".into());
-    }
+        .get(&id)
+        .ok_or_else(|| "terminal session not found".to_string())?;
     session
         .master
         .resize(sanitize_size(cols, rows))
@@ -200,16 +172,10 @@ pub fn terminal_resize(id: String, cols: u16, rows: u16) -> Result<(), String> {
 #[tauri::command]
 pub fn terminal_stop(id: String) -> Result<(), String> {
     let Some(mut session) = ({
-        let mut guard = TERMINAL_SESSION
+        let mut guard = TERMINAL_SESSIONS
             .lock()
-            .map_err(|_| "terminal session lock poisoned".to_string())?;
-        let Some(session) = guard.as_ref() else {
-            return Ok(());
-        };
-        if session.id != id {
-            return Err("terminal session not found".into());
-        }
-        guard.take()
+            .map_err(|_| "terminal sessions lock poisoned".to_string())?;
+        guard.remove(&id)
     }) else {
         return Ok(());
     };
@@ -221,14 +187,14 @@ pub fn terminal_stop(id: String) -> Result<(), String> {
 }
 
 pub fn terminal_shutdown() {
-    let mut session = {
-        let Ok(mut guard) = TERMINAL_SESSION.lock() else {
+    let sessions = {
+        let Ok(mut guard) = TERMINAL_SESSIONS.lock() else {
             return;
         };
-        guard.take()
+        guard.drain().map(|(_, session)| session).collect::<Vec<_>>()
     };
 
-    if let Some(session) = session.as_mut() {
+    for mut session in sessions {
         let _ = session.killer.kill();
     }
 }
@@ -379,10 +345,8 @@ fn spawn_waiter(app: AppHandle, id: String, mut child: Box<dyn portable_pty::Chi
                 );
             }
         }
-        if let Ok(mut guard) = TERMINAL_SESSION.lock() {
-            if guard.as_ref().map(|session| session.id.as_str()) == Some(id.as_str()) {
-                *guard = None;
-            }
+        if let Ok(mut guard) = TERMINAL_SESSIONS.lock() {
+            guard.remove(&id);
         }
     });
 }
@@ -390,6 +354,10 @@ fn spawn_waiter(app: AppHandle, id: String, mut child: Box<dyn portable_pty::Chi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use once_cell::sync::Lazy;
+    use std::sync::Mutex;
+
+    static TEST_TERMINAL_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     #[test]
     fn sanitize_size_clamps_unusable_dimensions() {
@@ -430,14 +398,71 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_terminal_start_is_fail_closed_until_sandboxed() {
-        assert!(macos_terminal_unavailable_error().contains("desktop sandbox"));
+    #[cfg(unix)]
+    fn spawn_test_session(id: &str) -> TerminalSession {
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(sanitize_size(80, 24))
+            .expect("test pty should open");
+        let writer = pair.master.take_writer().expect("test writer should open");
+        let shell = default_shell();
+        let cwd = std::env::current_dir()
+            .expect("test cwd should resolve")
+            .to_string_lossy()
+            .to_string();
+        let mut cmd = CommandBuilder::new(&shell);
+        cmd.env("TERM", "xterm-256color");
+        let mut child = pair
+            .slave
+            .spawn_command(cmd)
+            .expect("test shell should spawn");
+        let pid = child.process_id();
+        let killer = child.clone_killer();
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
+
+        TerminalSession {
+            id: id.to_string(),
+            pid,
+            shell,
+            cwd,
+            master: pair.master,
+            writer: Arc::new(Mutex::new(writer)),
+            killer,
+        }
     }
 
     #[cfg(unix)]
-    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn terminal_commands_route_by_session_id() {
+        let _lock = TEST_TERMINAL_LOCK.lock().expect("test lock should not poison");
+        terminal_shutdown();
+
+        {
+            let mut guard = TERMINAL_SESSIONS.lock().expect("sessions lock should not poison");
+            guard.insert("terminal-a".into(), spawn_test_session("terminal-a"));
+            guard.insert("terminal-b".into(), spawn_test_session("terminal-b"));
+        }
+
+        terminal_resize("terminal-a".into(), 100, 30).expect("resize should route to terminal-a");
+        terminal_write("terminal-a".into(), b"printf route_a\r\n".to_vec())
+            .expect("write should route to terminal-a");
+        terminal_stop("terminal-a".into()).expect("stop should remove terminal-a only");
+
+        {
+            let guard = TERMINAL_SESSIONS.lock().expect("sessions lock should not poison");
+            assert!(!guard.contains_key("terminal-a"));
+            assert!(guard.contains_key("terminal-b"));
+        }
+        assert!(terminal_write("terminal-a".into(), b"echo stale\r\n".to_vec()).is_err());
+
+        terminal_shutdown();
+        let guard = TERMINAL_SESSIONS.lock().expect("sessions lock should not poison");
+        assert!(guard.is_empty());
+    }
+
+    #[cfg(unix)]
     #[test]
     fn pty_spawn_write_resize_smoke() {
         use std::io::{Read, Write};
