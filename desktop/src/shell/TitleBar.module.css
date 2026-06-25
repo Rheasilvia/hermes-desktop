@@ -147,6 +147,7 @@
 }
 
 .toolTab:focus-visible,
+.toolTabRenameInput:focus-visible,
 .addToolButton:focus-visible,
 .toolMenuItem:focus-visible {
   outline: none;
@@ -182,6 +183,20 @@
   color: inherit;
   cursor: default;
   font-family: var(--font-sans);
+}
+
+.toolTabRenameInput {
+  width: min(150px, 100%);
+  min-width: 64px;
+  height: 22px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-on-surface);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+  padding: 0 var(--space-1);
 }
 
 /* Per-tab close affordance; revealed on hover/focus so it does not clutter

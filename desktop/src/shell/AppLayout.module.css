@@ -136,6 +136,10 @@
   box-shadow: var(--shadow-xl);
 }
 
+.rightToolsPaneHidden {
+  display: none;
+}
+
 .rightToolsContent {
   flex: 1;
   min-height: 0;
