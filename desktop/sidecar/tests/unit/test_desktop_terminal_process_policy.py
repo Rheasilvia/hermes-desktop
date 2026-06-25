@@ -111,6 +111,43 @@ def installed_wrappers(workspace):
     return registered_wrappers, fake_entries, workspace
 
 
+@pytest.fixture
+def plan_workspace(tmp_path):
+    """Build a Plan Mode workspace policy snapshot for tmp_path and activate it."""
+    from daemon.services.workspace_policy import (
+        build_workspace_policy_snapshot,
+        reset_workspace_policy_snapshot,
+        set_workspace_policy_snapshot,
+    )
+    snap = build_workspace_policy_snapshot(
+        "sess-plan",
+        "turn-plan",
+        str(tmp_path),
+        "auto",
+        collaboration_mode="plan",
+    )
+    token = set_workspace_policy_snapshot(snap)
+    yield tmp_path
+    reset_workspace_policy_snapshot(token)
+
+
+@pytest.fixture
+def installed_plan_wrappers(plan_workspace):
+    """Install wrappers with a Plan Mode workspace snapshot active."""
+    overrides = _fresh_overrides_module()
+    (fake_entries, fake_registry,
+     fake_registry_module, fake_model_tools,
+     registered_wrappers) = _build_fake_registry_and_entries()
+
+    with patch.dict(sys.modules, {
+        "tools.registry": fake_registry_module,
+        "model_tools": fake_model_tools,
+    }):
+        overrides.install_desktop_tool_overrides()
+
+    return registered_wrappers, fake_entries, plan_workspace
+
+
 # ---------------------------------------------------------------------------
 # Tests: terminal wrapper
 # ---------------------------------------------------------------------------
@@ -214,6 +251,111 @@ class TestTerminalWrapper:
         assert entries["terminal"].handler.called
         called_args = entries["terminal"].handler.call_args[0][0]
         assert called_args["workdir"] == str(workspace)
+
+    def test_plan_mode_allows_foreground_terminal_with_sandbox_runner(
+        self, installed_plan_wrappers
+    ):
+        """Plan Mode permits foreground terminal commands through the sandboxed local path."""
+        wrappers, entries, tmp_path = installed_plan_wrappers
+
+        wrapper = wrappers["terminal"]
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=MagicMock()),
+        ):
+            result_json = wrapper({"command": "pwd", "workdir": str(tmp_path)})
+
+        result = json.loads(result_json)
+        assert result.get("result") == "ok"
+        entries["terminal"].handler.assert_called_once()
+
+    def test_plan_mode_terminal_workdir_outside_workspace_is_denied(
+        self, installed_plan_wrappers
+    ):
+        """Plan Mode terminal still enforces workspace-contained workdirs."""
+        wrappers, entries, _tmp_path = installed_plan_wrappers
+
+        wrapper = wrappers["terminal"]
+        result_json = wrapper({"command": "pwd", "workdir": "/etc"})
+        result = json.loads(result_json)
+
+        assert result.get("code") == "WORKSPACE_VIOLATION"
+        entries["terminal"].handler.assert_not_called()
+
+    def test_plan_mode_terminal_command_with_outside_abs_path_is_denied(
+        self, installed_plan_wrappers, tmp_path
+    ):
+        """Plan Mode terminal still blocks existing absolute data paths outside the workspace."""
+        wrappers, entries, _workspace = installed_plan_wrappers
+        outside_file = tmp_path.parent / "outside_file.txt"
+        outside_file.write_text("secret data")
+
+        try:
+            wrapper = wrappers["terminal"]
+            result_json = wrapper({
+                "command": f"cat {outside_file}",
+                "workdir": str(tmp_path),
+            })
+            result = json.loads(result_json)
+        finally:
+            outside_file.unlink(missing_ok=True)
+
+        assert result.get("code") == "WORKSPACE_VIOLATION"
+        entries["terminal"].handler.assert_not_called()
+
+    def test_plan_mode_local_terminal_fails_closed_when_sandbox_runner_unavailable(
+        self, installed_plan_wrappers
+    ):
+        """Plan Mode local terminal still fails closed without the macOS sandbox runner."""
+        wrappers, entries, tmp_path = installed_plan_wrappers
+
+        wrapper = wrappers["terminal"]
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=None),
+        ):
+            result_json = wrapper({"command": "pwd", "workdir": str(tmp_path)})
+
+        result = json.loads(result_json)
+        assert result.get("code") == "SANDBOX_UNAVAILABLE"
+        entries["terminal"].handler.assert_not_called()
+
+    def test_plan_mode_terminal_background_is_denied_before_registration(
+        self, installed_plan_wrappers
+    ):
+        """Plan Mode cannot spawn durable background terminal processes."""
+        wrappers, entries, tmp_path = installed_plan_wrappers
+
+        wrapper = wrappers["terminal"]
+        result_json = wrapper({
+            "command": "sleep 30",
+            "background": True,
+            "workdir": str(tmp_path),
+        })
+        result = json.loads(result_json)
+
+        assert result.get("code") == "PLAN_MODE_RESTRICTED"
+        entries["terminal"].handler.assert_not_called()
+
+    def test_plan_mode_local_terminal_pty_is_denied(self, installed_plan_wrappers):
+        """Plan Mode local terminal keeps the existing PTY sandbox denial."""
+        wrappers, entries, tmp_path = installed_plan_wrappers
+
+        wrapper = wrappers["terminal"]
+        with (
+            patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}),
+            patch("daemon.services.sandbox_runner.get_sandbox_runner", return_value=MagicMock()),
+        ):
+            result_json = wrapper({
+                "command": "python -i",
+                "pty": True,
+                "workdir": str(tmp_path),
+            })
+
+        result = json.loads(result_json)
+        assert result.get("code") == "SANDBOX_UNAVAILABLE"
+        assert "pty" in result.get("error", "").lower()
+        entries["terminal"].handler.assert_not_called()
 
     def test_local_terminal_fails_closed_when_sandbox_runner_unavailable(self, installed_wrappers):
         """Local terminal must not run unsandboxed when no macOS sandbox runner is available."""

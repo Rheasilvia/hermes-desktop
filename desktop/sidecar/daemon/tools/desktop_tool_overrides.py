@@ -659,11 +659,11 @@ def _install_wrappers(registry) -> None:
             snapshot = get_workspace_policy_snapshot()
             if snapshot is None:
                 return _fail_closed("terminal", args)
-            if _is_plan_mode(snapshot):
-                return _plan_mode_denied("terminal")
 
             if not isinstance(args, dict):
                 return original_entry.handler(args, **kwargs)
+            if _is_plan_mode(snapshot) and bool(args.get("background")):
+                return _plan_mode_denied("terminal")
 
             # 1. Resolve workdir
             workdir = args.get("workdir") or args.get("cwd") or str(snapshot.cwd)
