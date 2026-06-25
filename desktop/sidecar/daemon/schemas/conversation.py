@@ -59,6 +59,15 @@ class PromptExecuteRequest(BaseModel):
     display_parts: Optional[list[dict]] = None
 
 
+class SessionSteerRequest(BaseModel):
+    text: str
+
+
+class SessionSteerResponse(BaseModel):
+    status: str
+    text: str
+
+
 class ImageAttachRequest(BaseModel):
     session_id: str
     path: str

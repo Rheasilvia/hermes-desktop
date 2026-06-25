@@ -91,7 +91,7 @@ export const CompletionPanel: Component<CompletionPanelProps> = (props) => {
 
   return (
     <Show when={props.visible}>
-      <div class={styles.panel}>
+      <div class={styles.panel} data-completion-panel>
         <div class={styles.panelHeader}>{props.header}</div>
         <div class={styles.divider} />
         <Show when={props.items.length > 0} fallback={<div class={styles.panelHeader}>{props.emptyLabel ?? 'No results'}</div>}>

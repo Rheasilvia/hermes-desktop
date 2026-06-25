@@ -133,6 +133,26 @@ describe('dispatchSseEvent — tool.progress', () => {
 });
 
 describe('commands HTTP methods', () => {
+  it('maps session.steer to the session steer endpoint', async () => {
+    const mockHttp = {
+      get: vi.fn(),
+      post: vi.fn().mockResolvedValue({ status: 'queued', text: 'nudge the run' }),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    };
+    const adapter = new HttpGatewayAdapter(mockHttp as any);
+
+    await expect(adapter.session.steer('sess-one', 'nudge the run')).resolves.toEqual({
+      status: 'queued',
+      text: 'nudge the run',
+    });
+
+    expect(mockHttp.post).toHaveBeenCalledWith('/desktop/api/sessions/sess-one/steer', {
+      text: 'nudge the run',
+    });
+  });
+
   it('maps complete.slash to the desktop commands endpoint', async () => {
     const mockHttp = {
       get: vi.fn(),

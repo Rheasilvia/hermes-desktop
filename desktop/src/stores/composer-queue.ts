@@ -135,6 +135,18 @@ export const composerQueueStore = {
     return { ...head, attachments: cloneAttachments(head.attachments), displayParts: cloneDisplayParts(head.displayParts) };
   },
 
+  remove(key: string | null | undefined, id: string | null | undefined): QueuedPromptEntry | null {
+    const sid = sidOf(key);
+    const queuedId = id?.trim();
+    if (!sid || !queuedId) return null;
+    const entries = queuesBySession[sid] ?? [];
+    const index = entries.findIndex((entry) => entry.id === queuedId);
+    if (index < 0) return null;
+    const removed = entries[index];
+    writeSession(sid, entries.filter((entry) => entry.id !== queuedId));
+    return { ...removed, attachments: cloneAttachments(removed.attachments), displayParts: cloneDisplayParts(removed.displayParts) };
+  },
+
   clear(key: string | null | undefined): void {
     const sid = sidOf(key);
     if (!sid) return;

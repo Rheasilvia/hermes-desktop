@@ -15,6 +15,20 @@ const uiState = vi.hoisted(() => ({
   environmentPanelOpen: true,
   rightToolsOverlay: false,
 }));
+const chatState = vi.hoisted(() => ({
+  messages: [{
+    id: 'msg-1',
+    sessionId: 'session-resize',
+    role: 'user',
+    blocks: [{ type: 'text', id: 'block-1', content: 'hello' }],
+    timestamp: 1,
+    tokenCount: null,
+    finishReason: null,
+    isStreaming: false,
+    actions: [],
+    toolName: null,
+  }] as Array<Record<string, unknown>>,
+}));
 
 vi.mock('@solidjs/router', () => ({
   useNavigate: () => vi.fn(),
@@ -22,18 +36,7 @@ vi.mock('@solidjs/router', () => ({
 
 vi.mock('@/stores/chat.js', () => ({
   chatStore: {
-    getMessages: () => [{
-      id: 'msg-1',
-      sessionId: 'session-resize',
-      role: 'user',
-      blocks: [{ type: 'text', id: 'block-1', content: 'hello' }],
-      timestamp: 1,
-      tokenCount: null,
-      finishReason: null,
-      isStreaming: false,
-      actions: [],
-      toolName: null,
-    }],
+    getMessages: () => chatState.messages,
     getLiveState: () => ({
       activityBlocks: [],
       activeTools: [],
@@ -212,6 +215,18 @@ describe('ChatView composer resize anchoring', () => {
     resizeObserverRecords = [];
     uiState.environmentPanelOpen = true;
     uiState.rightToolsOverlay = false;
+    chatState.messages = [{
+      id: 'msg-1',
+      sessionId: 'session-resize',
+      role: 'user',
+      blocks: [{ type: 'text', id: 'block-1', content: 'hello' }],
+      timestamp: 1,
+      tokenCount: null,
+      finishReason: null,
+      isStreaming: false,
+      actions: [],
+      toolName: null,
+    }];
 
     class ResizeObserverMock {
       private readonly record: { callback: ResizeObserverCallback; targets: Element[] };
@@ -271,6 +286,21 @@ describe('ChatView composer resize anchoring', () => {
     expect(rendered.getByTestId('environment-panel').getAttribute('data-workspace-path')).toBe('/repo');
     expect(rendered.getByTestId('chat-message-list').className).toContain('messageListWithEnvironment');
     expect(rendered.getByTestId('chat-input-area').className).toContain('inputAreaWithEnvironment');
+  });
+
+  it('reserves Environment panel space for the empty welcome state', async () => {
+    chatState.messages = [];
+    const { ChatView } = await import('../ChatView.js');
+    const rendered = render(() => <ChatView sessionId="session-resize" />);
+    const chatBody = rendered.getByTestId('chat-body');
+    const chatBodyObserver = resizeObserverRecords.find((record) => record.targets.includes(chatBody));
+
+    chatBodyObserver?.callback([
+      { contentRect: { width: 1320 } } as ResizeObserverEntry,
+    ], {} as ResizeObserver);
+
+    expect(rendered.getByTestId('environment-panel-popover')).toBeTruthy();
+    expect(rendered.getByTestId('chat-empty-state').className).toContain('emptyStateWithEnvironment');
   });
 
   it('hides the Environment panel when disabled, overlayed, or too narrow', async () => {

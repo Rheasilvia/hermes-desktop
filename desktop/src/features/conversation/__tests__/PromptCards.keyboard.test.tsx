@@ -56,6 +56,36 @@ describe('prompt card keyboard handling', () => {
     expect(onRespond).toHaveBeenCalledWith('typed answer');
   });
 
+  test('clarification Escape submits an empty response', () => {
+    const onRespond = vi.fn();
+    render(() => (
+      <ClarificationCard
+        question="Pick one"
+        choices={['Alpha', 'Beta']}
+        onRespond={onRespond}
+      />
+    ));
+
+    fireEvent.keyDown(screen.getByRole('group', { name: 'Pick one' }), { key: 'Escape' });
+
+    expect(onRespond).toHaveBeenCalledWith('');
+  });
+
+  test('clarification free-text Escape submits an empty response', () => {
+    const onRespond = vi.fn();
+    render(() => (
+      <ClarificationCard
+        question="Pick one"
+        choices={['Alpha', 'Beta']}
+        onRespond={onRespond}
+      />
+    ));
+
+    fireEvent.keyDown(screen.getByPlaceholderText('Or type your answer…'), { key: 'Escape' });
+
+    expect(onRespond).toHaveBeenCalledWith('');
+  });
+
   test('approval Enter does nothing before an action is selected', () => {
     const onApprovalChoice = vi.fn();
     render(() => (
@@ -90,6 +120,22 @@ describe('prompt card keyboard handling', () => {
     expect(onApprovalChoice).toHaveBeenCalledWith('deny');
   });
 
+  test('approval Escape cancels the prompt', () => {
+    const onCancel = vi.fn();
+    render(() => (
+      <PermissionRequestCard
+        permission={approvalPermission()}
+        onApprovalChoice={vi.fn()}
+        onMaskedSubmit={vi.fn()}
+        onCancel={onCancel}
+      />
+    ));
+
+    fireEvent.keyDown(screen.getByRole('group', { name: 'Waiting for approval' }), { key: 'Escape' });
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   test('masked inputs keep arrow keys and submit behavior local', () => {
     const onMaskedSubmit = vi.fn();
     render(() => (
@@ -107,6 +153,22 @@ describe('prompt card keyboard handling', () => {
     fireEvent.submit(input.closest('form')!);
 
     expect(onMaskedSubmit).toHaveBeenCalledWith('secret-1', 'token');
+  });
+
+  test('masked input Escape cancels the prompt', () => {
+    const onCancel = vi.fn();
+    render(() => (
+      <PermissionRequestCard
+        permission={{ ...approvalPermission(), kind: 'secret', requestId: 'secret-1' }}
+        onApprovalChoice={vi.fn()}
+        onMaskedSubmit={vi.fn()}
+        onCancel={onCancel}
+      />
+    ));
+
+    fireEvent.keyDown(screen.getByPlaceholderText('Value'), { key: 'Escape' });
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   test('user input card pages through questions and submits answers atomically', () => {

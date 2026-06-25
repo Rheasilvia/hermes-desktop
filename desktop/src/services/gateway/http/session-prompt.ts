@@ -8,6 +8,7 @@ import type {
   SessionMeta,
   SessionRuntime,
   SessionRuntimeUpdateResult,
+  SessionSteerResponse,
   SessionTranscript,
 } from '../types.js';
 import { API_PREFIX, permissionModeOf, sessionRuntimeOf } from './shared.js';
@@ -198,6 +199,14 @@ export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['se
 
     interrupt: async (sessionId: string): Promise<void> => {
       await http.post(`${API_PREFIX}/sessions/${sessionId}/interrupt`, {});
+    },
+
+    steer: async (sessionId: string, text: string): Promise<SessionSteerResponse> => {
+      const r = await http.post<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}/steer`, { text });
+      return {
+        status: r.status === 'queued' || r.status === 'rejected' ? r.status : undefined,
+        text: typeof r.text === 'string' ? r.text : undefined,
+      };
     },
 
     undo: async (sessionId: string): Promise<{ removed: number }> => {

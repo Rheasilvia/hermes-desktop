@@ -59,6 +59,12 @@ export const PermissionRequestCard: Component<PermissionRequestCardProps> = (pro
   };
 
   const handleCardKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      props.onCancel();
+      return;
+    }
     if (props.permission.kind !== 'approval') return;
     if (e.target instanceof HTMLInputElement) return;
     if (e.key === 'ArrowDown') {
