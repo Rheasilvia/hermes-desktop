@@ -1,6 +1,7 @@
 import type { Component, JSX } from 'solid-js';
 import { Show, onCleanup, onMount } from 'solid-js';
 import { createSignal } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { Icon } from '@/ui/atoms/Icon.js';
 import styles from './Modal.module.css';
 import { Button } from '@/ui/atoms/Button.js';
@@ -45,37 +46,39 @@ export const Modal: Component<ModalProps> = (props) => {
 
   return (
     <Show when={props.open}>
-      <div
-        class={styles.overlay}
-        onMouseDown={handleMouseDown}
-        onClick={handleBackdropClick}
-        role="dialog"
-        aria-modal="true"
-      >
-        <div class={styles.modal} style={props.style} ref={setContentRef}>
-          <div class={styles.header}>
-            <Show when={props.title}>
-              <h2 class={styles.title}>{props.title}</h2>
-            </Show>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={props.onClose}
-              aria-label="Close"
-            >
-              <Icon name="x" size={16} strokeWidth={2} />
-            </Button>
-          </div>
-          <div class={styles.body}>
-            {props.children}
-          </div>
-          <Show when={props.footer}>
-            <div class={styles.footer}>
-              {props.footer}
+      <Portal mount={document.body}>
+        <div
+          class={styles.overlay}
+          onMouseDown={handleMouseDown}
+          onClick={handleBackdropClick}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div class={styles.modal} style={props.style} ref={setContentRef}>
+            <div class={styles.header}>
+              <Show when={props.title}>
+                <h2 class={styles.title}>{props.title}</h2>
+              </Show>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={props.onClose}
+                aria-label="Close"
+              >
+                <Icon name="x" size={16} strokeWidth={2} />
+              </Button>
             </div>
-          </Show>
+            <div class={styles.body}>
+              {props.children}
+            </div>
+            <Show when={props.footer}>
+              <div class={styles.footer}>
+                {props.footer}
+              </div>
+            </Show>
+          </div>
         </div>
-      </div>
+      </Portal>
     </Show>
   );
 };
