@@ -5,74 +5,18 @@ via resolve_path() from workspace_policy.
 """
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import subprocess
 import sys
-from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-# ---------------------------------------------------------------------------
-# Helpers (same pattern as test_desktop_file_tool_policy.py)
-# ---------------------------------------------------------------------------
-
-
-def _make_fake_entry(name: str, toolset: str = "builtin") -> MagicMock:
-    """Return a mock ToolEntry-like object with a handler that returns JSON ok."""
-    entry = MagicMock()
-    entry.name = name
-    entry.toolset = toolset
-    entry.schema = {"name": name, "description": f"tool {name}"}
-    entry.handler = MagicMock(return_value=json.dumps({"result": "ok"}))
-    entry.check_fn = None
-    entry.requires_env = []
-    entry.is_async = False
-    entry.description = f"tool {name}"
-    entry.emoji = ""
-    entry.max_result_size_chars = None
-    entry.dynamic_schema_overrides = None
-    return entry
-
-
-def _fresh_overrides_module() -> ModuleType:
-    """Re-import desktop_tool_overrides with a clean state (no _INSTALLED flag)."""
-    mod_name = "daemon.tools.desktop_tool_overrides"
-    for key in list(sys.modules.keys()):
-        if key == mod_name or key.startswith(mod_name + "."):
-            del sys.modules[key]
-    return importlib.import_module(mod_name)
-
-
-def _build_fake_registry_and_entries(
-    tool_names=("read_file", "write_file", "patch",
-                "search_files", "todo", "terminal", "process", "execute_code"),
-):
-    """Create fake entries, registry, registry_module, and model_tools mocks."""
-    fake_entries = {name: _make_fake_entry(name) for name in tool_names}
-
-    registered_wrappers: dict[str, MagicMock] = {}
-
-    fake_registry = MagicMock()
-    fake_registry.get_entry.side_effect = lambda name: fake_entries.get(name)
-
-    def capture_register(**kwargs):
-        if kwargs.get("override"):
-            registered_wrappers[kwargs["name"]] = kwargs["handler"]
-
-    fake_registry.register.side_effect = capture_register
-
-    fake_registry_module = MagicMock()
-    fake_registry_module.registry = fake_registry
-    fake_registry_module.discover_builtin_tools = MagicMock()
-
-    fake_model_tools = MagicMock()
-    fake_model_tools._clear_tool_defs_cache = MagicMock()
-
-    return fake_entries, fake_registry, fake_registry_module, fake_model_tools, registered_wrappers
+from .tool_override_fixtures import (
+    build_fake_registry_and_entries,
+    fresh_desktop_overrides_module,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -97,10 +41,10 @@ def workspace(tmp_path):
 @pytest.fixture
 def installed_wrappers(workspace):
     """Install wrappers over fake entries and yield (registered_wrappers, fake_entries, tmp_path)."""
-    overrides = _fresh_overrides_module()
+    overrides = fresh_desktop_overrides_module()
     (fake_entries, fake_registry,
      fake_registry_module, fake_model_tools,
-     registered_wrappers) = _build_fake_registry_and_entries()
+     registered_wrappers) = build_fake_registry_and_entries()
 
     with patch.dict(sys.modules, {
         "tools.registry": fake_registry_module,
@@ -134,10 +78,10 @@ def plan_workspace(tmp_path):
 @pytest.fixture
 def installed_plan_wrappers(plan_workspace):
     """Install wrappers with a Plan Mode workspace snapshot active."""
-    overrides = _fresh_overrides_module()
+    overrides = fresh_desktop_overrides_module()
     (fake_entries, fake_registry,
      fake_registry_module, fake_model_tools,
-     registered_wrappers) = _build_fake_registry_and_entries()
+     registered_wrappers) = build_fake_registry_and_entries()
 
     with patch.dict(sys.modules, {
         "tools.registry": fake_registry_module,

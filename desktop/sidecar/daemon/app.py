@@ -294,6 +294,8 @@ def build_app(cfg: Config) -> FastAPI:
         delegation as delegation_router,
         workspace as workspace_router,
         git as git_router,
+        review as review_router,
+        projects as projects_router,
         events as events_router,
         memory as memory_router,
     )
@@ -319,6 +321,8 @@ def build_app(cfg: Config) -> FastAPI:
     app.include_router(delegation_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(workspace_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(git_router.router, prefix=API_PREFIX, dependencies=deps)
+    app.include_router(review_router.router, prefix=API_PREFIX, dependencies=deps)
+    app.include_router(projects_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(memory_router.router, prefix=API_PREFIX, dependencies=deps)
     # SSE stream — auth handled via query param token (browsers can't set Authorization on EventSource)
     app.include_router(events_router.router, prefix=API_PREFIX)

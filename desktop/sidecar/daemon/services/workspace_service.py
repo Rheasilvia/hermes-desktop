@@ -113,7 +113,8 @@ class WorkspaceService:
             raise WorkspaceServiceError(400, "workspace path is not a file")
 
         try:
-            size = target.stat().st_size
+            stat = target.stat()
+            size = stat.st_size
             with target.open("rb") as handle:
                 payload = handle.read(WORKSPACE_FILE_MAX_BYTES)
         except OSError as exc:
@@ -126,9 +127,39 @@ class WorkspaceService:
                 truncated=truncated,
                 binary=False,
                 size=size,
+                mtime=stat.st_mtime,
             )
         except UnicodeDecodeError:
-            return WorkspaceFileResult(content=None, truncated=False, binary=True, size=size)
+            return WorkspaceFileResult(content=None, truncated=False, binary=True, size=size, mtime=stat.st_mtime)
+
+    def write_file(
+        self,
+        session_id: str,
+        path: str,
+        content: str,
+        *,
+        expected_mtime: float | None,
+        expected_size: int | None,
+    ) -> WorkspaceFileResult:
+        snapshot = self._snapshot(session_id)
+        target = self._resolve(snapshot, path, access="write")
+        if target.exists() and not target.is_file():
+            raise WorkspaceServiceError(400, "workspace path is not a file")
+
+        try:
+            if target.exists():
+                stat = target.stat()
+                if expected_size is not None and stat.st_size != expected_size:
+                    raise WorkspaceServiceError(409, "WORKSPACE_FILE_CHANGED")
+                if expected_mtime is not None and abs(stat.st_mtime - expected_mtime) > 1e-6:
+                    raise WorkspaceServiceError(409, "WORKSPACE_FILE_CHANGED")
+            target.write_text(content, encoding="utf-8")
+        except WorkspaceServiceError:
+            raise
+        except OSError as exc:
+            raise WorkspaceServiceError(403, f"cannot write file: {exc}") from exc
+
+        return self.read_file(session_id, path)
 
     def reveal(self, session_id: str, path: str) -> dict[str, bool]:
         snapshot = self._snapshot(session_id)

@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import sys
+from pathlib import Path
 
 import httpx
 import pytest
+
+SIDECAR_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = SIDECAR_ROOT.parents[1]
+for path in (str(SIDECAR_ROOT), str(REPO_ROOT)):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 
 def _patch_httpx_client_app_kwarg() -> None:

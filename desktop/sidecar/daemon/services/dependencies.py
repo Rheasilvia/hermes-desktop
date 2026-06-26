@@ -236,3 +236,30 @@ def get_git_service(request: Request):
             hermes_home=home,
         ),
     )
+
+
+def get_review_service(request: Request):
+    return _cached_service(
+        request,
+        "profile_review_svcs",
+        lambda home: __import__(
+            "daemon.services.review_service",
+            fromlist=["ReviewService"],
+        ).ReviewService(
+            session_service=get_session_service(request),
+            hermes_home=home,
+        ),
+    )
+
+
+def get_project_service(request: Request):
+    return _cached_service(
+        request,
+        "profile_project_svcs",
+        lambda home: __import__(
+            "daemon.services.project_service",
+            fromlist=["ProjectService"],
+        ).ProjectService(
+            hermes_home=home,
+        ),
+    )

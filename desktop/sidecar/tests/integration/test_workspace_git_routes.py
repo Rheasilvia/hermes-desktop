@@ -101,6 +101,46 @@ def test_workspace_file_preview_reads_only_bounded_bytes(client, auth, workspace
     assert len(body["content"]) == 100 * 1024
 
 
+def test_workspace_file_write_uses_mtime_size_guard_and_reads_back(client, auth, workspace_grant, tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "editable.txt"
+    target.write_text("old\n", encoding="utf-8")
+    sid = _create_session(client, workspace_grant, workspace)
+    current = client.get(
+        f"/desktop/api/sessions/{sid}/workspace/file",
+        params={"path": "editable.txt"},
+        headers=auth,
+    ).json()
+
+    written = client.put(
+        f"/desktop/api/sessions/{sid}/workspace/file",
+        json={
+            "path": "editable.txt",
+            "content": "new\n",
+            "expected_mtime": current["mtime"],
+            "expected_size": current["size"],
+        },
+        headers=auth,
+    )
+    stale = client.put(
+        f"/desktop/api/sessions/{sid}/workspace/file",
+        json={
+            "path": "editable.txt",
+            "content": "stale\n",
+            "expected_mtime": current["mtime"],
+            "expected_size": current["size"],
+        },
+        headers=auth,
+    )
+
+    assert written.status_code == 200
+    assert written.json()["content"] == "new\n"
+    assert target.read_text(encoding="utf-8") == "new\n"
+    assert stale.status_code == 409
+    assert stale.json()["detail"] == "WORKSPACE_FILE_CHANGED"
+
+
 def test_workspace_reveal_rejects_absolute_escape(client, auth, workspace_grant, tmp_path):
     workspace = tmp_path / "workspace"
     outside = tmp_path / "outside"
