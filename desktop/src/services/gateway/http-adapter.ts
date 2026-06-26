@@ -48,7 +48,7 @@ import {
 } from './http/session-prompt.js';
 import { openEventSource, resolveEventSourceUrl } from './http/sse-lifecycle.js';
 import { API_PREFIX, cloneConfig, setDotPath } from './http/shared.js';
-import { makeGitGateway, makeWorkspaceGateway } from './http/workspace-git.js';
+import { makeGitGateway, makeProjectGateway, makeReviewGateway, makeWorkspaceGateway } from './http/workspace-git.js';
 
 export { mapCommandResult };
 
@@ -82,6 +82,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
   readonly complete: GatewayAdapter['complete'];
   readonly workspace: GatewayAdapter['workspace'];
   readonly git: GatewayAdapter['git'];
+  readonly review: GatewayAdapter['review'];
+  readonly projects: GatewayAdapter['projects'];
   readonly slash: GatewayAdapter['slash'];
   readonly command: GatewayAdapter['command'];
   readonly delegation: GatewayAdapter['delegation'];
@@ -350,6 +352,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     this.complete = makeCompleteGateway(this.http);
     this.workspace = makeWorkspaceGateway(this.http);
     this.git = makeGitGateway(this.http);
+    this.review = makeReviewGateway(this.http);
+    this.projects = makeProjectGateway(this.http);
     this.slash = makeSlashGateway(this.http);
     this.command = makeCommandGateway(this.http);
     this.delegation = {

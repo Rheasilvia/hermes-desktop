@@ -2,6 +2,7 @@ import type { Component } from 'solid-js';
 import { Show, Index } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon';
 import type { ToolCallRow } from '@/types/index.js';
+import { clampForDisplay } from './toolOutputClamp.js';
 import styles from './ToolCallTree.module.css';
 
 interface ToolCallTreeProps {
@@ -74,7 +75,7 @@ const ToolCallTree: Component<ToolCallTreeProps> = (props) => {
                   </Show>
                 </div>
                 <Show when={row().resultSummary}>
-                  <div class={styles.resultSummary}>{row().resultSummary}</div>
+                  <div class={styles.resultSummary}>{clampForDisplay(row().resultSummary!)}</div>
                 </Show>
               </div>
             </div>

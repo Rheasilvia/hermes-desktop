@@ -1,4 +1,5 @@
 import type { DiffFile, FileStatus } from '@/types/diff.js';
+import type { ReviewFile } from '@/types/review.js';
 
 export type DiffFileStatusFilter = 'all' | FileStatus;
 
@@ -57,6 +58,25 @@ export function buildDiffFileRows(files: DiffFile[]): DiffFileNavigatorRow[] {
       status: file.status,
       insertions,
       deletions,
+      searchText,
+    };
+  });
+}
+
+export function buildReviewFileRows(files: ReviewFile[]): DiffFileNavigatorRow[] {
+  return files.map((file, index) => {
+    const { basename, dirname } = splitPath(file.path);
+    const searchText = `${file.path} ${basename} ${dirname} ${file.old_path ?? ''}`.toLowerCase();
+
+    return {
+      id: `${file.path}:${index}`,
+      index,
+      path: file.path,
+      basename,
+      dirname,
+      status: file.status,
+      insertions: file.insertions,
+      deletions: file.deletions,
       searchText,
     };
   });

@@ -1,6 +1,8 @@
 import type { Component } from 'solid-js';
-import { For, Show, createEffect, createMemo, createSignal } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, onMount } from 'solid-js';
 import type { WorkspaceTreeNode, WorkspaceTreeRow } from '@/types/index.js';
+import { projectStore } from '@/stores/projects.js';
+import { sessionStore } from '@/stores/session.js';
 import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { WorkspaceContextMenu } from './WorkspaceContextMenu.js';
@@ -18,11 +20,34 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
   const state = createMemo(() => workspaceTreeStore.state());
   const [previewNode, setPreviewNode] = createSignal<WorkspaceTreeNode | null>(null);
   const [contextMenu, setContextMenu] = createSignal<{ node: WorkspaceTreeNode; x: number; y: number } | null>(null);
+  const activeProjectPath = () => projectStore.activePath() ?? props.workspacePath ?? '';
+  let lastSyncedProjectPath: string | null = null;
+
+  onMount(() => {
+    void projectStore.load();
+  });
 
   createEffect(() => {
-    void props.workspacePath;
+    const path = props.workspacePath;
     setFocusedIndex(0);
+    if (!path || path === lastSyncedProjectPath) return;
+    lastSyncedProjectPath = path;
+    void projectStore.setActiveProject(path);
   });
+
+  createEffect(() => {
+    const path = projectStore.activePath();
+    if (path) void projectStore.loadWorktrees(path);
+  });
+
+  const enterProject = async (path: string) => {
+    if (!path) return;
+    await projectStore.setActiveProject(path);
+    if (props.sessionId) {
+      await sessionStore.updateCwd(props.sessionId, path);
+      await workspaceTreeStore.setWorkspace(props.sessionId, path);
+    }
+  };
 
   const focusRow = (index: number) => {
     const list = rows();
@@ -76,6 +101,41 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
         <Icon name="folder-open" size={14} />
         <span class={styles.rootPath} title={props.workspacePath ?? undefined}>{props.workspacePath ?? 'No workspace selected'}</span>
       </div>
+      <Show when={projectStore.projects().length > 0}>
+        <div class={styles.projectBar}>
+          <select
+            class={styles.projectSelect}
+            aria-label="Active project"
+            value={activeProjectPath()}
+            onChange={(event) => void enterProject(event.currentTarget.value)}
+          >
+            <For each={projectStore.projects()}>
+              {(project) => (
+                <option value={project.path}>{project.name}</option>
+              )}
+            </For>
+          </select>
+        </div>
+        <Show when={projectStore.worktrees()?.worktrees.length}>
+          <div class={styles.worktreeList} aria-label="Project worktrees">
+            <For each={projectStore.worktrees()?.worktrees ?? []}>
+              {(worktree) => (
+                <button
+                  type="button"
+                  class={styles.worktreeRow}
+                  title={worktree.path}
+                  onClick={() => void enterProject(worktree.path)}
+                >
+                  <span>{worktree.path.split(/[\\/]/).filter(Boolean).pop() ?? worktree.path}</span>
+                  <Show when={worktree.branch}>
+                    <span class={styles.worktreeBranch}>{worktree.branch}</span>
+                  </Show>
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
+      </Show>
       <Show
         when={props.workspacePath}
         fallback={<div class={styles.emptyState}>Select a workspace in the chat input to browse files.</div>}

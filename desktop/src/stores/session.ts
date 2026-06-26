@@ -14,6 +14,7 @@ import type {
 } from '@/types/index.js';
 import type { SessionArchiveFilter } from '@/services/gateway/types.js';
 import { getGateway } from './context.js';
+import { projectStore } from './projects.js';
 
 const [sessions, setSessions] = createSignal<SessionListItem[]>([]);
 const [archivedSessions, setArchivedSessions] = createSignal<SessionListItem[]>([]);
@@ -25,6 +26,7 @@ const [sessionModels, setSessionModels] = createSignal<
 >({});
 const [sessionRuntimes, setSessionRuntimes] = createSignal<Record<string, SessionRuntime>>({});
 let resumeRequestEpoch = 0;
+const runtimeUpdateEpochBySession = new Map<string, number>();
 
 function normalizeReasoningEffort(value: unknown): ReasoningEffort {
   return value === 'none'
@@ -178,7 +180,10 @@ export const sessionStore = {
       // (ChatView syncs it on session switch), so injecting it would make new
       // conversations inherit the previously-viewed session's model and would
       // defeat the backend reuse guard.
-      const meta = await gateway.session.create(params);
+      const createParams = params.cwd == null && projectStore.activePath()
+        ? { ...params, cwd: projectStore.activePath() ?? undefined }
+        : params;
+      const meta = await gateway.session.create(createParams);
       await this.loadSessions();
       this.applyRuntime(meta.id, normalizeRuntime(meta.runtime));
       setActiveSessionId(meta.id);
@@ -358,19 +363,25 @@ export const sessionStore = {
   ): Promise<SessionRuntimeUpdateResult | null> {
     const gateway = getGateway();
     if (!gateway) return null;
+    const requestEpoch = (runtimeUpdateEpochBySession.get(sessionId) ?? 0) + 1;
+    runtimeUpdateEpochBySession.set(sessionId, requestEpoch);
     const prevRuntime = this.getSessionRuntime(sessionId);
     const optimistic = normalizeRuntime({ ...prevRuntime, ...patch });
     this.applyRuntime(sessionId, optimistic);
     setError(null);
     try {
       const updated = await gateway.session.updateRuntime(sessionId, patch);
-      this.applyRuntime(sessionId, updated.runtime);
+      if (runtimeUpdateEpochBySession.get(sessionId) === requestEpoch) {
+        this.applyRuntime(sessionId, updated.runtime);
+      }
       return updated;
     } catch (e) {
-      this.applyRuntime(sessionId, prevRuntime);
-      const message = e instanceof Error ? e.message : 'Failed to update session runtime';
-      setError(message);
-      console.error('[sessionStore] failed to persist session runtime:', e);
+      if (runtimeUpdateEpochBySession.get(sessionId) === requestEpoch) {
+        this.applyRuntime(sessionId, prevRuntime);
+        const message = e instanceof Error ? e.message : 'Failed to update session runtime';
+        setError(message);
+        console.error('[sessionStore] failed to persist session runtime:', e);
+      }
       return null;
     }
   },

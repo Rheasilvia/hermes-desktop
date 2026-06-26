@@ -8,6 +8,27 @@ const mocks = vi.hoisted(() => ({
     git: {
       diff: vi.fn(),
     },
+    review: {
+      files: vi.fn(),
+      diff: vi.fn(),
+      stage: vi.fn(),
+      unstage: vi.fn(),
+      revert: vi.fn(),
+      commit: vi.fn(),
+      push: vi.fn(),
+      createPr: vi.fn(),
+      generateCommitMessage: vi.fn(),
+    },
+    projects: {
+      list: vi.fn(),
+      upsert: vi.fn(),
+      setActive: vi.fn(),
+      worktrees: vi.fn(),
+      addWorktree: vi.fn(),
+      removeWorktree: vi.fn(),
+      branches: vi.fn(),
+      switchBranch: vi.fn(),
+    },
   },
 }));
 
@@ -184,6 +205,53 @@ describe('gitViewStore', () => {
     expect(mocks.gateway.git.diff).toHaveBeenCalledWith('session-one');
     expect(mocks.gateway.git.diff).toHaveBeenCalledWith('session-two');
   });
+
+  it('refreshes review state after staging a selected file', async () => {
+    vi.resetModules();
+    mocks.gateway.review.files
+      .mockReset()
+      .mockResolvedValue({
+        files: [
+          { path: 'src/app.ts', old_path: null, status: 'modified', staged: false, unstaged: true, untracked: false, insertions: 2, deletions: 1 },
+        ],
+        summary: { files_changed: 1, insertions: 2, deletions: 1, staged_count: 0, unstaged_count: 1, untracked_count: 0 },
+        working_dir: '/repo',
+        branch: 'main',
+      });
+    mocks.gateway.review.diff
+      .mockReset()
+      .mockResolvedValue({ files: [], summary: { files_changed: 0, insertions: 0, deletions: 0 }, working_dir: '/repo' });
+    mocks.gateway.review.stage.mockReset().mockResolvedValue({ ok: true });
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+    await gitViewStore.stagePath('src/app.ts');
+
+    expect(mocks.gateway.review.stage).toHaveBeenCalledWith('session-one', ['src/app.ts']);
+    expect(mocks.gateway.review.files).toHaveBeenCalledTimes(2);
+    expect(gitViewStore.selectedReviewPath()).toBe('src/app.ts');
+  });
+
+  it('ignores cancelled commit message generation results', async () => {
+    vi.resetModules();
+    const generation = deferred<unknown>();
+    mocks.gateway.review.generateCommitMessage
+      .mockReset()
+      .mockReturnValueOnce(generation.promise);
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    const pending = gitViewStore.generateCommitMessage();
+    expect(gitViewStore.commitMessageLoading()).toBe(true);
+
+    gitViewStore.cancelCommitMessageGeneration();
+    generation.resolve({ status: 'generated', message: 'fix: stale result' });
+    await pending;
+
+    expect(gitViewStore.commitMessage()).toBe('');
+    expect(gitViewStore.commitMessageLoading()).toBe(false);
+  });
 });
 
 describe('workspaceTreeStore', () => {
@@ -248,5 +316,35 @@ describe('workspaceTreeStore', () => {
 
     expect(workspaceTreeStore.state()?.root).toBe('/two');
     expect(workspaceTreeStore.rows().map((row) => row.node.path)).toEqual(['/two', '/two/current.ts']);
+  });
+});
+
+describe('projectStore', () => {
+  it('loads backend-authoritative projects and active path', async () => {
+    vi.resetModules();
+    mocks.gateway.projects.list.mockReset().mockResolvedValue({
+      projects: [{ path: '/repo', name: 'repo', last_opened_at: 1 }],
+      active_path: '/repo',
+    });
+    const { projectStore } = await import('../projects.js');
+
+    await projectStore.load();
+
+    expect(projectStore.projects().map((project) => project.path)).toEqual(['/repo']);
+    expect(projectStore.activePath()).toBe('/repo');
+  });
+
+  it('persists active project through the backend', async () => {
+    vi.resetModules();
+    mocks.gateway.projects.setActive.mockReset().mockResolvedValue({
+      projects: [{ path: '/repo', name: 'repo', last_opened_at: 1 }],
+      active_path: '/repo',
+    });
+    const { projectStore } = await import('../projects.js');
+
+    await projectStore.setActiveProject('/repo');
+
+    expect(mocks.gateway.projects.setActive).toHaveBeenCalledWith('/repo');
+    expect(projectStore.activePath()).toBe('/repo');
   });
 });

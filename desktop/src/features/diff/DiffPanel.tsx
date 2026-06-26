@@ -1,11 +1,12 @@
 import type { Component } from 'solid-js';
 import { Show, Switch, Match, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import type { FileStatus, GitDiffResult } from '@/types/diff.js';
+import type { ReviewFile, ReviewFilesResult } from '@/types/review.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { DiffSummary } from './DiffSummary.js';
 import { DiffContent } from './DiffContent.js';
 import { DiffFileNavigator } from './DiffFileNavigator.js';
-import { buildDiffFileRows } from './diff-file-navigator-model.js';
+import { buildDiffFileRows, buildReviewFileRows } from './diff-file-navigator-model.js';
 import styles from './DiffPanel.module.css';
 
 interface DiffPanelProps {
@@ -15,7 +16,23 @@ interface DiffPanelProps {
   error: string | null;
   hasWorkspace: boolean;
   activeFileIndex?: number;
+  reviewData?: ReviewFilesResult | null;
+  selectedReviewPath?: string | null;
+  actionBusyKey?: string | null;
+  commitMessage?: string;
+  commitMessageLoading?: boolean;
+  commitMessageError?: string | null;
   onSelectFile?: (index: number) => void;
+  onSelectReviewFile?: (path: string) => void;
+  onStageFile?: (path: string) => void;
+  onUnstageFile?: (path: string) => void;
+  onRevertFile?: (path: string) => void;
+  onCommitMessageChange?: (message: string) => void;
+  onGenerateCommitMessage?: () => void;
+  onCancelGenerateCommitMessage?: () => void;
+  onCommit?: (message: string) => void;
+  onPush?: () => void;
+  onCreatePr?: () => void;
 }
 
 const STATUS_DOT_CLASS: Record<FileStatus, string> = {
@@ -27,19 +44,50 @@ const STATUS_DOT_CLASS: Record<FileStatus, string> = {
 
 export const DiffPanel: Component<DiffPanelProps> = (props) => {
   const [fileDrawerOpen, setFileDrawerOpen] = createSignal(false);
-  const fileRows = createMemo(() =>
-    props.data ? buildDiffFileRows(props.data.files) : [],
-  );
+  const fileRows = createMemo(() => {
+    if (props.reviewData) return buildReviewFileRows(props.reviewData.files);
+    return props.data ? buildDiffFileRows(props.data.files) : [];
+  });
+  const hasReview = () => props.reviewData != null;
+  const hasFileRows = () => fileRows().length > 0;
   const activeIndex = () => {
-    const count = props.data?.files.length ?? 0;
+    const count = fileRows().length;
     if (count === 0) return 0;
+    if (props.reviewData) {
+      const selectedPath = props.selectedReviewPath;
+      const selectedIndex = selectedPath
+        ? fileRows().findIndex((row) => row.path === selectedPath)
+        : -1;
+      return selectedIndex >= 0 ? selectedIndex : 0;
+    }
     const requestedIndex = props.activeFileIndex ?? 0;
     return Math.min(Math.max(requestedIndex, 0), count - 1);
   };
   const activeFileRow = createMemo(() => fileRows()[activeIndex()] ?? null);
+  const activeReviewFile = createMemo<ReviewFile | null>(() => {
+    if (!props.reviewData) return null;
+    const row = activeFileRow();
+    if (!row) return null;
+    return props.reviewData.files.find((file) => file.path === row.path) ?? null;
+  });
+  const summary = createMemo(() => props.reviewData?.summary ?? props.data?.summary ?? null);
+  const commitMessage = () => props.commitMessage ?? '';
+  const canCommit = () =>
+    Boolean(props.reviewData?.summary.staged_count)
+    && commitMessage().trim().length > 0
+    && props.actionBusyKey !== 'commit';
   const handleSelectFile = (index: number) => {
-    props.onSelectFile?.(index);
+    if (props.reviewData) {
+      const row = fileRows()[index];
+      if (row) props.onSelectReviewFile?.(row.path);
+    } else {
+      props.onSelectFile?.(index);
+    }
     setFileDrawerOpen(false);
+  };
+  const handleRevert = (path: string) => {
+    if (!window.confirm(`Revert changes in ${path}?`)) return;
+    props.onRevertFile?.(path);
   };
 
   createEffect(() => {
@@ -68,12 +116,12 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
           </div>
         </Show>
         <Show when={props.hasWorkspace}>
-          <Show when={(props.data?.files?.length ?? 0) > 0}>
+          <Show when={hasFileRows()}>
             <div class={styles.diffPanelHeader}>
-              <div class={styles.diffPanelTitle}>Git changes</div>
+              <div class={styles.diffPanelTitle}>{hasReview() ? 'Review' : 'Git changes'}</div>
               <div class={styles.diffPanelHeaderRight}>
-                <Show when={props.data && !props.error}>
-                  <DiffSummary summary={props.data!.summary} />
+                <Show when={summary() && !props.error}>
+                  <DiffSummary summary={summary()!} />
                 </Show>
                 <button
                   type="button"
@@ -89,10 +137,68 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
               </div>
             </div>
           </Show>
+          <Show when={props.reviewData}>
+            <div class={styles.reviewShipBar}>
+              <input
+                class={styles.reviewCommitInput}
+                aria-label="Commit message"
+                value={commitMessage()}
+                placeholder="Commit message"
+                onInput={(event) => props.onCommitMessageChange?.(event.currentTarget.value)}
+              />
+              <Show
+                when={props.commitMessageLoading}
+                fallback={
+                  <button
+                    type="button"
+                    class={styles.reviewActionButton}
+                    onClick={() => props.onGenerateCommitMessage?.()}
+                  >
+                    Generate
+                  </button>
+                }
+              >
+                <button
+                  type="button"
+                  class={styles.reviewActionButton}
+                  onClick={() => props.onCancelGenerateCommitMessage?.()}
+                >
+                  Cancel
+                </button>
+              </Show>
+              <button
+                type="button"
+                class={styles.reviewActionButtonPrimary}
+                disabled={!canCommit()}
+                onClick={() => props.onCommit?.(commitMessage())}
+              >
+                Commit
+              </button>
+              <button
+                type="button"
+                class={styles.reviewActionButton}
+                disabled={props.actionBusyKey === 'push'}
+                onClick={() => props.onPush?.()}
+              >
+                Push
+              </button>
+              <button
+                type="button"
+                class={styles.reviewActionButton}
+                disabled={props.actionBusyKey === 'pr'}
+                onClick={() => props.onCreatePr?.()}
+              >
+                PR
+              </button>
+            </div>
+            <Show when={props.commitMessageError}>
+              <div class={styles.reviewInlineError} role="alert">{props.commitMessageError}</div>
+            </Show>
+          </Show>
 
           <div class={styles.diffPanelBody}>
             <Switch fallback={null}>
-              <Match when={props.loading}>
+              <Match when={props.loading && !hasFileRows()}>
                 <div class={styles.diffEmptyState}>Loading diff...</div>
               </Match>
               <Match when={props.error}>
@@ -101,7 +207,7 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
                   <div class={styles.diffErrorBody}>{props.error}</div>
                 </div>
               </Match>
-              <Match when={!props.data || props.data.files.length === 0}>
+              <Match when={!hasFileRows()}>
                 <div class={styles.diffEmptyState}>
                   <div class={styles.diffEmptyTitle}>
                     {props.data && !props.data.working_dir ? 'No git repository' : 'Working tree clean'}
@@ -113,7 +219,7 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
                   </div>
                 </div>
               </Match>
-              <Match when={props.data && props.data.files.length > 0}>
+              <Match when={hasFileRows()}>
                 <div class={styles.diffReviewBody}>
                   <aside class={styles.diffFileRail} aria-label="Changed files rail">
                     <DiffFileNavigator
@@ -134,10 +240,55 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
                               <span class={styles.diffCurrentFileDir}>{row().dirname}</span>
                             </Show>
                           </span>
+                          <Show when={activeReviewFile()}>
+                            {(file) => (
+                              <span class={styles.reviewFileActions}>
+                                <Show when={file().unstaged || file().untracked}>
+                                  <button
+                                    type="button"
+                                    class={styles.reviewMiniButton}
+                                    disabled={props.actionBusyKey === `stage:${file().path}`}
+                                    onClick={() => props.onStageFile?.(file().path)}
+                                  >
+                                    Stage
+                                  </button>
+                                </Show>
+                                <Show when={file().staged}>
+                                  <button
+                                    type="button"
+                                    class={styles.reviewMiniButton}
+                                    disabled={props.actionBusyKey === `unstage:${file().path}`}
+                                    onClick={() => props.onUnstageFile?.(file().path)}
+                                  >
+                                    Unstage
+                                  </button>
+                                </Show>
+                                <Show when={file().unstaged || file().untracked}>
+                                  <button
+                                    type="button"
+                                    class={styles.reviewMiniButtonDanger}
+                                    disabled={props.actionBusyKey === `revert:${file().path}`}
+                                    onClick={() => handleRevert(file().path)}
+                                  >
+                                    Revert
+                                  </button>
+                                </Show>
+                              </span>
+                            )}
+                          </Show>
                         </div>
                       )}
                     </Show>
-                    <DiffContent files={props.data!.files} activeIndex={activeIndex()} onSelectFile={handleSelectFile} />
+                    <Show
+                      when={!props.loading}
+                      fallback={<div class={styles.diffEmptyState}>Loading diff...</div>}
+                    >
+                      <DiffContent
+                        files={props.data?.files ?? []}
+                        activeIndex={props.reviewData ? 0 : activeIndex()}
+                        onSelectFile={handleSelectFile}
+                      />
+                    </Show>
                   </section>
                   <Show when={fileDrawerOpen()}>
                     <div

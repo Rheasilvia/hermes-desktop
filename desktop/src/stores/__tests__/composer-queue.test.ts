@@ -56,6 +56,23 @@ describe('composerQueueStore', () => {
     expect(composerQueueStore.getQueuedPrompts('sess_a')[0].attachments[0].name).toBe('a.txt');
   });
 
+  it('drops malformed attachment holes instead of crashing', () => {
+    const entry = composerQueueStore.enqueue('sess_a', {
+      text: 'inspect',
+      attachments: [
+        undefined,
+        null,
+        { id: 'missing-name', kind: 'file' },
+        { id: 'file:/tmp/a.txt', kind: 'file', name: 'a.txt', path: '/tmp/a.txt' },
+      ] as any,
+    });
+
+    expect(entry?.attachments).toEqual([
+      expect.objectContaining({ id: 'file:/tmp/a.txt', kind: 'file', name: 'a.txt' }),
+    ]);
+    expect(composerQueueStore.getQueuedPrompts('sess_a')[0].attachments).toHaveLength(1);
+  });
+
   it('persists ordered display parts with queued prompts', () => {
     const displayParts = [
       { type: 'file_ref' as const, refText: '@file:docs/a.ts', name: 'a.ts', detail: 'docs/a.ts', anchor: 'File 1' },

@@ -73,6 +73,82 @@
   color: var(--color-on-surface-dim);
 }
 
+.reviewShipBar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 6px var(--space-2);
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.reviewCommitInput {
+  min-width: 96px;
+  height: 26px;
+  flex: 1 1 160px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-parchment);
+  color: var(--color-on-surface);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  padding: 0 8px;
+}
+
+.reviewCommitInput:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-border-focus) 22%, transparent);
+}
+
+.reviewActionButton,
+.reviewActionButtonPrimary {
+  height: 26px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  padding: 0 8px;
+}
+
+.reviewActionButton {
+  background: var(--color-surface);
+  color: var(--color-on-surface-muted);
+}
+
+.reviewActionButtonPrimary {
+  background: var(--color-on-surface);
+  border-color: var(--color-on-surface);
+  color: var(--color-surface);
+}
+
+.reviewActionButton:hover:not(:disabled),
+.reviewActionButtonPrimary:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.reviewActionButton:disabled,
+.reviewActionButtonPrimary:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.reviewInlineError {
+  flex: 0 0 auto;
+  padding: 5px var(--space-2);
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--diff-deletion-bg);
+  color: var(--diff-deletion-color);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+}
+
 /* ── Status Dots ─────────────────────────────────────────── */
 
 .statusDot {
@@ -167,6 +243,7 @@
   min-width: 0;
   align-items: baseline;
   gap: 6px;
+  flex: 1 1 auto;
 }
 
 .diffCurrentFileName {
@@ -183,6 +260,48 @@
   font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.reviewFileActions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+
+.reviewMiniButton,
+.reviewMiniButtonDanger {
+  height: 24px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  padding: 0 7px;
+}
+
+.reviewMiniButton {
+  background: var(--color-surface);
+  color: var(--color-on-surface-muted);
+}
+
+.reviewMiniButtonDanger {
+  background: var(--diff-deletion-bg);
+  border-color: color-mix(in srgb, var(--diff-deletion-color) 32%, var(--color-border-light));
+  color: var(--diff-deletion-color);
+}
+
+.reviewMiniButton:hover:not(:disabled),
+.reviewMiniButtonDanger:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.reviewMiniButton:disabled,
+.reviewMiniButtonDanger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .diffFileNavigator {

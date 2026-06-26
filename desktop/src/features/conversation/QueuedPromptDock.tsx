@@ -11,6 +11,8 @@ interface QueuedPromptDockProps {
   steerDisabledReason?: string;
   warning?: string | null;
   onSteerFirst?: () => void;
+  onEdit?: (id: string) => void;
+  onSendNow?: (id: string) => void;
 }
 
 const visibleAttachmentLimit = 3;
@@ -103,6 +105,24 @@ export const QueuedPromptDock: Component<QueuedPromptDockProps> = (props) => (
                 </div>
               </Show>
             </div>
+            <button
+              class={styles.inlineButton}
+              type="button"
+              aria-label="Edit queued message"
+              title="Edit queued message"
+              onClick={() => props.onEdit?.(entry.id)}
+            >
+              <Icon name="pencil" size={13} />
+            </button>
+            <button
+              class={styles.inlineButton}
+              type="button"
+              aria-label="Send queued message now"
+              title="Send queued message now"
+              onClick={() => props.onSendNow?.(entry.id)}
+            >
+              <Icon name="send" size={13} />
+            </button>
             <button
               class={styles.removeButton}
               type="button"

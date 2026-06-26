@@ -35,6 +35,14 @@ import type {
   WorkspaceFileResult,
   GitDiffResult,
   GitBranchInfo,
+  ReviewCommitMessageResult,
+  ReviewFilesResult,
+  ReviewOkResult,
+  ReviewPrResult,
+  BranchListResult,
+  ProjectEntry,
+  ProjectListResult,
+  WorktreeListResult,
   SessionSteerResponse,
 } from './types.js';
 import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
@@ -300,6 +308,17 @@ export class GatewayClient {
       this.call('workspace.children', { session_id: sessionId, path }),
     readFile: (sessionId: string, path: string): Promise<WorkspaceFileResult> =>
       this.call('workspace.file', { session_id: sessionId, path }),
+    writeFile: (
+      sessionId: string,
+      input: { path: string; content: string; expectedMtime?: number; expectedSize?: number },
+    ): Promise<WorkspaceFileResult> =>
+      this.call('workspace.file.write', {
+        session_id: sessionId,
+        path: input.path,
+        content: input.content,
+        expected_mtime: input.expectedMtime,
+        expected_size: input.expectedSize,
+      }),
     reveal: (sessionId: string, path: string): Promise<void> =>
       this.call('workspace.reveal', { session_id: sessionId, path }),
   };
@@ -311,6 +330,51 @@ export class GatewayClient {
       this.call('git.branches', { session_id: sessionId }),
     checkout: (sessionId: string, branch: string): Promise<void> =>
       this.call('git.checkout', { session_id: sessionId, branch }),
+  };
+
+  review = {
+    files: (sessionId: string): Promise<ReviewFilesResult> =>
+      this.call('review.files', { session_id: sessionId }),
+    diff: (sessionId: string, input: { path?: string | null; staged?: boolean } = {}): Promise<GitDiffResult> =>
+      this.call('review.diff', { session_id: sessionId, path: input.path ?? null, staged: input.staged ?? false }),
+    stage: (sessionId: string, paths: string[]): Promise<ReviewOkResult> =>
+      this.call('review.stage', { session_id: sessionId, paths }),
+    unstage: (sessionId: string, paths: string[]): Promise<ReviewOkResult> =>
+      this.call('review.unstage', { session_id: sessionId, paths }),
+    revert: (sessionId: string, paths: string[]): Promise<ReviewOkResult> =>
+      this.call('review.revert', { session_id: sessionId, paths }),
+    commit: (sessionId: string, message: string): Promise<ReviewOkResult> =>
+      this.call('review.commit', { session_id: sessionId, message }),
+    push: (sessionId: string): Promise<ReviewOkResult> =>
+      this.call('review.push', { session_id: sessionId }),
+    createPr: (sessionId: string): Promise<ReviewPrResult> =>
+      this.call('review.pr', { session_id: sessionId }),
+    generateCommitMessage: (sessionId: string, avoid?: string): Promise<ReviewCommitMessageResult> =>
+      this.call('review.commit_message', { session_id: sessionId, avoid }),
+  };
+
+  projects = {
+    list: (): Promise<ProjectListResult> =>
+      this.call('projects.list'),
+    upsert: (path: string, name?: string): Promise<ProjectEntry> =>
+      this.call('projects.upsert', { path, name }),
+    setActive: (path: string | null): Promise<ProjectListResult> =>
+      this.call('projects.active.set', { path }),
+    worktrees: (repoPath: string): Promise<WorktreeListResult> =>
+      this.call('projects.worktrees', { repo_path: repoPath }),
+    addWorktree: (input: { repoPath: string; path: string; branch: string; createBranch?: boolean }): Promise<ReviewOkResult> =>
+      this.call('projects.worktrees.add', {
+        repo_path: input.repoPath,
+        path: input.path,
+        branch: input.branch,
+        create_branch: input.createBranch ?? false,
+      }),
+    removeWorktree: (input: { repoPath: string; path: string }): Promise<ReviewOkResult> =>
+      this.call('projects.worktrees.remove', { repo_path: input.repoPath, path: input.path }),
+    branches: (repoPath: string): Promise<BranchListResult> =>
+      this.call('projects.branches', { repo_path: repoPath }),
+    switchBranch: (input: { path: string; branch: string }): Promise<ReviewOkResult> =>
+      this.call('projects.branches.switch', input),
   };
 
   slash = {

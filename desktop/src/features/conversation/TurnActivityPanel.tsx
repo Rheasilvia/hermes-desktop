@@ -2,6 +2,7 @@ import type { Component } from 'solid-js';
 import { createSignal, createEffect, onCleanup, Index, Show } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import type { ToolCallRow } from '@/types/index.js';
+import { clampForDisplay } from './toolOutputClamp.js';
 import styles from './TurnActivityPanel.module.css';
 
 export interface TurnActivityPanelProps {
@@ -229,7 +230,7 @@ export const TurnActivityPanel: Component<TurnActivityPanelProps> = (props) => {
                         </Show>
                       </button>
                       <Show when={isOpen() && row().resultSummary}>
-                        <pre class={styles.toolResult}>{row().resultSummary}</pre>
+                        <pre class={styles.toolResult}>{clampForDisplay(row().resultSummary!)}</pre>
                       </Show>
                     </div>
                   </div>

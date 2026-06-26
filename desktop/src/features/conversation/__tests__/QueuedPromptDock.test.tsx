@@ -115,4 +115,23 @@ describe('QueuedPromptDock', () => {
 
     expect(onRemove).toHaveBeenCalledWith('queued-empty');
   });
+
+  test('dispatches Edit and Send now actions for the selected queued item', () => {
+    const onEdit = vi.fn();
+    const onSendNow = vi.fn();
+    render(() => (
+      <QueuedPromptDock
+        entries={[queuedEntry({ id: 'queued-1', text: 'Ship now' })]}
+        onRemove={vi.fn()}
+        onEdit={onEdit}
+        onSendNow={onSendNow}
+      />
+    ));
+
+    fireEvent.click(screen.getByLabelText('Edit queued message'));
+    fireEvent.click(screen.getByLabelText('Send queued message now'));
+
+    expect(onEdit).toHaveBeenCalledWith('queued-1');
+    expect(onSendNow).toHaveBeenCalledWith('queued-1');
+  });
 });

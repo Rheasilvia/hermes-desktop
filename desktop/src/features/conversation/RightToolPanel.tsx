@@ -17,6 +17,7 @@ interface RightToolPanelProps {
   resizeMode?: 'live' | 'deferred';
   resizing?: boolean;
   visible?: boolean;
+  onInsertComposerText?: (text: string) => void;
 }
 
 export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
@@ -36,7 +37,7 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
 
   createEffect(() => {
     if (sidePanelStore.activeView() === 'review') {
-      void gitViewStore.fetchDiff();
+      void gitViewStore.fetchReview();
     }
   });
 
@@ -67,10 +68,26 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
                 visible={true}
                 data={gitViewStore.diffData()}
                 loading={gitViewStore.diffLoading()}
-                error={gitViewStore.diffError()}
+                error={gitViewStore.reviewError() ?? gitViewStore.diffError()}
                 hasWorkspace={props.workspacePath != null}
                 activeFileIndex={gitViewStore.activeFileIndex()}
+                reviewData={gitViewStore.reviewData()}
+                selectedReviewPath={gitViewStore.selectedReviewPath()}
+                actionBusyKey={gitViewStore.actionBusyKey()}
+                commitMessage={gitViewStore.commitMessage()}
+                commitMessageLoading={gitViewStore.commitMessageLoading()}
+                commitMessageError={gitViewStore.commitMessageError()}
                 onSelectFile={gitViewStore.selectDiffFile}
+                onSelectReviewFile={(path) => void gitViewStore.selectReviewFile(path)}
+                onStageFile={(path) => void gitViewStore.stagePath(path)}
+                onUnstageFile={(path) => void gitViewStore.unstagePath(path)}
+                onRevertFile={(path) => void gitViewStore.revertPath(path)}
+                onCommitMessageChange={gitViewStore.setCommitMessage}
+                onGenerateCommitMessage={() => void gitViewStore.generateCommitMessage(gitViewStore.commitMessage())}
+                onCancelGenerateCommitMessage={gitViewStore.cancelCommitMessageGeneration}
+                onCommit={(message) => void gitViewStore.commitReview(message)}
+                onPush={() => void gitViewStore.pushReview()}
+                onCreatePr={() => void gitViewStore.createPullRequest()}
               />
             </div>
           </Match>
@@ -96,6 +113,8 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
                 <TerminalPanel
                   active={props.visible !== false && active()}
                   cwd={tab.cwd}
+                  sessionId={props.sessionId}
+                  onSendToChat={props.onInsertComposerText}
                 />
               </div>
             );
