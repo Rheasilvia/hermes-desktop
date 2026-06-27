@@ -81,10 +81,13 @@ const VirtualDiffRowView: Component<VirtualDiffRowViewProps> = (props) => (
         style={rowStyle(props.row)}
         data-testid="diff-virtual-file-header"
       >
-        <span class={styles.diffFileName}>{props.row.kind === 'file-header' ? props.row.path : ''}</span>
+        {/* Status first (left, fixed-width) so it's never squeezed off-screen
+            by a long path; the file name owns the remaining space and
+            truncates instead. */}
         <span class={`${styles.diffFileStatus} ${props.row.kind === 'file-header' ? styles[`fileStatus${STATUS_LABEL[props.row.status] ?? 'Modified'}`] : ''}`}>
           {props.row.kind === 'file-header' ? STATUS_LABEL[props.row.status] ?? 'Modified' : ''}
         </span>
+        <span class={styles.diffFileName}>{props.row.kind === 'file-header' ? props.row.path : ''}</span>
       </div>
     </Match>
     <Match when={props.row.kind === 'hunk-header'}>
