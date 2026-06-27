@@ -1199,8 +1199,11 @@
 }
 
 .diffFileHeaderRow {
+  /* Status (auto, fixed) on the left so it's never squeezed out by a long path;
+     file name (minmax(0,1fr)) owns the remaining space and ellipses instead.
+     DOM order in DiffContent.tsx matches: status first, then name. */
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   padding: 6px 12px;

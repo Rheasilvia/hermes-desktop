@@ -70,6 +70,25 @@ let reviewSeq = 0;
 let reviewDiffSeq = 0;
 let commitMessageSeq = 0;
 
+// Per-path cache of the last fetched review diff, keyed by `${path}::${staged}`
+// because staging flips which diff git returns (cached index vs working tree).
+// On a cache hit `fetchReviewDiff` renders synchronously without flipping
+// `diffLoading`, so revisiting a file swaps the diff content in place instead
+// of flashing the "Loading diff..." empty state (whose white background reads
+// as a flicker). Invalidated whenever the file list itself can change: a
+// workspace switch, a stage/unstage (staged status flips), a revert, or a full
+// review refetch.
+const reviewDiffCache = new Map<string, GitDiffResult>();
+const reviewDiffCacheKey = (path: string, staged: boolean) => `${path}::${staged}`;
+function clearReviewDiffCache(path?: string | null): void {
+  if (path == null) {
+    reviewDiffCache.clear();
+  } else {
+    reviewDiffCache.delete(reviewDiffCacheKey(path, false));
+    reviewDiffCache.delete(reviewDiffCacheKey(path, true));
+  }
+}
+
 const COMMIT_MESSAGE_DETAIL_MESSAGES: Record<string, string> = {
   NO_DIFF: 'No changes to summarize.',
   COMMIT_MESSAGE_PROVIDER_UNAVAILABLE: 'Commit message generation is unavailable.',
@@ -286,17 +305,36 @@ async function fetchReviewDiff(path: string): Promise<void> {
   const sid = workspaceSessionId();
   const seq = ++reviewDiffSeq;
   if (!sid) return;
+
+  const file = reviewData()?.files.find((item) => item.path === path);
+  const staged = Boolean(file?.staged && !file.unstaged && !file.untracked);
+
+  // Cache hit: adopt the cached diff synchronously WITHOUT flipping
+  // diffLoading. The DiffPanel's `<Show when={!props.loading}>` then never
+  // swaps to the "Loading diff..." fallback, so a revisit renders the cached
+  // diff in place instead of flashing the white empty state. The seq bump above
+  // still invalidates any in-flight miss fetch racing this synchronous adopt.
+  const cached = reviewDiffCache.get(reviewDiffCacheKey(path, staged));
+  if (cached) {
+    if (seq !== reviewDiffSeq) return;
+    setDiffData(cached);
+    setActiveFileIndex(0);
+    setDiffError(null);
+    return;
+  }
+
   setDiffLoading(true);
   setDiffError(null);
   try {
     const gateway = getGateway();
     if (!gateway) throw new Error('Gateway is not initialized');
-    const file = reviewData()?.files.find((item) => item.path === path);
-    const staged = Boolean(file?.staged && !file.unstaged && !file.untracked);
     const result = await gateway.review.diff(sid, { path, staged });
     if (seq !== reviewDiffSeq) return;
     setDiffData(result);
     setActiveFileIndex(0);
+    // Backfill the cache (unconditional: its key is path-scoped, not
+    // selection-scoped, so a stale selection still warms a future revisit).
+    reviewDiffCache.set(reviewDiffCacheKey(path, staged), result);
   } catch (e) {
     if (seq !== reviewDiffSeq) return;
     setDiffError(errorMessage(e, 'Failed to fetch diff'));
@@ -378,6 +416,10 @@ async function stagePath(path: string): Promise<void> {
   const sid = workspaceSessionId();
   if (!sid) return;
   optimisticStageToggle(path, true);
+  // Staging flips which diff git returns (index vs working tree), so the cached
+  // entry for this path is now stale either way. Drop it before reconciliation
+  // so a subsequent re-select re-fetches the post-stage diff.
+  clearReviewDiffCache(path);
   await runReviewAction(`stage:${path}`, 'stage', async () => {
     const gateway = getGateway();
     if (!gateway) throw new Error('Gateway is not initialized');
@@ -408,6 +450,7 @@ async function unstagePath(path: string): Promise<void> {
   const sid = workspaceSessionId();
   if (!sid) return;
   optimisticStageToggle(path, false);
+  clearReviewDiffCache(path);
   await runReviewAction(`unstage:${path}`, 'unstage', async () => {
     const gateway = getGateway();
     if (!gateway) throw new Error('Gateway is not initialized');
@@ -425,7 +468,9 @@ async function revertPath(path: string): Promise<void> {
     return gateway.review.revert(sid, [path]);
   }, actionLabel('revert', path));
   if (ok) toastStore.success(`Reverted ${path}`);
-  // revert changes the working tree, so a full refresh is warranted.
+  // revert changes the working tree, so a full refresh is warranted. Clear the
+  // diff cache first — any cached diff is now stale.
+  clearReviewDiffCache();
   void fetchReview();
 }
 
@@ -440,6 +485,7 @@ async function revertAllReviewChanges(): Promise<boolean> {
   }, `Reverted ${paths.length} ${paths.length === 1 ? 'file' : 'files'}`);
   if (ok) {
     toastStore.success('Reverted changes');
+    clearReviewDiffCache();
     await fetchReview();
     return true;
   }
@@ -608,6 +654,9 @@ function setWorkspace(sessionId: string | null, path: string | null): void {
   setCommitMessage('');
   setCommitMessageError(null);
   setCommitMessageLoading(false);
+  // The diff cache is repo-scoped: a path from the old repo could shadow the
+  // new repo's (different) diff for the same relative path, so drop it all.
+  clearReviewDiffCache();
 }
 
 // Maps backend error codes (HTTP `detail`) to human-readable messages shown in
