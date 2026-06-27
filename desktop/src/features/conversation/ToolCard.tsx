@@ -2,6 +2,7 @@ import type { Component } from 'solid-js';
 import { Show } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon';
 import type { IconName } from '@/ui/atoms/Icon';
+import { clampForDisplay } from './toolOutputClamp.js';
 import styles from './ToolCard.module.css';
 
 type ToolStatus = 'running' | 'complete' | 'error';
@@ -59,7 +60,7 @@ export const ToolCard: Component<ToolCardProps> = (props) => {
       <Show when={props.result}>
         <div>
           <div class={styles.sectionLabel}>Result</div>
-          <pre class={styles.resultSection}>{props.result}</pre>
+          <pre class={styles.resultSection}>{clampForDisplay(props.result!)}</pre>
         </div>
       </Show>
     </div>

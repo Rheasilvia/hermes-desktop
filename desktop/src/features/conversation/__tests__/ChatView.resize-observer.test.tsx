@@ -114,6 +114,7 @@ vi.mock('@/stores/git-view.js', () => ({
     setWorkspace: vi.fn(),
     setWorkspacePath: vi.fn(),
     fetchDiff: vi.fn(),
+    fetchReview: vi.fn(),
   },
 }));
 

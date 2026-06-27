@@ -1,4 +1,5 @@
 import type { AttachmentKind } from '@/features/conversation/composer/AttachmentChips.js';
+import { sanitizeAttachmentChips } from '@/features/conversation/composer/attachmentSanitizer.js';
 import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
 export interface ComposerCommandPrefix {
@@ -30,7 +31,7 @@ function cloneDraft(draft: ComposerDraft): ComposerDraft {
   return {
     text: draft.text,
     commandPrefix: draft.commandPrefix ? { ...draft.commandPrefix } : null,
-    attachments: draft.attachments.map((attachment) => ({ ...attachment })),
+    attachments: sanitizeAttachmentChips(draft.attachments),
     displayParts: draft.displayParts?.map((part) => ({ ...part })),
     cwd: draft.cwd,
   };

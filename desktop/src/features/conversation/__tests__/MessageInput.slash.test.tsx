@@ -605,6 +605,20 @@ describe('MessageInput slash commands', () => {
     );
   });
 
+  test('turns dropped files into attachment chips', async () => {
+    render(() => <MessageInput sessionId="drop-session" cwd="/repo" onSend={vi.fn()} />);
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+    const file = new File(['hello'], 'dropped.ts', { type: 'text/typescript' });
+    Object.defineProperty(file, 'path', { value: '/repo/dropped.ts' });
+
+    await fireEvent.drop(input, {
+      dataTransfer: { files: [file] },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('attachment-chip-bar')).toBeTruthy());
+    expect(screen.getByText('dropped.ts')).toBeTruthy();
+  });
+
   test('creates context chips for backend-expanded @ refs', async () => {
     const onSend = vi.fn();
     mocks.completePath.mockImplementation(({ partial }: { partial: string }) => {

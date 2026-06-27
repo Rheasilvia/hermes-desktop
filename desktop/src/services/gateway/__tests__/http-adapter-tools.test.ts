@@ -67,6 +67,76 @@ describe('dispatchSseEvent — envelope and idempotency', () => {
     expect(received[0]).toMatchObject({ session_id: 'sess_1', text: 'first', event_seq: 10 });
   });
 
+  it('deduplicates seq independently per session', () => {
+    const adapter = makeAdapter();
+    const received: unknown[] = [];
+    adapter.on('message.delta', (payload) => received.push(payload));
+
+    (adapter as any).dispatchSseEvent({
+      session_id: 'sess_a',
+      seq: 10,
+      type: 'message.delta',
+      payload: { text: 'a-10' },
+    });
+    (adapter as any).dispatchSseEvent({
+      session_id: 'sess_b',
+      seq: 10,
+      type: 'message.delta',
+      payload: { text: 'b-10' },
+    });
+    (adapter as any).dispatchSseEvent({
+      session_id: 'sess_b',
+      seq: 10,
+      type: 'message.delta',
+      payload: { text: 'b-duplicate' },
+    });
+
+    expect(received).toEqual([
+      expect.objectContaining({ session_id: 'sess_a', text: 'a-10', event_seq: 10 }),
+      expect.objectContaining({ session_id: 'sess_b', text: 'b-10', event_seq: 10 }),
+    ]);
+  });
+
+  it('replays only events newer than each session last seq', async () => {
+    const mockHttp = {
+      get: vi.fn(async (url: string) => {
+        if (url.includes('/sessions/sess_a/messages?since=2')) {
+          return [
+            { session_id: 'sess_a', seq: 2, type: 'message.delta', payload: { text: 'old-a' } },
+            { session_id: 'sess_a', seq: 3, type: 'message.delta', payload: { text: 'new-a' } },
+          ];
+        }
+        if (url.includes('/sessions/sess_b/messages?since=5')) {
+          return [
+            { session_id: 'sess_b', seq: 5, type: 'message.delta', payload: { text: 'old-b' } },
+            { session_id: 'sess_b', seq: 6, type: 'message.delta', payload: { text: 'new-b' } },
+          ];
+        }
+        return [];
+      }),
+      post: vi.fn(),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    };
+    const adapter = new HttpGatewayAdapter(mockHttp as any);
+    const received: unknown[] = [];
+    adapter.on('message.delta', (payload) => received.push(payload));
+    (adapter as any).lastSeq.set('sess_a', 2);
+    (adapter as any).lastSeq.set('sess_b', 5);
+    (adapter as any).knownSessionIds.add('sess_a');
+    (adapter as any).knownSessionIds.add('sess_b');
+
+    await (adapter as any)._replayAllSessions();
+
+    expect(mockHttp.get).toHaveBeenCalledWith('/desktop/api/sessions/sess_a/messages?since=2');
+    expect(mockHttp.get).toHaveBeenCalledWith('/desktop/api/sessions/sess_b/messages?since=5');
+    expect(received).toEqual([
+      expect.objectContaining({ session_id: 'sess_a', text: 'new-a', event_seq: 3 }),
+      expect.objectContaining({ session_id: 'sess_b', text: 'new-b', event_seq: 6 }),
+    ]);
+  });
+
   it('normalizes raw SSE rows to a GatewayEventEnvelope before dispatch', () => {
     const adapter = makeAdapter();
 
@@ -199,7 +269,7 @@ describe('commands HTTP methods', () => {
     const mockHttp = {
       get: vi.fn()
         .mockResolvedValueOnce({ root: '/repo', path: '/repo', children: [], truncated: false, total_read: 0 })
-        .mockResolvedValueOnce({ content: 'hello', truncated: false, binary: false, size: 5 })
+        .mockResolvedValueOnce({ content: 'hello', truncated: false, binary: false, size: 5, mtime: 1 })
         .mockResolvedValueOnce({ files: [], summary: { files_changed: 0, insertions: 0, deletions: 0 }, working_dir: '/repo' })
         .mockResolvedValueOnce({ current: 'main', branches: ['main'] }),
       post: vi.fn().mockResolvedValue({ ok: true }),

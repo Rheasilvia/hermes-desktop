@@ -1,10 +1,12 @@
 import type { Component } from 'solid-js';
-import { For, Match, Switch, createEffect, createMemo } from 'solid-js';
+import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, onMount } from 'solid-js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 import { gitViewStore } from '@/stores/git-view.js';
+import { previewStore } from '@/stores/preview.js';
 import { WorkspaceTreeView } from '@/features/workspace/WorkspaceTreeView.js';
 import { DiffPanel } from '@/features/diff/DiffPanel.js';
 import { DelegationSidePanel } from '@/features/delegation/DelegationSidePanel.js';
+import { invoke } from '@tauri-apps/api/core';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { TerminalPanel } from './TerminalPanel.js';
 import styles from './RightToolPanel.module.css';
@@ -17,7 +19,42 @@ interface RightToolPanelProps {
   resizeMode?: 'live' | 'deferred';
   resizing?: boolean;
   visible?: boolean;
+  onInsertComposerText?: (text: string) => void;
 }
+
+const PreviewPlaceholder: Component<{ sessionId: string | null }> = (props) => {
+  const record = createMemo(() => previewStore.get(props.sessionId));
+  return (
+    <div class={styles.pageChrome}>
+      <div class={styles.paneHeader}>
+        <span class={styles.paneHeaderIcon}><Icon name="eye" size={13} strokeWidth={1.8} /></span>
+        <span class={styles.paneHeaderTitle}>Preview</span>
+      </div>
+      <Show
+        when={record()}
+        fallback={
+          <div class={styles.emptyState} role="status" aria-label="No preview selected">
+            <span class={styles.emptyIcon}>
+              <Icon name="eye" size={24} />
+            </span>
+            <div class={styles.emptyTitle}>No preview selected</div>
+            <div class={styles.emptyDescription}>Preview targets will open here in a future update.</div>
+          </div>
+        }
+      >
+        {(preview) => (
+          <div class={styles.previewPlaceholder} role="status" aria-label={`Preview ${preview().normalized.label}`}>
+            <span class={styles.emptyIcon}>
+              <Icon name={preview().normalized.kind === 'url' ? 'globe' : 'file'} size={24} />
+            </span>
+            <div class={styles.emptyTitle}>{preview().normalized.label || 'Preview'}</div>
+            <div class={styles.emptyDescription}>{preview().target}</div>
+          </div>
+        )}
+      </Show>
+    </div>
+  );
+};
 
 export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
   const bodyFrozen = () => Boolean(
@@ -36,8 +73,18 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
 
   createEffect(() => {
     if (sidePanelStore.activeView() === 'review') {
-      void gitViewStore.fetchDiff();
+      void gitViewStore.fetchReview();
     }
+  });
+
+  onMount(() => {
+    const refreshReviewOnFocus = () => {
+      if (sidePanelStore.activeView() === 'review') {
+        void gitViewStore.fetchReview();
+      }
+    };
+    window.addEventListener('focus', refreshReviewOnFocus);
+    onCleanup(() => window.removeEventListener('focus', refreshReviewOnFocus));
   });
 
   return (
@@ -67,16 +114,61 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
                 visible={true}
                 data={gitViewStore.diffData()}
                 loading={gitViewStore.diffLoading()}
-                error={gitViewStore.diffError()}
+                error={gitViewStore.reviewError() ?? gitViewStore.diffError()}
                 hasWorkspace={props.workspacePath != null}
                 activeFileIndex={gitViewStore.activeFileIndex()}
+                reviewData={gitViewStore.reviewData()}
+                selectedReviewPath={gitViewStore.selectedReviewPath()}
+                actionBusyKey={gitViewStore.actionBusyKey()}
+                actionInFlight={gitViewStore.reviewActionInFlight()}
+                actionLog={gitViewStore.actionLog}
+                onClearActionLog={gitViewStore.clearActionLog}
+                prDisabled={gitViewStore.isOnDefaultBranch()}
+                prDisabledReason={gitViewStore.isOnDefaultBranch()
+                  ? `You're on the default branch "${gitViewStore.currentBranch()}". Switch to a feature branch to create a PR.`
+                  : null}
+                createdPrUrl={gitViewStore.createdPrUrl()}
+                shipInfo={gitViewStore.reviewShipInfo()}
+                onOpenPrUrl={(url) => void invoke('open_external', { url })}
+                commitMessage={gitViewStore.commitMessage()}
+                commitMessageLoading={gitViewStore.commitMessageLoading()}
+                commitMessageError={gitViewStore.commitMessageErrorLabel()}
+                reviewFileRailWidth={gitViewStore.reviewFileRailWidth()}
+                onReviewFileRailWidthChange={gitViewStore.setReviewFileRailWidth}
+                onResetReviewFileRailWidth={gitViewStore.resetReviewFileRailWidth}
                 onSelectFile={gitViewStore.selectDiffFile}
+                onSelectReviewFile={(path) => void gitViewStore.selectReviewFile(path)}
+                onStageFile={(path) => void gitViewStore.stagePath(path)}
+                onUnstageFile={(path) => void gitViewStore.unstagePath(path)}
+                onRevertFile={(path) => void gitViewStore.revertPath(path)}
+                onRefresh={() => void gitViewStore.fetchReview()}
+                onStageAll={() => void gitViewStore.stageAllReviewChanges()}
+                onRevertAll={() => void gitViewStore.revertAllReviewChanges()}
+                onCommitMessageChange={gitViewStore.setCommitMessage}
+                onGenerateCommitMessage={() => void gitViewStore.generateCommitMessage(gitViewStore.commitMessage())}
+                onCancelGenerateCommitMessage={gitViewStore.cancelCommitMessageGeneration}
+                onCommit={(message) => void gitViewStore.commitReview(message)}
+                onCommitPush={(message) => void gitViewStore.commitThenMaybePush({ message, push: true })}
+                onPush={() => void gitViewStore.pushReview()}
+                onCreatePr={() => void gitViewStore.createPullRequest()}
+                onCommitPushCreatePr={(message) => void gitViewStore.commitPushAndCreatePullRequest(message)}
+                onAskHermes={() => gitViewStore.submitReviewPromptToComposer()}
+                showInstallAction={gitViewStore.hasInstallableReviewError()}
+                installActionBusy={gitViewStore.installingTools()}
+                onInstallAction={() => void gitViewStore.installCommandLineTools()}
+                retryActionBusy={gitViewStore.retryingReview()}
+                onRetryAction={() => void gitViewStore.retryReview()}
               />
             </div>
           </Match>
           <Match when={sidePanelStore.activeView() === 'files'}>
             <div class={styles.page}>
               <WorkspaceTreeView sessionId={props.sessionId} workspacePath={props.workspacePath} />
+            </div>
+          </Match>
+          <Match when={sidePanelStore.activeView() === 'preview'}>
+            <div class={styles.page}>
+              <PreviewPlaceholder sessionId={props.sessionId} />
             </div>
           </Match>
           <Match when={sidePanelStore.activeView() === 'delegation'}>
@@ -96,6 +188,8 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
                 <TerminalPanel
                   active={props.visible !== false && active()}
                   cwd={tab.cwd}
+                  sessionId={props.sessionId}
+                  onSendToChat={props.onInsertComposerText}
                 />
               </div>
             );

@@ -1,6 +1,7 @@
 import type { Accessor, Component } from 'solid-js';
 import { createSignal, createEffect, Show, createMemo, untrack, For, onCleanup, onMount } from 'solid-js';
 import { fileChipQueue } from '@/stores/file-chip-queue.js';
+import { composerInsertionStore } from '@/stores/composer-insertions.js';
 import {
   clearComposerDraft,
   getComposerDraft,
@@ -16,6 +17,7 @@ import { SlashCommandPanel, type SlashCommand } from './SlashCommandPanel';
 import { ContextUsageBar, type ContextUsageProps } from './ContextUsageBar';
 import { PermissionModePicker } from './PermissionModePicker';
 import { AttachmentChips, type AttachmentChip } from './composer/AttachmentChips.js';
+import { sanitizeAttachmentChips } from './composer/attachmentSanitizer.js';
 import { CompletionPanel, type CompletionItem } from './composer/CompletionPanel.js';
 import { getGateway } from '@/stores/context.js';
 import { filterDesktopSlashCommands } from './slashCommandCuration.js';
@@ -50,6 +52,8 @@ interface MessageInputProps {
   onCwdChange?: (path: string) => void;
   editDraft?: Accessor<string | null>;
   clearEditDraft?: () => void;
+  editPayload?: Accessor<MessageInputEditPayload | null>;
+  clearEditPayload?: () => void;
   contextUsage?: ContextUsageProps;
   historyMessages?: readonly RenderedMessage[];
   onComposerActivity?: () => void;
@@ -64,6 +68,12 @@ interface MessageInputProps {
   consumePendingVoiceResponse?: () => void;
   maxVoiceRecordingSeconds?: number;
   sttEnabled?: boolean;
+}
+
+interface MessageInputEditPayload {
+  text: string;
+  attachments?: AttachmentChip[];
+  displayParts?: UserDisplayPart[];
 }
 
 type ReferenceKind = 'file' | 'folder' | 'image' | 'url' | 'tool' | 'git' | 'diff' | 'staged';
@@ -126,6 +136,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   let wrapperRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let previousSessionId: string | null | undefined;
+  let lastInsertionId = 0;
   let voiceErrorTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingComposerWidth: number | null = null;
   let composerResizeFrame: number | null = null;
@@ -274,14 +285,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   const cloneDisplayParts = (parts: readonly UserDisplayPart[] | null | undefined): UserDisplayPart[] =>
     (parts ?? []).map((part) => ({ ...part }));
 
-  const cloneAttachments = (items: readonly unknown[] | null | undefined): AttachmentChip[] =>
-    (items ?? [])
-      .filter((item): item is AttachmentChip => {
-        if (typeof item !== 'object' || item === null) return false;
-        const value = item as Partial<AttachmentChip>;
-        return typeof value.id === 'string' && typeof value.kind === 'string' && typeof value.name === 'string';
-      })
-      .map((item) => ({ ...item }));
+  const cloneAttachments = sanitizeAttachmentChips;
 
   const messageText = (message: RenderedMessage): string => {
     return message.blocks
@@ -1009,6 +1013,42 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     addPaths(kind, files);
   };
 
+  const addUrlAttachment = () => {
+    setAttachMenuOpen(false);
+    const raw = window.prompt('URL');
+    const url = raw?.trim();
+    if (!url) return;
+    const refText = `@url:${quoteRefValue(url)}`;
+    const chip: AttachmentChip = {
+      id: stableId('url', refText),
+      kind: 'url',
+      name: url,
+      size: 0,
+      refText,
+    };
+    setAttachments((prev) => {
+      if (prev.some((existing) => existing.id === chip.id)) return prev;
+      return [...prev, chip];
+    });
+    queueMicrotask(() => textareaRef?.focus());
+  };
+
+  const handleDrop = (event: DragEvent) => {
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length === 0) return;
+    event.preventDefault();
+    const imagePaths: string[] = [];
+    const filePaths: string[] = [];
+    for (const file of files) {
+      const path = String((file as File & { path?: string }).path || file.webkitRelativePath || file.name || '').trim();
+      if (!path) continue;
+      if (file.type.startsWith('image/')) imagePaths.push(path);
+      else filePaths.push(path);
+    }
+    if (filePaths.length > 0) addPaths('file', filePaths);
+    if (imagePaths.length > 0) addPaths('image', imagePaths);
+  };
+
   const removeAttachment = (id: string) => {
     setAttachments((prev) => prev.filter((chip) => chip.id !== id));
   };
@@ -1107,6 +1147,20 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   });
 
   createEffect(() => {
+    const payload = props.editPayload?.();
+    if (payload != null) {
+      setText(payload.text);
+      setAttachments(sanitizeAttachmentChips(payload.attachments));
+      setDisplayParts((payload.displayParts ?? []).map((part) => ({ ...part })));
+      setCommandPrefix(null);
+      props.clearEditPayload?.();
+      if (textareaRef) {
+        autoResize(textareaRef);
+        textareaRef.focus();
+      }
+      return;
+    }
+
     const draft = props.editDraft?.();
     if (draft != null) {
       setText(draft);
@@ -1116,6 +1170,37 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
         autoResize(textareaRef);
         textareaRef.focus();
       }
+    }
+  });
+
+  createEffect(() => {
+    const next = composerInsertionStore.latest();
+    if (!next || next.id === lastInsertionId) return;
+    const currentSession = props.sessionId?.trim() || null;
+    if (next.sessionId && next.sessionId !== currentSession) return;
+    lastInsertionId = next.id;
+    if (next.text) {
+      setText((current) => {
+        const trimmed = current.trimEnd();
+        return trimmed ? `${trimmed}\n\n${next.text}` : next.text;
+      });
+    }
+    const insertedAttachments = sanitizeAttachmentChips(next.attachments);
+    if (insertedAttachments.length > 0) {
+      setAttachments((prev) => {
+        const seen = new Set(prev.map((chip) => chip.id));
+        const merged = [...prev];
+        for (const chip of insertedAttachments) {
+          if (seen.has(chip.id)) continue;
+          seen.add(chip.id);
+          merged.push(chip);
+        }
+        return merged;
+      });
+    }
+    if (textareaRef) {
+      autoResize(textareaRef);
+      textareaRef.focus();
     }
   });
 
@@ -1263,6 +1348,8 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
             onPaste={handlePaste}
+            onDrop={handleDrop}
+            onDragOver={(event) => event.preventDefault()}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             placeholder={props.placeholder ?? (props.isStreaming ? 'Keep typing to queue follow-up changes' : 'Message Hermes...')}
@@ -1300,6 +1387,10 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
                     <button type="button" onClick={() => void selectPaths('image')}>
                       <Icon name="image" size={14} />
                       <span>Add images</span>
+                    </button>
+                    <button type="button" onClick={addUrlAttachment}>
+                      <Icon name="globe" size={14} />
+                      <span>Add URL</span>
                     </button>
                   </div>
                 </Show>

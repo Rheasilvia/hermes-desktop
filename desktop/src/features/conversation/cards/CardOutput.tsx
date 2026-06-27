@@ -1,4 +1,5 @@
 import { Show, type Component } from 'solid-js';
+import { clampForDisplay } from '../toolOutputClamp.js';
 import styles from './cards.module.css';
 
 /**
@@ -10,6 +11,6 @@ export const CardOutput: Component<{ text?: string; empty?: string }> = (props) 
     when={(props.text ?? '').trim()}
     fallback={<p class={styles.state} role="status">{props.empty ?? 'No output.'}</p>}
   >
-    <pre class={styles.output}>{props.text}</pre>
+    <pre class={styles.output}>{clampForDisplay(props.text!)}</pre>
   </Show>
 );

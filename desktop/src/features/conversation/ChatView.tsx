@@ -24,6 +24,7 @@ import { AssistantMessage } from './AssistantMessage.js';
 import type { MessageBlock, TextBlock } from '@/types/index.js';
 import { MessageInput } from './MessageInput.js';
 import type { AttachmentChip } from './composer/AttachmentChips.js';
+import { sanitizeAttachmentChips } from './composer/attachmentSanitizer.js';
 import type { UserDisplayPart } from './display-parts.js';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { CommandCardDock } from './cards/CommandCardDock.js';
@@ -44,15 +45,27 @@ import { PermissionRequestCard } from './turn/PermissionRequestCard.js';
 import { BackgroundTaskDock } from './background/BackgroundTaskDock.js';
 import { backgroundTaskStore, recentBackgroundTasks } from '@/stores/background-tasks.js';
 import { composerQueueStore, shouldAutoDrainOnSettle, type QueuedAttachment } from '@/stores/composer-queue.js';
+import { composerInsertionStore } from '@/stores/composer-insertions.js';
 import { createScrollController } from './scrollController.js';
 import { createCommandCardState } from './commandCardState.js';
 import { createSlashCommandRunner } from './slashCommandRunner.js';
 import { useGatewayEvents } from './eventSubscription.js';
 import { shouldShowEnvironmentOverlay } from './environmentOverlay.js';
+import {
+  MESSAGE_VIRTUAL_DEFAULT_VIEWPORT_HEIGHT,
+  MESSAGE_VIRTUAL_ROW_HEIGHT,
+  virtualizeMessages,
+} from './messageVirtualization.js';
 import styles from './ChatView.module.css';
 
 interface ChatViewProps {
   sessionId?: string;
+}
+
+interface QueuedEditPayload {
+  text: string;
+  attachments: AttachmentChip[];
+  displayParts?: UserDisplayPart[];
 }
 
 const ESCAPE_PRIORITY_SURFACE_SELECTOR = [
@@ -147,13 +160,18 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let chatBodyRef: HTMLDivElement | undefined;
   let messageInputResizeRef: HTMLDivElement | undefined;
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
+  const [editQueuedPayload, setEditQueuedPayload] = createSignal<QueuedEditPayload | null>(null);
   const [connectionState, setConnectionState] = createSignal<ConnectionState>(uiStore.connectionState);
   const [chatBodyWidth, setChatBodyWidth] = createSignal<number | null>(null);
+  const [messageScrollTop, setMessageScrollTop] = createSignal(0);
+  const [messageViewportHeight, setMessageViewportHeight] = createSignal(MESSAGE_VIRTUAL_DEFAULT_VIEWPORT_HEIGHT);
+  const [messageListMounted, setMessageListMounted] = createSignal(false);
   const [steeringQueuedId, setSteeringQueuedId] = createSignal<string | null>(null);
   const [queuedSteerWarning, setQueuedSteerWarning] = createSignal<string | null>(null);
   let wasBusy = false;
   let suppressNextAutoDrain = false;
   let escapePrioritySurfaceAtKeydown = false;
+  let lastComposerSubmissionId = 0;
   const autoTtsPlayed = new Set<string>();
 
   const cwd = createMemo(() => sessionStore.activeSession?.cwd ?? null);
@@ -220,6 +238,31 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     getBlockingPromptActive: blockingPromptActive,
   });
 
+  const virtualMessages = createMemo(() =>
+    virtualizeMessages(messages(), messageScrollTop(), messageViewportHeight(), {
+      defaultToBottom: !messageListMounted() || !scroll.userScrolledUp(),
+    })
+  );
+
+  const syncMessageListMetrics = () => {
+    const el = scroll.refs.messageList;
+    if (!el) return;
+    setMessageScrollTop(el.scrollTop);
+    setMessageViewportHeight(el.clientHeight || MESSAGE_VIRTUAL_DEFAULT_VIEWPORT_HEIGHT);
+  };
+
+  createEffect(() => {
+    const count = messages().length;
+    if (!messageListMounted() || count === 0 || scroll.userScrolledUp()) return;
+    const el = scroll.refs.messageList;
+    if (!el) return;
+    const range = virtualMessages();
+    if (!range.virtualized) return;
+    const nextTop = Math.max(0, range.totalHeight - messageViewportHeight());
+    setMessageScrollTop(nextTop);
+    el.scrollTop = nextTop;
+  });
+
   const cards = createCommandCardState();
 
   onMount(() => {
@@ -251,16 +294,17 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const sendPrompt = async (
     promptText: string,
     display?: PromptDisplayMetadata,
-    attachments: AttachmentChip[] = [],
+    attachments: readonly unknown[] = [],
     displayParts?: UserDisplayPart[],
   ) => {
     const sid = sessionId();
-    const refText = attachments
+    const safeAttachments = sanitizeAttachmentChips(attachments);
+    const refText = safeAttachments
       .map((attachment) => attachment.refText)
       .filter((value): value is string => Boolean(value?.trim()))
       .join('\n');
-    const imageAttachments = attachments.filter((attachment) => attachment.kind === 'image' && attachment.path);
-    const attachmentLabelText = attachments.map((attachment) => attachment.name).join(', ');
+    const imageAttachments = safeAttachments.filter((attachment) => attachment.kind === 'image' && attachment.path);
+    const attachmentLabelText = safeAttachments.map((attachment) => attachment.name).join(', ');
     const submitText = promptText || (imageAttachments.length > 0 ? 'What do you see in this image?' : attachmentLabelText);
     const displayText = (display?.text ?? promptText) || attachmentLabelText;
     const gateway = getGateway();
@@ -299,7 +343,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
       ...persistedImages.map((img) => ({ type: 'image' as const, path: img.path, name: img.name })),
     ];
 
-    const messageId = chatStore.appendUserMessage(sid, displayText, display?.slashCommand, submitText, attachments, mergedDisplayParts);
+    const messageId = chatStore.appendUserMessage(sid, displayText, display?.slashCommand, submitText, safeAttachments, mergedDisplayParts);
     if (gateway && persistedImages.length > 0) {
       try {
         for (const img of persistedImages) {
@@ -717,13 +761,13 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     gitViewStore.setWorkspace(sid, path);
     void workspaceTreeStore.setWorkspace(sid, path);
     if (path && sidePanelStore.isOpen() && sidePanelStore.activeView() === 'review') {
-      void gitViewStore.fetchDiff();
+      void gitViewStore.fetchReview();
     }
   });
 
   createEffect(() => {
     if (sidePanelStore.isOpen() && sidePanelStore.activeView() === 'review' && cwd()) {
-      void gitViewStore.fetchDiff();
+      void gitViewStore.fetchReview();
     }
   });
 
@@ -795,6 +839,15 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     return sendPrompt(text, undefined, attachments as AttachmentChip[] | undefined, displayParts);
   };
 
+  createEffect(() => {
+    const next = composerInsertionStore.latestSubmission();
+    if (!next || next.id === lastComposerSubmissionId) return;
+    const currentSession = sessionId().trim() || null;
+    if (next.sessionId && next.sessionId !== currentSession) return;
+    lastComposerSubmissionId = next.id;
+    void handleSend(next.text, next.attachments as QueuedAttachment[] | undefined);
+  });
+
   const handleMaskedPermissionSubmit = (requestId: string, value: string) => {
     const permission = liveState().pendingPermission;
     if (!permission) return;
@@ -819,6 +872,28 @@ export const ChatView: Component<ChatViewProps> = (props) => {
 
   const handleRemoveQueuedPrompt = (id: string) => {
     composerQueueStore.remove(sessionId(), id);
+  };
+
+  const handleEditQueuedPrompt = (id: string) => {
+    const entry = composerQueueStore.remove(sessionId(), id);
+    if (!entry) return;
+    setEditQueuedPayload({
+      text: entry.text,
+      attachments: sanitizeAttachmentChips(entry.attachments),
+      displayParts: entry.displayParts?.map((part) => ({ ...part })),
+    });
+    setQueuedSteerWarning(null);
+  };
+
+  const handleSendQueuedPromptNow = (id: string) => {
+    if (isStreaming()) {
+      setQueuedSteerWarning('Queued follow-ups can be sent now after the current turn finishes.');
+      return;
+    }
+    const entry = composerQueueStore.remove(sessionId(), id);
+    if (!entry) return;
+    setQueuedSteerWarning(null);
+    void sendPrompt(entry.text, undefined, entry.attachments as AttachmentChip[], entry.displayParts as UserDisplayPart[] | undefined);
   };
 
   const handleSteerFirstQueuedPrompt = async () => {
@@ -952,6 +1027,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
             steerDisabledReason={steerFirstQueuedDisabledReason() ?? undefined}
             warning={queuedSteerWarning()}
             onSteerFirst={() => void handleSteerFirstQueuedPrompt()}
+            onEdit={handleEditQueuedPrompt}
+            onSendNow={handleSendQueuedPromptNow}
           />
         ),
       });
@@ -1020,31 +1097,54 @@ export const ChatView: Component<ChatViewProps> = (props) => {
             </Match>
             <Match when={true}>
               <div
-                ref={(el) => { scroll.refs.messageList = el; }}
+                ref={(el) => {
+                  scroll.refs.messageList = el;
+                  setMessageListMounted(true);
+                  setMessageViewportHeight(el.clientHeight || MESSAGE_VIRTUAL_DEFAULT_VIEWPORT_HEIGHT);
+                }}
                 class={styles.messageList}
                 classList={{ [styles.messageListWithEnvironment]: environmentPanelVisible() }}
                 data-testid="chat-message-list"
-                onScroll={scroll.handleScroll}
+                onScroll={() => {
+                  syncMessageListMetrics();
+                  scroll.handleScroll();
+                }}
                 style={{ "padding-bottom": blockingPromptActive() ? '60px' : undefined }}
               >
                 <div class={styles.messageColumn}>
-                  <For each={messages()}>
+                  <Show when={virtualMessages().beforeHeight > 0}>
+                    <div
+                      aria-hidden="true"
+                      data-testid="message-virtual-spacer-before"
+                      style={{ height: `${virtualMessages().beforeHeight}px` }}
+                    />
+                  </Show>
+                  <For each={virtualMessages().messages}>
                     {(message, getIndex) => {
-                      const idx = getIndex();
+                      const idx = virtualMessages().startIndex + getIndex();
                       const onAction = (action: MessageActionType) =>
                         void handleMessageAction(sessionId(), action, message);
                       return (
-                        <MessageBubble
-                          message={message}
-                          showDateSeparator={dateSeparators().has(idx)}
-                          dateSeparatorLabel={dateSeparators().get(idx)}
-                          onAction={onAction}
-                          isLast={idx === messages().length - 1}
-                          actionsDisabled={isStreaming()}
-                        />
+                        <div style={{ "min-height": `${MESSAGE_VIRTUAL_ROW_HEIGHT}px` }}>
+                          <MessageBubble
+                            message={message}
+                            showDateSeparator={dateSeparators().has(idx)}
+                            dateSeparatorLabel={dateSeparators().get(idx)}
+                            onAction={onAction}
+                            isLast={idx === messages().length - 1}
+                            actionsDisabled={isStreaming()}
+                          />
+                        </div>
                       );
                     }}
                   </For>
+                  <Show when={virtualMessages().afterHeight > 0}>
+                    <div
+                      aria-hidden="true"
+                      data-testid="message-virtual-spacer-after"
+                      style={{ height: `${virtualMessages().afterHeight}px` }}
+                    />
+                  </Show>
                   <Show when={liveBlocks().length > 0 || liveTools().length > 0}>
                     <AssistantMessage
                       blocks={liveBlocks()}
@@ -1113,6 +1213,8 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                   }}
                   editDraft={editDraft}
                   clearEditDraft={() => setEditDraft(null)}
+                  editPayload={editQueuedPayload}
+                  clearEditPayload={() => setEditQueuedPayload(null)}
                   contextUsage={sessionUsage.get(sessionId())}
                   sttEnabled={sttEnabled()}
                   maxVoiceRecordingSeconds={maxVoiceRecordingSeconds()}

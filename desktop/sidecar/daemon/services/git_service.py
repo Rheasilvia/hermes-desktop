@@ -28,43 +28,30 @@ class GitService:
 
     def diff(self, session_id: str) -> GitDiffResult:
         workspace = self._workspace(session_id)
-        sandbox_policy = self._sandbox_policy("git diff")
-        result = _run_git(
+        # User-initiated Git-panel action: runs outside the agent sandbox with
+        # the user's real environment (desktop_sandbox.mode/network never apply).
+        result = _run_git_unsandboxed(
             workspace,
             ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--unified=3"],
-            hermes_home=self._hermes_home,
-            sandbox_policy=sandbox_policy,
         )
         if result.returncode != 0:
             stderr = (result.stderr or "").lower()
             if result.returncode == 128 or "not a git repository" in stderr:
                 return _empty_diff(workspace)
-            if result.returncode == -1 and "sandbox policy error" in stderr:
-                raise GitServiceError(409, result.stderr.strip())
             raise GitServiceError(500, f"git diff failed: {result.stderr.strip()}")
         return parse_git_diff(result.stdout, str(workspace))
 
     def branches(self, session_id: str) -> GitBranchInfo:
         workspace = self._workspace(session_id)
-        sandbox_policy = self._sandbox_policy("git branches")
-        current = _run_git(
-            workspace,
-            ["branch", "--show-current"],
-            hermes_home=self._hermes_home,
-            sandbox_policy=sandbox_policy,
-        )
-        refs = _run_git(
+        current = _run_git_unsandboxed(workspace, ["branch", "--show-current"])
+        refs = _run_git_unsandboxed(
             workspace,
             ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
-            hermes_home=self._hermes_home,
-            sandbox_policy=sandbox_policy,
         )
         if refs.returncode != 0:
             stderr = refs.stderr.strip()
             if refs.returncode == 128 or "not a git repository" in stderr.lower():
                 return GitBranchInfo(current="", branches=[])
-            if refs.returncode == -1 and "sandbox policy error" in stderr.lower():
-                raise GitServiceError(409, stderr)
             raise GitServiceError(500, f"git branch failed: {stderr}")
         current_name = current.stdout.strip()
         branches = [line.strip() for line in refs.stdout.splitlines() if line.strip()]
@@ -74,27 +61,16 @@ class GitService:
 
     def checkout(self, session_id: str, branch: str) -> dict[str, bool]:
         workspace = self._workspace(session_id)
-        sandbox_policy = self._sandbox_policy("git checkout")
-        if sandbox_policy["mode"] == "read-only":
-            raise GitServiceError(403, "SANDBOX_READ_ONLY")
+        # User-initiated Git-panel action; not gated by the agent sandbox's
+        # read-only mode (that knob constrains agent tool calls, not explicit
+        # user checkouts).
         branches = set(self.branches(session_id).branches)
         if branch not in branches:
             raise GitServiceError(400, "BRANCH_NOT_FOUND")
-        result = _run_git(
-            workspace,
-            ["switch", "--", branch],
-            hermes_home=self._hermes_home,
-            sandbox_policy=sandbox_policy,
-            timeout=30,
-        )
+        result = _run_git_unsandboxed(workspace, ["switch", "--", branch], timeout=30)
         if result.returncode != 0:
             raise GitServiceError(500, result.stderr.strip() or "GIT_CHECKOUT_FAILED")
         return {"ok": True}
-
-    def _sandbox_policy(self, context: str) -> dict[str, str]:
-        from .desktop_sandbox_policy import load_desktop_sandbox_policy
-
-        return load_desktop_sandbox_policy(self._hermes_home, context=context)
 
     def _workspace(self, session_id: str) -> Path:
         session = self._session_service.get_session(session_id)
@@ -110,6 +86,12 @@ class GitService:
 
 
 def _git_env(workspace: Path) -> dict[str, str]:
+    """Sandboxed environment for agent-driven git calls.
+
+    Points HOME/git-config at an isolated per-workspace scratch dir so an
+    agent-initiated git command cannot read the user's real identity/credentials.
+    Used by the (agent) ``_run_git`` path only.
+    """
     from .sandbox_runner import with_workspace_scratch_env
 
     return with_workspace_scratch_env({
@@ -122,6 +104,25 @@ def _git_env(workspace: Path) -> dict[str, str]:
         "NO_COLOR": "1",
         "TERM": "dumb",
     }, workspace)
+
+
+def _user_git_env() -> dict[str, str]:
+    """Environment for user-initiated git/gh calls (Review/Git/Projects panels).
+
+    These are explicit, deliberate user actions — not agent tool calls — so they
+    must NOT be sandboxed and must run with the *user's real* environment: their
+    HOME (git identity, ``~/.gitconfig``, credential helper), their PATH (where
+    ``gh`` and any credential helpers live), and their authenticated git/gh
+    state. Isolating them would break push auth and ``gh pr create``.
+    """
+    env = dict(os.environ)
+    # Keep pager/diff behavior stable and non-interactive for parsing.
+    env.setdefault("GIT_TERMINAL_PROMPT", "0")
+    env["GIT_PAGER"] = "cat"
+    env["GIT_EXTERNAL_DIFF"] = ""
+    env["NO_COLOR"] = "1"
+    env["TERM"] = "dumb"
+    return env
 
 
 def _run_git(
@@ -154,6 +155,56 @@ def _run_git(
         sandbox_mode=sandbox_policy["mode"],
         network_access=sandbox_policy["network_access"],
     )
+
+
+def _run_git_unsandboxed(
+    workspace: Path,
+    args: list[str],
+    *,
+    timeout: int = 30,
+):
+    """Run git for a user-initiated panel action, outside the agent sandbox.
+
+    Review/Git/Projects panel operations are explicit user actions, not agent
+    tool calls, so they bypass the desktop sandbox entirely and run with the
+    user's real environment (identity, credentials, PATH). The agent-sandbox
+    ``mode``/``network_access`` knobs never apply here.
+
+    Returns a ``SandboxResult``-shaped object (``.returncode/.stdout/.stderr``)
+    so call sites can share the existing ``_git_error`` classifier unchanged.
+    """
+    import subprocess
+
+    argv = ["git", "-c", "core.hooksPath=/dev/null", *args]
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=str(workspace),
+            env=_user_git_env(),
+            timeout=timeout,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise GitServiceError(504, f"git command timed out: {' '.join(args)}") from exc
+    except OSError as exc:
+        # e.g. git binary missing / not executable.
+        raise GitServiceError(409, f"git unavailable: {exc}") from exc
+    return _CompletedAsResult(completed)
+
+
+class _CompletedAsResult:
+    """Adapter so unsandboxed ``subprocess.CompletedProcess`` shares the
+    ``.returncode/.stdout/.stderr`` surface that ``_git_error`` expects from the
+    sandbox runner's ``SandboxResult``."""
+
+    __slots__ = ("returncode", "stdout", "stderr")
+
+    def __init__(self, completed: "subprocess.CompletedProcess[str]") -> None:
+        self.returncode = int(completed.returncode)
+        self.stdout = str(completed.stdout or "")
+        self.stderr = str(completed.stderr or "")
 
 
 def _empty_diff(workspace: Path) -> GitDiffResult:

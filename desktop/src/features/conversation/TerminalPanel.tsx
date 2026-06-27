@@ -7,11 +7,16 @@ import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import type { Component } from 'solid-js';
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
+import { composerInsertionStore } from '@/stores/composer-insertions.js';
+import { Icon } from '@/ui/atoms/Icon.js';
+import type { AttachmentChip } from './composer/AttachmentChips.js';
 import styles from './TerminalPanel.module.css';
 
 interface TerminalPanelProps {
   active: boolean;
   cwd: string | null;
+  sessionId?: string | null;
+  onSendToChat?: (text: string) => void;
 }
 
 interface TerminalStartResult {
@@ -252,6 +257,22 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     void invoke('terminal_write', { id, data: bytes }).catch((err) => setError(String(err)));
   };
 
+  const shellQuote = (path: string) => {
+    if (/^[A-Za-z0-9_./:-]+$/.test(path)) return path;
+    return `'${path.replace(/'/g, "'\\''")}'`;
+  };
+
+  const handleTerminalDrop = (event: DragEvent) => {
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length === 0) return;
+    event.preventDefault();
+    const paths = files
+      .map((file) => String((file as File & { path?: string }).path || file.webkitRelativePath || file.name || '').trim())
+      .filter(Boolean)
+      .map(shellQuote);
+    if (paths.length > 0) sendTerminalInput(paths.join(' '));
+  };
+
   const handleHostKeyDown = (event: KeyboardEvent) => {
     const input = keyToTerminalInput(event);
     if (!input) return;
@@ -378,6 +399,39 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     setError(null);
     setStatus('Terminal idle');
     void ensureStarted();
+  };
+
+  const visibleTerminalSnapshot = () => {
+    if (!terminal) return '';
+    const buffer = terminal.buffer.active;
+    const lines: string[] = [];
+    const start = buffer.viewportY;
+    for (let row = 0; row < terminal.rows; row += 1) {
+      const line = buffer.getLine(start + row);
+      if (line) lines.push(line.translateToString(true));
+    }
+    return lines.join('\n').trim();
+  };
+
+  const sendSelectionToChat = () => {
+    const text = terminal?.getSelection().trim();
+    if (!text) return;
+    if (props.onSendToChat) props.onSendToChat(text);
+    else composerInsertionStore.insert(props.sessionId, text);
+  };
+
+  const sendSnapshotToChat = () => {
+    const text = visibleTerminalSnapshot();
+    if (!text) return;
+    const payload = `Terminal snapshot:\n\n${text}`;
+    const chip: AttachmentChip = {
+      id: `terminal:${Date.now()}:${text.length}`,
+      kind: 'terminal',
+      name: 'Terminal snapshot',
+      size: text.length,
+      refText: payload,
+    };
+    composerInsertionStore.insert(props.sessionId, '', [chip]);
   };
 
   onMount(async () => {
@@ -537,6 +591,28 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
 
   return (
     <div class={styles.terminalPanel}>
+      <div class={styles.toolbar}>
+        <button
+          type="button"
+          class={styles.toolButton}
+          onClick={sendSelectionToChat}
+          title="Send selection to chat"
+          aria-label="Send terminal selection to chat"
+        >
+          <Icon name="copy" size={13} />
+          <span>Selection</span>
+        </button>
+        <button
+          type="button"
+          class={styles.toolButton}
+          onClick={sendSnapshotToChat}
+          title="Send terminal snapshot to chat"
+          aria-label="Send terminal snapshot to chat"
+        >
+          <Icon name="terminal" size={13} />
+          <span>Snapshot</span>
+        </button>
+      </div>
       <div
         ref={host}
         class={styles.terminalHost}
@@ -544,6 +620,8 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
         onPointerDown={focusTerminal}
         onFocus={handleHostFocus}
         onKeyDown={handleHostKeyDown}
+        onDrop={handleTerminalDrop}
+        onDragOver={(event) => event.preventDefault()}
         tabIndex={0}
       >
         <div

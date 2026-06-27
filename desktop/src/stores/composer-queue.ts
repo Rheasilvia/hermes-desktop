@@ -1,4 +1,5 @@
 import { createStore, produce } from 'solid-js/store';
+import { sanitizeAttachmentChips } from '@/features/conversation/composer/attachmentSanitizer.js';
 import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 
 export interface QueuedAttachment {
@@ -60,8 +61,8 @@ function saveQueueState(state: QueueState): void {
 
 const [queuesBySession, setQueuesBySession] = createStore<QueueState>(loadQueueState());
 
-function cloneAttachments(attachments: QueuedAttachment[] = []): QueuedAttachment[] {
-  return attachments.map((attachment) => ({ ...attachment }));
+function cloneAttachments(attachments: readonly unknown[] | null | undefined = []): QueuedAttachment[] {
+  return sanitizeAttachmentChips(attachments);
 }
 
 function cloneDisplayParts(displayParts: UserDisplayPart[] = []): UserDisplayPart[] {

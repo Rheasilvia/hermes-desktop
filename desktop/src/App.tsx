@@ -4,6 +4,7 @@ import '@/styles/global.css';
 import { AppLayout } from '@/shell/AppLayout';
 import { ModuleErrorBoundary } from '@/shell/ModuleErrorBoundary';
 import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner';
+import { ToastHost } from '@/ui/molecules/Toast.js';
 import { initializeStores } from '@/stores/context.js';
 import { createHttpGateway } from '@/services/gateway/index.js';
 import type { GatewayAdapter } from '@/services/gateway/types.js';
@@ -99,6 +100,7 @@ const App: Component = () => {
           <Route path="/gateway" component={() => <RedirectRoute to="/settings/gateway" />} />
           <Route path="/cron" component={() => <RedirectRoute to="/settings/cron" />} />
         </Router>
+        <ToastHost />
       </Match>
       <Match when={bootState() === 'error'}>
         <div class={styles.bootScreen}>

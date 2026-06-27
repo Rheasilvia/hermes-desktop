@@ -18,7 +18,16 @@ import type {
   WorkspaceChildrenResult,
   WorkspaceFileResult,
   GitDiffResult,
+  ReviewCommitMessageResult,
+  ReviewFilesResult,
+  ReviewOkResult,
+  ReviewPrResult,
+  ReviewShipInfoResult,
+  BranchListResult,
   ModelOption,
+  ProjectEntry,
+  ProjectListResult,
+  WorktreeListResult,
   CronJob,
   CreateCronJobParams,
   UpdateCronJobParams,
@@ -359,6 +368,7 @@ export interface CompleteMethods {
 export interface WorkspaceMethods {
   children(sessionId: string, path: string): Promise<WorkspaceChildrenResult>;
   readFile(sessionId: string, path: string): Promise<WorkspaceFileResult>;
+  writeFile(sessionId: string, input: { path: string; content: string; expectedMtime?: number; expectedSize?: number }): Promise<WorkspaceFileResult>;
   reveal(sessionId: string, path: string): Promise<void>;
 }
 
@@ -371,6 +381,31 @@ export interface GitMethods {
   diff(sessionId: string): Promise<GitDiffResult>;
   branches(sessionId: string): Promise<GitBranchInfo>;
   checkout(sessionId: string, branch: string): Promise<void>;
+}
+
+export interface ReviewMethods {
+  files(sessionId: string): Promise<ReviewFilesResult>;
+  diff(sessionId: string, input?: { path?: string | null; staged?: boolean }): Promise<GitDiffResult>;
+  stage(sessionId: string, paths: string[]): Promise<ReviewOkResult>;
+  unstage(sessionId: string, paths: string[]): Promise<ReviewOkResult>;
+  revert(sessionId: string, paths: string[]): Promise<ReviewOkResult>;
+  commit(sessionId: string, message: string): Promise<ReviewOkResult>;
+  push(sessionId: string): Promise<ReviewOkResult>;
+  createPr(sessionId: string): Promise<ReviewPrResult>;
+  generateCommitMessage(sessionId: string, avoid?: string): Promise<ReviewCommitMessageResult>;
+  defaultBranch(sessionId: string): Promise<string | null>;
+  shipInfo(sessionId: string): Promise<ReviewShipInfoResult>;
+}
+
+export interface ProjectMethods {
+  list(): Promise<ProjectListResult>;
+  upsert(path: string, name?: string): Promise<ProjectEntry>;
+  setActive(path: string | null): Promise<ProjectListResult>;
+  worktrees(repoPath: string): Promise<WorktreeListResult>;
+  addWorktree(input: { repoPath: string; path: string; branch: string; createBranch?: boolean }): Promise<ReviewOkResult>;
+  removeWorktree(input: { repoPath: string; path: string }): Promise<ReviewOkResult>;
+  branches(repoPath: string): Promise<BranchListResult>;
+  switchBranch(input: { path: string; branch: string }): Promise<ReviewOkResult>;
 }
 
 /** Lifecycle session actions performed by the frontend (mirror of backend ActionName). */
@@ -433,6 +468,8 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   readonly complete: CompleteMethods;
   readonly workspace: WorkspaceMethods;
   readonly git: GitMethods;
+  readonly review: ReviewMethods;
+  readonly projects: ProjectMethods;
   readonly slash: SlashMethods;
   readonly command: CommandMethods;
   readonly delegation: DelegationMethods;
@@ -447,7 +484,7 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   getConnectionState(): ConnectionState;
 }
 
-export type { CollaborationMode, DesktopPermissionMode, ReasoningEffort, SessionRuntime, SessionRuntimeUpdateResult, SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, WorkspaceChildrenResult, WorkspaceFileResult, GitDiffResult, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult, UserInputAnswersPayload } from '@/types/index.js';
+export type { CollaborationMode, DesktopPermissionMode, ReasoningEffort, SessionRuntime, SessionRuntimeUpdateResult, SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, WorkspaceChildrenResult, WorkspaceFileResult, GitDiffResult, ReviewCommitMessageResult, ReviewFilesResult, ReviewShipInfoResult, ReviewOkResult, ReviewPrResult, BranchListResult, ProjectEntry, ProjectListResult, WorktreeListResult, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult, UserInputAnswersPayload } from '@/types/index.js';
 
 /** Factory options for creating a gateway adapter. */
 export interface GatewayAdapterOptions {
