@@ -36,6 +36,53 @@ pub async fn open_external(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
 }
 
+/// Triggers the native macOS install of the Command Line Tools (which provide
+/// a working `git`). This is a system-level fix for the
+/// `MACOS_DEVELOPER_TOOLS_MISSING` error the review panel surfaces when the git
+/// shim at `/usr/bin/git` can't find the developer toolchain.
+///
+/// `xcode-select --install` opens the native macOS GUI installer; the user still
+/// clicks "Install" there — we don't silently install anything, and we never
+/// touch their workspace. On non-macOS hosts this is a no-op (returns the
+/// platform-specific reason) since the xcrun shim failure is macOS-only.
+#[tauri::command]
+pub async fn install_macos_command_line_tools() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+
+        // `xcode-select --install` returns immediately after launching the GUI
+        // installer (exit 0 and a "note" on stderr if tools are already present).
+        // We surface both states as success: if already installed, there is
+        // nothing to do; otherwise the GUI prompt is now on screen.
+        let output = Command::new("/usr/bin/xcode-select")
+            .arg("--install")
+            .output()
+            .map_err(|e| format!("Failed to launch installer: {e}"))?;
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // macOS reports "already installed" via a note on stderr, exit 0.
+        if stderr.contains("already installed") {
+            return Ok(());
+        }
+        if !output.status.success() {
+            return Err(format!(
+                "Command Line Tools installer did not launch: {}",
+                stderr.trim()
+            ));
+        }
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        // The xcrun shim failure only occurs on macOS; on other platforms the
+        // review feature would fail with a different, platform-appropriate
+        // error that this command cannot address.
+        Err("Command Line Tools are a macOS-only feature.".into())
+    }
+}
+
 pub(crate) fn validate_external_url(url: &str) -> Result<(), String> {
     let parsed = reqwest::Url::parse(url).map_err(|_| "invalid URL".to_string())?;
     match parsed.scheme() {

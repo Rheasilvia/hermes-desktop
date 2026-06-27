@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..schemas.workspace import RevealWorkspacePathRequest
+from ..schemas.workspace import RevealWorkspacePathRequest, WriteWorkspaceFileRequest
 from ..services.dependencies import get_workspace_service
 from ..services.workspace_service import WorkspaceServiceError
 
@@ -29,6 +29,24 @@ def read_workspace_file(
 ) -> dict:
     try:
         return svc.read_file(session_id, path).model_dump()
+    except WorkspaceServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.put("/sessions/{session_id}/workspace/file")
+def write_workspace_file(
+    session_id: str,
+    body: WriteWorkspaceFileRequest,
+    svc=Depends(get_workspace_service),
+) -> dict:
+    try:
+        return svc.write_file(
+            session_id,
+            body.path,
+            body.content,
+            expected_mtime=body.expected_mtime,
+            expected_size=body.expected_size,
+        ).model_dump()
     except WorkspaceServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 

@@ -6,59 +6,11 @@ import json
 import sys
 from unittest.mock import MagicMock, patch
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _make_fake_entry(name: str, toolset: str = "builtin") -> MagicMock:
-    """Return a mock ToolEntry-like object."""
-    entry = MagicMock()
-    entry.name = name
-    entry.toolset = toolset
-    entry.schema = {"name": name, "description": f"tool {name}"}
-    entry.handler = MagicMock(return_value=json.dumps({"result": "ok"}))
-    entry.check_fn = None
-    entry.requires_env = []
-    entry.is_async = False
-    entry.description = f"tool {name}"
-    entry.emoji = ""
-    entry.max_result_size_chars = None
-    entry.dynamic_schema_overrides = None
-    return entry
-
-
-def _fresh_overrides_module():
-    """Re-import desktop_tool_overrides with a clean state (no _INSTALLED flag)."""
-    mod_name = "daemon.tools.desktop_tool_overrides"
-    # Remove cached module so we get a fresh _INSTALLED = False
-    for key in list(sys.modules.keys()):
-        if key == mod_name or key.startswith(mod_name + "."):
-            del sys.modules[key]
-    return importlib.import_module(mod_name)
-
-
-# ---------------------------------------------------------------------------
-# Shared mock context
-# ---------------------------------------------------------------------------
-
-def _build_mocks(tool_names=("read_file", "write_file", "patch",
-                              "search_files", "todo", "terminal", "process",
-                              "execute_code")):
-    """Build a consistent set of mocks for the three modules we patch."""
-    fake_entries = {name: _make_fake_entry(name) for name in tool_names}
-
-    fake_registry = MagicMock()
-    fake_registry.get_entry.side_effect = lambda name: fake_entries.get(name)
-
-    fake_registry_module = MagicMock()
-    fake_registry_module.registry = fake_registry
-    fake_registry_module.discover_builtin_tools = MagicMock()
-
-    fake_model_tools = MagicMock()
-    fake_model_tools._clear_tool_defs_cache = MagicMock()
-
-    return fake_entries, fake_registry, fake_registry_module, fake_model_tools
+from .tool_override_fixtures import (
+    build_fake_registry,
+    fresh_desktop_overrides_module,
+    make_fake_tool_entry,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +23,7 @@ class TestPyInstallerRequiredToolImports:
         find nothing. The desktop startup helper must directly import every
         tool that install_desktop_tool_overrides() requires, including todo.
         """
-        overrides = _fresh_overrides_module()
+        overrides = fresh_desktop_overrides_module()
         import tools.registry as registry_module
 
         registry = registry_module.registry
@@ -90,8 +42,8 @@ class TestPyInstallerRequiredToolImports:
 class TestInstallIdempotent:
     def test_install_twice_does_not_raise_and_installed_is_true(self):
         """Calling install_desktop_tool_overrides() twice must not raise."""
-        overrides = _fresh_overrides_module()
-        _, _, fake_registry_module, fake_model_tools = _build_mocks()
+        overrides = fresh_desktop_overrides_module()
+        _, _, fake_registry_module, fake_model_tools = build_fake_registry()
 
         with (
             patch.dict(sys.modules, {
@@ -101,7 +53,7 @@ class TestInstallIdempotent:
             patch.object(
                 fake_registry_module.registry,
                 "get_entry",
-                side_effect=lambda name: _make_fake_entry(name),
+                side_effect=lambda name: make_fake_tool_entry(name),
             ),
         ):
             overrides.install_desktop_tool_overrides()
@@ -118,8 +70,8 @@ class TestOriginalsCapturedBeforeOverride:
     def test_read_file_original_is_not_the_wrapper(self):
         """After install, ORIGINAL_TOOLS['read_file'] must be the entry that
         existed before wrappers were installed — i.e. the pre-override handler."""
-        overrides = _fresh_overrides_module()
-        fake_entries, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
+        overrides = fresh_desktop_overrides_module()
+        fake_entries, fake_registry, fake_registry_module, fake_model_tools = build_fake_registry()
 
         with patch.dict(sys.modules, {
             "tools.registry": fake_registry_module,
@@ -142,8 +94,8 @@ class TestWrapperFailsClosedWithoutSnapshot:
     def test_wrapped_handler_returns_policy_missing_without_snapshot(self):
         """When no workspace policy snapshot is active, the wrapped handler
         must return JSON with code='POLICY_MISSING' and not call the original."""
-        overrides = _fresh_overrides_module()
-        fake_entries, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
+        overrides = fresh_desktop_overrides_module()
+        fake_entries, fake_registry, fake_registry_module, fake_model_tools = build_fake_registry()
 
         # Track what gets registered with override=True
         registered_wrappers: dict[str, MagicMock] = {}
@@ -214,8 +166,8 @@ class TestWrapperPassThroughWithSnapshot:
             )
             fake_workspace_policy.resolve_path = MagicMock(return_value=fake_decision)
 
-            overrides = _fresh_overrides_module()
-            fake_entries, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
+            overrides = fresh_desktop_overrides_module()
+            fake_entries, fake_registry, fake_registry_module, fake_model_tools = build_fake_registry()
 
             registered_wrappers: dict[str, MagicMock] = {}
 
@@ -267,8 +219,8 @@ class TestWrapperPassThroughWithSnapshot:
             fake_workspace_policy.get_workspace_policy_snapshot = MagicMock(return_value=fake_snapshot)
             fake_workspace_policy.resolve_path = MagicMock(return_value=fake_decision)
 
-            overrides = _fresh_overrides_module()
-            fake_entries, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
+            overrides = fresh_desktop_overrides_module()
+            fake_entries, fake_registry, fake_registry_module, fake_model_tools = build_fake_registry()
             registered_wrappers: dict[str, MagicMock] = {}
 
             def capture_register(**kwargs):
@@ -352,8 +304,8 @@ class TestWrapperPassThroughWithSnapshot:
             workspace = pathlib.Path(tmpdir)
             snap = build_workspace_policy_snapshot("sess", "turn", tmpdir, "full")
             token = set_workspace_policy_snapshot(snap)
-            overrides = _fresh_overrides_module()
-            fake_entries, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
+            overrides = fresh_desktop_overrides_module()
+            fake_entries, fake_registry, fake_registry_module, fake_model_tools = build_fake_registry()
             registered_wrappers: dict[str, MagicMock] = {}
 
             def capture_register(**kwargs):
@@ -403,11 +355,11 @@ class TestInstallFailsOnMissingTool:
         """
         import pytest as _pytest
 
-        overrides = _fresh_overrides_module()
+        overrides = fresh_desktop_overrides_module()
 
         # Provide every required original except "execute_code".
         tool_names = ["read_file", "write_file", "patch", "search_files", "todo", "terminal", "process"]
-        fake_entries = {name: _make_fake_entry(name) for name in tool_names}
+        fake_entries = {name: make_fake_tool_entry(name) for name in tool_names}
 
         fake_registry = MagicMock()
         fake_registry.get_entry.side_effect = lambda name: fake_entries.get(name)  # returns None for execute_code
@@ -436,7 +388,7 @@ class TestInstallFailsOnMissingTool:
 class TestSharedImportDoesNotInstallOverrides:
     def test_importing_tools_registry_does_not_set_installed(self):
         """Importing tools.registry or a tool module must not touch _INSTALLED."""
-        overrides = _fresh_overrides_module()
+        overrides = fresh_desktop_overrides_module()
 
         # _INSTALLED starts False in a fresh module
         assert overrides._INSTALLED is False
@@ -452,8 +404,8 @@ class TestSharedImportDoesNotInstallOverrides:
 
     def test_installed_only_after_explicit_call(self):
         """_INSTALLED must remain False until install_desktop_tool_overrides() is called."""
-        overrides = _fresh_overrides_module()
-        _, _, fake_registry_module, fake_model_tools = _build_mocks()
+        overrides = fresh_desktop_overrides_module()
+        _, _, fake_registry_module, fake_model_tools = build_fake_registry()
 
         # Confirm still False before any explicit call
         assert overrides._INSTALLED is False
@@ -468,8 +420,8 @@ class TestSharedImportDoesNotInstallOverrides:
 
     def test_plan_tools_registered_only_by_desktop_install(self):
         """Desktop-only plan tools are registered by the Tauri sidecar install hook."""
-        overrides = _fresh_overrides_module()
-        _, fake_registry, fake_registry_module, fake_model_tools = _build_mocks()
+        overrides = fresh_desktop_overrides_module()
+        _, fake_registry, fake_registry_module, fake_model_tools = build_fake_registry()
 
         registered: dict[str, dict] = {}
 

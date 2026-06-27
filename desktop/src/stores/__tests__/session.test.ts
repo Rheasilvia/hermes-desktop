@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { initializeStores } from '../context';
+import { projectStore } from '../projects.js';
 import { sessionStore } from '../session';
 import type { GatewayAdapter } from '../../services/gateway/types';
 import type { SessionListItem, SessionMeta } from '../../types/index.js';
+
+beforeEach(() => {
+  projectStore.resetForTests();
+});
 
 function row(overrides: Partial<SessionListItem> = {}): SessionListItem {
   return {
@@ -108,6 +113,16 @@ function gatewayWithSessions(initial: SessionListItem[]) {
         attach: vi.fn(async () => ({ attached: true, path: '', count: 1 })),
         detach: vi.fn(async () => ({ detached: true, count: 0 })),
       },
+      projects: {
+        list: vi.fn(async () => ({ projects: [], active_path: null })),
+        upsert: vi.fn(),
+        setActive: vi.fn(async () => ({ projects: [], active_path: null })),
+        worktrees: vi.fn(),
+        addWorktree: vi.fn(),
+        removeWorktree: vi.fn(),
+        branches: vi.fn(),
+        switchBranch: vi.fn(),
+      },
     } as unknown as GatewayAdapter,
     create,
     list,
@@ -184,6 +199,34 @@ describe('sessionStore runtime', () => {
     });
     expect(sessionStore.getSessionCollaborationMode('session-1')).toBe('default');
   });
+
+  it('does not let a stale failed runtime update roll back a newer update', async () => {
+    let rejectSlow!: (error: Error) => void;
+    const { gateway } = gatewayWithSessions([
+      row({ id: 'session-1', runtime: { reasoningEffort: 'medium', collaborationMode: 'default' } }),
+    ]);
+    vi.mocked(gateway.session.updateRuntime)
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => {
+        rejectSlow = reject;
+      }))
+      .mockResolvedValueOnce({
+        id: 'session-1',
+        runtime: { reasoningEffort: 'high', collaborationMode: 'default' },
+        appliedToActiveTurn: true,
+        appliesNextTurn: false,
+      });
+    initializeStores(gateway);
+    await sessionStore.loadSessions();
+
+    const slow = sessionStore.updateRuntime('session-1', { reasoningEffort: 'low' });
+    const fast = await sessionStore.updateRuntime('session-1', { reasoningEffort: 'high' });
+    rejectSlow(new Error('STALE_FAILURE'));
+    await slow;
+
+    expect(fast?.runtime.reasoningEffort).toBe('high');
+    expect(sessionStore.getSessionReasoningEffort('session-1')).toBe('high');
+    expect(sessionStore.error).toBeNull();
+  });
 });
 
 describe('sessionStore archive overlay', () => {
@@ -258,6 +301,20 @@ describe('sessionStore new conversation creation', () => {
     expect(result?.id).toBe('created-1');
     expect(create).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledWith({});
+  });
+
+  it('uses the active project as cwd for a new session without explicit cwd', async () => {
+    const { create, gateway } = gatewayWithSessions([row({ id: 'used-1', message_count: 2 })]);
+    vi.mocked(gateway.projects.setActive).mockResolvedValueOnce({
+      projects: [{ path: '/repo', name: 'repo', last_opened_at: 1 }],
+      active_path: '/repo',
+    });
+    initializeStores(gateway);
+    await projectStore.setActiveProject('/repo');
+
+    await sessionStore.createSession({});
+
+    expect(create).toHaveBeenCalledWith({ cwd: '/repo' });
   });
 
   it('reuses the backend fallback session on a second new conversation click', async () => {

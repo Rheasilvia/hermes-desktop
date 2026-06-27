@@ -21,6 +21,7 @@ export interface WorkspaceFileResult {
   truncated: boolean;
   binary: boolean;
   size: number;
+  mtime: number;
 }
 
 export interface WorkspaceTreeRow {
