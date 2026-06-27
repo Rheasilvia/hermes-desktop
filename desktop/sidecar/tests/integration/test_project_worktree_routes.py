@@ -4,19 +4,6 @@ from pathlib import Path
 import subprocess
 
 
-class _RawGitRunner:
-    def run(self, **kwargs):
-        return subprocess.run(
-            kwargs["command"],
-            cwd=kwargs["cwd"],
-            env=kwargs["env"],
-            timeout=kwargs["timeout"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-
 def _run_git(workspace: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=workspace, check=True, capture_output=True, text=True)
 
@@ -56,13 +43,12 @@ def test_projects_persist_and_active_project_round_trips(client, auth, tmp_path)
     assert body["projects"][0]["name"] == "Repo"
 
 
-def test_worktree_list_add_remove_and_branch_switch(client, auth, tmp_path, monkeypatch):
+def test_worktree_list_add_remove_and_branch_switch(client, auth, tmp_path):
     repo = tmp_path / "repo"
     worktree = tmp_path / "repo-feature"
     _init_repo(repo)
     _run_git(repo, "checkout", "-b", "feature")
     _run_git(repo, "checkout", "main")
-    monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", lambda: _RawGitRunner())
 
     added = client.post(
         "/desktop/api/projects/worktrees/add",
@@ -99,10 +85,14 @@ def test_worktree_list_add_remove_and_branch_switch(client, auth, tmp_path, monk
     assert worktree.exists() is False
 
 
-def test_worktree_mutation_rejects_read_only_sandbox(client, auth, tmp_path):
+def test_worktree_mutation_is_not_gated_by_agent_sandbox_mode(client, auth, tmp_path):
+    # User-initiated Projects-panel actions must NOT be blocked by the agent
+    # sandbox's read-only mode (that knob constrains agent tool calls only).
     repo = tmp_path / "repo"
     worktree = tmp_path / "repo-feature"
     _init_repo(repo)
+    _run_git(repo, "checkout", "-b", "feature")
+    _run_git(repo, "checkout", "main")
     settings = client.get("/desktop/api/settings", headers=auth).json()
     settings["desktop_sandbox"] = {"mode": "read-only", "network_access": "restricted"}
     saved = client.put("/desktop/api/settings", json=settings, headers=auth)
@@ -114,5 +104,4 @@ def test_worktree_mutation_rejects_read_only_sandbox(client, auth, tmp_path):
         headers=auth,
     )
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == "SANDBOX_READ_ONLY"
+    assert response.status_code == 200

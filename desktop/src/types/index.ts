@@ -50,7 +50,7 @@ export type { McpTransport, McpAuthType, McpServer, McpServerDesktop, McpServerD
 
 // Workspace tree types
 export type { WorkspaceTreeNodeKind, WorkspaceTreeNode, WorkspaceChildrenResult, WorkspaceFileResult, WorkspaceTreeRow } from './workspace-tree.js';
-export type { ReviewFile, ReviewSummary, ReviewFilesResult, ReviewCommitMessageResult, ReviewOkResult, ReviewPrResult, ReviewDiffResult } from './review.js';
+export type { ReviewFile, ReviewSummary, ReviewFilesResult, ReviewCommitMessageResult, ReviewShipInfoResult, ReviewOkResult, ReviewPrResult, ReviewDiffResult } from './review.js';
 export type { ProjectEntry, ProjectListResult, WorktreeEntry, WorktreeListResult, BranchListResult } from './projects.js';
 
 // DB row types (snake_case, mirrors SQLite columns)

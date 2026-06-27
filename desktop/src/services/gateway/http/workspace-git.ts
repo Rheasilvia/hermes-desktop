@@ -10,6 +10,7 @@ import type {
   ReviewFilesResult,
   ReviewOkResult,
   ReviewPrResult,
+  ReviewShipInfoResult,
   WorkspaceChildrenResult,
   WorkspaceFileResult,
   WorktreeListResult,
@@ -93,6 +94,12 @@ export function makeReviewGateway(http: HttpClient): GatewayAdapter['review'] {
         reviewUrl(sessionId, 'commit-message'),
         { avoid: avoid ?? null },
       ),
+    defaultBranch: async (sessionId) => {
+      const result = await http.get<{ branch: string | null }>(reviewUrl(sessionId, 'default-branch'));
+      return result.branch ?? null;
+    },
+    shipInfo: async (sessionId) =>
+      http.get<ReviewShipInfoResult>(reviewUrl(sessionId, 'ship-info')),
   };
 }
 

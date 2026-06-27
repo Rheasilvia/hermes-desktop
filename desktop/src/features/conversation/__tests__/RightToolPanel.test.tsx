@@ -11,24 +11,50 @@ vi.mock('@/stores/git-view.js', () => ({
     reviewData: () => null,
     reviewLoading: () => false,
     reviewError: () => null,
+    reviewErrorCode: () => null,
+    hasInstallableReviewError: () => false,
+    installingTools: () => false,
+    retryingReview: () => false,
     selectedReviewPath: () => null,
     actionBusyKey: () => null,
+    actionLog: [],
+    reviewActionInFlight: () => false,
+    currentBranch: () => null,
+    defaultBranch: () => null,
+    isOnDefaultBranch: () => false,
+    createdPrUrl: () => null,
     commitMessage: () => '',
     commitMessageLoading: () => false,
     commitMessageError: () => null,
+    commitMessageErrorLabel: () => null,
+    hasReviewChanges: () => false,
+    reviewShipInfo: () => null,
+    reviewFileRailWidth: () => 304,
+    setReviewFileRailWidth: vi.fn(),
+    resetReviewFileRailWidth: vi.fn(),
     selectDiffFile: vi.fn(),
     fetchDiff: vi.fn(),
     fetchReview: vi.fn(),
+    fetchReviewShipInfo: vi.fn(),
     selectReviewFile: vi.fn(),
     stagePath: vi.fn(),
+    stageAllReviewChanges: vi.fn(),
     unstagePath: vi.fn(),
     revertPath: vi.fn(),
+    revertAllReviewChanges: vi.fn(),
     commitReview: vi.fn(),
+    commitThenMaybePush: vi.fn(),
     pushReview: vi.fn(),
     createPullRequest: vi.fn(),
+    commitPushAndCreatePullRequest: vi.fn(),
+    submitReviewPromptToComposer: vi.fn(),
     setCommitMessage: vi.fn(),
+    setCreatedPrUrl: vi.fn(),
     generateCommitMessage: vi.fn(),
     cancelCommitMessageGeneration: vi.fn(),
+    installCommandLineTools: vi.fn(),
+    retryReview: vi.fn(),
+    clearActionLog: vi.fn(),
   },
 }));
 
@@ -200,5 +226,16 @@ describe('RightToolPanel', () => {
     expect(screen.getByTestId('review-view')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Back to tools' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Close tools/i })).toBeNull();
+  });
+
+  it('renders a lightweight preview placeholder without mounting a webview rail', () => {
+    sidePanelStore.setActiveView('preview');
+    render(() => (
+      <RightToolPanel sessionId="session-1" workspacePath="/repo" />
+    ));
+
+    expect(screen.getByRole('status', { name: 'No preview selected' })).toBeTruthy();
+    expect(screen.getByText('Preview')).toBeTruthy();
+    expect(document.querySelector('webview')).toBeNull();
   });
 });

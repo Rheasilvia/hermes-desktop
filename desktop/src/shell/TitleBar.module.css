@@ -121,12 +121,13 @@
 
 .toolTabItem,
 .addToolButton {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
+  height: 30px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: transparent;
   color: var(--color-on-surface-dim);
   cursor: default;
@@ -155,9 +156,20 @@
 }
 
 .toolTabActive {
-  background: color-mix(in srgb, var(--color-on-surface) 5%, var(--color-surface));
+  background: var(--color-surface);
   color: var(--color-on-surface);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-border) 70%, transparent);
+  box-shadow:
+    inset 0 -1px 0 var(--color-surface),
+    inset 1px 0 0 var(--color-border-light),
+    inset -1px 0 0 var(--color-border-light);
+}
+
+.toolTabActive::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: var(--color-on-surface);
+  content: '';
 }
 
 .toolTabLabel {
@@ -178,7 +190,7 @@
   min-width: 0;
   height: 100%;
   border: 0;
-  padding: 0 var(--space-2) 0 var(--space-3);
+  padding: 0 8px 0 10px;
   background: transparent;
   color: inherit;
   cursor: default;
@@ -242,6 +254,7 @@
 .addToolButton {
   width: 28px;
   padding: 0;
+  border-radius: var(--radius-sm);
 }
 
 .toolMenu {

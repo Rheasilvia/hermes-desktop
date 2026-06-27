@@ -248,6 +248,7 @@ def get_review_service(request: Request):
         ).ReviewService(
             session_service=get_session_service(request),
             hermes_home=home,
+            agent_pool=get_agent_pool(request),
         ),
     )
 

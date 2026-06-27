@@ -33,6 +33,14 @@ export interface ReviewCommitMessageResult {
   detail?: string | null;
 }
 
+export interface ReviewShipInfoResult {
+  current_branch: string;
+  default_branch: string | null;
+  pr_url: string | null;
+  gh_available: boolean;
+  can_create_pr: boolean;
+}
+
 export interface ReviewOkResult {
   ok: boolean;
   detail?: string | null;

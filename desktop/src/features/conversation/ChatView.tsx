@@ -45,6 +45,7 @@ import { PermissionRequestCard } from './turn/PermissionRequestCard.js';
 import { BackgroundTaskDock } from './background/BackgroundTaskDock.js';
 import { backgroundTaskStore, recentBackgroundTasks } from '@/stores/background-tasks.js';
 import { composerQueueStore, shouldAutoDrainOnSettle, type QueuedAttachment } from '@/stores/composer-queue.js';
+import { composerInsertionStore } from '@/stores/composer-insertions.js';
 import { createScrollController } from './scrollController.js';
 import { createCommandCardState } from './commandCardState.js';
 import { createSlashCommandRunner } from './slashCommandRunner.js';
@@ -170,6 +171,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let wasBusy = false;
   let suppressNextAutoDrain = false;
   let escapePrioritySurfaceAtKeydown = false;
+  let lastComposerSubmissionId = 0;
   const autoTtsPlayed = new Set<string>();
 
   const cwd = createMemo(() => sessionStore.activeSession?.cwd ?? null);
@@ -836,6 +838,15 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     cards.setCommandCard(null);
     return sendPrompt(text, undefined, attachments as AttachmentChip[] | undefined, displayParts);
   };
+
+  createEffect(() => {
+    const next = composerInsertionStore.latestSubmission();
+    if (!next || next.id === lastComposerSubmissionId) return;
+    const currentSession = sessionId().trim() || null;
+    if (next.sessionId && next.sessionId !== currentSession) return;
+    lastComposerSubmissionId = next.id;
+    void handleSend(next.text, next.attachments as QueuedAttachment[] | undefined);
+  });
 
   const handleMaskedPermissionSubmit = (requestId: string, value: string) => {
     const permission = liveState().pendingPermission;

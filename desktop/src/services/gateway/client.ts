@@ -39,6 +39,7 @@ import type {
   ReviewFilesResult,
   ReviewOkResult,
   ReviewPrResult,
+  ReviewShipInfoResult,
   BranchListResult,
   ProjectEntry,
   ProjectListResult,
@@ -351,6 +352,10 @@ export class GatewayClient {
       this.call('review.pr', { session_id: sessionId }),
     generateCommitMessage: (sessionId: string, avoid?: string): Promise<ReviewCommitMessageResult> =>
       this.call('review.commit_message', { session_id: sessionId, avoid }),
+    defaultBranch: (sessionId: string): Promise<string | null> =>
+      this.call('review.default_branch', { session_id: sessionId }),
+    shipInfo: (sessionId: string): Promise<ReviewShipInfoResult> =>
+      this.call('review.ship_info', { session_id: sessionId }),
   };
 
   projects = {

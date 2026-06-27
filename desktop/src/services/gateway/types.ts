@@ -22,6 +22,7 @@ import type {
   ReviewFilesResult,
   ReviewOkResult,
   ReviewPrResult,
+  ReviewShipInfoResult,
   BranchListResult,
   ModelOption,
   ProjectEntry,
@@ -392,6 +393,8 @@ export interface ReviewMethods {
   push(sessionId: string): Promise<ReviewOkResult>;
   createPr(sessionId: string): Promise<ReviewPrResult>;
   generateCommitMessage(sessionId: string, avoid?: string): Promise<ReviewCommitMessageResult>;
+  defaultBranch(sessionId: string): Promise<string | null>;
+  shipInfo(sessionId: string): Promise<ReviewShipInfoResult>;
 }
 
 export interface ProjectMethods {
@@ -481,7 +484,7 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   getConnectionState(): ConnectionState;
 }
 
-export type { CollaborationMode, DesktopPermissionMode, ReasoningEffort, SessionRuntime, SessionRuntimeUpdateResult, SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, WorkspaceChildrenResult, WorkspaceFileResult, GitDiffResult, ReviewCommitMessageResult, ReviewFilesResult, ReviewOkResult, ReviewPrResult, BranchListResult, ProjectEntry, ProjectListResult, WorktreeListResult, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult, UserInputAnswersPayload } from '@/types/index.js';
+export type { CollaborationMode, DesktopPermissionMode, ReasoningEffort, SessionRuntime, SessionRuntimeUpdateResult, SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, WorkspaceChildrenResult, WorkspaceFileResult, GitDiffResult, ReviewCommitMessageResult, ReviewFilesResult, ReviewShipInfoResult, ReviewOkResult, ReviewPrResult, BranchListResult, ProjectEntry, ProjectListResult, WorktreeListResult, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult, UserInputAnswersPayload } from '@/types/index.js';
 
 /** Factory options for creating a gateway adapter. */
 export interface GatewayAdapterOptions {

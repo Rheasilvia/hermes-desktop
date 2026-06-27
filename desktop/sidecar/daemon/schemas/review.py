@@ -61,6 +61,14 @@ class ReviewCommitMessageResult(BaseModel):
     detail: str | None = None
 
 
+class ReviewShipInfoResult(BaseModel):
+    current_branch: str
+    default_branch: str | None = None
+    pr_url: str | None = None
+    gh_available: bool
+    can_create_pr: bool
+
+
 class ReviewOkResult(BaseModel):
     ok: bool
     detail: str | None = None

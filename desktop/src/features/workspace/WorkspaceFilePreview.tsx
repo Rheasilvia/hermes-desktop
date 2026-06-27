@@ -140,7 +140,7 @@ export const WorkspaceFilePreview: Component<Props> = (props) => {
                       class={styles.editor}
                       value={draft()}
                       onInput={(event) => setDraft(event.currentTarget.value)}
-                      spellCheck={false}
+                      spellcheck={false}
                     />
                   </Show>
                 </>

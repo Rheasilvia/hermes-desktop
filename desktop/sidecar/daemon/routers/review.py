@@ -108,3 +108,25 @@ def review_commit_message(
         return svc.commit_message(session_id, avoid=body.avoid).model_dump()
     except GitServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.get("/sessions/{session_id}/review/default-branch")
+def review_default_branch(
+    session_id: str,
+    svc=Depends(get_review_service),
+) -> dict:
+    try:
+        return svc.default_branch(session_id)
+    except GitServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.get("/sessions/{session_id}/review/ship-info")
+def review_ship_info(
+    session_id: str,
+    svc=Depends(get_review_service),
+) -> dict:
+    try:
+        return svc.ship_info(session_id).model_dump()
+    except GitServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

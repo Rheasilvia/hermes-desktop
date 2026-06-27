@@ -4,23 +4,6 @@ from pathlib import Path
 import subprocess
 
 
-class _RawGitRunner:
-    def __init__(self) -> None:
-        self.calls = []
-
-    def run(self, **kwargs):
-        self.calls.append(kwargs)
-        return subprocess.run(
-            kwargs["command"],
-            cwd=kwargs["cwd"],
-            env=kwargs["env"],
-            timeout=kwargs["timeout"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-
 def _create_session(client, workspace_grant, workspace: Path) -> str:
     response = client.post(
         "/desktop/api/sessions",
@@ -50,7 +33,6 @@ def test_review_files_reports_staged_unstaged_untracked_with_churn(
     auth,
     workspace_grant,
     tmp_path,
-    monkeypatch,
 ):
     workspace = tmp_path / "workspace"
     _init_repo(workspace)
@@ -59,7 +41,6 @@ def test_review_files_reports_staged_unstaged_untracked_with_churn(
     _run_git(workspace, "add", "staged.txt")
     (workspace / "notes.txt").write_text("one\ntwo\n", encoding="utf-8")
     sid = _create_session(client, workspace_grant, workspace)
-    monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", lambda: _RawGitRunner())
 
     response = client.get(f"/desktop/api/sessions/{sid}/review/files", headers=auth)
 
@@ -81,13 +62,11 @@ def test_review_diff_returns_untracked_file_as_all_add_diff(
     auth,
     workspace_grant,
     tmp_path,
-    monkeypatch,
 ):
     workspace = tmp_path / "workspace"
     _init_repo(workspace)
     (workspace / "new.txt").write_text("alpha\nbeta\n", encoding="utf-8")
     sid = _create_session(client, workspace_grant, workspace)
-    monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", lambda: _RawGitRunner())
 
     response = client.post(
         f"/desktop/api/sessions/{sid}/review/diff",
@@ -116,8 +95,6 @@ def test_review_stage_unstage_and_commit_refreshes_git_state(
     _init_repo(workspace)
     (workspace / "tracked.txt").write_text("old\nnext\n", encoding="utf-8")
     sid = _create_session(client, workspace_grant, workspace)
-    runner = _RawGitRunner()
-    monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", lambda: runner)
 
     stage = client.post(
         f"/desktop/api/sessions/{sid}/review/stage",
@@ -150,16 +127,17 @@ def test_review_stage_unstage_and_commit_refreshes_git_state(
     assert commit.json()["ok"] is True
     clean = client.get(f"/desktop/api/sessions/{sid}/review/files", headers=auth)
     assert clean.json()["summary"]["files_changed"] == 0
-    assert any("add" in call["command"] for call in runner.calls)
-    assert any("commit" in call["command"] for call in runner.calls)
 
 
-def test_review_mutations_reject_read_only_sandbox(
+def test_review_mutations_are_not_gated_by_agent_sandbox_mode(
     client,
     auth,
     workspace_grant,
     tmp_path,
 ):
+    # User-initiated review mutations must NOT be blocked by the agent sandbox's
+    # read-only mode — that knob constrains agent tool calls, not explicit user
+    # stage/commit actions in the Review panel.
     workspace = tmp_path / "workspace"
     _init_repo(workspace)
     (workspace / "tracked.txt").write_text("changed\n", encoding="utf-8")
@@ -175,15 +153,13 @@ def test_review_mutations_reject_read_only_sandbox(
         headers=auth,
     )
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == "SANDBOX_READ_ONLY"
+    assert response.status_code == 200
 
 
-def test_review_files_returns_empty_state_for_non_repo(client, auth, workspace_grant, tmp_path, monkeypatch):
+def test_review_files_returns_empty_state_for_non_repo(client, auth, workspace_grant, tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     sid = _create_session(client, workspace_grant, workspace)
-    monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", lambda: _RawGitRunner())
 
     response = client.get(f"/desktop/api/sessions/{sid}/review/files", headers=auth)
 
@@ -200,12 +176,10 @@ def test_review_commit_message_no_diff_does_not_mutate_chat(
     auth,
     workspace_grant,
     tmp_path,
-    monkeypatch,
 ):
     workspace = tmp_path / "workspace"
     _init_repo(workspace)
     sid = _create_session(client, workspace_grant, workspace)
-    monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", lambda: _RawGitRunner())
 
     response = client.post(
         f"/desktop/api/sessions/{sid}/review/commit-message",
@@ -218,3 +192,26 @@ def test_review_commit_message_no_diff_does_not_mutate_chat(
     assert body["status"] == "failed"
     assert body["message"] is None
     assert body["detail"] == "NO_DIFF"
+
+
+def test_review_ship_info_route_reports_gh_unavailable(
+    client,
+    auth,
+    workspace_grant,
+    tmp_path,
+    monkeypatch,
+):
+    workspace = tmp_path / "workspace"
+    _init_repo(workspace)
+    monkeypatch.setattr("daemon.services.review_service.shutil.which", lambda _cmd: None)
+    sid = _create_session(client, workspace_grant, workspace)
+
+    response = client.get(f"/desktop/api/sessions/{sid}/review/ship-info", headers=auth)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["current_branch"] in {"master", "main"}
+    assert body["default_branch"] is None
+    assert body["pr_url"] is None
+    assert body["gh_available"] is False
+    assert body["can_create_pr"] is False

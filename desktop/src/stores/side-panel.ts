@@ -1,6 +1,6 @@
 import { createSignal } from 'solid-js';
 
-export type SidePanelView = 'menu' | 'review' | 'terminal' | 'files' | 'delegation';
+export type SidePanelView = 'menu' | 'review' | 'terminal' | 'files' | 'delegation' | 'preview';
 export type ToolTabView = Exclude<SidePanelView, 'menu'>;
 export type ToolTabKind = ToolTabView;
 
@@ -21,6 +21,7 @@ const DEFAULT_TOOL_TITLES: Record<ToolTabKind, string> = {
   terminal: 'Terminal',
   files: 'Open file',
   delegation: 'Delegation',
+  preview: 'Preview',
 };
 
 const [isOpen, setIsOpen] = createSignal(false);

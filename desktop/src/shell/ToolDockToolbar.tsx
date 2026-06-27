@@ -39,6 +39,12 @@ const TOOL_TAB_ITEMS: ToolTabItem[] = [
     icon: 'folder-open',
   },
   {
+    view: 'preview',
+    title: 'Preview',
+    description: 'Show the latest preview target',
+    icon: 'eye',
+  },
+  {
     view: 'delegation',
     title: 'Delegation',
     description: 'Track subagents for this conversation',

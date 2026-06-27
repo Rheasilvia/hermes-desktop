@@ -320,6 +320,18 @@ _SEATBELT_PLATFORM_DEFAULTS = r"""; macOS platform defaults included when a spli
 (allow file-read* (subpath "/usr/local/lib"))
 (allow file-read* (subpath "/Applications"))
 
+; macOS developer toolchain. /usr/bin/git (and the other /usr/bin developer-tool
+; shims) are xcrun-backed stubs: at exec they resolve the active developer path
+; (xcode-select -p), then read the real binary, its dylibs, and the toolchain
+; metadata under it. Without read access here the shim prints
+; "xcrun: error: invalid active developer path ..." and exits non-zero, so every
+; git operation in the review panel fails — even when the tools are installed.
+; Both install locations must be readable; the active path can point at either.
+; Full Xcode is already covered by "/Applications" above; this covers the
+; standalone Command Line Tools install.
+(allow file-read* (subpath "/Library/Developer/CommandLineTools"))
+(allow file-read-metadata (subpath "/Library/Developer"))
+
 ; Terminal basics and device handles.
 (allow file-read* (regex "^/dev/fd/(0|1|2)$"))
 (allow file-write* (regex "^/dev/fd/(1|2)$"))

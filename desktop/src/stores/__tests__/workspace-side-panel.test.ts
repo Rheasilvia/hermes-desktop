@@ -1,4 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const invokeMock = vi.hoisted(() => ({ invoke: vi.fn() }));
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: (...args: unknown[]) => invokeMock.invoke(...args),
+}));
 
 const mocks = vi.hoisted(() => ({
   gateway: {
@@ -18,6 +24,14 @@ const mocks = vi.hoisted(() => ({
       push: vi.fn(),
       createPr: vi.fn(),
       generateCommitMessage: vi.fn(),
+      defaultBranch: vi.fn(),
+      shipInfo: vi.fn().mockResolvedValue({
+        current_branch: 'feature/review',
+        default_branch: 'main',
+        pr_url: null,
+        gh_available: true,
+        can_create_pr: true,
+      }),
     },
     projects: {
       list: vi.fn(),
@@ -52,6 +66,16 @@ async function flushPromises() {
 }
 
 const tabKinds = (tabs: Array<{ kind: string }>) => tabs.map((tab) => tab.kind);
+
+beforeEach(() => {
+  mocks.gateway.review.shipInfo.mockReset().mockResolvedValue({
+    current_branch: 'feature/review',
+    default_branch: 'main',
+    pr_url: null,
+    gh_available: true,
+    can_create_pr: true,
+  });
+});
 
 describe('sidePanelStore', () => {
   it('opens to the tools tab shell by default and supports direct tab activation', async () => {
@@ -93,6 +117,21 @@ describe('sidePanelStore', () => {
     expect(tabKinds(sidePanelStore.openTabs())).toEqual(['terminal', 'terminal', 'files']);
     expect(sidePanelStore.openTabs().map((tab) => tab.title)).toEqual(['PreDoc', 'PreDoc 2', 'Open file']);
     expect(sidePanelStore.activeTabId()).toBe('tool-files');
+  });
+
+  it('opens preview as a singleton placeholder tab without changing terminal behavior', async () => {
+    vi.resetModules();
+    const { sidePanelStore } = await import('../side-panel.js');
+
+    const terminal = sidePanelStore.openTab('terminal', { cwd: '/repo/PreDoc' });
+    sidePanelStore.openTab('preview');
+    sidePanelStore.openTab('preview');
+
+    expect(sidePanelStore.openTabs().map((tab) => tab.kind)).toEqual(['terminal', 'preview']);
+    expect(sidePanelStore.openTabs().map((tab) => tab.title)).toEqual(['PreDoc', 'Preview']);
+    expect(sidePanelStore.activeView()).toBe('preview');
+    sidePanelStore.setActiveTab(terminal.id);
+    expect(sidePanelStore.activeView()).toBe('terminal');
   });
 
   it('renames tabs with non-empty titles only', async () => {
@@ -251,6 +290,390 @@ describe('gitViewStore', () => {
 
     expect(gitViewStore.commitMessage()).toBe('');
     expect(gitViewStore.commitMessageLoading()).toBe(false);
+  });
+
+  it('humanizes NO_DIFF commit message generation instead of leaking the backend code', async () => {
+    vi.resetModules();
+    mocks.gateway.review.generateCommitMessage
+      .mockReset()
+      .mockResolvedValueOnce({ status: 'failed', message: null, detail: 'NO_DIFF' });
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.generateCommitMessage();
+
+    expect(gitViewStore.commitMessageError()).toBe('NO_DIFF');
+    expect(gitViewStore.commitMessageErrorLabel()).toBe('No changes to summarize.');
+  });
+
+  it('clears stale selected diff and commit-message error when review refresh returns clean', async () => {
+    vi.resetModules();
+    mocks.gateway.review.files
+      .mockReset()
+      .mockResolvedValueOnce({
+        files: [
+          { path: 'src/app.ts', old_path: null, status: 'modified', staged: false, unstaged: true, untracked: false, insertions: 2, deletions: 1 },
+        ],
+        summary: { files_changed: 1, insertions: 2, deletions: 1, staged_count: 0, unstaged_count: 1, untracked_count: 0 },
+        working_dir: '/repo',
+        branch: 'main',
+      })
+      .mockResolvedValueOnce({
+        files: [],
+        summary: { files_changed: 0, insertions: 0, deletions: 0, staged_count: 0, unstaged_count: 0, untracked_count: 0 },
+        working_dir: '/repo',
+        branch: 'main',
+      });
+    mocks.gateway.review.diff
+      .mockReset()
+      .mockResolvedValueOnce({
+        files: [{ path: 'src/app.ts', old_path: null, status: 'modified', hunks: [] }],
+        summary: { files_changed: 1, insertions: 2, deletions: 1 },
+        working_dir: '/repo',
+      });
+    mocks.gateway.review.generateCommitMessage
+      .mockReset()
+      .mockResolvedValueOnce({ status: 'failed', message: null, detail: 'NO_DIFF' });
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+    await gitViewStore.generateCommitMessage();
+    expect(gitViewStore.selectedReviewPath()).toBe('src/app.ts');
+    expect(gitViewStore.diffData()?.summary.files_changed).toBe(1);
+    expect(gitViewStore.commitMessageError()).toBe('NO_DIFF');
+
+    await gitViewStore.fetchReview();
+
+    expect(gitViewStore.hasReviewChanges()).toBe(false);
+    expect(gitViewStore.selectedReviewPath()).toBeNull();
+    expect(gitViewStore.diffData()).toBeNull();
+    expect(gitViewStore.commitMessageError()).toBeNull();
+  });
+
+  it('surfaces an actionable install action when git fails with MACOS_DEVELOPER_TOOLS_MISSING', async () => {
+    vi.resetModules();
+    mocks.gateway.review.files
+      .mockReset()
+      .mockRejectedValue(new Error('MACOS_DEVELOPER_TOOLS_MISSING'));
+    invokeMock.invoke.mockReset().mockResolvedValue(undefined);
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+
+    expect(gitViewStore.reviewErrorCode()).toBe('MACOS_DEVELOPER_TOOLS_MISSING');
+    expect(gitViewStore.hasInstallableReviewError()).toBe(true);
+    expect(gitViewStore.reviewError()).toContain('Command Line Tools');
+
+    await gitViewStore.installCommandLineTools();
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith('install_macos_command_line_tools');
+    expect(gitViewStore.installingTools()).toBe(false);
+    // After launching the installer we no longer show the actionable code — the
+    // guidance switches to "press Retry", so the install button hides.
+    expect(gitViewStore.reviewErrorCode()).toBeNull();
+    expect(gitViewStore.hasInstallableReviewError()).toBe(false);
+    expect(gitViewStore.reviewError()).toContain('Retry');
+  });
+
+  it('self-heals the error when retry re-fetches review after a fix', async () => {
+    vi.resetModules();
+    // First fetch fails with the missing-tools error.
+    mocks.gateway.review.files
+      .mockReset()
+      .mockRejectedValueOnce(new Error('MACOS_DEVELOPER_TOOLS_MISSING'))
+      .mockResolvedValueOnce({
+        files: [],
+        summary: {
+          files_changed: 0, insertions: 0, deletions: 0,
+          staged_count: 0, unstaged_count: 0, untracked_count: 0,
+        },
+        working_dir: '/repo',
+        branch: 'main',
+      });
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+    expect(gitViewStore.hasInstallableReviewError()).toBe(true);
+
+    // User fixes the toolchain, hits Retry → review now succeeds → error clears.
+    await gitViewStore.retryReview();
+
+    expect(gitViewStore.reviewErrorCode()).toBeNull();
+    expect(gitViewStore.reviewError()).toBeNull();
+    expect(gitViewStore.retryingReview()).toBe(false);
+  });
+
+  it('does not flag a generic git error as installable', async () => {
+    vi.resetModules();
+    mocks.gateway.review.files
+      .mockReset()
+      .mockRejectedValue(new Error('git push failed: permission denied'));
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+
+    expect(gitViewStore.reviewErrorCode()).toBeNull();
+    expect(gitViewStore.hasInstallableReviewError()).toBe(false);
+  });
+});
+
+describe('gitViewStore review actions', () => {
+  const filesWith = (files: Array<Record<string, unknown>>) => ({
+    files,
+    summary: {
+      files_changed: files.length,
+      insertions: 0, deletions: 0,
+      staged_count: files.filter((f) => f.staged).length,
+      unstaged_count: files.filter((f) => f.unstaged).length,
+      untracked_count: files.filter((f) => f.untracked).length,
+    },
+    working_dir: '/repo',
+    branch: 'main',
+  });
+
+  it('optimistically stages a file and reconciles via a files-only refresh', async () => {
+    vi.resetModules();
+    mocks.gateway.review.files
+      .mockReset()
+      .mockResolvedValueOnce(filesWith([
+        { path: 'a.txt', old_path: null, status: 'modified', staged: false, unstaged: true, untracked: false, insertions: 1, deletions: 0 },
+      ]))
+      .mockResolvedValueOnce(filesWith([
+        { path: 'a.txt', old_path: null, status: 'modified', staged: true, unstaged: false, untracked: false, insertions: 1, deletions: 0 },
+      ]));
+    mocks.gateway.review.diff.mockReset().mockResolvedValue({ files: [], summary: { files_changed: 0, insertions: 0, deletions: 0 }, working_dir: '/repo' });
+    mocks.gateway.review.stage.mockReset().mockResolvedValue({ ok: true });
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+    expect(gitViewStore.reviewData()?.files[0].staged).toBe(false);
+
+    await gitViewStore.stagePath('a.txt');
+
+    // Stage recorded as a successful action in the log.
+    const log = gitViewStore.actionLog;
+    expect(log.length).toBeGreaterThan(0);
+    const lastEntry = log[log.length - 1];
+    expect(lastEntry.status).toBe('success');
+    expect(lastEntry.kind).toBe('stage');
+    // Reconciled list confirms staged.
+    expect(gitViewStore.reviewData()?.files[0].staged).toBe(true);
+    // In-flight guard released.
+    expect(gitViewStore.reviewActionInFlight()).toBe(false);
+  });
+
+  it('stages all unstaged and untracked review files through the backend', async () => {
+    vi.resetModules();
+    mocks.gateway.review.files
+      .mockReset()
+      .mockResolvedValueOnce(filesWith([
+        { path: 'a.txt', old_path: null, status: 'modified', staged: false, unstaged: true, untracked: false, insertions: 1, deletions: 0 },
+        { path: 'b.txt', old_path: null, status: 'modified', staged: true, unstaged: false, untracked: false, insertions: 1, deletions: 0 },
+        { path: 'c.txt', old_path: null, status: 'added', staged: false, unstaged: false, untracked: true, insertions: 1, deletions: 0 },
+      ]))
+      .mockResolvedValueOnce(filesWith([
+        { path: 'a.txt', old_path: null, status: 'modified', staged: true, unstaged: false, untracked: false, insertions: 1, deletions: 0 },
+        { path: 'b.txt', old_path: null, status: 'modified', staged: true, unstaged: false, untracked: false, insertions: 1, deletions: 0 },
+        { path: 'c.txt', old_path: null, status: 'added', staged: true, unstaged: false, untracked: false, insertions: 1, deletions: 0 },
+      ]));
+    mocks.gateway.review.diff
+      .mockReset()
+      .mockResolvedValue({ files: [], summary: { files_changed: 0, insertions: 0, deletions: 0 }, working_dir: '/repo' });
+    mocks.gateway.review.stage.mockReset().mockResolvedValue({ ok: true });
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+    const staged = await gitViewStore.stageAllReviewChanges();
+
+    expect(staged).toBe(true);
+    expect(mocks.gateway.review.stage).toHaveBeenCalledWith('session-one', ['a.txt', 'c.txt']);
+    expect(gitViewStore.reviewData()?.summary.staged_count).toBe(3);
+  });
+
+  it('stages current changes before committing when nothing is staged', async () => {
+    vi.resetModules();
+    mocks.gateway.review.files
+      .mockReset()
+      .mockResolvedValueOnce(filesWith([
+        { path: 'a.txt', old_path: null, status: 'modified', staged: false, unstaged: true, untracked: false, insertions: 1, deletions: 0 },
+        { path: 'b.txt', old_path: null, status: 'added', staged: false, unstaged: false, untracked: true, insertions: 1, deletions: 0 },
+      ]))
+      .mockResolvedValueOnce(filesWith([
+        { path: 'a.txt', old_path: null, status: 'modified', staged: true, unstaged: false, untracked: false, insertions: 1, deletions: 0 },
+        { path: 'b.txt', old_path: null, status: 'added', staged: true, unstaged: false, untracked: false, insertions: 1, deletions: 0 },
+      ]))
+      .mockResolvedValueOnce(filesWith([]));
+    mocks.gateway.review.diff
+      .mockReset()
+      .mockResolvedValue({ files: [], summary: { files_changed: 0, insertions: 0, deletions: 0 }, working_dir: '/repo' });
+    mocks.gateway.review.stage.mockReset().mockResolvedValue({ ok: true });
+    mocks.gateway.review.commit.mockReset().mockResolvedValue({ ok: true, detail: null });
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+    const committed = await gitViewStore.commitThenMaybePush({ message: 'feat: ship review' });
+
+    expect(committed).toBe(true);
+    expect(mocks.gateway.review.stage).toHaveBeenCalledWith('session-one', ['a.txt', 'b.txt']);
+    expect(mocks.gateway.review.commit).toHaveBeenCalledWith('session-one', 'feat: ship review');
+    expect(mocks.gateway.review.stage.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.gateway.review.commit.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('commits then records a partial failure when push fails', async () => {
+    vi.resetModules();
+    mocks.gateway.review.files
+      .mockReset()
+      .mockResolvedValueOnce(filesWith([
+        { path: 'a.txt', old_path: null, status: 'modified', staged: true, unstaged: false, untracked: false, insertions: 1, deletions: 0 },
+      ]))
+      .mockResolvedValueOnce(filesWith([]));
+    mocks.gateway.review.diff
+      .mockReset()
+      .mockResolvedValue({ files: [], summary: { files_changed: 0, insertions: 0, deletions: 0 }, working_dir: '/repo' });
+    mocks.gateway.review.commit.mockReset().mockResolvedValue({ ok: true, detail: null });
+    mocks.gateway.review.push.mockReset().mockRejectedValue(new Error('permission denied'));
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+    const shipped = await gitViewStore.commitThenMaybePush({ message: 'fix: staged file', push: true });
+
+    expect(shipped).toBe(false);
+    expect(mocks.gateway.review.commit).toHaveBeenCalledWith('session-one', 'fix: staged file');
+    expect(mocks.gateway.review.push).toHaveBeenCalledWith('session-one');
+    const lastEntry = gitViewStore.actionLog[gitViewStore.actionLog.length - 1];
+    expect(lastEntry.kind).toBe('push');
+    expect(lastEntry.status).toBe('failed');
+    expect(lastEntry.message).toContain('Committed, but push failed');
+    expect(lastEntry.message).toContain('permission denied');
+  });
+
+  it('captures the created PR url and surfaces it via the store', async () => {
+    vi.resetModules();
+    mocks.gateway.review.files.mockReset().mockResolvedValue(filesWith([]));
+    mocks.gateway.review.diff.mockReset().mockResolvedValue({ files: [], summary: { files_changed: 0, insertions: 0, deletions: 0 }, working_dir: '/repo' });
+    mocks.gateway.review.createPr.mockReset().mockResolvedValue({ ok: true, url: 'https://github.com/me/repo/pull/42', detail: null });
+    mocks.gateway.review.shipInfo.mockReset().mockResolvedValue({
+      current_branch: 'main',
+      default_branch: 'main',
+      pr_url: null,
+      gh_available: true,
+      can_create_pr: false,
+    });
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+    await gitViewStore.createPullRequest();
+
+    expect(gitViewStore.createdPrUrl()).toBe('https://github.com/me/repo/pull/42');
+  });
+
+  it('fetches ship info and opens an existing PR instead of creating a duplicate', async () => {
+    vi.resetModules();
+    mocks.gateway.review.shipInfo.mockReset().mockResolvedValue({
+      current_branch: 'feature/review',
+      default_branch: 'main',
+      pr_url: 'https://github.com/me/repo/pull/42',
+      gh_available: true,
+      can_create_pr: true,
+    });
+    mocks.gateway.review.createPr.mockReset().mockResolvedValue({ ok: true, url: 'https://github.com/me/repo/pull/99', detail: null });
+    invokeMock.invoke.mockReset().mockResolvedValue(undefined);
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReviewShipInfo();
+    await gitViewStore.createPullRequest();
+
+    expect(gitViewStore.reviewShipInfo()?.pr_url).toBe('https://github.com/me/repo/pull/42');
+    expect(gitViewStore.createdPrUrl()).toBe('https://github.com/me/repo/pull/42');
+    expect(invokeMock.invoke).toHaveBeenCalledWith('open_external', { url: 'https://github.com/me/repo/pull/42' });
+    expect(mocks.gateway.review.createPr).not.toHaveBeenCalled();
+  });
+
+  it('clears the cached PR url when ship info no longer reports one', async () => {
+    vi.resetModules();
+    mocks.gateway.review.shipInfo
+      .mockReset()
+      .mockResolvedValueOnce({
+        current_branch: 'feature/review',
+        default_branch: 'main',
+        pr_url: 'https://github.com/me/repo/pull/42',
+        gh_available: true,
+        can_create_pr: true,
+      })
+      .mockResolvedValueOnce({
+        current_branch: 'feature/other',
+        default_branch: 'main',
+        pr_url: null,
+        gh_available: true,
+        can_create_pr: true,
+      });
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReviewShipInfo();
+    expect(gitViewStore.createdPrUrl()).toBe('https://github.com/me/repo/pull/42');
+
+    await gitViewStore.fetchReviewShipInfo();
+
+    expect(gitViewStore.reviewShipInfo()?.pr_url).toBeNull();
+    expect(gitViewStore.createdPrUrl()).toBeNull();
+  });
+
+  it('records a single-action failure in the action log, not the full-panel reviewError', async () => {
+    vi.resetModules();
+    mocks.gateway.review.files.mockReset().mockResolvedValue(filesWith([]));
+    mocks.gateway.review.diff.mockReset().mockResolvedValue({ files: [], summary: { files_changed: 0, insertions: 0, deletions: 0 }, working_dir: '/repo' });
+    mocks.gateway.review.defaultBranch.mockReset().mockResolvedValue(null);
+    mocks.gateway.review.push.mockReset().mockRejectedValue(new Error('git push failed: permission denied'));
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+    await gitViewStore.pushReview();
+
+    // Failure recorded in the collapsible status-panel log.
+    const log = gitViewStore.actionLog;
+    const lastEntry = log[log.length - 1];
+    expect(lastEntry.status).toBe('failed');
+    expect(lastEntry.message).toBe('git push failed: permission denied');
+    // The review itself loaded fine — the diff stays visible, reviewError null.
+    expect(gitViewStore.reviewError()).toBeNull();
+  });
+
+  it('maps PR_SAME_BRANCH to actionable guidance instead of raw gh stderr', async () => {
+    vi.resetModules();
+    mocks.gateway.review.files.mockReset().mockResolvedValue(filesWith([]));
+    mocks.gateway.review.diff.mockReset().mockResolvedValue({ files: [], summary: { files_changed: 0, insertions: 0, deletions: 0 }, working_dir: '/repo' });
+    mocks.gateway.review.defaultBranch.mockReset().mockResolvedValue(null);
+    // Backend pre-flight returns a clear code; renderer must humanize it.
+    mocks.gateway.review.createPr.mockReset().mockRejectedValue(new Error('PR_SAME_BRANCH:main'));
+    const { gitViewStore } = await import('../git-view.js');
+
+    gitViewStore.setWorkspace('session-one', '/repo');
+    await gitViewStore.fetchReview();
+    await gitViewStore.createPullRequest();
+
+    // The humanized message lands in the last log entry.
+    const log = gitViewStore.actionLog;
+    const lastEntry = log[log.length - 1];
+    const err = lastEntry.message;
+    expect(err).toContain('default branch');
+    expect(err).toContain('feature branch');
+    // The raw gh-style message must NOT leak through.
+    expect(err).not.toContain('PR_SAME_BRANCH');
+    expect(err).not.toContain('head branch');
   });
 });
 

@@ -429,6 +429,23 @@ class TestBuildSeatbeltPolicy:
         assert '(subpath "/var/folders")' not in policy
         assert '(subpath "/private/var/folders")' not in policy
 
+    def test_policy_allows_macos_developer_toolchain_so_xcrun_shims_resolve(self, tmp_path):
+        """``/usr/bin/git`` (and the other /usr/bin developer-tool shims) are
+        xcrun-backed stubs: at exec they read the active developer path and the
+        real binary + dylibs under it. Without read access the shim prints
+        "xcrun: error: invalid active developer path ..." and every git op in
+        the review panel fails — even when the tools are installed. The policy
+        must therefore allow reading the Command Line Tools install location.
+        (Full Xcode under /Applications is already covered by the /Applications
+        subpath rule.)
+        """
+        from daemon.services.sandbox_runner import _build_seatbelt_policy
+
+        policy, _params = _build_seatbelt_policy(str(tmp_path))
+
+        assert '(subpath "/Library/Developer/CommandLineTools")' in policy
+        assert '(subpath "/Library/Developer")' in policy
+
 
 # ---------------------------------------------------------------------------
 # Test 6: V2 — execute_code must patch subprocess.Popen in code_execution_tool

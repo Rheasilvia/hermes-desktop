@@ -12,7 +12,7 @@ from ..schemas.projects import (
     WorktreeEntry,
     WorktreeListResult,
 )
-from .git_service import GitServiceError, _run_git
+from .git_service import GitServiceError, _run_git_unsandboxed
 
 
 class ProjectService:
@@ -79,23 +79,21 @@ class ProjectService:
 
     def list_worktrees(self, repo_path: str) -> WorktreeListResult:
         repo = self._existing_directory(repo_path)
-        policy = self._sandbox_policy("project worktree list")
-        result = self._run_git(repo, ["worktree", "list", "--porcelain"], policy)
+        result = _run_git_unsandboxed(repo, ["worktree", "list", "--porcelain"])
         if result.returncode != 0:
             raise _git_error("git worktree list failed", result)
         return WorktreeListResult(worktrees=_parse_worktree_list(result.stdout))
 
     def add_worktree(self, repo_path: str, path: str, branch: str, create_branch: bool = False) -> ProjectOkResult:
+        # User-initiated Projects-panel action; runs outside the agent sandbox.
         repo = self._existing_directory(repo_path)
         target = self._safe_target_path(path)
-        policy = self._sandbox_policy("project worktree add")
-        self._ensure_workspace_write(policy)
         args = ["worktree", "add"]
         if create_branch:
             args.extend(["-b", branch, str(target)])
         else:
             args.extend([str(target), branch])
-        result = self._run_git(repo, args, policy, timeout=60)
+        result = _run_git_unsandboxed(repo, args, timeout=60)
         if result.returncode != 0:
             raise _git_error("git worktree add failed", result)
         return ProjectOkResult(ok=True)
@@ -103,18 +101,15 @@ class ProjectService:
     def remove_worktree(self, repo_path: str, path: str) -> ProjectOkResult:
         repo = self._existing_directory(repo_path)
         target = self._safe_target_path(path)
-        policy = self._sandbox_policy("project worktree remove")
-        self._ensure_workspace_write(policy)
-        result = self._run_git(repo, ["worktree", "remove", str(target)], policy, timeout=60)
+        result = _run_git_unsandboxed(repo, ["worktree", "remove", str(target)], timeout=60)
         if result.returncode != 0:
             raise _git_error("git worktree remove failed", result)
         return ProjectOkResult(ok=True)
 
     def branches(self, repo_path: str) -> BranchListResult:
         repo = self._existing_directory(repo_path)
-        policy = self._sandbox_policy("project branches")
-        current = self._run_git(repo, ["branch", "--show-current"], policy)
-        refs = self._run_git(repo, ["for-each-ref", "--format=%(refname:short)", "refs/heads"], policy)
+        current = _run_git_unsandboxed(repo, ["branch", "--show-current"])
+        refs = _run_git_unsandboxed(repo, ["for-each-ref", "--format=%(refname:short)", "refs/heads"])
         if refs.returncode != 0:
             raise _git_error("git branches failed", refs)
         return BranchListResult(
@@ -124,12 +119,10 @@ class ProjectService:
 
     def switch_branch(self, path: str, branch: str) -> ProjectOkResult:
         repo = self._existing_directory(path)
-        policy = self._sandbox_policy("project branch switch")
-        self._ensure_workspace_write(policy)
         for item in self.list_worktrees(str(repo)).worktrees:
             if item.path != str(repo) and item.branch == branch:
                 raise GitServiceError(409, "BRANCH_ALREADY_CHECKED_OUT")
-        result = self._run_git(repo, ["switch", "--", branch], policy, timeout=30)
+        result = _run_git_unsandboxed(repo, ["switch", "--", branch], timeout=30)
         if result.returncode != 0:
             raise _git_error("git switch failed", result)
         return ProjectOkResult(ok=True)
@@ -174,24 +167,6 @@ class ProjectService:
         if not resolved.parent.exists():
             raise GitServiceError(409, "PARENT_UNAVAILABLE")
         return resolved
-
-    def _sandbox_policy(self, context: str) -> dict[str, str]:
-        from .desktop_sandbox_policy import load_desktop_sandbox_policy
-
-        return load_desktop_sandbox_policy(self._hermes_home, context=context)
-
-    def _run_git(self, workspace: Path, args: list[str], policy: dict[str, str], timeout: int = 10):
-        return _run_git(
-            workspace,
-            args,
-            hermes_home=self._hermes_home,
-            sandbox_policy=policy,
-            timeout=timeout,
-        )
-
-    def _ensure_workspace_write(self, sandbox_policy: dict[str, str]) -> None:
-        if sandbox_policy.get("mode") == "read-only":
-            raise GitServiceError(403, "SANDBOX_READ_ONLY")
 
 
 def _parse_worktree_list(raw: str) -> list[WorktreeEntry]:
