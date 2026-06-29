@@ -233,10 +233,13 @@ def _authoritative_workspace_root(task_id: str = "default") -> str | None:
     Resolution order:
       1. The live terminal cwd (the directory the agent is actually working in).
       2. The per-thread ``terminal_cwd`` ContextVar — how the desktop daemon
-         binds a session's workspace. One daemon process serves many sessions on
-         different threads, so the process-global ``$TERMINAL_CWD`` cannot
-         distinguish them; the ContextVar can.
-      3. A sentinel-free, absolute ``$TERMINAL_CWD`` env var (TUI/CLI/cron).
+         binds a session's workspace per turn thread (one process, many sessions).
+      3. A session-specific registered override (TUI/ACP sessions via
+         ``register_task_env_overrides``). Keyed by raw session id so that a
+         non-owning session in a shared terminal container resolves its own
+         worktree, not the other session's.
+      4. A durable last-known-cwd (preserved across terminal env rebuilds).
+      5. A sentinel-free, absolute ``$TERMINAL_CWD`` env var (TUI/CLI/cron).
 
     This is what lets a worktree/desktop session warn about (and resolve into)
     its workspace from the very first ``write_file``/``patch``, before any
@@ -248,6 +251,20 @@ def _authoritative_workspace_root(task_id: str = "default") -> str | None:
     live = _get_live_tracking_cwd(task_id)
     if live:
         return live
+    # Desktop daemon binds each session's workspace via a ContextVar
+    # (tools.terminal_cwd.set_terminal_cwd) per turn thread — NOT via
+    # register_task_env_overrides — so it must be checked before the
+    # registered-override path below. Sentinel and relative values are rejected
+    # with the same discipline as $TERMINAL_CWD.
+    try:
+        from tools.terminal_cwd import get_context_cwd
+        ctx = (get_context_cwd() or "").strip()
+        if ctx and ctx.lower() not in _TERMINAL_CWD_SENTINELS:
+            expanded = os.path.expanduser(ctx)
+            if os.path.isabs(expanded):
+                return expanded
+    except Exception:
+        pass
     # A session-specific registered override (TUI/Desktop/ACP workspace cwd)
     # is more authoritative than the shared last-known anchor: it is keyed by
     # the raw session id, so when two worktree sessions share the single
