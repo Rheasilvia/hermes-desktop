@@ -20,9 +20,15 @@ export interface PlanPreviewTarget {
   messageId?: string;
 }
 
-export type PreviewTarget = FileUrlPreviewTarget | PlanPreviewTarget;
+export interface NotebookPreviewTarget {
+  kind: 'notebook';
+  label: string;
+  path: string;
+}
 
-export type PreviewRecordSource = 'explicit-link' | 'file-browser' | 'manual' | 'tool-result' | 'plan-card';
+export type PreviewTarget = FileUrlPreviewTarget | PlanPreviewTarget | NotebookPreviewTarget;
+
+export type PreviewRecordSource = 'explicit-link' | 'file-browser' | 'manual' | 'tool-result' | 'plan-card' | 'notebook';
 
 export interface SessionPreviewRecord {
   autoOpen: boolean;
@@ -37,7 +43,7 @@ export interface SessionPreviewRecord {
 
 type PreviewRegistry = Record<string, SessionPreviewRecord[]>;
 
-const STORAGE_KEY = 'hermes.tauri.sessionPreviews.v1';
+const STORAGE_KEY = 'hermes.tauri.sessionPreviews.v2';
 const MAX_RECORDS_PER_SESSION = 1;
 const MAX_SESSIONS = 120;
 
@@ -74,6 +80,12 @@ function isPreviewTarget(value: unknown): value is PreviewTarget {
       (row.messageId === undefined || typeof row.messageId === 'string')
     );
   }
+  if (row.kind === 'notebook') {
+    return (
+      typeof row.label === 'string' &&
+      typeof row.path === 'string'
+    );
+  }
   return (
     (row.kind === 'file' || row.kind === 'url') &&
     typeof row.label === 'string' &&
@@ -91,7 +103,7 @@ function isPreviewRecord(value: unknown): value is SessionPreviewRecord {
     typeof row.id === 'string' &&
     isPreviewTarget(row.normalized) &&
     typeof row.sessionId === 'string' &&
-    ['explicit-link', 'file-browser', 'manual', 'tool-result', 'plan-card'].includes(String(row.source)) &&
+    ['explicit-link', 'file-browser', 'manual', 'tool-result', 'plan-card', 'notebook'].includes(String(row.source)) &&
     typeof row.target === 'string' &&
     (row.dismissedAt === undefined || typeof row.dismissedAt === 'number')
   );
@@ -144,11 +156,15 @@ function targetKey(target: PreviewTarget): string {
   if (target.kind === 'plan') {
     return `plan:${target.sessionId}:${target.messageId ?? 'live'}:${target.blockId}`;
   }
+  if (target.kind === 'notebook') {
+    return `notebook:${target.path}`;
+  }
   return target.url;
 }
 
 function recordId(sessionId: string, target: PreviewTarget): string {
   if (target.kind === 'plan') return targetKey(target);
+  if (target.kind === 'notebook') return `notebook:${sessionId}:${target.path}`;
   return `${sessionId}:${target.url}`;
 }
 
@@ -163,7 +179,8 @@ export const previewStore = {
     if (!sid) return null;
     const normalized = normalizeTargetForSource(target, source);
     const existing = registry[sid]?.find((record) =>
-      record.normalized.kind !== 'plan' && record.normalized.url === normalized.url
+      (record.normalized.kind === 'file' || record.normalized.kind === 'url')
+      && record.normalized.url === normalized.url
     );
     const record: SessionPreviewRecord = {
       autoOpen: true,
@@ -204,6 +221,35 @@ export const previewStore = {
       sessionId: sid,
       source: 'plan-card',
       target: `plan:${blockId}`,
+    };
+    setRegistry(produce((state) => {
+      state[sid] = [record];
+    }));
+    saveRegistry(snapshot());
+    return record;
+  },
+
+  registerNotebook(
+    sessionId: string | null | undefined,
+    target: { path: string; label?: string | null },
+  ): SessionPreviewRecord | null {
+    const sid = sessionId?.trim();
+    const path = target.path?.trim();
+    if (!sid || !path) return null;
+    const normalized: NotebookPreviewTarget = {
+      kind: 'notebook',
+      label: target.label?.trim() || path.split(/[\\/]/).filter(Boolean).pop() || path,
+      path,
+    };
+    const existing = registry[sid]?.find((record) => targetKey(record.normalized) === targetKey(normalized));
+    const record: SessionPreviewRecord = {
+      autoOpen: true,
+      createdAt: Date.now(),
+      id: existing?.id ?? recordId(sid, normalized),
+      normalized,
+      sessionId: sid,
+      source: 'notebook',
+      target: `notebook:${path}`,
     };
     setRegistry(produce((state) => {
       state[sid] = [record];

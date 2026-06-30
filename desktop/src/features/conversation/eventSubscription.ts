@@ -12,9 +12,11 @@ import type {
   SubagentCompletePayload, SubagentToolPayload, SubagentErrorPayload,
   ErrorPayload, TurnInterruptedPayload,
 } from '@/types/gateway.js';
+import type { NotebookChangedPayload } from '@/services/gateway/types.js';
 import type { GatewayAdapter } from '@/services/gateway/types.js';
 import { chatStore } from '@/stores/chat.js';
 import { backgroundTaskStore } from '@/stores/background-tasks.js';
+import { notebookPreviewStore } from '@/stores/notebook-preview.js';
 import { delegationStore } from '@/stores/delegation.js';
 import { sessionStore } from '@/stores/session.js';
 import { nativeNotifications } from '@/services/notifications/native-notifications.js';
@@ -70,6 +72,7 @@ export function useGatewayEvents(opts: {
     nativeNotifications.backgroundDone(undefined, 'Background task complete');
   };
   const onBtwComplete = (p: BtwCompletePayload) => backgroundTaskStore.handleBtwComplete(p);
+  const onNotebookChanged = (p: NotebookChangedPayload) => notebookPreviewStore.handleChanged(p);
   const onSubagentStart = (p: SubagentStartPayload) => delegationStore.handleStart(p);
   const onSubagentProgress = (p: SubagentProgressPayload) => delegationStore.handleProgress(p);
   const onSubagentComplete = (p: SubagentCompletePayload) => delegationStore.handleComplete(p);
@@ -111,6 +114,7 @@ export function useGatewayEvents(opts: {
     gw.on('user_input.response', onUserInputResponse);
     gw.on('background.complete', onBackgroundComplete);
     gw.on('btw.complete', onBtwComplete);
+    gw.on('notebook.changed', onNotebookChanged);
     gw.on('subagent.start', onSubagentStart);
     gw.on('subagent.progress', onSubagentProgress);
     gw.on('subagent.complete', onSubagentComplete);
@@ -141,6 +145,7 @@ export function useGatewayEvents(opts: {
     gw.off('user_input.response', onUserInputResponse);
     gw.off('background.complete', onBackgroundComplete);
     gw.off('btw.complete', onBtwComplete);
+    gw.off('notebook.changed', onNotebookChanged);
     gw.off('subagent.start', onSubagentStart);
     gw.off('subagent.progress', onSubagentProgress);
     gw.off('subagent.complete', onSubagentComplete);

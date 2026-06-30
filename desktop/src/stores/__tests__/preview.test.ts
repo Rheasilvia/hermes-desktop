@@ -71,7 +71,7 @@ describe('previewStore', () => {
       blockId: 'plan-block-1',
       messageId: '42',
     });
-    expect(window.localStorage.getItem('hermes.tauri.sessionPreviews.v1')).not.toContain('Full plan body');
+    expect(window.localStorage.getItem('hermes.tauri.sessionPreviews.v2')).not.toContain('Full plan body');
   });
 
   it('ignores invalid plan preview references', () => {

@@ -2,12 +2,13 @@ import type { Component } from 'solid-js';
 import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, onMount } from 'solid-js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 import { gitViewStore } from '@/stores/git-view.js';
-import { previewStore, type PlanPreviewTarget } from '@/stores/preview.js';
+import { previewStore, type PlanPreviewTarget, type NotebookPreviewTarget } from '@/stores/preview.js';
 import { chatStore } from '@/stores/chat.js';
 import type { PlanBlock } from '@/types/index.js';
 import { WorkspaceTreeView } from '@/features/workspace/WorkspaceTreeView.js';
 import { DiffPanel } from '@/features/diff/DiffPanel.js';
 import { DelegationSidePanel } from '@/features/delegation/DelegationSidePanel.js';
+import { NotebookPreview } from './NotebookPreview.js';
 import { invoke } from '@tauri-apps/api/core';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { MarkdownContent } from '@/ui/molecules/MarkdownContent.js';
@@ -82,9 +83,20 @@ const PreviewPlaceholder: Component<{ sessionId: string | null }> = (props) => {
         }
       >
         {(preview) => (
-          <Show
-            when={preview().normalized.kind === 'plan'}
-            fallback={
+          <Switch>
+            <Match when={preview().normalized.kind === 'notebook'}>
+              <NotebookPreview
+                sessionId={props.sessionId ?? ''}
+                target={preview().normalized as NotebookPreviewTarget}
+              />
+            </Match>
+            <Match when={preview().normalized.kind === 'plan'}>
+              <PlanPreview
+                sessionId={props.sessionId}
+                target={preview().normalized as PlanPreviewTarget}
+              />
+            </Match>
+            <Match when={preview().normalized.kind === 'file' || preview().normalized.kind === 'url'}>
               <div class={styles.previewPlaceholder} role="status" aria-label={`Preview ${preview().normalized.label}`}>
                 <span class={styles.emptyIcon}>
                   <Icon name={preview().normalized.kind === 'url' ? 'globe' : 'file'} size={24} />
@@ -92,13 +104,8 @@ const PreviewPlaceholder: Component<{ sessionId: string | null }> = (props) => {
                 <div class={styles.emptyTitle}>{preview().normalized.label || 'Preview'}</div>
                 <div class={styles.emptyDescription}>{preview().target}</div>
               </div>
-            }
-          >
-            <PlanPreview
-              sessionId={props.sessionId}
-              target={preview().normalized as PlanPreviewTarget}
-            />
-          </Show>
+            </Match>
+          </Switch>
         )}
       </Show>
     </div>

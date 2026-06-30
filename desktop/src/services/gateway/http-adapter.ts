@@ -49,6 +49,7 @@ import {
 import { openEventSource, resolveEventSourceUrl } from './http/sse-lifecycle.js';
 import { API_PREFIX, cloneConfig, setDotPath } from './http/shared.js';
 import { makeGitGateway, makeProjectGateway, makeReviewGateway, makeWorkspaceGateway } from './http/workspace-git.js';
+import { makeNotebookGateway } from './http/notebook.js';
 
 export { mapCommandResult };
 
@@ -83,6 +84,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
   readonly workspace: GatewayAdapter['workspace'];
   readonly git: GatewayAdapter['git'];
   readonly review: GatewayAdapter['review'];
+  readonly notebook: GatewayAdapter['notebook'];
   readonly projects: GatewayAdapter['projects'];
   readonly slash: GatewayAdapter['slash'];
   readonly command: GatewayAdapter['command'];
@@ -353,6 +355,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     this.workspace = makeWorkspaceGateway(this.http);
     this.git = makeGitGateway(this.http);
     this.review = makeReviewGateway(this.http);
+    this.notebook = makeNotebookGateway(this.http);
     this.projects = makeProjectGateway(this.http);
     this.slash = makeSlashGateway(this.http);
     this.command = makeCommandGateway(this.http);
@@ -863,6 +866,17 @@ export class HttpGatewayAdapter implements GatewayAdapter {
         this.emit('btw.complete', {
           text: String(payload.text ?? ''),
         } as GatewayEventMap['btw.complete']);
+        break;
+      case 'notebook.changed':
+        this.emit('notebook.changed', {
+          session_id: sid,
+          path: String(payload.path ?? ''),
+          cells: Array.isArray(payload.cells) ? payload.cells : [],
+          mtime: Number(payload.mtime ?? 0),
+          size: Number(payload.size ?? 0),
+          truncated: Boolean(payload.truncated),
+          event_seq: eventSeq,
+        } as GatewayEventMap['notebook.changed']);
         break;
       case 'gateway.stderr':
         this.emit('gateway.stderr', {

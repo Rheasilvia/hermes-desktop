@@ -3,6 +3,8 @@ import { For, Show, createEffect, createMemo, createSignal, onMount } from 'soli
 import type { WorkspaceTreeNode, WorkspaceTreeRow } from '@/types/index.js';
 import { projectStore } from '@/stores/projects.js';
 import { sessionStore } from '@/stores/session.js';
+import { previewStore } from '@/stores/preview.js';
+import { sidePanelStore } from '@/stores/side-panel.js';
 import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { WorkspaceContextMenu } from './WorkspaceContextMenu.js';
@@ -47,6 +49,17 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
       await sessionStore.updateCwd(props.sessionId, path);
       await workspaceTreeStore.setWorkspace(props.sessionId, path);
     }
+  };
+
+  /** Open a file: .ipynb → notebook preview dock; everything else → file preview modal. */
+  const openFile = (node: WorkspaceTreeNode) => {
+    if (node.kind !== 'file') return;
+    if (node.name.toLowerCase().endsWith('.ipynb') && props.sessionId) {
+      previewStore.registerNotebook(props.sessionId, { path: node.path, label: node.name });
+      sidePanelStore.openTab('preview');
+      return;
+    }
+    setPreviewNode(node);
   };
 
   const focusRow = (index: number) => {
@@ -180,7 +193,7 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
                         if (row.node.kind === 'directory') void workspaceTreeStore.toggleExpanded(row.node.path);
                       }}
                       onDblClick={() => {
-                        if (row.node.kind === 'file') setPreviewNode(row.node);
+                        if (row.node.kind === 'file') openFile(row.node);
                         else void copyPath(row.node.path);
                       }}
                       onContextMenu={(e) => {

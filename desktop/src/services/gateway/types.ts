@@ -113,6 +113,7 @@ export interface GatewayEventMap {
   'secret.request': SecretRequestPayload;
   'background.complete': BackgroundCompletePayload;
   'btw.complete': BtwCompletePayload;
+  'notebook.changed': NotebookChangedPayload;
   'error': ErrorPayload;
   'turn.interrupted': TurnInterruptedPayload;
   'gateway.stderr': GatewayStderrPayload;
@@ -124,6 +125,17 @@ export interface GatewayEventMap {
   'subagent.complete': SubagentCompletePayload;
   'subagent.tool': SubagentToolPayload;
   'subagent.error': SubagentErrorPayload;
+}
+
+/** Payload for the `notebook.changed` SSE event (watcher re-rendered a notebook). */
+export interface NotebookChangedPayload {
+  session_id: string;
+  path: string;
+  cells: NotebookCell[];
+  mtime: number;
+  size: number;
+  truncated?: boolean;
+  event_seq?: number;
 }
 
 /** Normalized transport event emitted by the HTTP+SSE adapter before routing. */
@@ -372,6 +384,41 @@ export interface WorkspaceMethods {
   reveal(sessionId: string, path: string): Promise<void>;
 }
 
+/** Notebook cell output, flattened from nbformat for client rendering. */
+export interface NotebookOutput {
+  output_type: string;
+  mime?: string | null;
+  text?: string | null;
+  markdown?: string | null;
+  html?: string | null;
+  image?: string | null; // data: URL (base64) for image/png|jpeg|svg
+  error_name?: string | null;
+  error_value?: string | null;
+  error_traceback?: string[] | null;
+}
+
+export interface NotebookCell {
+  index: number;
+  cell_type: 'markdown' | 'code' | 'raw';
+  source: string;
+  execution_count?: number | null;
+  outputs?: NotebookOutput[];
+}
+
+export interface NotebookRender {
+  path: string;
+  cells: NotebookCell[];
+  mtime: number;
+  size: number;
+  truncated?: boolean;
+}
+
+export interface NotebookMethods {
+  render(sessionId: string, path: string): Promise<NotebookRender>;
+  watch(sessionId: string, path: string): Promise<{ ok: boolean; path?: string | null }>;
+  clearWatch(sessionId: string): Promise<{ ok: boolean }>;
+}
+
 export interface GitBranchInfo {
   current: string;
   branches: string[];
@@ -469,6 +516,7 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   readonly workspace: WorkspaceMethods;
   readonly git: GitMethods;
   readonly review: ReviewMethods;
+  readonly notebook: NotebookMethods;
   readonly projects: ProjectMethods;
   readonly slash: SlashMethods;
   readonly command: CommandMethods;

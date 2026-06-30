@@ -264,3 +264,30 @@ def get_project_service(request: Request):
             hermes_home=home,
         ),
     )
+
+
+def get_notebook_service(request: Request):
+    return _cached_service(
+        request,
+        "profile_notebook_svcs",
+        lambda _home: __import__(
+            "daemon.services.notebook_service",
+            fromlist=["NotebookService"],
+        ).NotebookService(
+            workspace_service=get_workspace_service(request),
+        ),
+    )
+
+
+def get_notebook_watch_service(request: Request):
+    """Notebook watcher is process-global (one observer pool), not per-home."""
+    if not hasattr(request.app.state, "notebook_watch_svc"):
+        from .notebook_watch_service import NotebookWatchService
+
+        request.app.state.notebook_watch_svc = NotebookWatchService(
+            workspace_service=get_workspace_service(request),
+            notebook_service=get_notebook_service(request),
+            ui_messages=get_ui_message_service(request),
+            event_bus=get_event_bus(request),
+        )
+    return request.app.state.notebook_watch_svc

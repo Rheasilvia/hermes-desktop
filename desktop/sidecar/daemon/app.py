@@ -150,6 +150,15 @@ def build_app(cfg: Config) -> FastAPI:
         try:
             yield
         finally:
+            # Stop notebook file-watchers (process-global observer pool). Lazily
+            # created on first watch(); guard with getattr so users who never
+            # opened a notebook don't trip AttributeError on every shutdown.
+            watcher = getattr(startup_app.state, "notebook_watch_svc", None)
+            if watcher is not None:
+                try:
+                    watcher.shutdown()
+                except Exception:
+                    log.exception("notebook watch shutdown failed")
             _restore_process_hermes_home(previous_hermes_home)
 
     app = FastAPI(title="Hermes Desktop Sidecar", openapi_url=None, lifespan=lifespan)
@@ -293,6 +302,7 @@ def build_app(cfg: Config) -> FastAPI:
         commands as commands_router,
         delegation as delegation_router,
         workspace as workspace_router,
+        notebooks as notebooks_router,
         git as git_router,
         review as review_router,
         projects as projects_router,
@@ -320,6 +330,7 @@ def build_app(cfg: Config) -> FastAPI:
     app.include_router(commands_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(delegation_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(workspace_router.router, prefix=API_PREFIX, dependencies=deps)
+    app.include_router(notebooks_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(git_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(review_router.router, prefix=API_PREFIX, dependencies=deps)
     app.include_router(projects_router.router, prefix=API_PREFIX, dependencies=deps)
