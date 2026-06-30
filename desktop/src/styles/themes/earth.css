@@ -68,6 +68,10 @@
   --color-callout-bg: #281208;
   --color-callout-border: #4a2210;
   --color-date-separator: #3e2010;
+  --color-code-preview-bg: #1f120b;
+  --color-code-preview-fg: #f5dec6;
+  --color-code-preview-border: #4a2a16;
+  --color-code-preview-inline-bg: #341c0f;
 
   /* --- Diff View Colors --- */
   --diff-addition-color: #73d673;

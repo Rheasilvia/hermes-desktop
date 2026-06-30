@@ -69,6 +69,10 @@
   --color-date-separator: #1f2538;
   --color-code-block-bg: #0a0c10;
   --color-code-block-header: #121520;
+  --color-code-preview-bg: #0d1117;
+  --color-code-preview-fg: #e6edf3;
+  --color-code-preview-border: #30363d;
+  --color-code-preview-inline-bg: #262c36;
 
   /* --- Conversation: Tool Calls --- */
   --color-tool-active: #5b8dff;

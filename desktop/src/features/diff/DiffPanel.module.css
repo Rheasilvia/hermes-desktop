@@ -940,6 +940,16 @@
   text-align: left;
 }
 
+.diffFileRowSelectTree {
+  grid-template-columns: 14px 8px minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.diffFileTreeFileSpacer {
+  width: 14px;
+  height: 1px;
+}
+
 .diffFileRow:hover,
 .diffFileRowFocused {
   background: var(--color-hover-overlay);
@@ -967,6 +977,28 @@
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   text-align: left;
+}
+
+.diffFileTreeRowNested::before,
+.diffFileTreeRowNested::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+  background: var(--color-border-light);
+}
+
+.diffFileTreeRowNested::before {
+  top: 0;
+  bottom: 0;
+  left: calc(var(--space-2) + var(--file-depth-offset, 0px) - 8px);
+  width: 1px;
+}
+
+.diffFileTreeRowNested::after {
+  top: 50%;
+  left: calc(var(--space-2) + var(--file-depth-offset, 0px) - 8px);
+  width: 8px;
+  height: 1px;
 }
 
 .diffFileDirRow:hover {

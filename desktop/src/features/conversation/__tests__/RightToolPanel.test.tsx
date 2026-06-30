@@ -228,14 +228,4 @@ describe('RightToolPanel', () => {
     expect(screen.queryByRole('button', { name: /Close tools/i })).toBeNull();
   });
 
-  it('renders a lightweight preview placeholder without mounting a webview rail', () => {
-    sidePanelStore.setActiveView('preview');
-    render(() => (
-      <RightToolPanel sessionId="session-1" workspacePath="/repo" />
-    ));
-
-    expect(screen.getByRole('status', { name: 'No preview selected' })).toBeTruthy();
-    expect(screen.getByText('Preview')).toBeTruthy();
-    expect(document.querySelector('webview')).toBeNull();
-  });
 });

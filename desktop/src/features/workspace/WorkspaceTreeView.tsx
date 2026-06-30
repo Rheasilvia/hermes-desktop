@@ -1,12 +1,10 @@
 import type { Component } from 'solid-js';
-import { For, Show, createEffect, createMemo, createSignal, onMount } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal } from 'solid-js';
 import type { WorkspaceTreeNode, WorkspaceTreeRow } from '@/types/index.js';
-import { projectStore } from '@/stores/projects.js';
-import { sessionStore } from '@/stores/session.js';
 import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { WorkspaceContextMenu } from './WorkspaceContextMenu.js';
-import { WorkspaceFilePreview } from './WorkspaceFilePreview.js';
+import { WorkspaceFilePreviewPane } from './WorkspaceFilePreviewPane.js';
 import styles from './WorkspaceTreeView.module.css';
 
 interface WorkspaceTreeViewProps {
@@ -20,34 +18,24 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
   const state = createMemo(() => workspaceTreeStore.state());
   const [previewNode, setPreviewNode] = createSignal<WorkspaceTreeNode | null>(null);
   const [contextMenu, setContextMenu] = createSignal<{ node: WorkspaceTreeNode; x: number; y: number } | null>(null);
-  const activeProjectPath = () => projectStore.activePath() ?? props.workspacePath ?? '';
-  let lastSyncedProjectPath: string | null = null;
-
-  onMount(() => {
-    void projectStore.load();
-  });
+  let lastWorkspacePath: string | null = null;
+  let lastPreviewScope: string | null = null;
 
   createEffect(() => {
     const path = props.workspacePath;
+    if (path === lastWorkspacePath) return;
     setFocusedIndex(0);
-    if (!path || path === lastSyncedProjectPath) return;
-    lastSyncedProjectPath = path;
-    void projectStore.setActiveProject(path);
+    lastWorkspacePath = path;
+    setPreviewNode(null);
   });
 
   createEffect(() => {
-    const path = projectStore.activePath();
-    if (path) void projectStore.loadWorktrees(path);
-  });
-
-  const enterProject = async (path: string) => {
-    if (!path) return;
-    await projectStore.setActiveProject(path);
-    if (props.sessionId) {
-      await sessionStore.updateCwd(props.sessionId, path);
-      await workspaceTreeStore.setWorkspace(props.sessionId, path);
+    const scope = `${props.sessionId ?? ''}\u0000${state()?.root ?? props.workspacePath ?? ''}`;
+    if (lastPreviewScope !== null && scope !== lastPreviewScope) {
+      setPreviewNode(null);
     }
-  };
+    lastPreviewScope = scope;
+  });
 
   const focusRow = (index: number) => {
     const list = rows();
@@ -58,11 +46,28 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
   };
 
   const focusedRow = () => rows()[focusedIndex()] ?? null;
+  const previewedPath = () => previewNode()?.path ?? null;
+
+  const openPreview = (node: WorkspaceTreeNode | null | undefined) => {
+    if (!node || node.kind !== 'file') return;
+    workspaceTreeStore.selectPath(node.path);
+    setPreviewNode(node);
+  };
+
+  const isInteractiveKeyTarget = (target: EventTarget | null): boolean =>
+    target instanceof HTMLElement
+    && target.closest('input, textarea, select, [contenteditable="true"]') != null;
 
   const onKeyDown = (event: KeyboardEvent) => {
+    if (isInteractiveKeyTarget(event.target)) return;
     const row = focusedRow();
     if (!row) return;
-    if (event.key === 'ArrowDown') {
+    const openShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'o';
+    if (openShortcut) {
+      if (row.node.kind !== 'file') return;
+      event.preventDefault();
+      openPreview(row.node);
+    } else if (event.key === 'ArrowDown') {
       event.preventDefault();
       focusRow(focusedIndex() + 1);
     } else if (event.key === 'ArrowUp') {
@@ -81,7 +86,7 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
     } else if (event.key === 'Enter') {
       event.preventDefault();
       if (row.node.kind === 'directory') void workspaceTreeStore.toggleExpanded(row.node.path);
-      else workspaceTreeStore.selectPath(row.node.path);
+      else openPreview(row.node);
     }
   };
 
@@ -97,133 +102,102 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
 
   return (
     <div class={styles.treeShell}>
-      <div class={styles.treeHeader}>
-        <Icon name="folder-open" size={14} />
-        <span class={styles.rootPath} title={props.workspacePath ?? undefined}>{props.workspacePath ?? 'No workspace selected'}</span>
-      </div>
-      <Show when={projectStore.projects().length > 0}>
-        <div class={styles.projectBar}>
-          <select
-            class={styles.projectSelect}
-            aria-label="Active project"
-            value={activeProjectPath()}
-            onChange={(event) => void enterProject(event.currentTarget.value)}
-          >
-            <For each={projectStore.projects()}>
-              {(project) => (
-                <option value={project.path}>{project.name}</option>
-              )}
-            </For>
-          </select>
-        </div>
-        <Show when={projectStore.worktrees()?.worktrees.length}>
-          <div class={styles.worktreeList} aria-label="Project worktrees">
-            <For each={projectStore.worktrees()?.worktrees ?? []}>
-              {(worktree) => (
-                <button
-                  type="button"
-                  class={styles.worktreeRow}
-                  title={worktree.path}
-                  onClick={() => void enterProject(worktree.path)}
-                >
-                  <span>{worktree.path.split(/[\\/]/).filter(Boolean).pop() ?? worktree.path}</span>
-                  <Show when={worktree.branch}>
-                    <span class={styles.worktreeBranch}>{worktree.branch}</span>
-                  </Show>
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
-      </Show>
       <Show
         when={props.workspacePath}
         fallback={<div class={styles.emptyState}>Select a workspace in the chat input to browse files.</div>}
       >
         <div
-          class={styles.treeBody}
-          role="tree"
-          aria-label="Workspace files"
-          tabIndex={0}
-          onKeyDown={onKeyDown}
+          class={styles.workspaceSplit}
+          classList={{ [styles.workspaceSplitPreviewOpen]: previewNode() != null }}
         >
-          <Show when={rootError()}>
-            <div class={styles.errorState} role="status">{rootError()}</div>
-          </Show>
-          <Show when={rows().length > 0 && !rootError()} fallback={<Show when={!rootError()}><div class={styles.metaRow} role="status">Loading workspace...</div></Show>}>
-            <For each={rows()}>
-              {(row: WorkspaceTreeRow, index) => {
-                const isDirectory = () => row.node.kind === 'directory';
-                const expanded = () => Boolean(isDirectory() && state()?.expanded.has(row.node.path));
-                const selected = () => state()?.selectedPath === row.node.path;
-                const loading = () => Boolean(state()?.loading.has(row.node.path));
-                const error = () => state()?.errors.get(row.node.path);
-                const dir = () => state()?.directories.get(row.node.path);
+          <section class={styles.browserPane} aria-label="Workspace file browser">
+            <div
+              class={styles.treeBody}
+              role="tree"
+              aria-label="Workspace files"
+              tabIndex={0}
+              onKeyDown={onKeyDown}
+            >
+              <Show when={rootError()}>
+                <div class={styles.errorState} role="status">{rootError()}</div>
+              </Show>
+              <Show when={rows().length > 0 && !rootError()} fallback={<Show when={!rootError()}><div class={styles.metaRow} role="status">Loading workspace...</div></Show>}>
+                <For each={rows()}>
+                  {(row: WorkspaceTreeRow, index) => {
+                    const isDirectory = () => row.node.kind === 'directory';
+                    const expanded = () => Boolean(isDirectory() && state()?.expanded.has(row.node.path));
+                    const selected = () => state()?.selectedPath === row.node.path;
+                    const previewed = () => previewedPath() === row.node.path;
+                    const loading = () => Boolean(state()?.loading.has(row.node.path));
+                    const error = () => state()?.errors.get(row.node.path);
+                    const dir = () => state()?.directories.get(row.node.path);
 
-                return (
-                  <>
-                    <button
-                      type="button"
-                      role="treeitem"
-                      aria-level={row.depth + 1}
-                      aria-selected={selected()}
-                      aria-expanded={isDirectory() ? expanded() : undefined}
-                      class={styles.row}
-                      classList={{
-                        [styles.rowSelected]: selected(),
-                        [styles.rowFocused]: focusedIndex() === index(),
-                      }}
-                      style={{ 'padding-left': `${8 + row.depth * 16}px` }}
-                      onClick={() => {
-                        setFocusedIndex(index());
-                        workspaceTreeStore.selectPath(row.node.path);
-                        if (row.node.kind === 'directory') void workspaceTreeStore.toggleExpanded(row.node.path);
-                      }}
-                      onDblClick={() => {
-                        if (row.node.kind === 'file') setPreviewNode(row.node);
-                        else void copyPath(row.node.path);
-                      }}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setContextMenu({ node: row.node, x: e.clientX, y: e.clientY });
-                      }}
-                      title={row.node.path}
-                    >
-                      <span class={isDirectory() ? styles.chevron : styles.chevronPlaceholder} aria-hidden="true">
-                        <Show when={isDirectory()}>{expanded() ? <Icon name="chevron-down" size={14} /> : <Icon name="chevron-right" size={14} />}</Show>
-                      </span>
-                      <Icon name={isDirectory() ? 'folder' : 'file'} size={14} class={isDirectory() ? styles.folderIcon : styles.fileIcon} />
-                      <span class={styles.name}>{row.node.name}</span>
-                    </button>
-                    <Show when={loading()}>
-                      <div class={styles.inlineMeta} role="status" style={{ 'padding-left': `${40 + row.depth * 16}px` }}>Loading...</div>
-                    </Show>
-                    <Show when={error()}>
-                      <div class={styles.inlineMeta} role="status" style={{ 'padding-left': `${40 + row.depth * 16}px` }}>{error()}</div>
-                    </Show>
-                    <Show when={dir()?.truncated}>
-                      <div class={styles.inlineMeta} role="status" style={{ 'padding-left': `${40 + (row.depth + 1) * 16}px` }}>Directory truncated after 1000 visible entries.</div>
-                    </Show>
-                  </>
-                );
-              }}
-            </For>
-          </Show>
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          role="treeitem"
+                          aria-level={row.depth + 1}
+                          aria-selected={selected()}
+                          aria-current={previewed() ? 'true' : undefined}
+                          aria-expanded={isDirectory() ? expanded() : undefined}
+                          class={styles.row}
+                          classList={{
+                            [styles.rowSelected]: selected(),
+                            [styles.rowFocused]: focusedIndex() === index(),
+                            [styles.rowPreviewed]: previewed(),
+                          }}
+                          style={{ 'padding-left': `${8 + row.depth * 16}px` }}
+                          onClick={() => {
+                            setFocusedIndex(index());
+                            if (row.node.kind === 'file') {
+                              openPreview(row.node);
+                              return;
+                            }
+                            workspaceTreeStore.selectPath(row.node.path);
+                            void workspaceTreeStore.toggleExpanded(row.node.path);
+                          }}
+                          onDblClick={() => {
+                            if (row.node.kind !== 'file') void copyPath(row.node.path);
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setContextMenu({ node: row.node, x: e.clientX, y: e.clientY });
+                          }}
+                          title={row.node.path}
+                        >
+                          <span class={isDirectory() ? styles.chevron : styles.chevronPlaceholder} aria-hidden="true">
+                            <Show when={isDirectory()}>{expanded() ? <Icon name="chevron-down" size={14} /> : <Icon name="chevron-right" size={14} />}</Show>
+                          </span>
+                          <Icon name={isDirectory() ? 'folder' : 'file'} size={14} class={isDirectory() ? styles.folderIcon : styles.fileIcon} />
+                          <span class={styles.name}>{row.node.name}</span>
+                        </button>
+                        <Show when={loading()}>
+                          <div class={styles.inlineMeta} role="status" style={{ 'padding-left': `${40 + row.depth * 16}px` }}>Loading...</div>
+                        </Show>
+                        <Show when={error()}>
+                          <div class={styles.inlineMeta} role="status" style={{ 'padding-left': `${40 + row.depth * 16}px` }}>{error()}</div>
+                        </Show>
+                        <Show when={dir()?.truncated}>
+                          <div class={styles.inlineMeta} role="status" style={{ 'padding-left': `${40 + (row.depth + 1) * 16}px` }}>Directory truncated after 1000 visible entries.</div>
+                        </Show>
+                      </>
+                    );
+                  }}
+                </For>
+              </Show>
+            </div>
+          </section>
+          <section class={styles.previewPane} aria-label="Workspace file preview">
+            <WorkspaceFilePreviewPane
+              node={previewNode()}
+              workspaceRoot={state()?.root ?? ''}
+              sessionId={props.sessionId}
+              onBackToFiles={() => setPreviewNode(null)}
+              onClose={() => setPreviewNode(null)}
+            />
+          </section>
         </div>
-      </Show>
-      <Show when={previewNode()}>
-        {(node) => (
-          <Show when={props.sessionId}>
-            {(sessionId) => (
-              <WorkspaceFilePreview
-                node={node()}
-                workspaceRoot={state()?.root ?? ''}
-                sessionId={sessionId()}
-                onClose={() => setPreviewNode(null)}
-              />
-            )}
-          </Show>
-        )}
       </Show>
       <Show when={contextMenu()}>
         {(menu) => (
@@ -235,7 +209,7 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
                 sessionId={sessionId()}
                 position={{ x: menu().x, y: menu().y }}
                 onClose={() => setContextMenu(null)}
-                onPreview={() => setPreviewNode(menu().node)}
+                onPreview={() => openPreview(menu().node)}
               />
             )}
           </Show>
