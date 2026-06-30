@@ -171,6 +171,24 @@ describe('DiffFileNavigator', () => {
     expect(screen.queryByRole('treeitem', { name: /Button\.tsx/ })).toBeNull();
   });
 
+  it('keeps nested file rows visually offset under their parent directories', () => {
+    render(() => (
+      <DiffFileNavigator
+        rows={makeRows()}
+        activeIndex={0}
+        ariaLabel="Changed files"
+        onSelect={vi.fn()}
+      />
+    ));
+
+    const parentDir = screen.getByRole('treeitem', { name: 'src/components' });
+    const childFile = screen.getByRole('treeitem', { name: /Button\.tsx/ });
+
+    expect(parentDir.getAttribute('style')).toContain('--file-depth-offset: 16px');
+    expect(childFile.getAttribute('style')).toContain('--file-depth-offset: 32px');
+    expect(childFile.querySelector('[data-testid="diff-file-tree-spacer"]')).toBeTruthy();
+  });
+
   it('switches to listbox semantics in list mode', async () => {
     render(() => (
       <DiffFileNavigator
@@ -201,6 +219,6 @@ describe('DiffFileNavigator', () => {
 
     const row = screen.getByRole('treeitem', { name: /deep-file\.ts/ });
     expect(row.getAttribute('style')).toContain('--file-depth: 6');
-    expect(row.getAttribute('style')).toContain('--file-depth-offset: 48px');
+    expect(row.getAttribute('style')).toContain('--file-depth-offset: 64px');
   });
 });
