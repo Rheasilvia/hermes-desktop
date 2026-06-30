@@ -1,8 +1,7 @@
 import type { Component } from 'solid-js';
-import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, onMount } from 'solid-js';
+import { For, Match, Switch, createEffect, createMemo, onCleanup, onMount } from 'solid-js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 import { gitViewStore } from '@/stores/git-view.js';
-import { previewStore } from '@/stores/preview.js';
 import { WorkspaceTreeView } from '@/features/workspace/WorkspaceTreeView.js';
 import { DiffPanel } from '@/features/diff/DiffPanel.js';
 import { DelegationSidePanel } from '@/features/delegation/DelegationSidePanel.js';
@@ -21,40 +20,6 @@ interface RightToolPanelProps {
   visible?: boolean;
   onInsertComposerText?: (text: string) => void;
 }
-
-const PreviewPlaceholder: Component<{ sessionId: string | null }> = (props) => {
-  const record = createMemo(() => previewStore.get(props.sessionId));
-  return (
-    <div class={styles.pageChrome}>
-      <div class={styles.paneHeader}>
-        <span class={styles.paneHeaderIcon}><Icon name="eye" size={13} strokeWidth={1.8} /></span>
-        <span class={styles.paneHeaderTitle}>Preview</span>
-      </div>
-      <Show
-        when={record()}
-        fallback={
-          <div class={styles.emptyState} role="status" aria-label="No preview selected">
-            <span class={styles.emptyIcon}>
-              <Icon name="eye" size={24} />
-            </span>
-            <div class={styles.emptyTitle}>No preview selected</div>
-            <div class={styles.emptyDescription}>Preview targets will open here in a future update.</div>
-          </div>
-        }
-      >
-        {(preview) => (
-          <div class={styles.previewPlaceholder} role="status" aria-label={`Preview ${preview().normalized.label}`}>
-            <span class={styles.emptyIcon}>
-              <Icon name={preview().normalized.kind === 'url' ? 'globe' : 'file'} size={24} />
-            </span>
-            <div class={styles.emptyTitle}>{preview().normalized.label || 'Preview'}</div>
-            <div class={styles.emptyDescription}>{preview().target}</div>
-          </div>
-        )}
-      </Show>
-    </div>
-  );
-};
 
 export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
   const bodyFrozen = () => Boolean(
@@ -164,11 +129,6 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
           <Match when={sidePanelStore.activeView() === 'files'}>
             <div class={styles.page}>
               <WorkspaceTreeView sessionId={props.sessionId} workspacePath={props.workspacePath} />
-            </div>
-          </Match>
-          <Match when={sidePanelStore.activeView() === 'preview'}>
-            <div class={styles.page}>
-              <PreviewPlaceholder sessionId={props.sessionId} />
             </div>
           </Match>
           <Match when={sidePanelStore.activeView() === 'delegation'}>

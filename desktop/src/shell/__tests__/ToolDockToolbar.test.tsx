@@ -341,6 +341,7 @@ describe('ToolDockToolbar', () => {
     expect(screen.getByRole('menuitem', { name: /Terminal/ })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: /Open file/ })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: /Delegation/ })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: /Preview/ })).toBeNull();
 
     fireEvent.click(screen.getByRole('menuitem', { name: /Terminal/ }));
     expect(sidePanelState.openTabs.map((tab) => tab.title)).toEqual(['PreDoc', 'PreDoc 2']);
