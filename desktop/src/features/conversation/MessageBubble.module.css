@@ -2,6 +2,28 @@
   margin-bottom: var(--space-1);
 }
 
+.wrapperTurnBoundary {
+  position: relative;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+}
+
+.wrapperTurnBoundary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: var(--space-1);
+  left: 42%;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--color-border) 48%, transparent),
+    color-mix(in srgb, var(--color-border) 72%, transparent)
+  );
+}
+
 .wrapper:last-child {
   margin-bottom: 0;
 }

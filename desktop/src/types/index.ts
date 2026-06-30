@@ -72,6 +72,7 @@ export type {
   SessionListItem,
   Session,
   SessionTranscript,
+  SessionRewindResult,
   TranscriptMessage,
   TranscriptLiveTurn,
   TranscriptTurnStatus,

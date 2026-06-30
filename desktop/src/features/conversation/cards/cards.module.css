@@ -3,7 +3,7 @@
 
 .dock {
   /* 32px horizontal inset matches MessageInput's .wrapper padding so the card
-     edges line up with the input box (same inset as the approval .cardDock). */
+     edges line up with the input box when this dock renders outside PromptDock. */
   margin: 0 0 8px;
   padding: 0 32px;
   outline: none;

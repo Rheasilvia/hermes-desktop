@@ -347,6 +347,58 @@ describe('AssistantMessage live tool activity', () => {
     expect(onRejectPlan).toHaveBeenCalledWith(block, 'message-1');
   });
 
+  it('shows completed plan decision buttons when the plan is actionable', async () => {
+    const onExecutePlan = vi.fn();
+    const onRejectPlan = vi.fn();
+    const block = plan('# Plan\n\nFull body line.');
+
+    render(() => (
+      <AssistantMessage
+        blocks={[block]}
+        messageId="message-1"
+        onExecutePlan={onExecutePlan}
+        onRejectPlan={onRejectPlan}
+        actionablePlanBlockId={block.id}
+      />
+    ));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Execute plan' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Request plan changes' }));
+
+    expect(onExecutePlan).toHaveBeenCalledWith(block, 'message-1');
+    expect(onRejectPlan).toHaveBeenCalledWith(block, 'message-1');
+  });
+
+  it('hides completed plan decision buttons when no plan is actionable', () => {
+    render(() => (
+      <AssistantMessage
+        blocks={[plan('# Plan\n\nFull body line.')]}
+        onOpenPlanPreview={vi.fn()}
+        onExecutePlan={vi.fn()}
+        onRejectPlan={vi.fn()}
+        actionablePlanBlockId={null}
+      />
+    ));
+
+    expect(screen.queryByRole('button', { name: 'Execute plan' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Request plan changes' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open full plan preview' })).toBeTruthy();
+  });
+
+  it('hides completed plan decision buttons when a different plan is actionable', () => {
+    render(() => (
+      <AssistantMessage
+        blocks={[plan('# Plan\n\nFull body line.')]}
+        onExecutePlan={vi.fn()}
+        onRejectPlan={vi.fn()}
+        actionablePlanBlockId="plan_2"
+      />
+    ));
+
+    expect(screen.queryByRole('button', { name: 'Execute plan' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Request plan changes' })).toBeNull();
+  });
+
   it('disables completed plan decision buttons while a plan decision is pending', () => {
     render(() => (
       <AssistantMessage

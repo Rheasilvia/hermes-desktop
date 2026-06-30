@@ -27,6 +27,7 @@ import type {
   SecretRequestPayload,
   ErrorPayload,
   TurnInterruptedPayload,
+  SessionRewindPayload,
 } from '@/types/gateway.js';
 import type { SessionMessage } from '@/types/session.js';
 import type { RenderedMessage } from '@/types/ui/message.js';
@@ -220,7 +221,7 @@ export const chatStore = {
         slash_command: opts?.slashCommand,
         display_parts: opts?.displayParts,
       });
-      this.markPromptAccepted(sessionId, accepted.turn_id);
+      this.markPromptAccepted(sessionId, accepted.turn_id, accepted.user_seq);
       return true;
     } catch {
       clearStalledTimer(sessionId);
@@ -279,6 +280,15 @@ export const chatStore = {
     return removed;
   },
 
+  removeMessagesFrom(sessionId: string, messageId: RenderedMessage['id']): RenderedMessage[] {
+    const messages = chatStates[sessionId]?.messages ?? [];
+    const index = messages.findIndex((message) => message.id === messageId);
+    if (index < 0) return [];
+    const removed = messages.slice(index);
+    setChatStates(sessionId, 'messages', (msgs) => msgs.slice(0, index));
+    return removed;
+  },
+
   appendLocalMessage(sessionId: string, text: string, role: 'assistant' | 'system' = 'assistant'): void {
     ensureSession(sessionId);
     const msg: RenderedMessage = {
@@ -300,9 +310,20 @@ export const chatStore = {
     beginLiveTurn(sessionId, 'streaming');
   },
 
-  markPromptAccepted(sessionId: string, turnId: string | null = null): void {
+  markPromptAccepted(sessionId: string, turnId: string | null = null, userSeq: number | null = null): void {
     beginLiveTurn(sessionId, 'accepted');
     if (turnId) setChatStates(sessionId, 'liveState', 'turnId', turnId);
+    if (turnId && userSeq != null) {
+      setChatStates(sessionId, produce((s) => {
+        for (let index = s.messages.length - 1; index >= 0; index -= 1) {
+          const message = s.messages[index];
+          if (message.role !== 'user' || message.turnId) continue;
+          message.turnId = turnId;
+          message.id = userSeq;
+          break;
+        }
+      }));
+    }
   },
 
   handleDelta(sessionId: string, payload: MessageDeltaPayload): void {
@@ -568,6 +589,30 @@ export const chatStore = {
 
     setChatStates(sessionId, produce((s) => {
       s.messages = [...s.messages, partialMsg];
+      s.liveState = makeLiveTurnState(sessionId);
+      s.isLoadingMessages = false;
+    }));
+  },
+
+  handleSessionRewind(sessionId: string, payload: SessionRewindPayload): void {
+    ensureSession(sessionId);
+    const targetTurnId = String(payload.target_turn_id ?? '');
+    const targetUserSeq = Number(payload.target_user_seq ?? 0);
+    const messages = chatStates[sessionId]?.messages ?? [];
+    let cutIndex = targetTurnId
+      ? messages.findIndex((message) => message.role === 'user' && message.turnId === targetTurnId)
+      : -1;
+    if (cutIndex < 0 && targetUserSeq > 0) {
+      cutIndex = messages.findIndex((message) => {
+        const numericId = Number(message.id);
+        return message.role === 'user' && Number.isFinite(numericId) && numericId === targetUserSeq;
+      });
+    }
+    if (cutIndex < 0) return;
+
+    clearStalledTimer(sessionId);
+    setChatStates(sessionId, produce((s) => {
+      s.messages = s.messages.slice(0, cutIndex);
       s.liveState = makeLiveTurnState(sessionId);
       s.isLoadingMessages = false;
     }));

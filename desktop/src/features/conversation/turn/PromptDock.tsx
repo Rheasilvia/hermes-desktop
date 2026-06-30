@@ -5,6 +5,7 @@ import styles from './PromptDock.module.css';
 export interface PromptDockItem {
   id: string;
   content: JSX.Element;
+  placement?: 'compact-center' | 'full';
 }
 
 interface PromptDockProps {
@@ -35,7 +36,15 @@ export const PromptDock: Component<PromptDockProps> = (props) => {
         onKeyDown={onKeyDown}
       >
         <For each={props.items}>
-          {(item) => <div class={styles.item}>{item.content}</div>}
+          {(item) => (
+            <div
+              class={styles.item}
+              classList={{ [styles.itemCompactCenter]: item.placement === 'compact-center' }}
+              data-placement={item.placement ?? 'full'}
+            >
+              {item.content}
+            </div>
+          )}
         </For>
       </div>
     </Show>

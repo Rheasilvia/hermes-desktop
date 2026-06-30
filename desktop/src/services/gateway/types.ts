@@ -8,6 +8,7 @@ import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
 import type {
   SessionMeta,
   SessionMessage,
+  SessionRewindResult,
   SessionTranscript,
   SessionUsage,
   SessionListItem,
@@ -73,6 +74,7 @@ import type {
   BtwCompletePayload,
   ErrorPayload,
   TurnInterruptedPayload,
+  SessionRewindPayload,
   GatewayStderrPayload,
   ProtocolErrorPayload,
   SessionTitleUpdatePayload,
@@ -115,6 +117,7 @@ export interface GatewayEventMap {
   'btw.complete': BtwCompletePayload;
   'error': ErrorPayload;
   'turn.interrupted': TurnInterruptedPayload;
+  'session.rewind': SessionRewindPayload;
   'gateway.stderr': GatewayStderrPayload;
   'gateway.protocol_error': ProtocolErrorPayload;
   'session.title_update': SessionTitleUpdatePayload;
@@ -168,6 +171,7 @@ export interface SessionMethods {
   interrupt(sessionId: string): Promise<void>;
   steer(sessionId: string, text: string): Promise<SessionSteerResponse>;
   undo(sessionId: string): Promise<{ removed: number }>;
+  rewindToTurn(sessionId: string, turnId: string): Promise<SessionRewindResult>;
   messages(sessionId: string): Promise<SessionMessage[]>;
   transcript(sessionId: string): Promise<SessionTranscript>;
 }
@@ -423,6 +427,7 @@ export type CommandResult =
 /** Slash execution method group. */
 export interface SlashMethods {
   exec(params: { command: string; args?: string; raw?: string; session_id?: string }): Promise<CommandResult>;
+  resolvePrompt(params: { command: string; args?: string; raw?: string; session_id?: string }): Promise<CommandResult>;
 }
 
 /** Command dispatch method group. */
@@ -484,7 +489,7 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   getConnectionState(): ConnectionState;
 }
 
-export type { CollaborationMode, DesktopPermissionMode, ReasoningEffort, SessionRuntime, SessionRuntimeUpdateResult, SessionListItem, SessionMessage, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, WorkspaceChildrenResult, WorkspaceFileResult, GitDiffResult, ReviewCommitMessageResult, ReviewFilesResult, ReviewShipInfoResult, ReviewOkResult, ReviewPrResult, BranchListResult, ProjectEntry, ProjectListResult, WorktreeListResult, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult, UserInputAnswersPayload } from '@/types/index.js';
+export type { CollaborationMode, DesktopPermissionMode, ReasoningEffort, SessionRuntime, SessionRuntimeUpdateResult, SessionListItem, SessionMessage, SessionRewindResult, SessionMeta, SessionTranscript, SessionInfoPayload, HermesConfig, ToolEntry, WorkspaceChildrenResult, WorkspaceFileResult, GitDiffResult, ReviewCommitMessageResult, ReviewFilesResult, ReviewShipInfoResult, ReviewOkResult, ReviewPrResult, BranchListResult, ProjectEntry, ProjectListResult, WorktreeListResult, ModelOption, CronJob, CreateCronJobParams, UpdateCronJobParams, McpServer, McpTool, MemoryFile, MemoryFileWithContent, MemoryProject, MemorySearchHit, MemoryScope, WellKnownMemoryName, ContextFile, MemoryEntry, SessionUsagePayload, PromptExecuteResult, UserInputAnswersPayload } from '@/types/index.js';
 
 /** Factory options for creating a gateway adapter. */
 export interface GatewayAdapterOptions {

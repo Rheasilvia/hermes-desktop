@@ -22,6 +22,8 @@ from ..schemas.conversation import (
     ImageDetachRequest,
     PromptExecuteRequest,
     SecretRespondRequest,
+    SessionRewindToTurnRequest,
+    SessionRewindToTurnResponse,
     SetPermissionModeRequest,
     SessionSteerRequest,
     SessionSteerResponse,
@@ -200,6 +202,38 @@ async def branch_session(
         raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/sessions/{session_id}/rewind-to-turn", response_model=SessionRewindToTurnResponse)
+async def rewind_session_to_turn(
+    session_id: str,
+    body: SessionRewindToTurnRequest,
+    svc=Depends(get_session_service),
+    pool=Depends(get_agent_pool),
+    bus=Depends(get_event_bus),
+):
+    if svc.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="SESSION_NOT_FOUND")
+    if pool.is_running(session_id):
+        raise HTTPException(status_code=409, detail="SESSION_BUSY")
+    try:
+        result = svc.rewind_to_turn(session_id, body.turn_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    bus.publish(
+        session_id,
+        int(result["eventSeq"]),
+        "session.rewind",
+        dict(result.get("eventPayload") or {}),
+    )
+    return {
+        "rewoundCount": result["rewoundCount"],
+        "targetTurnId": result["targetTurnId"],
+        "targetUserSeq": result["targetUserSeq"],
+        "newHeadSeq": result["newHeadSeq"],
+        "eventSeq": result["eventSeq"],
+    }
 
 
 @router.put("/sessions/{session_id}/permission-mode")
