@@ -58,6 +58,25 @@ describe('FileContentView', () => {
     expect(container.querySelector('pre')).not.toBeNull();
   });
 
+  test('renders line numbers for code files', () => {
+    render(() => (
+      <FileContentView content={'print("hello")\nprint("world")'} filename="x.py" />
+    ));
+    const source = screen.getByRole('region', { name: 'Source code' });
+    const gutter = source.querySelector('[aria-hidden="true"]');
+    expect(gutter?.textContent).toBe('1\n2');
+  });
+
+  test('renders line numbers when markdown source mode is selected', () => {
+    render(() => (
+      <FileContentView content={'# Title\n\nbody'} filename="doc.md" />
+    ));
+    fireEvent.click(screen.getByRole('tab', { name: 'Source' }));
+    const source = screen.getByRole('region', { name: 'Source code' });
+    const gutter = source.querySelector('[aria-hidden="true"]');
+    expect(gutter?.textContent).toBe('1\n2\n3');
+  });
+
   test('shows banner when provided', () => {
     render(() => (
       <FileContentView
@@ -125,5 +144,13 @@ describe('FileContentView', () => {
     ));
     expect(container.querySelector('table thead th')).not.toBeNull();
     expect(container.querySelector('table tbody td')).not.toBeNull();
+  });
+
+  test('supports compact dock rendering', () => {
+    const { container } = render(() => (
+      <FileContentView content="# Dock" filename="doc.md" variant="dock" />
+    ));
+    expect(container.firstElementChild?.className).toContain('rootDock');
+    expect(container.querySelector('h1')?.textContent).toContain('Dock');
   });
 });

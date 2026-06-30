@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  codeHighlightThemeForUiTheme,
   parseMarkdown,
   sanitizeHtml,
   highlightCode,
@@ -144,6 +145,23 @@ describe('highlightCode', () => {
     const result = await highlightCode('const x = 1;', 'ts');
     expect(result).toContain('style="');
   }, 15000);
+
+  it('supports GitHub light and dark themes for file previews', async () => {
+    const source = 'print("hello")';
+    const light = await highlightCode(source, 'python', 'github-light');
+    const dark = await highlightCode(source, 'python', 'github-dark');
+
+    expect(light).toContain('style="');
+    expect(dark).toContain('style="');
+    expect(light).not.toBe(dark);
+  }, 15000);
+
+  it('maps UI themes to GitHub code preview themes', () => {
+    expect(codeHighlightThemeForUiTheme('light')).toBe('github-light');
+    expect(codeHighlightThemeForUiTheme('dark')).toBe('github-dark');
+    expect(codeHighlightThemeForUiTheme('earth')).toBe('github-dark');
+    expect(codeHighlightThemeForUiTheme(undefined)).toBe('github-light');
+  });
 
   it('escapes HTML for unsupported language', async () => {
     const result = await highlightCode('some code', 'madeup-lang');

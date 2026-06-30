@@ -140,6 +140,10 @@
   /* --- Conversation: Code Blocks --- */
   --color-code-block-bg: #1e2030;
   --color-code-block-header: #252840;
+  --color-code-preview-bg: #f6f8fa;
+  --color-code-preview-fg: #24292f;
+  --color-code-preview-border: #d0d7de;
+  --color-code-preview-inline-bg: #eff1f3;
 
   /* --- Conversation: Callout Boxes --- */
   --color-callout-bg: color-mix(in srgb, #f8faff 85%, #e8eeff);
