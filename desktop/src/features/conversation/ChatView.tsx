@@ -46,6 +46,7 @@ import { BackgroundTaskDock } from './background/BackgroundTaskDock.js';
 import { backgroundTaskStore, recentBackgroundTasks } from '@/stores/background-tasks.js';
 import { composerQueueStore, shouldAutoDrainOnSettle, type QueuedAttachment } from '@/stores/composer-queue.js';
 import { composerInsertionStore } from '@/stores/composer-insertions.js';
+import { previewStore } from '@/stores/preview.js';
 import { createScrollController } from './scrollController.js';
 import { createCommandCardState } from './commandCardState.js';
 import { createSlashCommandRunner } from './slashCommandRunner.js';
@@ -74,6 +75,7 @@ const ESCAPE_PRIORITY_SURFACE_SELECTOR = [
   '[data-completion-panel]',
 ].join(',');
 const STEER_UNAVAILABLE_WARNING = 'Steer unavailable; still queued for next turn.';
+const EXECUTE_PLAN_MESSAGE = 'Implement this plan.';
 
 export interface PromptDisplayMetadata {
   text: string;
@@ -104,6 +106,11 @@ export function resolvePromptDispatch(
     return { message: submitText, context: attachmentContext };
   }
   return { message: submitText };
+}
+
+export function buildPlanExecutionContext(planContent: string): string {
+  const trimmed = planContent.trim();
+  return trimmed ? `Approved plan:\n\n${trimmed}` : '';
 }
 
 export function resolveMessageCopyText(message: RenderedMessage): string {
@@ -197,6 +204,21 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     environmentPanelOpen: uiStore.environmentPanelOpen,
     rightToolsOverlay: uiStore.rightToolsOverlay,
   }));
+
+  const handleOpenPlanPreview = (block: PlanBlock, messageId?: string | number) => {
+    const sid = sessionId();
+    if (!sid || !block.id) return;
+    previewStore.registerPlan(sid, {
+      blockId: block.id,
+      label: 'Plan',
+      messageId: messageId == null ? undefined : String(messageId),
+    });
+    sidePanelStore.openTab('preview');
+  };
+
+  const focusComposer = () => {
+    queueMicrotask(() => (document.querySelector('textarea') as HTMLTextAreaElement | null)?.focus());
+  };
 
   const liveBlocks = createMemo((): MessageBlock[] => {
     const live = liveState();
@@ -296,6 +318,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     display?: PromptDisplayMetadata,
     attachments: readonly unknown[] = [],
     displayParts?: UserDisplayPart[],
+    extraContext?: string,
   ) => {
     const sid = sessionId();
     const safeAttachments = sanitizeAttachmentChips(attachments);
@@ -358,7 +381,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         return false;
       }
     }
-    const dispatch = resolvePromptDispatch(submitText, displayText, display, refText || undefined);
+    const turnContext = [refText, extraContext]
+      .filter((value): value is string => Boolean(value?.trim()))
+      .join('\n\n') || undefined;
+    const dispatch = resolvePromptDispatch(submitText, displayText, display, turnContext);
     const ok = await chatStore.sendMessage(sid, dispatch.message, {
       context: dispatch.context,
       slashCommand: dispatch.slashCommand,
@@ -418,19 +444,49 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     }
   };
 
-  const handleCollaborationModeToggle = async () => {
+  const setCollaborationMode = async (nextMode: CollaborationMode, failureMessage = 'Could not update collaboration mode.') => {
     const sid = sessionId();
-    if (!sid || collaborationModePending()) return;
-    const nextMode: CollaborationMode = collaborationMode() === 'plan' ? 'default' : 'plan';
+    if (!sid) return false;
+    if (collaborationMode() === nextMode) return true;
+    if (collaborationModePending()) return false;
     setCollaborationModePending(true);
     try {
       const updated = await sessionStore.updateRuntime(sid, { collaborationMode: nextMode });
       if (!updated) {
-        cards.noticeCard('Could not update collaboration mode.');
+        cards.noticeCard(failureMessage);
+        return false;
       }
+      return true;
     } finally {
       setCollaborationModePending(false);
     }
+  };
+
+  const handleCollaborationModeToggle = async () => {
+    const nextMode: CollaborationMode = collaborationMode() === 'plan' ? 'default' : 'plan';
+    await setCollaborationMode(nextMode);
+  };
+
+  const handleExecutePlan = async (block: PlanBlock) => {
+    if (block.isStreaming) return;
+    if (isStreaming()) {
+      cards.noticeCard('Wait for the current turn to finish.');
+      return;
+    }
+    const switched = await setCollaborationMode('default', 'Could not switch out of Plan mode.');
+    if (!switched) return;
+    await sendPrompt(
+      EXECUTE_PLAN_MESSAGE,
+      { text: EXECUTE_PLAN_MESSAGE },
+      [],
+      undefined,
+      buildPlanExecutionContext(block.content),
+    );
+  };
+
+  const handleRejectPlan = async () => {
+    const readyForFeedback = await setCollaborationMode('plan', 'Could not keep Plan mode.');
+    if (readyForFeedback) focusComposer();
   };
 
   createEffect(() => {
@@ -1133,6 +1189,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                             onAction={onAction}
                             isLast={idx === messages().length - 1}
                             actionsDisabled={isStreaming()}
+                            onOpenPlanPreview={handleOpenPlanPreview}
+                            onExecutePlan={handleExecutePlan}
+                            onRejectPlan={handleRejectPlan}
+                            planDecisionPending={collaborationModePending() || isStreaming()}
                           />
                         </div>
                       );
@@ -1149,6 +1209,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                     <AssistantMessage
                       blocks={liveBlocks()}
                       isStreaming={true}
+                      onOpenPlanPreview={handleOpenPlanPreview}
+                      onExecutePlan={handleExecutePlan}
+                      onRejectPlan={handleRejectPlan}
+                      planDecisionPending={collaborationModePending() || isStreaming()}
                     />
                   </Show>
                   <div ref={scroll.refs.messagesEnd} />

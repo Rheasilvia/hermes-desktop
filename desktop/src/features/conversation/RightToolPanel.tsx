@@ -2,12 +2,15 @@ import type { Component } from 'solid-js';
 import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, onMount } from 'solid-js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 import { gitViewStore } from '@/stores/git-view.js';
-import { previewStore } from '@/stores/preview.js';
+import { previewStore, type PlanPreviewTarget } from '@/stores/preview.js';
+import { chatStore } from '@/stores/chat.js';
+import type { PlanBlock } from '@/types/index.js';
 import { WorkspaceTreeView } from '@/features/workspace/WorkspaceTreeView.js';
 import { DiffPanel } from '@/features/diff/DiffPanel.js';
 import { DelegationSidePanel } from '@/features/delegation/DelegationSidePanel.js';
 import { invoke } from '@tauri-apps/api/core';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { MarkdownContent } from '@/ui/molecules/MarkdownContent.js';
 import { TerminalPanel } from './TerminalPanel.js';
 import styles from './RightToolPanel.module.css';
 
@@ -22,14 +25,50 @@ interface RightToolPanelProps {
   onInsertComposerText?: (text: string) => void;
 }
 
+function findPlanBlock(sessionId: string | null, target: PlanPreviewTarget): PlanBlock | null {
+  if (!sessionId) return null;
+  const live = chatStore.getLiveState(sessionId).activityBlocks
+    .find((block): block is PlanBlock => block.type === 'plan' && block.id === target.blockId);
+  if (live) return live;
+
+  for (const message of chatStore.getMessages(sessionId)) {
+    if (target.messageId && String(message.id) !== target.messageId) continue;
+    const block = message.blocks
+      .find((item): item is PlanBlock => item.type === 'plan' && item.id === target.blockId);
+    if (block) return block;
+  }
+
+  return null;
+}
+
+const PlanPreview: Component<{ sessionId: string | null; target: PlanPreviewTarget }> = (props) => {
+  const planBlock = createMemo(() => findPlanBlock(props.sessionId, props.target));
+  return (
+    <Show
+      when={planBlock()}
+      fallback={
+        <div class={styles.emptyState} role="status" aria-label="Plan preview unavailable">
+          <span class={styles.emptyIcon}>
+            <Icon name="clipboard-list" size={24} />
+          </span>
+          <div class={styles.emptyTitle}>Plan unavailable</div>
+          <div class={styles.emptyDescription}>This preview points to a plan that is no longer in the current transcript.</div>
+        </div>
+      }
+    >
+      {(block) => (
+        <div class={styles.planPreview}>
+          <MarkdownContent content={block().content} variant="document" />
+        </div>
+      )}
+    </Show>
+  );
+};
+
 const PreviewPlaceholder: Component<{ sessionId: string | null }> = (props) => {
   const record = createMemo(() => previewStore.get(props.sessionId));
   return (
     <div class={styles.pageChrome}>
-      <div class={styles.paneHeader}>
-        <span class={styles.paneHeaderIcon}><Icon name="eye" size={13} strokeWidth={1.8} /></span>
-        <span class={styles.paneHeaderTitle}>Preview</span>
-      </div>
       <Show
         when={record()}
         fallback={
@@ -43,13 +82,23 @@ const PreviewPlaceholder: Component<{ sessionId: string | null }> = (props) => {
         }
       >
         {(preview) => (
-          <div class={styles.previewPlaceholder} role="status" aria-label={`Preview ${preview().normalized.label}`}>
-            <span class={styles.emptyIcon}>
-              <Icon name={preview().normalized.kind === 'url' ? 'globe' : 'file'} size={24} />
-            </span>
-            <div class={styles.emptyTitle}>{preview().normalized.label || 'Preview'}</div>
-            <div class={styles.emptyDescription}>{preview().target}</div>
-          </div>
+          <Show
+            when={preview().normalized.kind === 'plan'}
+            fallback={
+              <div class={styles.previewPlaceholder} role="status" aria-label={`Preview ${preview().normalized.label}`}>
+                <span class={styles.emptyIcon}>
+                  <Icon name={preview().normalized.kind === 'url' ? 'globe' : 'file'} size={24} />
+                </span>
+                <div class={styles.emptyTitle}>{preview().normalized.label || 'Preview'}</div>
+                <div class={styles.emptyDescription}>{preview().target}</div>
+              </div>
+            }
+          >
+            <PlanPreview
+              sessionId={props.sessionId}
+              target={preview().normalized as PlanPreviewTarget}
+            />
+          </Show>
         )}
       </Show>
     </div>

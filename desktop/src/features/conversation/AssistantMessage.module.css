@@ -51,18 +51,20 @@
   opacity: 0.78;
 }
 
-.planBlock {
+.planCard {
   margin: var(--space-2) 0 var(--space-3);
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  background: color-mix(in srgb, var(--color-surface-raised) 88%, transparent);
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
-.planHeader {
+.planCardHeader {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: space-between;
+  gap: var(--space-3);
   min-height: 34px;
   padding: 7px 10px;
   border-bottom: 1px solid var(--color-border-light);
@@ -71,17 +73,127 @@
   font-weight: var(--weight-semibold);
 }
 
-.planContent {
+.planCardTitle,
+.planCardActions {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.planCardTitle {
+  gap: var(--space-2);
+  color: var(--color-on-surface);
+}
+
+.planCardActions {
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.planCardStatus {
+  color: var(--color-on-surface-dim);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+}
+
+.planCardPreviewButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-on-surface-muted);
+  cursor: pointer;
+}
+
+.planCardPreviewButton:hover {
+  background: var(--color-active-overlay);
+  color: var(--color-on-surface);
+}
+
+.planCardPreviewButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.planCardBody {
+  position: relative;
+  box-sizing: border-box;
+  height: 104px;
   padding: var(--space-3);
-  line-height: var(--leading-relaxed);
+  overflow: hidden;
 }
 
-.planContent p {
-  margin: 0 0 var(--space-2) 0;
+.planCardBody::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 52px;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--color-surface-raised) 0%, transparent),
+    var(--color-surface-raised)
+  );
 }
 
-.planContent p:last-child {
-  margin-bottom: 0;
+.planCardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-height: 42px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--color-border-light);
+  background: color-mix(in srgb, var(--color-surface-raised) 72%, transparent);
+}
+
+.planDecisionButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast);
+}
+
+.planDecisionButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.planRejectButton {
+  background: transparent;
+  color: var(--color-on-surface-muted);
+}
+
+.planRejectButton:hover:not(:disabled) {
+  background: var(--color-active-overlay);
+  color: var(--color-on-surface);
+}
+
+.planExecuteButton {
+  border-color: var(--color-charcoal);
+  background: var(--color-charcoal);
+  color: var(--color-on-primary);
+}
+
+.planExecuteButton:hover:not(:disabled) {
+  opacity: 0.88;
 }
 
 .workTracePanel {

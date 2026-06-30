@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolvePromptDispatch } from '../ChatView';
+import { buildPlanExecutionContext, resolvePromptDispatch } from '../ChatView';
 
 describe('resolvePromptDispatch', () => {
   it('sends slash command display text while injecting expanded prompt as context', () => {
@@ -32,6 +32,18 @@ describe('resolvePromptDispatch', () => {
     )).toEqual({
       message: 'Summarize this file',
       context: '@file:docs/mydoc.txt',
+    });
+  });
+
+  it('keeps execute-plan user text short while carrying the full plan in context', () => {
+    expect(resolvePromptDispatch(
+      'Implement this plan.',
+      'Implement this plan.',
+      { text: 'Implement this plan.' },
+      buildPlanExecutionContext('# Plan\n\n- Build it'),
+    )).toEqual({
+      message: 'Implement this plan.',
+      context: 'Approved plan:\n\n# Plan\n\n- Build it',
     });
   });
 });

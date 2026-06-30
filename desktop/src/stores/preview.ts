@@ -1,6 +1,6 @@
 import { createStore, produce } from 'solid-js/store';
 
-export interface PreviewTarget {
+export interface FileUrlPreviewTarget {
   kind: 'file' | 'url';
   label: string;
   source: string;
@@ -12,7 +12,17 @@ export interface PreviewTarget {
   renderMode?: 'preview' | 'source';
 }
 
-export type PreviewRecordSource = 'explicit-link' | 'file-browser' | 'manual' | 'tool-result';
+export interface PlanPreviewTarget {
+  kind: 'plan';
+  label: string;
+  sessionId: string;
+  blockId: string;
+  messageId?: string;
+}
+
+export type PreviewTarget = FileUrlPreviewTarget | PlanPreviewTarget;
+
+export type PreviewRecordSource = 'explicit-link' | 'file-browser' | 'manual' | 'tool-result' | 'plan-card';
 
 export interface SessionPreviewRecord {
   autoOpen: boolean;
@@ -35,7 +45,7 @@ function isSourcePreview(source: PreviewRecordSource): boolean {
   return source === 'file-browser' || source === 'manual';
 }
 
-function normalizeTargetForSource(target: PreviewTarget, source: PreviewRecordSource): PreviewTarget {
+function normalizeTargetForSource(target: FileUrlPreviewTarget, source: PreviewRecordSource): FileUrlPreviewTarget {
   if (target.kind !== 'file' || target.previewKind !== 'html') return target;
   return { ...target, renderMode: isSourcePreview(source) ? 'source' : 'preview' };
 }
@@ -56,6 +66,14 @@ function pruneRegistry(registry: PreviewRegistry): PreviewRegistry {
 function isPreviewTarget(value: unknown): value is PreviewTarget {
   if (!value || typeof value !== 'object') return false;
   const row = value as Record<string, unknown>;
+  if (row.kind === 'plan') {
+    return (
+      typeof row.label === 'string' &&
+      typeof row.sessionId === 'string' &&
+      typeof row.blockId === 'string' &&
+      (row.messageId === undefined || typeof row.messageId === 'string')
+    );
+  }
   return (
     (row.kind === 'file' || row.kind === 'url') &&
     typeof row.label === 'string' &&
@@ -73,7 +91,7 @@ function isPreviewRecord(value: unknown): value is SessionPreviewRecord {
     typeof row.id === 'string' &&
     isPreviewTarget(row.normalized) &&
     typeof row.sessionId === 'string' &&
-    ['explicit-link', 'file-browser', 'manual', 'tool-result'].includes(String(row.source)) &&
+    ['explicit-link', 'file-browser', 'manual', 'tool-result', 'plan-card'].includes(String(row.source)) &&
     typeof row.target === 'string' &&
     (row.dismissedAt === undefined || typeof row.dismissedAt === 'number')
   );
@@ -122,21 +140,31 @@ function snapshot(): PreviewRegistry {
   );
 }
 
+function targetKey(target: PreviewTarget): string {
+  if (target.kind === 'plan') {
+    return `plan:${target.sessionId}:${target.messageId ?? 'live'}:${target.blockId}`;
+  }
+  return target.url;
+}
+
 function recordId(sessionId: string, target: PreviewTarget): string {
+  if (target.kind === 'plan') return targetKey(target);
   return `${sessionId}:${target.url}`;
 }
 
 export const previewStore = {
   register(
     sessionId: string | null | undefined,
-    target: PreviewTarget,
+    target: FileUrlPreviewTarget,
     source: PreviewRecordSource,
     rawTarget = target.source,
   ): SessionPreviewRecord | null {
     const sid = sessionId?.trim();
     if (!sid) return null;
     const normalized = normalizeTargetForSource(target, source);
-    const existing = registry[sid]?.find((record) => record.normalized.url === normalized.url);
+    const existing = registry[sid]?.find((record) =>
+      record.normalized.kind !== 'plan' && record.normalized.url === normalized.url
+    );
     const record: SessionPreviewRecord = {
       autoOpen: true,
       createdAt: Date.now(),
@@ -145,6 +173,37 @@ export const previewStore = {
       sessionId: sid,
       source,
       target: rawTarget || target.source,
+    };
+    setRegistry(produce((state) => {
+      state[sid] = [record];
+    }));
+    saveRegistry(snapshot());
+    return record;
+  },
+
+  registerPlan(
+    sessionId: string | null | undefined,
+    target: { blockId: string; label?: string | null; messageId?: string | number | null },
+  ): SessionPreviewRecord | null {
+    const sid = sessionId?.trim();
+    const blockId = target.blockId.trim();
+    if (!sid || !blockId) return null;
+    const normalized: PlanPreviewTarget = {
+      kind: 'plan',
+      label: target.label?.trim() || 'Plan',
+      sessionId: sid,
+      blockId,
+      messageId: target.messageId == null ? undefined : String(target.messageId),
+    };
+    const existing = registry[sid]?.find((record) => targetKey(record.normalized) === targetKey(normalized));
+    const record: SessionPreviewRecord = {
+      autoOpen: true,
+      createdAt: Date.now(),
+      id: existing?.id ?? recordId(sid, normalized),
+      normalized,
+      sessionId: sid,
+      source: 'plan-card',
+      target: `plan:${blockId}`,
     };
     setRegistry(produce((state) => {
       state[sid] = [record];
@@ -164,11 +223,12 @@ export const previewStore = {
     if (!sid) return;
     const records = registry[sid];
     if (!records?.length) return;
-    const targetUrl = url ?? records.find((record) => !record.dismissedAt)?.normalized.url;
+    const targetUrl = url ?? records.find((record) => !record.dismissedAt)?.normalized;
     if (!targetUrl) return;
+    const key = typeof targetUrl === 'string' ? targetUrl : targetKey(targetUrl);
     const dismissedAt = Date.now();
     setRegistry(sid, records.map((record) => (
-      record.normalized.url === targetUrl
+      targetKey(record.normalized) === key
         ? { ...record, autoOpen: false, dismissedAt }
         : record
     )));
