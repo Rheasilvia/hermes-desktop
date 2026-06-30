@@ -107,7 +107,7 @@ _PAGE_MANAGED: dict[str, str] = {
 # Live-turn + stateful-toggle commands that can't safely use the throwaway CLI
 # instance yet — surfaced with an explicit "not available" message.
 _DEFERRED = frozenset({
-    "retry", "steer", "goal", "subgoal", "undo", "background", "compress",
+    "retry", "steer", "goal", "moa", "subgoal", "undo", "background", "compress",
     "compact", "yolo", "fast", "reasoning", "personality", "verbose",
     "footer", "timestamps", "codex-runtime", "reload", "reload-mcp", "reload-skills",
 })
@@ -131,7 +131,7 @@ _DESKTOP_TRIMMED = frozenset({
     "status", "help", "platforms", "agents",
     "profile", "gquota", "insights", "debug", "save",
     "rollback", "curator", "kanban", "update", "version",
-    "suggestions", "blueprint", "credits", "billing", "pet", "learn",
+    "suggestions", "blueprint", "credits", "billing", "pet", "hatch", "learn",
 })
 
 # Catalog/help "supported" flag derives from this union — single source of truth,
@@ -343,6 +343,88 @@ class CommandService:
         # newly-added registry entry that nobody mapped for Desktop — is
         # surfaced explicitly instead of being silently run via the CLI.
         return CommandResult(kind="unsupported", message=f"/{name} is not available in Desktop yet.")
+
+    def resolve_prompt(self, *, session_id: str | None, command: str, args: str | None = None, raw: str | None = None) -> CommandResult:
+        """Resolve only slash commands that become prompt text.
+
+        Historical restore/rerun needs to know whether edited slash text can be
+        submitted as a new prompt, but it must not run command side effects.
+        Keep this deliberately narrower than exec(): queue aliases and skills
+        are prompt-producing; lifecycle actions, cards, CLI commands, and quick
+        exec commands are blocked without executing.
+        """
+        return self._resolve_prompt(command=command, args=args, raw=raw, session_id=session_id, depth=0)
+
+    def _resolve_prompt(
+        self,
+        *,
+        session_id: str | None,
+        command: str,
+        args: str | None = None,
+        raw: str | None = None,
+        depth: int,
+    ) -> CommandResult:
+        if depth > 8:
+            return CommandResult(kind="error", message="Quick command alias chain is too deep.")
+
+        name, arg = self._parse(command=command, args=args, raw=raw)
+        if not name:
+            return CommandResult(kind="error", message="empty command")
+
+        name = self._resolve_name(name)
+
+        if name in {"queue", "q"}:
+            if not arg:
+                return CommandResult(kind="error", message="usage: /queue <prompt>")
+            return CommandResult(kind="send", message=arg)
+
+        action = _SESSION_ACTION_ALIASES.get(name)
+        if action is None and name in _SESSION_ACTIONS:
+            action = name
+        if action is not None:
+            return CommandResult(kind="action", action=action, message=arg)
+
+        card_type = _CARD_COMMANDS.get(name)
+        if card_type:
+            return CommandResult(kind="card", card_type=card_type)
+
+        quick = self._resolve_quick_prompt_command(name, arg, session_id, depth=depth)
+        if quick is not None:
+            return quick
+
+        skill = self._handle_skill_command(name, arg, session_id)
+        if skill is not None:
+            return skill
+
+        bundle = self._handle_skill_bundle(name, arg, session_id)
+        if bundle is not None:
+            return bundle
+
+        return CommandResult(kind="unsupported", message=f"/{name} is not a prompt-producing Desktop command.")
+
+    def _resolve_quick_prompt_command(
+        self,
+        name: str,
+        arg: str,
+        session_id: str | None,
+        *,
+        depth: int,
+    ) -> CommandResult | None:
+        try:
+            from hermes_cli.config import load_config
+            qcmds = load_config().get("quick_commands", {}) or {}
+        except Exception:
+            return None
+        if name not in qcmds or not isinstance(qcmds.get(name), dict):
+            return None
+        qc = qcmds[name]
+        if qc.get("type") == "alias":
+            target = str(qc.get("target") or "").strip()
+            if not target:
+                return CommandResult(kind="error", message=f"Quick command /{name} has no target.")
+            target_text = f"{target} {arg}".strip()
+            return self._resolve_prompt(session_id=session_id, command=target_text, raw=target_text, depth=depth + 1)
+        return CommandResult(kind="unsupported", message=f"Quick command /{name} cannot be restored from history.")
 
     def _parse(self, *, command: str, args: str | None, raw: str | None) -> tuple[str, str]:
         text = (raw or command or "").strip()

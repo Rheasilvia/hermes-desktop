@@ -10,7 +10,7 @@ import type {
   BackgroundCompletePayload, BtwCompletePayload,
   SubagentStartPayload, SubagentProgressPayload,
   SubagentCompletePayload, SubagentToolPayload, SubagentErrorPayload,
-  ErrorPayload, TurnInterruptedPayload,
+  ErrorPayload, TurnInterruptedPayload, SessionRewindPayload,
 } from '@/types/gateway.js';
 import type { GatewayAdapter } from '@/services/gateway/types.js';
 import { chatStore } from '@/stores/chat.js';
@@ -76,6 +76,7 @@ export function useGatewayEvents(opts: {
   const onSubagentTool = (p: SubagentToolPayload) => delegationStore.handleTool(p);
   const onSubagentError = (p: SubagentErrorPayload) => delegationStore.handleError(p);
   const onTurnInterrupted = (p: TurnInterruptedPayload) => chatStore.handleTurnInterrupted(p.session_id, p);
+  const onSessionRewind = (p: SessionRewindPayload) => chatStore.handleSessionRewind(p.session_id, p);
 
   const onError = (p: ErrorPayload) => {
     const sid = p.session_id || sessionStore.activeSessionId;
@@ -117,6 +118,7 @@ export function useGatewayEvents(opts: {
     gw.on('subagent.tool', onSubagentTool);
     gw.on('subagent.error', onSubagentError);
     gw.on('turn.interrupted', onTurnInterrupted);
+    gw.on('session.rewind', onSessionRewind);
     gw.on('error', onError);
   });
 
@@ -147,6 +149,7 @@ export function useGatewayEvents(opts: {
     gw.off('subagent.tool', onSubagentTool);
     gw.off('subagent.error', onSubagentError);
     gw.off('turn.interrupted', onTurnInterrupted);
+    gw.off('session.rewind', onSessionRewind);
     gw.off('error', onError);
   });
 }

@@ -2,7 +2,7 @@
  * HttpGatewayAdapter — real HTTP+SSE adapter for the Hermes desktop backend.
  *
  * Real methods: session.*, prompt.execute, approval.respond, clarify.respond,
- * complete.slash, slash.exec, command.dispatch.
+ * complete.slash, slash.exec, slash.resolvePrompt, command.dispatch.
  * Resource-style method groups proxy to sidecar REST endpoints for compatibility;
  * user-facing resource pages should prefer services/api transports directly.
  *
@@ -541,6 +541,22 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           flushAssistant(seq);
           break;
         }
+        case 'session.rewind': {
+          const targetUserSeq = Number(payload.target_user_seq ?? 0);
+          if (targetUserSeq > 0) {
+            const cutIndex = messages.findIndex((message) => Number((message as { id?: unknown }).id ?? 0) >= targetUserSeq);
+            if (cutIndex >= 0) {
+              messages.splice(cutIndex);
+            }
+          }
+          reasoningAcc = '';
+          contentAcc = '';
+          lastAssistant = null;
+          seqCounter = 0;
+          pendingTools.clear();
+          inputAccumulator.clear();
+          break;
+        }
       }
     }
 
@@ -847,6 +863,8 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           event_seq: eventSeq,
         } as GatewayEventMap['message.start']);
         break;
+      case 'turn.core_user_message':
+        break;
       case 'status.update':
         this.emit('status.update', {
           kind: String(payload.kind ?? 'status'),
@@ -907,6 +925,16 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           turn_id: turnId,
           event_seq: eventSeq,
         } as GatewayEventMap['turn.interrupted']);
+        break;
+      case 'session.rewind':
+        this.emit('session.rewind', {
+          session_id: sid,
+          target_turn_id: String(payload.target_turn_id ?? ''),
+          target_user_seq: Number(payload.target_user_seq ?? 0),
+          rewound_count: payload.rewound_count != null ? Number(payload.rewound_count) : undefined,
+          new_head_seq: payload.new_head_seq != null ? Number(payload.new_head_seq) : null,
+          event_seq: eventSeq,
+        } as GatewayEventMap['session.rewind']);
         break;
       default:
         console.warn('[HttpGatewayAdapter] unknown SSE event type:', type, payload);

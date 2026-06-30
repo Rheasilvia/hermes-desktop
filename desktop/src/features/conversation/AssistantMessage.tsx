@@ -46,6 +46,7 @@ interface AssistantMessageProps {
   onOpenPlanPreview?: (block: PlanBlock, messageId?: string | number) => void;
   onExecutePlan?: (block: PlanBlock, messageId?: string | number) => void;
   onRejectPlan?: (block: PlanBlock, messageId?: string | number) => void;
+  actionablePlanBlockId?: string | null;
   planDecisionPending?: boolean;
 }
 
@@ -98,10 +99,13 @@ const PlanCard: Component<{
   onOpenPreview?: (block: PlanBlock, messageId?: string | number) => void;
   onExecute?: (block: PlanBlock, messageId?: string | number) => void;
   onReject?: (block: PlanBlock, messageId?: string | number) => void;
+  actionablePlanBlockId?: string | null;
   decisionPending?: boolean;
 }> = (props) => {
   const previewContent = createMemo(() => buildPlanCardPreview(props.block.content));
   const statusLabel = () => props.block.isStreaming ? 'Streaming plan' : 'Plan ready';
+  const canShowDecisionActions = () =>
+    props.actionablePlanBlockId === undefined || props.actionablePlanBlockId === props.block.id;
   const actionsDisabled = () => props.decisionPending || props.block.isStreaming;
   return (
     <section class={styles.planCard} aria-label="Plan preview card">
@@ -128,7 +132,7 @@ const PlanCard: Component<{
       <div class={styles.planCardBody}>
         <MarkdownContent content={previewContent()} variant="compact" />
       </div>
-      <Show when={!props.block.isStreaming && (props.onExecute || props.onReject)}>
+      <Show when={!props.block.isStreaming && canShowDecisionActions() && (props.onExecute || props.onReject)}>
         <div class={styles.planCardFooter}>
           <button
             type="button"
@@ -328,6 +332,7 @@ const SingleGroupView: Component<{
   onOpenPlanPreview?: (block: PlanBlock, messageId?: string | number) => void;
   onExecutePlan?: (block: PlanBlock, messageId?: string | number) => void;
   onRejectPlan?: (block: PlanBlock, messageId?: string | number) => void;
+  actionablePlanBlockId?: string | null;
   planDecisionPending?: boolean;
 }> = (props) => {
   const block = () => props.group().block;
@@ -354,6 +359,7 @@ const SingleGroupView: Component<{
           onOpenPreview={props.onOpenPlanPreview}
           onExecute={props.onExecutePlan}
           onReject={props.onRejectPlan}
+          actionablePlanBlockId={props.actionablePlanBlockId}
           decisionPending={props.planDecisionPending}
         />
       </Show>
@@ -374,6 +380,7 @@ const BlockGroupView: Component<{
   onOpenPlanPreview?: (block: PlanBlock, messageId?: string | number) => void;
   onExecutePlan?: (block: PlanBlock, messageId?: string | number) => void;
   onRejectPlan?: (block: PlanBlock, messageId?: string | number) => void;
+  actionablePlanBlockId?: string | null;
   planDecisionPending?: boolean;
 }> = (props) => (
   <Show
@@ -385,6 +392,7 @@ const BlockGroupView: Component<{
         onOpenPlanPreview={props.onOpenPlanPreview}
         onExecutePlan={props.onExecutePlan}
         onRejectPlan={props.onRejectPlan}
+        actionablePlanBlockId={props.actionablePlanBlockId}
         planDecisionPending={props.planDecisionPending}
       />
     )}
@@ -488,6 +496,7 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
                           onOpenPlanPreview={props.onOpenPlanPreview}
                           onExecutePlan={props.onExecutePlan}
                           onRejectPlan={props.onRejectPlan}
+                          actionablePlanBlockId={props.actionablePlanBlockId}
                           planDecisionPending={props.planDecisionPending}
                         />
                       )}
@@ -505,6 +514,7 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
                 onOpenPlanPreview={props.onOpenPlanPreview}
                 onExecutePlan={props.onExecutePlan}
                 onRejectPlan={props.onRejectPlan}
+                actionablePlanBlockId={props.actionablePlanBlockId}
                 planDecisionPending={props.planDecisionPending}
               />
             )}

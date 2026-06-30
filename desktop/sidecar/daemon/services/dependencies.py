@@ -154,10 +154,17 @@ def get_title_service(request: Request):
 
 
 def get_agent_execution_service(request: Request):
-    return _cached_service(
-        request,
-        "profile_agent_exec_svcs",
-        lambda home: __import__(
+    home = get_active_hermes_home(request)
+    key = _home_key(home)
+    default_key = _home_key(request.app.state.cfg.hermes_home)
+    cache = getattr(request.app.state, "profile_agent_exec_svcs", None)
+    if cache is None:
+        cache = {}
+        request.app.state.profile_agent_exec_svcs = cache
+    if key == default_key and hasattr(request.app.state, "agent_exec_svc"):
+        cache[key] = request.app.state.agent_exec_svc
+    if key not in cache:
+        cache[key] = __import__(
             "daemon.services.agent_execution_service",
             fromlist=["AgentExecutionService"],
         ).AgentExecutionService(
@@ -168,8 +175,10 @@ def get_agent_execution_service(request: Request):
             agent_pool=get_agent_pool(request),
             session_service=get_session_service(request),
             user_input_prompts=get_user_input_prompt_service(request),
-        ),
-    )
+        )
+    if key == default_key:
+        request.app.state.agent_exec_svc = cache[key]
+    return cache[key]
 
 
 def get_model_service(request: Request):

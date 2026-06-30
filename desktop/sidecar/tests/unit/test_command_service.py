@@ -305,6 +305,28 @@ def test_quick_exec_requires_session_id(tmp_path, monkeypatch):
     assert result.message == "SESSION_REQUIRED"
 
 
+def test_resolve_prompt_blocks_quick_exec_without_running(tmp_path, monkeypatch):
+    runner = Mock()
+    monkeypatch.setattr(
+        "hermes_cli.config.load_config",
+        lambda: {"quick_commands": {"build": {"type": "exec", "command": "echo should-not-run"}}},
+    )
+    monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", runner)
+
+    result = _make_service(tmp_path).resolve_prompt(session_id="s1", command="build", args="")
+
+    assert result.kind == "unsupported"
+    assert "cannot be restored" in result.message
+    runner.assert_not_called()
+
+
+def test_resolve_prompt_allows_queue_alias(tmp_path):
+    result = _make_service(tmp_path).resolve_prompt(session_id=None, command="q", args="rerun this")
+
+    assert result.kind == "send"
+    assert result.message == "rerun this"
+
+
 def test_quick_exec_fails_closed_when_sandbox_runner_unavailable(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()

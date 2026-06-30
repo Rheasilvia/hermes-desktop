@@ -4,6 +4,7 @@ import { Icon } from '@/ui/atoms/Icon.js';
 import styles from './JumpToBottom.module.css';
 
 interface JumpToBottomProps {
+  avoidDock?: boolean;
   unreadCount: number;
   visible: boolean;
   onClick: () => void;
@@ -18,7 +19,7 @@ export const JumpToBottom: Component<JumpToBottomProps> = (props) => {
 
   return (
     <Show when={props.visible}>
-      <div class={styles.wrapper}>
+      <div class={styles.wrapper} classList={{ [styles.wrapperAvoidDock]: !!props.avoidDock }}>
         <Show when={props.unreadCount > 0}>
           <span class={styles.badge}>{badgeText()}</span>
         </Show>

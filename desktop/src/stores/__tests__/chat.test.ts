@@ -351,6 +351,107 @@ describe('appendUserMessage — slash command metadata', () => {
     expect(removed?.id).toBe(id);
     expect(messages.find((message) => message.id === id)).toBeUndefined();
   });
+
+  it('hydrates the accepted turn id and user seq onto the optimistic user message', () => {
+    chatStore.appendUserMessage(SESSION_SLASH, 'please send');
+
+    chatStore.markPromptAccepted(SESSION_SLASH, 'turn_accepted', 42);
+
+    const message = chatStore.getMessages(SESSION_SLASH).find((item) => item.role === 'user');
+    expect(message?.id).toBe(42);
+    expect(message?.turnId).toBe('turn_accepted');
+  });
+
+  it('can remove a historical user message and all following messages', () => {
+    chatStore.appendUserMessage(SESSION_SLASH, 'first');
+    chatStore.markPromptAccepted(SESSION_SLASH, 'turn_first', 1);
+    chatStore.handleMessageComplete(SESSION_SLASH, {
+      session_id: SESSION_SLASH,
+      text: 'first response',
+      turn_id: 'turn_first',
+    } as any);
+    chatStore.appendUserMessage(SESSION_SLASH, 'second');
+    chatStore.markPromptAccepted(SESSION_SLASH, 'turn_second', 3);
+    chatStore.handleMessageComplete(SESSION_SLASH, {
+      session_id: SESSION_SLASH,
+      text: 'second response',
+      turn_id: 'turn_second',
+    } as any);
+
+    const second = chatStore.getMessages(SESSION_SLASH).find((message) => message.turnId === 'turn_second' && message.role === 'user');
+    const removed = chatStore.removeMessagesFrom(SESSION_SLASH, second!.id);
+
+    expect(removed.map((message) => message.role)).toEqual(['user', 'assistant']);
+    expect(chatStore.getMessages(SESSION_SLASH).map((message) => message.role)).toEqual(['user', 'assistant']);
+    expect(chatStore.getMessages(SESSION_SLASH).some((message) => message.turnId === 'turn_second')).toBe(false);
+  });
+
+  it('applies session rewind events from replay or another window', () => {
+    chatStore.appendUserMessage(SESSION_SLASH, 'first');
+    chatStore.markPromptAccepted(SESSION_SLASH, 'turn_first', 1);
+    chatStore.handleMessageComplete(SESSION_SLASH, {
+      session_id: SESSION_SLASH,
+      text: 'first response',
+      turn_id: 'turn_first',
+    } as any);
+    chatStore.appendUserMessage(SESSION_SLASH, 'second');
+    chatStore.markPromptAccepted(SESSION_SLASH, 'turn_second', 3);
+    chatStore.handleMessageComplete(SESSION_SLASH, {
+      session_id: SESSION_SLASH,
+      text: 'second response',
+      turn_id: 'turn_second',
+    } as any);
+
+    chatStore.handleSessionRewind(SESSION_SLASH, {
+      session_id: SESSION_SLASH,
+      target_turn_id: 'turn_second',
+      target_user_seq: 3,
+      rewound_count: 2,
+      new_head_seq: 2,
+      event_seq: 5,
+    });
+
+    expect(chatStore.getMessages(SESSION_SLASH).map((message) => message.role)).toEqual(['user', 'assistant']);
+    expect(chatStore.getMessages(SESSION_SLASH).some((message) => message.turnId === 'turn_second')).toBe(false);
+    expect(chatStore.getLiveState(SESSION_SLASH).status).toBe('idle');
+  });
+
+  it('ignores a late rewind event after the target turn was already removed locally', () => {
+    chatStore.appendUserMessage(SESSION_SLASH, 'first');
+    chatStore.markPromptAccepted(SESSION_SLASH, 'turn_first', 1);
+    chatStore.handleMessageComplete(SESSION_SLASH, {
+      session_id: SESSION_SLASH,
+      text: 'first response',
+      turn_id: 'turn_first',
+    } as any);
+    chatStore.appendUserMessage(SESSION_SLASH, 'second');
+    chatStore.markPromptAccepted(SESSION_SLASH, 'turn_second', 3);
+    chatStore.handleMessageComplete(SESSION_SLASH, {
+      session_id: SESSION_SLASH,
+      text: 'second response',
+      turn_id: 'turn_second',
+    } as any);
+
+    const second = chatStore.getMessages(SESSION_SLASH).find((message) => message.turnId === 'turn_second' && message.role === 'user');
+    chatStore.removeMessagesFrom(SESSION_SLASH, second!.id);
+    chatStore.appendUserMessage(SESSION_SLASH, 'edited second');
+    chatStore.markPromptAccepted(SESSION_SLASH, 'turn_rerun', 6);
+
+    chatStore.handleSessionRewind(SESSION_SLASH, {
+      session_id: SESSION_SLASH,
+      target_turn_id: 'turn_second',
+      target_user_seq: 3,
+      rewound_count: 2,
+      new_head_seq: 2,
+      event_seq: 5,
+    });
+
+    expect(chatStore.getMessages(SESSION_SLASH).map((message) => message.turnId)).toEqual([
+      'turn_first',
+      'turn_first',
+      'turn_rerun',
+    ]);
+  });
 });
 
 describe('conversation turn stability', () => {
