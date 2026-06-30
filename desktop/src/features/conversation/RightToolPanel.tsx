@@ -1,12 +1,16 @@
 import type { Component } from 'solid-js';
-import { For, Match, Switch, createEffect, createMemo, onCleanup, onMount } from 'solid-js';
+import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, onMount } from 'solid-js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 import { gitViewStore } from '@/stores/git-view.js';
+import { previewStore, type PlanPreviewTarget } from '@/stores/preview.js';
+import { chatStore } from '@/stores/chat.js';
+import type { PlanBlock } from '@/types/index.js';
 import { WorkspaceTreeView } from '@/features/workspace/WorkspaceTreeView.js';
 import { DiffPanel } from '@/features/diff/DiffPanel.js';
 import { DelegationSidePanel } from '@/features/delegation/DelegationSidePanel.js';
 import { invoke } from '@tauri-apps/api/core';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { MarkdownContent } from '@/ui/molecules/MarkdownContent.js';
 import { TerminalPanel } from './TerminalPanel.js';
 import styles from './RightToolPanel.module.css';
 
@@ -20,6 +24,73 @@ interface RightToolPanelProps {
   visible?: boolean;
   onInsertComposerText?: (text: string) => void;
 }
+
+function findPlanBlock(sessionId: string | null, target: PlanPreviewTarget): PlanBlock | null {
+  if (!sessionId) return null;
+  const live = chatStore.getLiveState(sessionId).activityBlocks
+    .find((block): block is PlanBlock => block.type === 'plan' && block.id === target.blockId);
+  if (live) return live;
+
+  for (const message of chatStore.getMessages(sessionId)) {
+    if (target.messageId && String(message.id) !== target.messageId) continue;
+    const block = message.blocks
+      .find((item): item is PlanBlock => item.type === 'plan' && item.id === target.blockId);
+    if (block) return block;
+  }
+
+  return null;
+}
+
+const PlanPreview: Component<{ sessionId: string | null; target: PlanPreviewTarget }> = (props) => {
+  const planBlock = createMemo(() => findPlanBlock(props.sessionId, props.target));
+  return (
+    <Show
+      when={planBlock()}
+      fallback={
+        <div class={styles.emptyState} role="status" aria-label="Plan preview unavailable">
+          <span class={styles.emptyIcon}>
+            <Icon name="clipboard-list" size={24} />
+          </span>
+          <div class={styles.emptyTitle}>Plan unavailable</div>
+          <div class={styles.emptyDescription}>This preview points to a plan that is no longer in the current transcript.</div>
+        </div>
+      }
+    >
+      {(block) => (
+        <div class={styles.planPreview}>
+          <MarkdownContent content={block().content} variant="document" />
+        </div>
+      )}
+    </Show>
+  );
+};
+
+const PreviewPlaceholder: Component<{ sessionId: string | null }> = (props) => {
+  const record = createMemo(() => previewStore.get(props.sessionId));
+  return (
+    <div class={styles.pageChrome}>
+      <Show
+        when={record()}
+        fallback={
+          <div class={styles.emptyState} role="status" aria-label="No preview selected">
+            <span class={styles.emptyIcon}>
+              <Icon name="eye" size={24} />
+            </span>
+            <div class={styles.emptyTitle}>No preview selected</div>
+            <div class={styles.emptyDescription}>Plan previews open here from assistant plan cards.</div>
+          </div>
+        }
+      >
+        {(preview) => (
+          <PlanPreview
+            sessionId={props.sessionId}
+            target={preview().normalized}
+          />
+        )}
+      </Show>
+    </div>
+  );
+};
 
 export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
   const bodyFrozen = () => Boolean(
@@ -129,6 +200,11 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
           <Match when={sidePanelStore.activeView() === 'files'}>
             <div class={styles.page}>
               <WorkspaceTreeView sessionId={props.sessionId} workspacePath={props.workspacePath} />
+            </div>
+          </Match>
+          <Match when={sidePanelStore.activeView() === 'preview'}>
+            <div class={styles.page}>
+              <PreviewPlaceholder sessionId={props.sessionId} />
             </div>
           </Match>
           <Match when={sidePanelStore.activeView() === 'delegation'}>

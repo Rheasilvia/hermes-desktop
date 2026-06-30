@@ -2,7 +2,7 @@ import type { Component } from 'solid-js';
 import { Show } from 'solid-js';
 import type { RenderedMessage } from '@/types/index.js';
 import type { MessageActionType } from '@/types/ui/message.js';
-import type { TextBlock } from '@/types/ui/blocks.js';
+import type { PlanBlock, TextBlock } from '@/types/ui/blocks.js';
 import { UserMessage } from './UserMessage.js';
 import { AssistantMessage } from './AssistantMessage.js';
 import { ToolMessage } from './ToolMessage.js';
@@ -19,6 +19,10 @@ interface MessageBubbleProps {
   isLast?: boolean;
   /** Passed to AssistantMessage to disable action buttons while streaming. */
   actionsDisabled?: boolean;
+  onOpenPlanPreview?: (block: PlanBlock, messageId?: string | number) => void;
+  onExecutePlan?: (block: PlanBlock, messageId?: string | number) => void;
+  onRejectPlan?: (block: PlanBlock, messageId?: string | number) => void;
+  planDecisionPending?: boolean;
 }
 
 function hasRenderableAssistantBlocks(message: RenderedMessage): boolean {
@@ -78,6 +82,10 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
           isLast={props.isLast}
           actionsDisabled={props.actionsDisabled}
           messageId={props.message.id}
+          onOpenPlanPreview={props.onOpenPlanPreview}
+          onExecutePlan={props.onExecutePlan}
+          onRejectPlan={props.onRejectPlan}
+          planDecisionPending={props.planDecisionPending}
         />
       </Show>
       <Show when={role() === 'tool'}>
