@@ -40,6 +40,15 @@
   overflow: hidden;
 }
 
+.pageChrome {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-parchment);
+}
+
 .emptyState {
   display: flex;
   flex-direction: column;
@@ -64,6 +73,25 @@
   color: var(--color-on-surface-dim);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
+}
+
+.previewPlaceholder {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  text-align: center;
+}
+
+.planPreview {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .hiddenPage {

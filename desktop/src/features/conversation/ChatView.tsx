@@ -17,7 +17,7 @@ import { configStore } from '@/stores/config.js';
 import { getGateway } from '@/stores/context.js';
 import { getVoiceRecordingLimit, isAutoTtsEnabled, isSttEnabled, isTtsAvailable } from '@/lib/voice/voice-config.js';
 import { playSpeechText } from '@/lib/voice/voice-playback.js';
-import type { ConnectionState } from '@/services/gateway/types.js';
+import type { CommandResult, ConnectionState } from '@/services/gateway/types.js';
 import { ROUTES } from '@/routes';
 import { MessageBubble } from './MessageBubble.js';
 import { AssistantMessage } from './AssistantMessage.js';
@@ -25,7 +25,12 @@ import type { MessageBlock, TextBlock } from '@/types/index.js';
 import { MessageInput } from './MessageInput.js';
 import type { AttachmentChip } from './composer/AttachmentChips.js';
 import { sanitizeAttachmentChips } from './composer/attachmentSanitizer.js';
-import type { UserDisplayPart } from './display-parts.js';
+import {
+  attachmentsFromDisplayParts,
+  llmMessageFromDisplayParts,
+  normalizeDisplayPartAnchors,
+  type UserDisplayPart,
+} from './display-parts.js';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { CommandCardDock } from './cards/CommandCardDock.js';
 import { ModelSelector } from './ModelSelector.js';
@@ -46,6 +51,7 @@ import { BackgroundTaskDock } from './background/BackgroundTaskDock.js';
 import { backgroundTaskStore, recentBackgroundTasks } from '@/stores/background-tasks.js';
 import { composerQueueStore, shouldAutoDrainOnSettle, type QueuedAttachment } from '@/stores/composer-queue.js';
 import { composerInsertionStore } from '@/stores/composer-insertions.js';
+import { previewStore } from '@/stores/preview.js';
 import { createScrollController } from './scrollController.js';
 import { createCommandCardState } from './commandCardState.js';
 import { createSlashCommandRunner } from './slashCommandRunner.js';
@@ -68,12 +74,30 @@ interface QueuedEditPayload {
   displayParts?: UserDisplayPart[];
 }
 
+interface InlineUserEditState {
+  messageId: RenderedMessage['id'];
+  turnId: string | null;
+  draft: string;
+  pending: boolean;
+  error: string | null;
+}
+
+export type EditedPromptResolution =
+  | { kind: 'prompt'; text: string; display?: PromptDisplayMetadata }
+  | { kind: 'blocked'; message: string };
+
 const ESCAPE_PRIORITY_SURFACE_SELECTOR = [
   '[role="dialog"][aria-modal="true"]',
   '[data-context-menu]',
   '[data-completion-panel]',
 ].join(',');
 const STEER_UNAVAILABLE_WARNING = 'Steer unavailable; still queued for next turn.';
+const EXECUTE_PLAN_MESSAGE = 'Implement this plan.';
+
+export interface ActionablePlanKey {
+  messageId: RenderedMessage['id'];
+  blockId: string;
+}
 
 export interface PromptDisplayMetadata {
   text: string;
@@ -106,6 +130,39 @@ export function resolvePromptDispatch(
   return { message: submitText };
 }
 
+export function buildPlanExecutionContext(planContent: string): string {
+  const trimmed = planContent.trim();
+  return trimmed ? `Approved plan:\n\n${trimmed}` : '';
+}
+
+export function resolveActionablePlanKey(
+  messages: RenderedMessage[],
+  isStreaming: boolean,
+): ActionablePlanKey | null {
+  if (isStreaming) return null;
+  const lastMessage = messages[messages.length - 1];
+  if (!lastMessage || lastMessage.role !== 'assistant' || lastMessage.isStreaming) return null;
+
+  for (let idx = lastMessage.blocks.length - 1; idx >= 0; idx -= 1) {
+    const block = lastMessage.blocks[idx];
+    if (block.type === 'plan' && !block.isStreaming) {
+      return { messageId: lastMessage.id, blockId: block.id };
+    }
+  }
+  return null;
+}
+
+export function isUserTurnBoundary(
+  messages: RenderedMessage[],
+  index: number,
+  hasDateSeparator: boolean,
+): boolean {
+  if (hasDateSeparator || index <= 0) return false;
+  const current = messages[index];
+  const previous = messages[index - 1];
+  return previous?.role === 'assistant' && current?.role === 'user';
+}
+
 export function resolveMessageCopyText(message: RenderedMessage): string {
   if (message.role === 'user' && message.slashCommand) {
     const { command, args } = message.slashCommand;
@@ -127,6 +184,70 @@ export function resolveMessageEditDraft(message: RenderedMessage): string {
     .map((b) => b.content)
     .join('\n')
     .trim();
+}
+
+export function resolveMessageRestoreDisplayParts(
+  message: RenderedMessage,
+  draftText: string,
+): UserDisplayPart[] | undefined {
+  const fileRefs = normalizeDisplayPartAnchors(
+    (message.displayParts ?? []).filter((part) => part.type === 'file_ref'),
+  );
+  if (fileRefs.length === 0) return undefined;
+
+  let displayText = draftText.trim();
+  for (const part of fileRefs) {
+    const marker = llmMessageFromDisplayParts([part]);
+    if (!marker) continue;
+    displayText = displayText.replace(marker, '').replace(/[ \t]{2,}/g, ' ').trim();
+  }
+
+  return normalizeDisplayPartAnchors([
+    ...fileRefs,
+    ...(displayText ? [{ type: 'text' as const, text: displayText }] : []),
+  ]);
+}
+
+function messageHasImageAttachment(message: RenderedMessage): boolean {
+  const attachments = message.attachments ?? [];
+  return attachments.some((attachment) => {
+    const item = attachment as { kind?: string; type?: string };
+    return item.kind === 'image' || item.type === 'image';
+  }) || (message.displayParts ?? []).some((part) => part.type === 'image');
+}
+
+function commandResultBlockedMessage(result: CommandResult): string {
+  switch (result.kind) {
+    case 'action':
+      return 'This slash command changes the app state and cannot be restored from history.';
+    case 'card':
+      return result.text || 'This slash command opens a card and cannot be restored from history.';
+    case 'error':
+    case 'unsupported':
+    case 'output':
+      return result.message || 'This slash command cannot be restored from history.';
+    default:
+      return 'This slash command cannot be restored from history.';
+  }
+}
+
+export function resolveEditedSlashCommandResult(
+  command: string,
+  args: string,
+  result: CommandResult,
+): EditedPromptResolution {
+  if (result.kind === 'skill') {
+    const compact = args ? `/${command} ${args}` : `/${command}`;
+    return {
+      kind: 'prompt',
+      text: result.message,
+      display: { text: compact, slashCommand: { command, args } },
+    };
+  }
+  if (result.kind === 'send') {
+    return { kind: 'prompt', text: result.message };
+  }
+  return { kind: 'blocked', message: commandResultBlockedMessage(result) };
 }
 
 function emptyUserInputAnswers(questions: UserInputQuestionPayload[]): UserInputAnswersPayload {
@@ -160,6 +281,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   let chatBodyRef: HTMLDivElement | undefined;
   let messageInputResizeRef: HTMLDivElement | undefined;
   const [editDraft, setEditDraft] = createSignal<string | null>(null);
+  const [inlineEdit, setInlineEdit] = createSignal<InlineUserEditState | null>(null);
   const [editQueuedPayload, setEditQueuedPayload] = createSignal<QueuedEditPayload | null>(null);
   const [connectionState, setConnectionState] = createSignal<ConnectionState>(uiStore.connectionState);
   const [chatBodyWidth, setChatBodyWidth] = createSignal<number | null>(null);
@@ -178,6 +300,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const messages = (): RenderedMessage[] => chatStore.getMessages(sessionId());
   const liveState = () => chatStore.getLiveState(sessionId());
   const isStreaming = (): boolean => chatStore.isStreaming(sessionId());
+  const actionablePlanKey = createMemo(() => resolveActionablePlanKey(messages(), isStreaming()));
   const error = (): string | null => chatStore.getError(sessionId());
   const errorAction = () => chatStore.getErrorAction(sessionId());
   const isEmpty = createMemo(() => messages().length === 0);
@@ -197,6 +320,21 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     environmentPanelOpen: uiStore.environmentPanelOpen,
     rightToolsOverlay: uiStore.rightToolsOverlay,
   }));
+
+  const handleOpenPlanPreview = (block: PlanBlock, messageId?: string | number) => {
+    const sid = sessionId();
+    if (!sid || !block.id) return;
+    previewStore.registerPlan(sid, {
+      blockId: block.id,
+      label: 'Plan',
+      messageId: messageId == null ? undefined : String(messageId),
+    });
+    sidePanelStore.openTab('preview');
+  };
+
+  const focusComposer = () => {
+    queueMicrotask(() => (document.querySelector('textarea') as HTMLTextAreaElement | null)?.focus());
+  };
 
   const liveBlocks = createMemo((): MessageBlock[] => {
     const live = liveState();
@@ -296,6 +434,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     display?: PromptDisplayMetadata,
     attachments: readonly unknown[] = [],
     displayParts?: UserDisplayPart[],
+    extraContext?: string,
   ) => {
     const sid = sessionId();
     const safeAttachments = sanitizeAttachmentChips(attachments);
@@ -358,7 +497,10 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         return false;
       }
     }
-    const dispatch = resolvePromptDispatch(submitText, displayText, display, refText || undefined);
+    const turnContext = [refText, extraContext]
+      .filter((value): value is string => Boolean(value?.trim()))
+      .join('\n\n') || undefined;
+    const dispatch = resolvePromptDispatch(submitText, displayText, display, turnContext);
     const ok = await chatStore.sendMessage(sid, dispatch.message, {
       context: dispatch.context,
       slashCommand: dispatch.slashCommand,
@@ -377,6 +519,133 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     noticeCard: cards.noticeCard,
     navigate,
   });
+
+  const resolveEditedPrompt = async (text: string): Promise<EditedPromptResolution> => {
+    const trimmed = text.trim();
+    if (!trimmed) return { kind: 'blocked', message: 'Message cannot be empty.' };
+    if (!trimmed.startsWith('/')) return { kind: 'prompt', text };
+
+    const gateway = getGateway();
+    if (!gateway) return { kind: 'blocked', message: 'Gateway is not connected.' };
+
+    const withoutSlash = trimmed.slice(1).trim();
+    const [command = '', ...rest] = withoutSlash.split(/\s+/);
+    const args = rest.join(' ');
+    if (!command) return { kind: 'blocked', message: 'Slash command is incomplete.' };
+
+    const params = { session_id: sessionId(), command, args, raw: trimmed };
+    let result: CommandResult;
+    try {
+      result = await gateway.slash.resolvePrompt(params);
+    } catch (err) {
+      return { kind: 'blocked', message: `Command error: ${err instanceof Error ? err.message : String(err)}` };
+    }
+
+    return resolveEditedSlashCommandResult(command, args, result);
+  };
+
+  const updateInlineEditDraft = (messageId: RenderedMessage['id'], draft: string) => {
+    setInlineEdit((current) =>
+      current?.messageId === messageId ? { ...current, draft, error: null } : current
+    );
+  };
+
+  const setInlineEditError = (messageId: RenderedMessage['id'], error: string) => {
+    setInlineEdit((current) =>
+      current?.messageId === messageId ? { ...current, pending: false, error } : current
+    );
+  };
+
+  const inlineEditDisabledReason = (message: RenderedMessage): string | null => {
+    const current = inlineEdit();
+    if (!current || current.messageId !== message.id) return null;
+    if (message.deliveryStatus === 'failed') return null;
+    if (messageHasImageAttachment(message)) {
+      return 'Historical image messages cannot be restored yet. Re-send the image from the composer.';
+    }
+    if (!message.turnId) {
+      return 'This message is still missing its persisted turn id. Try again after the turn starts or reload the session.';
+    }
+    return null;
+  };
+
+  const beginInlineEdit = (message: RenderedMessage) => {
+    if (message.role !== 'user') return;
+    if (isStreaming()) {
+      setInlineEdit({
+        messageId: message.id,
+        turnId: message.turnId ?? null,
+        draft: resolveMessageEditDraft(message),
+        pending: false,
+        error: 'Finish or stop the current turn before editing history.',
+      });
+      return;
+    }
+    setInlineEdit({
+      messageId: message.id,
+      turnId: message.turnId ?? null,
+      draft: resolveMessageEditDraft(message),
+      pending: false,
+      error: null,
+    });
+  };
+
+  const confirmInlineEdit = async (message: RenderedMessage) => {
+    const current = inlineEdit();
+    if (!current || current.messageId !== message.id || current.pending) return;
+    const sid = sessionId();
+    const gateway = getGateway();
+    if (!sid || !gateway) {
+      setInlineEditError(message.id, 'Gateway is not connected.');
+      return;
+    }
+
+    const disabledReason = inlineEditDisabledReason(message);
+    if (disabledReason) {
+      setInlineEditError(message.id, disabledReason);
+      return;
+    }
+
+    setInlineEdit({ ...current, pending: true, error: null });
+    const resolved = await resolveEditedPrompt(current.draft);
+    if (resolved.kind === 'blocked') {
+      setInlineEditError(message.id, resolved.message);
+      return;
+    }
+    const shouldPreserveRestoreParts = !current.draft.trim().startsWith('/') && !resolved.display?.slashCommand;
+    const restoreDisplayParts = shouldPreserveRestoreParts
+      ? resolveMessageRestoreDisplayParts(message, resolved.text)
+      : undefined;
+    const restoreAttachments = restoreDisplayParts
+      ? attachmentsFromDisplayParts(restoreDisplayParts)
+      : undefined;
+
+    if (message.deliveryStatus === 'failed') {
+      const retryAttachments = restoreAttachments
+        ?? (Array.isArray(message.attachments) ? message.attachments as AttachmentChip[] : []);
+      const retryDisplayParts = restoreDisplayParts
+        ?? (Array.isArray(message.displayParts) ? message.displayParts as UserDisplayPart[] : undefined);
+      chatStore.removeMessage(sid, message.id);
+      setInlineEdit(null);
+      await sendPrompt(resolved.text, resolved.display, retryAttachments, retryDisplayParts);
+      return;
+    }
+
+    const turnId = message.turnId ?? current.turnId;
+    if (!turnId) {
+      setInlineEditError(message.id, 'This message is missing its persisted turn id.');
+      return;
+    }
+
+    try {
+      await gateway.session.rewindToTurn(sid, turnId);
+      chatStore.removeMessagesFrom(sid, message.id);
+      setInlineEdit(null);
+      await sendPrompt(resolved.text, resolved.display, restoreAttachments, restoreDisplayParts);
+    } catch (err) {
+      setInlineEditError(message.id, err instanceof Error ? err.message : 'Failed to restore this message.');
+    }
+  };
 
   useGatewayEvents({ getGateway });
 
@@ -418,19 +687,68 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     }
   };
 
-  const handleCollaborationModeToggle = async () => {
+  const setCollaborationMode = async (nextMode: CollaborationMode, failureMessage = 'Could not update collaboration mode.') => {
     const sid = sessionId();
-    if (!sid || collaborationModePending()) return;
-    const nextMode: CollaborationMode = collaborationMode() === 'plan' ? 'default' : 'plan';
+    if (!sid) return false;
+    if (collaborationMode() === nextMode) return true;
+    if (collaborationModePending()) return false;
     setCollaborationModePending(true);
     try {
       const updated = await sessionStore.updateRuntime(sid, { collaborationMode: nextMode });
       if (!updated) {
-        cards.noticeCard('Could not update collaboration mode.');
+        cards.noticeCard(failureMessage);
+        return false;
       }
+      return true;
     } finally {
       setCollaborationModePending(false);
     }
+  };
+
+  const handleCollaborationModeToggle = async () => {
+    const nextMode: CollaborationMode = collaborationMode() === 'plan' ? 'default' : 'plan';
+    await setCollaborationMode(nextMode);
+  };
+
+  const isCurrentActionablePlan = (block: PlanBlock, messageId?: string | number) => {
+    const key = actionablePlanKey();
+    return Boolean(
+      key &&
+      messageId != null &&
+      String(key.messageId) === String(messageId) &&
+      key.blockId === block.id
+    );
+  };
+
+  const handleExecutePlan = async (block: PlanBlock, messageId?: string | number) => {
+    if (block.isStreaming) return;
+    if (isStreaming()) {
+      cards.noticeCard('Wait for the current turn to finish.');
+      return;
+    }
+    if (!isCurrentActionablePlan(block, messageId)) {
+      cards.noticeCard('This plan has been superseded.');
+      return;
+    }
+    const switched = await setCollaborationMode('default', 'Could not switch out of Plan mode.');
+    if (!switched) return;
+    await sendPrompt(
+      EXECUTE_PLAN_MESSAGE,
+      { text: EXECUTE_PLAN_MESSAGE },
+      [],
+      undefined,
+      buildPlanExecutionContext(block.content),
+    );
+  };
+
+  const handleRejectPlan = async (block: PlanBlock, messageId?: string | number) => {
+    if (block.isStreaming) return;
+    if (!isCurrentActionablePlan(block, messageId)) {
+      cards.noticeCard('This plan has been superseded.');
+      return;
+    }
+    const readyForFeedback = await setCollaborationMode('plan', 'Could not keep Plan mode.');
+    if (readyForFeedback) focusComposer();
   };
 
   createEffect(() => {
@@ -723,6 +1041,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     const sid = sessionId();
     if (!sid) return;
     sessionStore.setActiveSession(sid);
+    setInlineEdit(null);
     untrack(async () => {
       await chatStore.loadMessages(sid);
       const exists = sessionStore.sessions.some((s) => s.id === sid);
@@ -780,7 +1099,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         break;
       }
       case 'edit': {
-        setEditDraft(resolveMessageEditDraft(message));
+        beginInlineEdit(message);
         break;
       }
       case 'retry': {
@@ -974,6 +1293,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     if (!userInput && !permission && !clarify && (showFloatingPanel() || panelExiting())) {
       items.push({
         id: 'todo-panel',
+        placement: 'compact-center',
         content: (
           <>
             <TodoPanel
@@ -1124,6 +1444,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                       const idx = virtualMessages().startIndex + getIndex();
                       const onAction = (action: MessageActionType) =>
                         void handleMessageAction(sessionId(), action, message);
+                      const editState = () => inlineEdit()?.messageId === message.id ? inlineEdit() : null;
+                      const actionablePlanBlockId = () => {
+                        const key = actionablePlanKey();
+                        return key && String(key.messageId) === String(message.id) ? key.blockId : null;
+                      };
                       return (
                         <div style={{ "min-height": `${MESSAGE_VIRTUAL_ROW_HEIGHT}px` }}>
                           <MessageBubble
@@ -1133,6 +1458,20 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                             onAction={onAction}
                             isLast={idx === messages().length - 1}
                             actionsDisabled={isStreaming()}
+                            isEditing={!!editState()}
+                            editDraft={editState()?.draft}
+                            editPending={!!editState()?.pending}
+                            editError={editState()?.error ?? null}
+                            editDisabledReason={inlineEditDisabledReason(message)}
+                            onEditDraftChange={(value) => updateInlineEditDraft(message.id, value)}
+                            onEditCancel={() => setInlineEdit(null)}
+                            onEditConfirm={() => void confirmInlineEdit(message)}
+                            turnBoundary={isUserTurnBoundary(messages(), idx, dateSeparators().has(idx))}
+                            onOpenPlanPreview={handleOpenPlanPreview}
+                            onExecutePlan={handleExecutePlan}
+                            onRejectPlan={handleRejectPlan}
+                            actionablePlanBlockId={actionablePlanBlockId()}
+                            planDecisionPending={collaborationModePending() || isStreaming()}
                           />
                         </div>
                       );
@@ -1149,6 +1488,11 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                     <AssistantMessage
                       blocks={liveBlocks()}
                       isStreaming={true}
+                      onOpenPlanPreview={handleOpenPlanPreview}
+                      onExecutePlan={handleExecutePlan}
+                      onRejectPlan={handleRejectPlan}
+                      actionablePlanBlockId={null}
+                      planDecisionPending={collaborationModePending() || isStreaming()}
                     />
                   </Show>
                   <div ref={scroll.refs.messagesEnd} />
@@ -1164,6 +1508,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           >
             <div class={styles.inputColumn}>
               <JumpToBottom
+                avoidDock={showFloatingPanel() || panelExiting()}
                 unreadCount={scroll.unreadCount()}
                 visible={!scroll.isNearBottom() && messages().length > 0}
                 onClick={() => {

@@ -16,6 +16,7 @@ import type {
   LiveToolCall,
 } from '@/types/index.js';
 import { parseMarkdown } from '@/utils/markdown.js';
+import { MarkdownContent } from '@/ui/molecules/MarkdownContent.js';
 import { CodeBlock } from './CodeBlock.js';
 import { TurnActivityPanel } from './TurnActivityPanel.js';
 import { RichContentRenderer } from './RichContentRenderer.js';
@@ -23,6 +24,7 @@ import { AttachmentRenderer } from './AttachmentRenderer.js';
 import { blockToRow, liveToRow } from './toolCallMappers.js';
 import { MessageActionBar, type MessageActionType } from './MessageActionBar.js';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { buildPlanCardPreview } from './planPreview.js';
 import styles from './AssistantMessage.module.css';
 
 interface AssistantMessageProps {
@@ -41,6 +43,11 @@ interface AssistantMessageProps {
   /** Whether action buttons should be disabled (e.g. while another turn is streaming). */
   actionsDisabled?: boolean;
   messageId?: string | number;
+  onOpenPlanPreview?: (block: PlanBlock, messageId?: string | number) => void;
+  onExecutePlan?: (block: PlanBlock, messageId?: string | number) => void;
+  onRejectPlan?: (block: PlanBlock, messageId?: string | number) => void;
+  actionablePlanBlockId?: string | null;
+  planDecisionPending?: boolean;
 }
 
 type BlockGroup =
@@ -86,16 +93,70 @@ const ThinkingTextBlock: Component<{ block: ReasoningBlock }> = (props) => (
   <pre class={styles.thinkingText}>{props.block.content}</pre>
 );
 
-const PlanBlockView: Component<{ block: PlanBlock }> = (props) => {
-  const html = () => parseMarkdown(props.block.content);
+const PlanCard: Component<{
+  block: PlanBlock;
+  messageId?: string | number;
+  onOpenPreview?: (block: PlanBlock, messageId?: string | number) => void;
+  onExecute?: (block: PlanBlock, messageId?: string | number) => void;
+  onReject?: (block: PlanBlock, messageId?: string | number) => void;
+  actionablePlanBlockId?: string | null;
+  decisionPending?: boolean;
+}> = (props) => {
+  const previewContent = createMemo(() => buildPlanCardPreview(props.block.content));
+  const statusLabel = () => props.block.isStreaming ? 'Streaming plan' : 'Plan ready';
+  const canShowDecisionActions = () =>
+    props.actionablePlanBlockId === undefined || props.actionablePlanBlockId === props.block.id;
+  const actionsDisabled = () => props.decisionPending || props.block.isStreaming;
   return (
-    <div class={styles.planBlock}>
-      <div class={styles.planHeader}>
-        <Icon name="clipboard-list" size={14} />
-        <span>Plan</span>
+    <section class={styles.planCard} aria-label="Plan preview card">
+      <div class={styles.planCardHeader}>
+        <div class={styles.planCardTitle}>
+          <Icon name="clipboard-list" size={14} />
+          <span>Plan</span>
+        </div>
+        <div class={styles.planCardActions}>
+          <span class={styles.planCardStatus}>{statusLabel()}</span>
+          <Show when={props.onOpenPreview}>
+            <button
+              type="button"
+              class={styles.planCardPreviewButton}
+              title="Open full plan preview"
+              aria-label="Open full plan preview"
+              onClick={() => props.onOpenPreview?.(props.block, props.messageId)}
+            >
+              <Icon name="external-link" size={14} strokeWidth={1.8} />
+            </button>
+          </Show>
+        </div>
       </div>
-      <div class={styles.planContent} innerHTML={html()} />
-    </div>
+      <div class={styles.planCardBody}>
+        <MarkdownContent content={previewContent()} variant="compact" />
+      </div>
+      <Show when={!props.block.isStreaming && canShowDecisionActions() && (props.onExecute || props.onReject)}>
+        <div class={styles.planCardFooter}>
+          <button
+            type="button"
+            class={`${styles.planDecisionButton} ${styles.planRejectButton}`}
+            aria-label="Request plan changes"
+            disabled={actionsDisabled()}
+            onClick={() => props.onReject?.(props.block, props.messageId)}
+          >
+            <Icon name="pencil" size={13} strokeWidth={1.8} />
+            <span>Revise plan</span>
+          </button>
+          <button
+            type="button"
+            class={`${styles.planDecisionButton} ${styles.planExecuteButton}`}
+            aria-label="Execute plan"
+            disabled={actionsDisabled()}
+            onClick={() => props.onExecute?.(props.block, props.messageId)}
+          >
+            <Icon name="play" size={13} strokeWidth={1.8} />
+            <span>Execute plan</span>
+          </button>
+        </div>
+      </Show>
+    </section>
   );
 };
 
@@ -265,7 +326,15 @@ const ActivityGroupView: Component<{
   );
 };
 
-const SingleGroupView: Component<{ group: Accessor<SingleGroup> }> = (props) => {
+const SingleGroupView: Component<{
+  group: Accessor<SingleGroup>;
+  messageId?: string | number;
+  onOpenPlanPreview?: (block: PlanBlock, messageId?: string | number) => void;
+  onExecutePlan?: (block: PlanBlock, messageId?: string | number) => void;
+  onRejectPlan?: (block: PlanBlock, messageId?: string | number) => void;
+  actionablePlanBlockId?: string | null;
+  planDecisionPending?: boolean;
+}> = (props) => {
   const block = () => props.group().block;
 
   return (
@@ -284,7 +353,15 @@ const SingleGroupView: Component<{ group: Accessor<SingleGroup> }> = (props) => 
         <ThinkingTextBlock block={block() as ReasoningBlock} />
       </Show>
       <Show when={block().type === 'plan'}>
-        <PlanBlockView block={block() as PlanBlock} />
+        <PlanCard
+          block={block() as PlanBlock}
+          messageId={props.messageId}
+          onOpenPreview={props.onOpenPlanPreview}
+          onExecute={props.onExecutePlan}
+          onReject={props.onRejectPlan}
+          actionablePlanBlockId={props.actionablePlanBlockId}
+          decisionPending={props.planDecisionPending}
+        />
       </Show>
       <Show when={block().type === 'rich_content'}>
         <RichContentBlockView block={block() as RichContentBlock} />
@@ -299,10 +376,26 @@ const SingleGroupView: Component<{ group: Accessor<SingleGroup> }> = (props) => 
 const BlockGroupView: Component<{
   slot: StableGroupSlot;
   embeddedActivity?: boolean;
+  messageId?: string | number;
+  onOpenPlanPreview?: (block: PlanBlock, messageId?: string | number) => void;
+  onExecutePlan?: (block: PlanBlock, messageId?: string | number) => void;
+  onRejectPlan?: (block: PlanBlock, messageId?: string | number) => void;
+  actionablePlanBlockId?: string | null;
+  planDecisionPending?: boolean;
 }> = (props) => (
   <Show
     when={props.slot.group().type === 'activity_group'}
-    fallback={<SingleGroupView group={() => props.slot.group() as SingleGroup} />}
+    fallback={(
+      <SingleGroupView
+        group={() => props.slot.group() as SingleGroup}
+        messageId={props.messageId}
+        onOpenPlanPreview={props.onOpenPlanPreview}
+        onExecutePlan={props.onExecutePlan}
+        onRejectPlan={props.onRejectPlan}
+        actionablePlanBlockId={props.actionablePlanBlockId}
+        planDecisionPending={props.planDecisionPending}
+      />
+    )}
   >
     <ActivityGroupView
       group={() => props.slot.group() as ActivityGroup}
@@ -395,7 +488,18 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
                 <Show when={traceExpanded()}>
                   <div class={styles.workTraceBody}>
                     <For each={traceGroupSlots()}>
-                      {(slot) => <BlockGroupView slot={slot} embeddedActivity />}
+                      {(slot) => (
+                        <BlockGroupView
+                          slot={slot}
+                          embeddedActivity
+                          messageId={props.messageId}
+                          onOpenPlanPreview={props.onOpenPlanPreview}
+                          onExecutePlan={props.onExecutePlan}
+                          onRejectPlan={props.onRejectPlan}
+                          actionablePlanBlockId={props.actionablePlanBlockId}
+                          planDecisionPending={props.planDecisionPending}
+                        />
+                      )}
                     </For>
                   </div>
                 </Show>
@@ -403,7 +507,17 @@ export const AssistantMessage: Component<AssistantMessageProps> = (props) => {
             )}
           </Show>
           <For each={blockGroupSlots()}>
-            {(slot) => <BlockGroupView slot={slot} />}
+            {(slot) => (
+              <BlockGroupView
+                slot={slot}
+                messageId={props.messageId}
+                onOpenPlanPreview={props.onOpenPlanPreview}
+                onExecutePlan={props.onExecutePlan}
+                onRejectPlan={props.onRejectPlan}
+                actionablePlanBlockId={props.actionablePlanBlockId}
+                planDecisionPending={props.planDecisionPending}
+              />
+            )}
           </For>
           <Show when={props.isStreaming && props.blocks.some((b) => b.type !== 'reasoning')}>
             <span class={styles.streamingCursor} />

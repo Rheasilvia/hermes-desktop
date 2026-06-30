@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS conversation_turns (
     completed_at        REAL,
     terminal_seq        INTEGER,
     last_seq            INTEGER NOT NULL DEFAULT 0,
+    active              INTEGER NOT NULL DEFAULT 1,
+    core_user_message_id INTEGER,
     PRIMARY KEY (session_id, turn_id)
 );
 
@@ -71,6 +73,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE conversation_turns ADD COLUMN user_display_parts_json TEXT NOT NULL DEFAULT '[]'")
     if "assistant_blocks_json" not in cols:
         conn.execute("ALTER TABLE conversation_turns ADD COLUMN assistant_blocks_json TEXT NOT NULL DEFAULT '[]'")
+    if "active" not in cols:
+        conn.execute("ALTER TABLE conversation_turns ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+    if "core_user_message_id" not in cols:
+        conn.execute("ALTER TABLE conversation_turns ADD COLUMN core_user_message_id INTEGER")
 
 
 def _json_dumps(value: Any) -> str:
@@ -455,7 +461,40 @@ def apply_event(
     created_at: float,
 ) -> None:
     """Apply a raw ui_messages event to the canonical turn projection."""
+    if msg_type == "session.rewind":
+        try:
+            target_user_seq = int(payload.get("target_user_seq") or 0)
+        except (TypeError, ValueError):
+            target_user_seq = 0
+        if target_user_seq > 0:
+            conn.execute(
+                """
+                UPDATE conversation_turns
+                SET active = 0, updated_at = ?, last_seq = max(last_seq, ?)
+                WHERE session_id = ? AND user_seq >= ? AND user_seq > 0
+                """,
+                (created_at, seq, session_id, target_user_seq),
+            )
+        return
+
     if not turn_id:
+        return
+
+    if msg_type == "turn.core_user_message":
+        try:
+            core_user_message_id = int(payload.get("core_user_message_id") or 0)
+        except (TypeError, ValueError):
+            core_user_message_id = 0
+        if core_user_message_id > 0:
+            _ensure_turn(conn, session_id, turn_id, user_seq=0, created_at=created_at)
+            conn.execute(
+                """
+                UPDATE conversation_turns
+                SET core_user_message_id = ?, updated_at = ?, last_seq = max(last_seq, ?)
+                WHERE session_id = ? AND turn_id = ?
+                """,
+                (core_user_message_id, created_at, seq, session_id, turn_id),
+            )
         return
 
     if msg_type == "user":
@@ -647,17 +686,25 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "completed_at": row["completed_at"],
         "terminal_seq": row["terminal_seq"],
         "last_seq": row["last_seq"],
+        "active": row["active"],
+        "core_user_message_id": row["core_user_message_id"],
     }
 
 
-def list_turns(hermes_home: Path, session_id: str) -> List[dict[str, Any]]:
+def list_turns(
+    hermes_home: Path,
+    session_id: str,
+    *,
+    include_inactive: bool = False,
+) -> List[dict[str, Any]]:
     conn = _connect(hermes_home)
     try:
         ensure_schema(conn)
+        active_clause = "" if include_inactive else "AND active = 1"
         rows = conn.execute(
-            """
+            f"""
             SELECT * FROM conversation_turns
-            WHERE session_id = ?
+            WHERE session_id = ? {active_clause}
             ORDER BY user_seq ASC, started_at ASC
             """,
             (session_id,),

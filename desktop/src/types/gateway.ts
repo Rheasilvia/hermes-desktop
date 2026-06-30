@@ -118,6 +118,7 @@ export type GatewayMethod =
   | 'complete.slash'
   | 'complete.path'
   | 'slash.exec'
+  | 'slash.resolve_prompt'
   | 'command.dispatch';
 
 /** Subagent start event payload. */
@@ -497,6 +498,16 @@ export interface TurnInterruptedPayload {
   session_id: string;
   reason?: string;
   turn_id?: string;
+  event_seq?: number;
+}
+
+/** Session rewind event payload. */
+export interface SessionRewindPayload {
+  session_id: string;
+  target_turn_id: string;
+  target_user_seq: number;
+  rewound_count?: number;
+  new_head_seq?: number | null;
   event_seq?: number;
 }
 

@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { AssistantMessage } from '../AssistantMessage';
-import type { MessageBlock, ReasoningBlock, ToolCallBlock, ToolCallRow } from '@/types/index.js';
+import type { MessageBlock, PlanBlock, ReasoningBlock, ToolCallBlock, ToolCallRow } from '@/types/index.js';
 
 const voiceMocks = vi.hoisted(() => ({
   playSpeechText: vi.fn(),
@@ -45,6 +45,13 @@ describe('AssistantMessage live tool activity', () => {
     content,
     isStreaming,
     tokenCount: null,
+  });
+
+  const plan = (content: string, isStreaming = false): PlanBlock => ({
+    type: 'plan',
+    id: 'plan_1',
+    content,
+    isStreaming,
   });
 
   it('keeps live tool activity collapsed to a summary while the assistant turn is still streaming', () => {
@@ -275,5 +282,149 @@ describe('AssistantMessage live tool activity', () => {
       source: 'read-aloud',
       messageId: 'answer',
     });
+  });
+
+  it('renders plan blocks as bounded cards without exposing the full tail in chat', () => {
+    const longPlan = [
+      '# Plan',
+      '- Step one',
+      '- Step two',
+      '- Step three',
+      '- Step four',
+      '- Step five',
+      '- Step six',
+      '- Step seven',
+      '- Step eight',
+      '- Hidden tail marker',
+    ].join('\n');
+
+    const { container } = render(() => (
+      <AssistantMessage blocks={[plan(longPlan)]} onOpenPlanPreview={vi.fn()} />
+    ));
+
+    expect(screen.getByLabelText('Plan preview card')).toBeTruthy();
+    expect(screen.getByText('Plan ready')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open full plan preview' })).toBeTruthy();
+    expect(container.textContent).toContain('Step one');
+    expect(container.textContent).not.toContain('Hidden tail marker');
+  });
+
+  it('invokes plan preview callback with the full plan block reference', async () => {
+    const onOpenPlanPreview = vi.fn();
+    const block = plan('# Plan\n\nFull body line.');
+
+    render(() => (
+      <AssistantMessage
+        blocks={[block]}
+        messageId="message-1"
+        onOpenPlanPreview={onOpenPlanPreview}
+      />
+    ));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open full plan preview' }));
+
+    expect(onOpenPlanPreview).toHaveBeenCalledWith(block, 'message-1');
+  });
+
+  it('invokes completed plan decision callbacks with the full plan block reference', async () => {
+    const onExecutePlan = vi.fn();
+    const onRejectPlan = vi.fn();
+    const block = plan('# Plan\n\nFull body line.');
+
+    render(() => (
+      <AssistantMessage
+        blocks={[block]}
+        messageId="message-1"
+        onExecutePlan={onExecutePlan}
+        onRejectPlan={onRejectPlan}
+      />
+    ));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Execute plan' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Request plan changes' }));
+
+    expect(onExecutePlan).toHaveBeenCalledWith(block, 'message-1');
+    expect(onRejectPlan).toHaveBeenCalledWith(block, 'message-1');
+  });
+
+  it('shows completed plan decision buttons when the plan is actionable', async () => {
+    const onExecutePlan = vi.fn();
+    const onRejectPlan = vi.fn();
+    const block = plan('# Plan\n\nFull body line.');
+
+    render(() => (
+      <AssistantMessage
+        blocks={[block]}
+        messageId="message-1"
+        onExecutePlan={onExecutePlan}
+        onRejectPlan={onRejectPlan}
+        actionablePlanBlockId={block.id}
+      />
+    ));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Execute plan' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Request plan changes' }));
+
+    expect(onExecutePlan).toHaveBeenCalledWith(block, 'message-1');
+    expect(onRejectPlan).toHaveBeenCalledWith(block, 'message-1');
+  });
+
+  it('hides completed plan decision buttons when no plan is actionable', () => {
+    render(() => (
+      <AssistantMessage
+        blocks={[plan('# Plan\n\nFull body line.')]}
+        onOpenPlanPreview={vi.fn()}
+        onExecutePlan={vi.fn()}
+        onRejectPlan={vi.fn()}
+        actionablePlanBlockId={null}
+      />
+    ));
+
+    expect(screen.queryByRole('button', { name: 'Execute plan' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Request plan changes' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open full plan preview' })).toBeTruthy();
+  });
+
+  it('hides completed plan decision buttons when a different plan is actionable', () => {
+    render(() => (
+      <AssistantMessage
+        blocks={[plan('# Plan\n\nFull body line.')]}
+        onExecutePlan={vi.fn()}
+        onRejectPlan={vi.fn()}
+        actionablePlanBlockId="plan_2"
+      />
+    ));
+
+    expect(screen.queryByRole('button', { name: 'Execute plan' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Request plan changes' })).toBeNull();
+  });
+
+  it('disables completed plan decision buttons while a plan decision is pending', () => {
+    render(() => (
+      <AssistantMessage
+        blocks={[plan('# Plan\n\nFull body line.')]}
+        onExecutePlan={vi.fn()}
+        onRejectPlan={vi.fn()}
+        planDecisionPending
+      />
+    ));
+
+    expect(screen.getByRole('button', { name: 'Execute plan' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Request plan changes' })).toHaveProperty('disabled', true);
+  });
+
+  it('labels streaming plan cards separately from completed plans', () => {
+    render(() => (
+      <AssistantMessage
+        blocks={[plan('- Drafting plan', true)]}
+        onOpenPlanPreview={vi.fn()}
+        onExecutePlan={vi.fn()}
+        onRejectPlan={vi.fn()}
+      />
+    ));
+
+    expect(screen.getByText('Streaming plan')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Execute plan' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Request plan changes' })).toBeNull();
   });
 });

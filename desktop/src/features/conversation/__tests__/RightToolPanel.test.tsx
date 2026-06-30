@@ -81,6 +81,8 @@ vi.mock('../TerminalPanel.js', () => ({
 }));
 
 import { sidePanelStore } from '@/stores/side-panel.js';
+import { chatStore } from '@/stores/chat.js';
+import { previewStore } from '@/stores/preview.js';
 import { RightToolPanel } from '../RightToolPanel.js';
 
 describe('RightToolPanel', () => {
@@ -90,6 +92,7 @@ describe('RightToolPanel', () => {
   });
 
   afterEach(() => {
+    previewStore.clearAll();
     sidePanelStore.close();
     sidePanelStore.clearTabs();
   });
@@ -228,4 +231,75 @@ describe('RightToolPanel', () => {
     expect(screen.queryByRole('button', { name: /Close tools/i })).toBeNull();
   });
 
+  it('renders a lightweight preview placeholder without mounting a webview rail', () => {
+    sidePanelStore.setActiveView('preview');
+    render(() => (
+      <RightToolPanel sessionId="session-1" workspacePath="/repo" />
+    ));
+
+    expect(screen.getByRole('status', { name: 'No preview selected' })).toBeTruthy();
+    expect(screen.queryByText('Preview')).toBeNull();
+    expect(document.querySelector('webview')).toBeNull();
+  });
+
+  it('renders full plan markdown in the preview pane from chatStore', () => {
+    const sid = 'session-plan-preview';
+    chatStore.markPromptAccepted(sid, 'turn-plan-preview');
+    chatStore.handlePlanDelta(sid, {
+      session_id: sid,
+      turn_id: 'turn-plan-preview',
+      text: '# Implementation Plan\n\n- Inspect current UI\n- Render the full plan',
+    });
+    const block = chatStore.getLiveState(sid).activityBlocks.find((item) => item.type === 'plan');
+    expect(block?.type).toBe('plan');
+
+    previewStore.registerPlan(sid, { blockId: block!.id, label: 'Plan' });
+    sidePanelStore.setActiveView('preview');
+
+    render(() => (
+      <RightToolPanel sessionId={sid} workspacePath="/repo" />
+    ));
+
+    expect(screen.getByRole('heading', { name: 'Implementation Plan' })).toBeTruthy();
+    expect(screen.getByText('Render the full plan')).toBeTruthy();
+  });
+
+  it('updates plan preview while plan deltas are still streaming', () => {
+    const sid = 'session-plan-live-preview';
+    chatStore.markPromptAccepted(sid, 'turn-plan-live-preview');
+    chatStore.handlePlanDelta(sid, {
+      session_id: sid,
+      turn_id: 'turn-plan-live-preview',
+      text: '# Live Plan\n\n- First line',
+    });
+    const block = chatStore.getLiveState(sid).activityBlocks.find((item) => item.type === 'plan');
+    previewStore.registerPlan(sid, { blockId: block!.id, label: 'Plan' });
+    sidePanelStore.setActiveView('preview');
+
+    render(() => (
+      <RightToolPanel sessionId={sid} workspacePath="/repo" />
+    ));
+
+    expect(screen.getByText('First line')).toBeTruthy();
+
+    chatStore.handlePlanDelta(sid, {
+      session_id: sid,
+      turn_id: 'turn-plan-live-preview',
+      text: '\n- Second live line',
+    });
+
+    expect(screen.getByText('Second live line')).toBeTruthy();
+  });
+
+  it('shows an unavailable state for stale plan preview references', () => {
+    const sid = 'session-plan-stale-preview';
+    previewStore.registerPlan(sid, { blockId: 'missing-plan-block', label: 'Plan' });
+    sidePanelStore.setActiveView('preview');
+
+    render(() => (
+      <RightToolPanel sessionId={sid} workspacePath="/repo" />
+    ));
+
+    expect(screen.getByRole('status', { name: 'Plan preview unavailable' })).toBeTruthy();
+  });
 });

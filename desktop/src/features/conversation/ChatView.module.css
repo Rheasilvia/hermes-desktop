@@ -87,45 +87,6 @@
   position: relative;
 }
 
-.cardDock {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  padding: 4px 32px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-/* ── Floating TodoPanel dock ──────────────────────── */
-
-.todoDock {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  padding: 4px 32px;
-  z-index: 8;
-  max-height: 45vh;
-  overflow-y: auto;
-  animation: todoDockIn 200ms ease-out;
-}
-
-.todoDockExiting {
-  animation: todoDockOut 150ms ease-in forwards;
-}
-
-@keyframes todoDockIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes todoDockOut {
-  from { opacity: 1; transform: translateY(0); }
-  to { opacity: 0; transform: translateY(8px); }
-}
-
 /* ── Undo bar ────────────────────────────────────── */
 
 .undoBar {
@@ -163,8 +124,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .todoDock,
-  .todoDockExiting,
   .undoBar {
     animation: none;
   }

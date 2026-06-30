@@ -9,8 +9,10 @@ import type {
   GatewayEventMap,
   SessionListItem,
   SessionMessage,
+  SessionRewindResult,
   SessionTranscript,
   PromptExecuteResult,
+  CommandResult,
   SessionMeta,
   SessionInfoPayload,
   HermesConfig,
@@ -146,6 +148,8 @@ export class GatewayClient {
       this.call('session.steer', { session_id: sessionId, text }),
     undo: (sessionId: string): Promise<{ removed: number }> =>
       this.call('session.undo', { session_id: sessionId }),
+    rewindToTurn: (sessionId: string, turnId: string): Promise<SessionRewindResult> =>
+      this.call('session.rewind_to_turn', { session_id: sessionId, turn_id: turnId }),
     messages: (sessionId: string): Promise<SessionMessage[]> =>
       this.call('session.messages', { session_id: sessionId }),
     transcript: (sessionId: string): Promise<SessionTranscript> =>
@@ -383,12 +387,14 @@ export class GatewayClient {
   };
 
   slash = {
-    exec: (params: { command: string; args?: string }): Promise<void> =>
+    exec: (params: { command: string; args?: string; raw?: string; session_id?: string }): Promise<CommandResult> =>
       this.call('slash.exec', params),
+    resolvePrompt: (params: { command: string; args?: string; raw?: string; session_id?: string }): Promise<CommandResult> =>
+      this.call('slash.resolve_prompt', params),
   };
 
   command = {
-    dispatch: (params: { command: string; args?: string }): Promise<void> =>
+    dispatch: (params: { command: string; args?: string; raw?: string; session_id?: string }): Promise<CommandResult> =>
       this.call('command.dispatch', params),
   };
 }
