@@ -1,5 +1,17 @@
 import { createStore, produce } from 'solid-js/store';
 
+export interface FileUrlPreviewTarget {
+  kind: 'file' | 'url';
+  label: string;
+  source: string;
+  url: string;
+  path?: string;
+  language?: string;
+  mimeType?: string;
+  previewKind?: 'binary' | 'html' | 'image' | 'text';
+  renderMode?: 'preview' | 'source';
+}
+
 export interface PlanPreviewTarget {
   kind: 'plan';
   label: string;
@@ -8,14 +20,22 @@ export interface PlanPreviewTarget {
   messageId?: string;
 }
 
-export type PreviewRecordSource = 'plan-card';
+export interface NotebookPreviewTarget {
+  kind: 'notebook';
+  label: string;
+  path: string;
+}
+
+export type PreviewTarget = FileUrlPreviewTarget | PlanPreviewTarget | NotebookPreviewTarget;
+
+export type PreviewRecordSource = 'explicit-link' | 'file-browser' | 'manual' | 'tool-result' | 'plan-card' | 'notebook';
 
 export interface SessionPreviewRecord {
   autoOpen: boolean;
   createdAt: number;
   dismissedAt?: number;
   id: string;
-  normalized: PlanPreviewTarget;
+  normalized: PreviewTarget;
   sessionId: string;
   source: PreviewRecordSource;
   target: string;
@@ -23,9 +43,18 @@ export interface SessionPreviewRecord {
 
 type PreviewRegistry = Record<string, SessionPreviewRecord[]>;
 
-const STORAGE_KEY = 'hermes.tauri.sessionPreviews.v1';
+const STORAGE_KEY = 'hermes.tauri.sessionPreviews.v2';
 const MAX_RECORDS_PER_SESSION = 1;
 const MAX_SESSIONS = 120;
+
+function isSourcePreview(source: PreviewRecordSource): boolean {
+  return source === 'file-browser' || source === 'manual';
+}
+
+function normalizeTargetForSource(target: FileUrlPreviewTarget, source: PreviewRecordSource): FileUrlPreviewTarget {
+  if (target.kind !== 'file' || target.previewKind !== 'html') return target;
+  return { ...target, renderMode: isSourcePreview(source) ? 'source' : 'preview' };
+}
 
 function pruneRegistry(registry: PreviewRegistry): PreviewRegistry {
   return Object.fromEntries(
@@ -40,15 +69,28 @@ function pruneRegistry(registry: PreviewRegistry): PreviewRegistry {
   );
 }
 
-function isPlanPreviewTarget(value: unknown): value is PlanPreviewTarget {
+function isPreviewTarget(value: unknown): value is PreviewTarget {
   if (!value || typeof value !== 'object') return false;
   const row = value as Record<string, unknown>;
+  if (row.kind === 'plan') {
+    return (
+      typeof row.label === 'string' &&
+      typeof row.sessionId === 'string' &&
+      typeof row.blockId === 'string' &&
+      (row.messageId === undefined || typeof row.messageId === 'string')
+    );
+  }
+  if (row.kind === 'notebook') {
+    return (
+      typeof row.label === 'string' &&
+      typeof row.path === 'string'
+    );
+  }
   return (
-    row.kind === 'plan' &&
+    (row.kind === 'file' || row.kind === 'url') &&
     typeof row.label === 'string' &&
-    typeof row.sessionId === 'string' &&
-    typeof row.blockId === 'string' &&
-    (row.messageId === undefined || typeof row.messageId === 'string')
+    typeof row.source === 'string' &&
+    typeof row.url === 'string'
   );
 }
 
@@ -59,9 +101,9 @@ function isPreviewRecord(value: unknown): value is SessionPreviewRecord {
     typeof row.autoOpen === 'boolean' &&
     typeof row.createdAt === 'number' &&
     typeof row.id === 'string' &&
-    isPlanPreviewTarget(row.normalized) &&
+    isPreviewTarget(row.normalized) &&
     typeof row.sessionId === 'string' &&
-    row.source === 'plan-card' &&
+    ['explicit-link', 'file-browser', 'manual', 'tool-result', 'plan-card', 'notebook'].includes(String(row.source)) &&
     typeof row.target === 'string' &&
     (row.dismissedAt === undefined || typeof row.dismissedAt === 'number')
   );
@@ -95,9 +137,21 @@ function saveRegistry(registry: PreviewRegistry): void {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(pruned));
     }
   } catch {
-    // Plan preview persistence is a convenience; failures are non-fatal.
+    // Preview persistence is a convenience; failures are non-fatal.
   }
 }
+
+// One-time cleanup: the pre-v2 registry lived under a different key and is no longer
+// read — drop it so stale data doesn't linger in localStorage after the v1→v2 bump.
+function dropLegacyStorage(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem('hermes.tauri.sessionPreviews.v1');
+  } catch {
+    // ignore
+  }
+}
+dropLegacyStorage();
 
 const [registry, setRegistry] = createStore<PreviewRegistry>(loadRegistry());
 
@@ -110,11 +164,52 @@ function snapshot(): PreviewRegistry {
   );
 }
 
-function targetKey(target: PlanPreviewTarget): string {
-  return `plan:${target.sessionId}:${target.messageId ?? 'live'}:${target.blockId}`;
+function targetKey(target: PreviewTarget): string {
+  if (target.kind === 'plan') {
+    return `plan:${target.sessionId}:${target.messageId ?? 'live'}:${target.blockId}`;
+  }
+  if (target.kind === 'notebook') {
+    return `notebook:${target.path}`;
+  }
+  return target.url;
+}
+
+function recordId(sessionId: string, target: PreviewTarget): string {
+  if (target.kind === 'plan') return targetKey(target);
+  if (target.kind === 'notebook') return `notebook:${sessionId}:${target.path}`;
+  return `${sessionId}:${target.url}`;
 }
 
 export const previewStore = {
+  register(
+    sessionId: string | null | undefined,
+    target: FileUrlPreviewTarget,
+    source: PreviewRecordSource,
+    rawTarget = target.source,
+  ): SessionPreviewRecord | null {
+    const sid = sessionId?.trim();
+    if (!sid) return null;
+    const normalized = normalizeTargetForSource(target, source);
+    const existing = registry[sid]?.find((record) =>
+      (record.normalized.kind === 'file' || record.normalized.kind === 'url')
+      && record.normalized.url === normalized.url
+    );
+    const record: SessionPreviewRecord = {
+      autoOpen: true,
+      createdAt: Date.now(),
+      id: existing?.id ?? recordId(sid, target),
+      normalized,
+      sessionId: sid,
+      source,
+      target: rawTarget || target.source,
+    };
+    setRegistry(produce((state) => {
+      state[sid] = [record];
+    }));
+    saveRegistry(snapshot());
+    return record;
+  },
+
   registerPlan(
     sessionId: string | null | undefined,
     target: { blockId: string; label?: string | null; messageId?: string | number | null },
@@ -133,11 +228,40 @@ export const previewStore = {
     const record: SessionPreviewRecord = {
       autoOpen: true,
       createdAt: Date.now(),
-      id: existing?.id ?? targetKey(normalized),
+      id: existing?.id ?? recordId(sid, normalized),
       normalized,
       sessionId: sid,
       source: 'plan-card',
       target: `plan:${blockId}`,
+    };
+    setRegistry(produce((state) => {
+      state[sid] = [record];
+    }));
+    saveRegistry(snapshot());
+    return record;
+  },
+
+  registerNotebook(
+    sessionId: string | null | undefined,
+    target: { path: string; label?: string | null },
+  ): SessionPreviewRecord | null {
+    const sid = sessionId?.trim();
+    const path = target.path?.trim();
+    if (!sid || !path) return null;
+    const normalized: NotebookPreviewTarget = {
+      kind: 'notebook',
+      label: target.label?.trim() || path.split(/[\\/]/).filter(Boolean).pop() || path,
+      path,
+    };
+    const existing = registry[sid]?.find((record) => targetKey(record.normalized) === targetKey(normalized));
+    const record: SessionPreviewRecord = {
+      autoOpen: true,
+      createdAt: Date.now(),
+      id: existing?.id ?? recordId(sid, normalized),
+      normalized,
+      sessionId: sid,
+      source: 'notebook',
+      target: `notebook:${path}`,
     };
     setRegistry(produce((state) => {
       state[sid] = [record];
@@ -152,17 +276,17 @@ export const previewStore = {
     return registry[sid]?.find((record) => record.autoOpen && !record.dismissedAt) ?? null;
   },
 
-  dismiss(sessionId: string | null | undefined, blockId?: string): void {
+  dismiss(sessionId: string | null | undefined, url?: string): void {
     const sid = sessionId?.trim();
     if (!sid) return;
     const records = registry[sid];
     if (!records?.length) return;
-    const active = records.find((record) => !record.dismissedAt);
-    const key = blockId?.trim() || active?.normalized.blockId;
-    if (!key) return;
+    const targetUrl = url ?? records.find((record) => !record.dismissedAt)?.normalized;
+    if (!targetUrl) return;
+    const key = typeof targetUrl === 'string' ? targetUrl : targetKey(targetUrl);
     const dismissedAt = Date.now();
     setRegistry(sid, records.map((record) => (
-      record.normalized.blockId === key || record.id === key
+      targetKey(record.normalized) === key
         ? { ...record, autoOpen: false, dismissedAt }
         : record
     )));

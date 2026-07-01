@@ -273,3 +273,36 @@ def get_project_service(request: Request):
             hermes_home=home,
         ),
     )
+
+
+def get_notebook_service(request: Request):
+    return _cached_service(
+        request,
+        "profile_notebook_svcs",
+        lambda _home: __import__(
+            "daemon.services.notebook_service",
+            fromlist=["NotebookService"],
+        ).NotebookService(
+            workspace_service=get_workspace_service(request),
+        ),
+    )
+
+
+def get_notebook_watch_service(request: Request):
+    """Per-home notebook watcher (like every sibling service). Caching per active
+    home avoids capturing one profile's workspace/ui-message services for all
+    profiles — the previous process-global singleton resolved paths and appended
+    events against the wrong home after a profile switch."""
+    return _cached_service(
+        request,
+        "profile_notebook_watch_svcs",
+        lambda _home: __import__(
+            "daemon.services.notebook_watch_service",
+            fromlist=["NotebookWatchService"],
+        ).NotebookWatchService(
+            workspace_service=get_workspace_service(request),
+            notebook_service=get_notebook_service(request),
+            ui_messages=get_ui_message_service(request),
+            event_bus=get_event_bus(request),
+        ),
+    )

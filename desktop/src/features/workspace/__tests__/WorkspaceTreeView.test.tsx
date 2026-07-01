@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { workspaceTreeStore } from '@/stores/workspace-tree.js';
+import { previewStore } from '@/stores/preview.js';
 import type { WorkspaceFileResult, WorkspaceTreeNode } from '@/types/index.js';
 import { WorkspaceTreeView } from '../WorkspaceTreeView.js';
 import { WorkspaceFilePreviewPane } from '../WorkspaceFilePreviewPane.js';
@@ -228,5 +229,32 @@ describe('WorkspaceFilePreviewPane', () => {
 
     expect(await screen.findByText('second')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy();
+  });
+
+  it('right-click Preview on a .ipynb routes to the notebook preview (not source view)', async () => {
+    // Regression: the context-menu "Preview File" must route .ipynb through the same
+    // notebook-aware openPreview() as left-click — not the generic source preview.
+    const registerNotebook = vi.spyOn(previewStore, 'registerNotebook').mockReturnValue(null);
+    mocks.gateway.workspace.children.mockReset().mockResolvedValue({
+      root: '/repo',
+      path: '/repo',
+      children: [{ path: '/repo/demo.ipynb', name: 'demo.ipynb', kind: 'file', ignored: false, loaded: true }],
+      truncated: false,
+      total_read: 1,
+    });
+
+    render(() => <WorkspaceTreeView sessionId="session-one" workspacePath="/repo" />);
+    // The file tree only auto-loads when a project/worktree is entered; drive it directly.
+    await workspaceTreeStore.setWorkspace('session-one', '/repo');
+
+    const row = await waitFor(() => screen.getByText('demo.ipynb'));
+    fireEvent.contextMenu(row, { clientX: 10, clientY: 10 });
+    fireEvent.click(await waitFor(() => screen.getByText('Preview File')));
+
+    expect(registerNotebook).toHaveBeenCalledWith(
+      'session-one',
+      expect.objectContaining({ path: '/repo/demo.ipynb' }),
+    );
+    registerNotebook.mockRestore();
   });
 });

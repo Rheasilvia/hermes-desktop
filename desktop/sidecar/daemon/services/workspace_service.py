@@ -179,6 +179,16 @@ class WorkspaceService:
             raise WorkspaceServiceError(500, f"reveal failed: {exc}") from exc
         return {"ok": True}
 
+    def resolve_abs_path(self, session_id: str, path: str, *, access: str = "read") -> Path:
+        """Resolve a workspace-relative path to an absolute, policy-checked Path.
+
+        Shared security boundary for desktop services that need to read workspace
+        files with their own size/parse limits (e.g. notebook rendering) instead of
+        the workspace ``read_file`` cap. Raises ``WorkspaceServiceError`` on denial.
+        """
+        snapshot = self._snapshot(session_id)
+        return self._resolve(snapshot, path, access=access)
+
     def _snapshot(self, session_id: str) -> WorkspacePolicySnapshot:
         session = self._session_service.get_session(session_id)
         if session is None:

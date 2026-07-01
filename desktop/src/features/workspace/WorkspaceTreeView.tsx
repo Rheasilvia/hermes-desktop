@@ -1,6 +1,8 @@
 import type { Component } from 'solid-js';
 import { For, Show, createEffect, createMemo, createSignal } from 'solid-js';
 import type { WorkspaceTreeNode, WorkspaceTreeRow } from '@/types/index.js';
+import { previewStore } from '@/stores/preview.js';
+import { sidePanelStore } from '@/stores/side-panel.js';
 import { workspaceTreeStore } from '@/stores/workspace-tree.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { WorkspaceContextMenu } from './WorkspaceContextMenu.js';
@@ -51,6 +53,12 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
   const openPreview = (node: WorkspaceTreeNode | null | undefined) => {
     if (!node || node.kind !== 'file') return;
     workspaceTreeStore.selectPath(node.path);
+    // .ipynb opens in the notebook preview dock; everything else uses the inline file preview pane.
+    if (node.name.toLowerCase().endsWith('.ipynb') && props.sessionId) {
+      previewStore.registerNotebook(props.sessionId, { path: node.path, label: node.name });
+      sidePanelStore.openTab('preview');
+      return;
+    }
     setPreviewNode(node);
   };
 
