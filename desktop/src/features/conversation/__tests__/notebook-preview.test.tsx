@@ -98,6 +98,43 @@ describe('notebookPreviewStore', () => {
     expect(state.loading).toBe(false);
     expect(mockNotebook.watch).not.toHaveBeenCalled();
   });
+
+  it('clear() during an in-flight load() does not resurrect state or arm a watch', async () => {
+    let resolveRender!: (v: NotebookRender) => void;
+    mockNotebook.render.mockImplementationOnce(
+      () => new Promise<NotebookRender>((res) => { resolveRender = res; }),
+    );
+    const pending = notebookPreviewStore.load('s-race', 'demo.ipynb');
+    // Pane closes while the render is still in flight.
+    await notebookPreviewStore.clear('s-race');
+    // The late render response arrives — it must be dropped, not applied.
+    resolveRender(sampleRender);
+    await pending;
+
+    const state = notebookPreviewStore.getState('s-race');
+    expect(state.cells).toHaveLength(0);
+    expect(state.path).toBeNull();
+    expect(mockNotebook.watch).not.toHaveBeenCalled();
+  });
+
+  it('handleChanged with a deferred marker re-fetches instead of clobbering cells', async () => {
+    await notebookPreviewStore.load('s-def', 'demo.ipynb');
+    expect(notebookPreviewStore.getState('s-def').cells).toHaveLength(2);
+    mockNotebook.render.mockClear();
+
+    notebookPreviewStore.handleChanged({
+      session_id: 's-def',
+      path: 'demo.ipynb',
+      cells: [], // a deferred marker carries no cell bodies
+      mtime: 1700000123,
+      size: 1,
+      deferred: true,
+    });
+
+    await vi.waitFor(() => expect(mockNotebook.render).toHaveBeenCalledWith('s-def', 'demo.ipynb'));
+    // Cells were refreshed via the re-fetch, never replaced with the empty marker.
+    expect(notebookPreviewStore.getState('s-def').cells).toHaveLength(2);
+  });
 });
 
 describe('NotebookPreview component', () => {
@@ -138,6 +175,85 @@ describe('NotebookPreview component', () => {
     render(() => <NotebookPreview sessionId="s-err" target={target} />);
     expect(await screen.findByText(/Couldn’t render notebook/i)).toBeTruthy();
     expect(screen.getByText('cannot parse')).toBeTruthy();
+  });
+
+  it('sanitizes HTML outputs (strips <script> and event handlers)', async () => {
+    const htmlRender: NotebookRender = {
+      path: 'x.ipynb',
+      mtime: 1,
+      size: 1,
+      cells: [{
+        index: 0,
+        cell_type: 'code',
+        source: 'df',
+        execution_count: 1,
+        outputs: [{
+          output_type: 'execute_result',
+          mime: 'text/html',
+          html: '<div class="tbl">safe-cell<script>window.__pwned=1</script><img src=x onerror="window.__pwned=1"></div>',
+        }],
+      }],
+    };
+    mockNotebook.render.mockResolvedValueOnce(htmlRender);
+    const target = { kind: 'notebook' as const, label: 'x.ipynb', path: 'x.ipynb' };
+    render(() => <NotebookPreview sessionId="s-xss" target={target} />);
+
+    expect(await screen.findByText(/safe-cell/)).toBeTruthy();
+    // DOMPurify must strip the <script> element and the onerror handler.
+    expect(document.querySelector('script')).toBeNull();
+    expect(document.querySelector('[onerror]')).toBeNull();
+    expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
+  });
+
+  it('renders an SVG output as an <img> data URL', async () => {
+    const svgRender: NotebookRender = {
+      path: 's.ipynb',
+      mtime: 1,
+      size: 1,
+      cells: [{
+        index: 0,
+        cell_type: 'code',
+        source: 'plot()',
+        execution_count: 1,
+        outputs: [{
+          output_type: 'display_data',
+          mime: 'image/svg+xml',
+          image: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+        }],
+      }],
+    };
+    mockNotebook.render.mockResolvedValueOnce(svgRender);
+    const target = { kind: 'notebook' as const, label: 's.ipynb', path: 's.ipynb' };
+    render(() => <NotebookPreview sessionId="s-svg" target={target} />);
+
+    expect(await screen.findByRole('img')).toBeTruthy();
+    expect(document.querySelector('img[src^="data:image/svg+xml"]')).toBeTruthy();
+  });
+
+  it('renders LaTeX math in markdown cells via KaTeX (inline + multi-line display with subscripts)', async () => {
+    // Regression: a multi-line $$…$$ block with several subscripts. Before the
+    // math-tokenizer fix, `breaks:true` turned the newlines into <br> and the
+    // paired underscores into <em>, splitting the $$ delimiters across text nodes
+    // so renderMathIn silently skipped the block (rendered as raw text).
+    const mathRender: NotebookRender = {
+      path: 'math.ipynb',
+      mtime: 1,
+      size: 1,
+      cells: [{
+        index: 0,
+        cell_type: 'markdown',
+        source: 'Euler: $e^{i\\pi} + 1 = 0$\n\n$$\na_t = \\arg\\max_a Q_t(a) + c\\sqrt{\\frac{\\ln t}{N_t(a)}}\n$$',
+      }],
+    };
+    mockNotebook.render.mockResolvedValueOnce(mathRender);
+    const target = { kind: 'notebook' as const, label: 'math.ipynb', path: 'math.ipynb' };
+    render(() => <NotebookPreview sessionId="s-math" target={target} />);
+
+    // KaTeX injects `.katex` for inline math and `.katex-display` for block math.
+    await vi.waitFor(() => expect(document.querySelector('.katex')).toBeTruthy());
+    expect(document.querySelector('.katex-display')).toBeTruthy();
+    // The raw block delimiters must be gone (i.e. it actually rendered, not left as text).
+    expect(document.body.textContent ?? '').not.toContain('$$');
   });
 });
 

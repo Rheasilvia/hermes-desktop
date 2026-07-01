@@ -280,3 +280,11 @@
 .root tbody tr:last-child td {
   border-bottom: none;
 }
+
+/* KaTeX: let wide display equations scroll instead of overflowing the column. */
+.root :global(.katex-display) {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: var(--space-1) 0;
+  margin: var(--space-3) 0;
+}

@@ -1,4 +1,6 @@
 /* NotebookPreview — read-only render of .ipynb cells in the preview dock.
+ * Jupyter-classic layout: In[n]/Out[n] prompt gutters for code, markdown as
+ * flowing document prose.
  * Follows the right-dock CSS contract (min-width 380px, container inline-size).
  * No new media-query breakpoints (split-layout-css.test.ts forbids them). */
 
@@ -38,39 +40,76 @@
 .cells {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-4);
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-5);
   overflow-y: auto;
   min-height: 0;
   flex: 1;
 }
 
+/* Cell wrapper — no card; markdown reads as prose, code carries prompt gutters. */
 .cell {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3);
-  border-radius: 6px;
-  background: var(--color-surface, #fff);
-  border: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.06));
 }
 
-.codeCell {
-  display: flex;
-  flex-direction: column;
+/* ── Markdown cell: flowing document prose (flush-left, larger, readable) ──
+ * Doubled class beats MarkdownContent's `.document` padding/size at equal
+ * specificity without !important, so prose isn't boxed in panel chrome. */
+.mdBody.mdBody {
+  padding: 0;
+  font-size: var(--text-base);
+  line-height: 1.65;
+  max-width: 68ch;
+}
+
+/* ── Code / markdown / output rows: [ prompt | content ] grid, Jupyter style ──
+ * Markdown shares the grid (with a blank prompt gutter) so its body aligns with
+ * the code column instead of sitting flush-left. */
+.codeRow,
+.outputRow,
+.mdRow {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
   gap: var(--space-2);
+  align-items: start;
+}
+
+/* Empty first track for markdown rows — markdown has no execution prompt. */
+.promptSpacer {
+  user-select: none;
+}
+
+.promptIn,
+.promptOut {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs, 12px);
+  line-height: var(--leading-normal);
+  text-align: right;
+  padding-top: 6px;
+  white-space: nowrap;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.promptIn {
+  color: var(--color-primary, #3b6ea5);
+}
+
+.promptOut {
+  color: var(--color-danger, #c0392b);
 }
 
 .codeSource {
   /* CodeBlock already styles its own wrapper; this scopes layout only */
   overflow: hidden;
   border-radius: 4px;
+  min-width: 0;
 }
 
-.outputs {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+.outputCell {
+  min-width: 0;
 }
 
 .output {
@@ -129,18 +168,6 @@
   color: var(--color-danger, #c0392b);
   background: var(--color-danger-bg, rgba(192, 57, 43, 0.06));
   border-radius: 4px;
-}
-
-.cellFooter {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-}
-
-.execCount {
-  font-family: var(--font-mono, monospace);
-  font-size: var(--text-xs, 12px);
-  color: var(--color-on-surface-dim);
 }
 
 .rawCell {

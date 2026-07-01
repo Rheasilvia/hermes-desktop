@@ -16,10 +16,12 @@
  * Renderer method overrides use `any` tokens to bridge the gap.
  */
 
-import { Renderer, marked } from 'marked';
+import { Marked, Renderer, marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { createHighlighter, type Highlighter } from 'shiki';
 import { createJavaScriptRegexEngine } from '@shikijs/engine-javascript';
+import renderMathInElement from 'katex/contrib/auto-render';
+import 'katex/dist/katex.min.css';
 
 // ── Custom Renderer ─────────────────────────────────────────────────────
 
@@ -89,6 +91,101 @@ export function sanitizeHtml(html: string): string {
     ALLOW_DATA_ATTR: false,
   });
 }
+
+// ── Math (KaTeX) ───────────────────────────────────────────────────────────
+
+// $$…$$ / \[…\] before $…$ so display math matches before inline.
+const MATH_DELIMITERS = [
+  { left: '$$', right: '$$', display: true },
+  { left: '\\[', right: '\\]', display: true },
+  { left: '\\(', right: '\\)', display: false },
+  { left: '$', right: '$', display: false },
+];
+
+/**
+ * Render LaTeX math (KaTeX) in place on already-rendered, already-in-DOM content.
+ * MUST run post-sanitize: DOMPurify's allowlist has no MathML/`style`, so piping
+ * KaTeX output through `sanitizeHtml` would strip it — this mirrors how
+ * `highlightCodeBlocksIn` post-processes the live DOM. KaTeX's default `trust: false`
+ * keeps it safe on untrusted input; `pre`/`code` are ignored so shell snippets with
+ * `$` are left alone.
+ */
+export function renderMathIn(root: HTMLElement): void {
+  try {
+    renderMathInElement(root, {
+      delimiters: MATH_DELIMITERS,
+      throwOnError: false,
+      errorColor: 'var(--color-danger, #c0392b)',
+      ignoredTags: ['script', 'style', 'textarea', 'pre', 'code'],
+    });
+  } catch {
+    // Best-effort; leave raw text if KaTeX fails.
+  }
+}
+
+// ── Math tokenization (marked extension) ─────────────────────────────────────
+//
+// Capture $…$ / $$…$$ / \(…\) / \[…\] as ATOMIC tokens BEFORE marked's inline
+// lexer runs. Otherwise markdown corrupts the LaTeX: newlines in a multi-line
+// $$…$$ become <br> and paired underscores become <em>, splitting the delimiters
+// across separate text nodes — and renderMathIn() matches delimiters only WITHIN
+// a single text node, so it silently skips the block. We re-emit the RAW latex
+// (escaped, delimiters kept) inside a sanitize-safe wrapper; the existing
+// renderMathIn() pass then renders it on the live DOM post-sanitize (KaTeX HTML
+// can't survive DOMPurify's allowlist, which is why we don't render at parse time).
+
+// Ordered display-first so $$…$$ / \[…\] win before $…$ / \(…\).
+const INLINE_MATH_PATTERNS = [
+  /^\$\$([^\n]+?)\$\$/, // $$…$$ on one line (display)
+  /^\\\[([\s\S]+?)\\\]/, // \[…\] (display)
+  /^\$([^\n$]+?)\$/, // $…$ (inline)
+  /^\\\(([\s\S]+?)\\\)/, // \(…\) (inline)
+];
+
+const mathExtension = {
+  extensions: [
+    {
+      name: 'blockMath',
+      level: 'block' as const,
+      start(src: string) {
+        const i = src.indexOf('$$');
+        return i < 0 ? undefined : i;
+      },
+      tokenizer(src: string) {
+        const m = /^\$\$([\s\S]+?)\$\$/.exec(src);
+        if (!m) return undefined;
+        return { type: 'blockMath', raw: m[0], text: m[1] };
+      },
+      renderer(token: any) {
+        return `<div class="katex-block">${escapeHtml(token.raw)}</div>\n`;
+      },
+    },
+    {
+      name: 'inlineMath',
+      level: 'inline' as const,
+      start(src: string) {
+        const m = /\$|\\[([]/.exec(src);
+        return m ? m.index : undefined;
+      },
+      tokenizer(src: string) {
+        for (const re of INLINE_MATH_PATTERNS) {
+          const m = re.exec(src);
+          if (m) return { type: 'inlineMath', raw: m[0], text: m[1] };
+        }
+        return undefined;
+      },
+      renderer(token: any) {
+        return `<span class="katex-inline">${escapeHtml(token.raw)}</span>`;
+      },
+    },
+  ],
+};
+
+// Dedicated instance so the global `marked` (chat / file preview) stays untouched
+// — math is notebook-only. Shared `renderer` is safe: parsing is synchronous.
+const mathMarked = new Marked();
+mathMarked.setOptions({ renderer, breaks: true, gfm: true });
+mathMarked.use(mathExtension);
 
 // ── Code Highlighting (Shiki) ────────────────────────────────────────────
 
@@ -216,9 +313,13 @@ export function langFromName(filename: string): string | null {
 
 const EMPTY = '';
 
-export function parseMarkdown(text: string): string {
+export function parseMarkdown(text: string, opts?: { math?: boolean }): string {
   if (!text) return EMPTY;
-  const raw = marked.parse(text);
+  // Route through the math-aware instance only when math is opted-in AND the
+  // text actually contains a delimiter; everything else uses the identical
+  // global `marked` path, so plain markdown renders the same in chat & notebook.
+  const parser = opts?.math && /\$|\\[([]/.test(text) ? mathMarked : marked;
+  const raw = parser.parse(text);
   if (typeof raw !== 'string') return EMPTY;
   return sanitizeHtml(raw.trim());
 }

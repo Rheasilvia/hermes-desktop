@@ -14,10 +14,18 @@ interface NotebookPreviewProps {
   target: NotebookPreviewTarget;
 }
 
-const ExecutionCount: Component<{ count: number | null | undefined }> = (props) => (
-  <Show when={props.count != null}>
-    <span class={styles.execCount} aria-label={`Execution count ${props.count}`}>[{props.count}]</span>
-  </Show>
+const formatCount = (count: number | null | undefined): string => (count == null ? ' ' : String(count));
+
+/** Jupyter-style `In [n]:` prompt beside a code cell's source. */
+const InPrompt: Component<{ count: number | null | undefined }> = (props) => (
+  <div class={styles.promptIn} aria-hidden="true">In [{formatCount(props.count)}]:</div>
+);
+
+/** `Out[n]:` prompt beside an execute_result output; blank gutter otherwise (keeps grid alignment). */
+const OutPrompt: Component<{ outputType: string; count: number | null | undefined }> = (props) => (
+  <div class={styles.promptOut} aria-hidden="true">
+    <Show when={props.outputType === 'execute_result'}>Out[{formatCount(props.count)}]:</Show>
+  </div>
 );
 
 /** Renders one cell output by mime type. Image/HTML/markdown/text/error. */
@@ -33,7 +41,7 @@ const CellOutput: Component<{ output: NotebookOutput }> = (props) => {
         <HtmlOutput html={out().html!} />
       </Show>
       <Show when={out().markdown}>
-        <MarkdownContent content={out().markdown!} variant="document" class={styles.outputMarkdown} />
+        <MarkdownContent content={out().markdown!} variant="document" class={styles.outputMarkdown} math />
       </Show>
       <Show when={out().text && !out().html && !out().markdown && !out().image}>
         <pre class={styles.outputText}><code>{out().text}</code></pre>
@@ -68,22 +76,27 @@ const Cell: Component<{ cell: NotebookCell }> = (props) => {
     <Show when={cell().cell_type === 'markdown' || cell().cell_type === 'code' || cell().cell_type === 'raw'}>
       <article class={styles.cell} data-cell-type={cell().cell_type}>
         <Show when={cell().cell_type === 'markdown'}>
-          <MarkdownContent content={cell().source} variant="document" />
+          {/* Blank prompt gutter so markdown body aligns with the code column (Jupyter-classic). */}
+          <div class={styles.mdRow}>
+            <div class={styles.promptSpacer} aria-hidden="true" />
+            <MarkdownContent content={cell().source} variant="document" class={styles.mdBody} math />
+          </div>
         </Show>
         <Show when={cell().cell_type === 'code'}>
-          <div class={styles.codeCell}>
+          <div class={styles.codeRow}>
+            <InPrompt count={cell().execution_count} />
             <div class={styles.codeSource}>
               <CodeBlock content={cell().source} language="python" />
             </div>
-            <Show when={cell().outputs?.length}>
-              <div class={styles.outputs}>
-                <For each={cell().outputs}>{(output) => <CellOutput output={output} />}</For>
+          </div>
+          <Show when={cell().outputs?.length}>
+            <For each={cell().outputs}>{(output) => (
+              <div class={styles.outputRow}>
+                <OutPrompt outputType={output.output_type} count={cell().execution_count} />
+                <div class={styles.outputCell}><CellOutput output={output} /></div>
               </div>
-            </Show>
-          </div>
-          <div class={styles.cellFooter}>
-            <ExecutionCount count={cell().execution_count} />
-          </div>
+            )}</For>
+          </Show>
         </Show>
         <Show when={cell().cell_type === 'raw'}>
           <pre class={styles.rawCell}><code>{cell().source}</code></pre>
