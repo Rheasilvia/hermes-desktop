@@ -189,6 +189,8 @@ mathMarked.use(mathExtension);
 
 // ── Code Highlighting (Shiki) ────────────────────────────────────────────
 
+export type CodeHighlightTheme = 'dark-plus' | 'github-light' | 'github-dark';
+
 const SHIKI_LANGS = [
   'javascript', 'typescript', 'python', 'bash', 'json', 'sql',
   'css', 'html', 'markdown', 'rust', 'go', 'java', 'yaml',
@@ -213,7 +215,7 @@ let highlighterPromise: Promise<Highlighter> | null = null;
 function getHighlighter(): Promise<Highlighter> {
   if (!highlighterPromise) {
     highlighterPromise = createHighlighter({
-      themes: ['dark-plus'],
+      themes: ['dark-plus', 'github-light', 'github-dark'],
       langs: SHIKI_LANGS,
       engine: createJavaScriptRegexEngine(),
     });
@@ -227,7 +229,16 @@ function extractCodeInner(shikiHtml: string): string {
   return m ? m[1] : escapeHtml('');
 }
 
-export async function highlightCode(code: string, language: string | null): Promise<string> {
+export function codeHighlightThemeForUiTheme(theme: string | null | undefined): CodeHighlightTheme {
+  if (!theme || theme === 'light') return 'github-light';
+  return 'github-dark';
+}
+
+export async function highlightCode(
+  code: string,
+  language: string | null,
+  theme: CodeHighlightTheme = 'dark-plus',
+): Promise<string> {
   if (!language || !code.trim()) {
     return escapeHtml(code);
   }
@@ -240,7 +251,7 @@ export async function highlightCode(code: string, language: string | null): Prom
     if (!SHIKI_LANGS.includes(lang) && !LANG_ALIASES[lang]) {
       return escapeHtml(code);
     }
-    const result = h.codeToHtml(code, { lang, theme: 'dark-plus' });
+    const result = h.codeToHtml(code, { lang, theme });
     return extractCodeInner(result);
   } catch {
     return escapeHtml(code);
@@ -252,7 +263,10 @@ export async function highlightCode(code: string, language: string | null): Prom
  * `<pre><code class="language-xxx">` with the syntax-highlighted version. Each
  * code block is processed independently; one failure does not affect others.
  */
-export async function highlightCodeBlocksIn(root: HTMLElement): Promise<void> {
+export async function highlightCodeBlocksIn(
+  root: HTMLElement,
+  theme: CodeHighlightTheme = 'dark-plus',
+): Promise<void> {
   const blocks = root.querySelectorAll<HTMLElement>(
     'pre > code[class*="language-"]',
   );
@@ -265,7 +279,7 @@ export async function highlightCodeBlocksIn(root: HTMLElement): Promise<void> {
     const text = code.textContent ?? '';
     if (!text) continue;
     try {
-      const html = await highlightCode(text, lang);
+      const html = await highlightCode(text, lang, theme);
       code.innerHTML = html;
     } catch {
       // Leave the original (already escaped by marked) content in place.
@@ -284,7 +298,7 @@ export function escapeHtml(text: string): string {
 // ── Filename → language inference ────────────────────────────────────────
 
 /** Filename extension → highlight language map. Single source of truth shared
- *  by FileContentView, WorkspaceFilePreview, and any future caller. */
+ *  by FileContentView, WorkspaceFilePreviewPane, and any future caller. */
 export const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript', tsx: 'typescript',
   js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',

@@ -82,4 +82,41 @@ describe('previewStore', () => {
 
     expect(previewStore.get('sess_1')).toBeNull();
   });
+
+  // Plan-specific coverage carried over from upstream's plan-only preview store.
+  it('keeps one independent active plan preview per session', () => {
+    previewStore.registerPlan('sess_1', {
+      blockId: 'plan-block-1',
+      label: 'Plan A',
+      messageId: 42,
+    });
+    previewStore.registerPlan('sess_2', {
+      blockId: 'plan-block-2',
+      label: 'Plan B',
+    });
+
+    expect(previewStore.get('sess_1')?.normalized).toMatchObject({
+      kind: 'plan',
+      label: 'Plan A',
+      sessionId: 'sess_1',
+      blockId: 'plan-block-1',
+      messageId: '42',
+    });
+    expect(previewStore.get('sess_2')?.normalized).toMatchObject({
+      kind: 'plan',
+      label: 'Plan B',
+      sessionId: 'sess_2',
+      blockId: 'plan-block-2',
+    });
+  });
+
+  it('dismisses only the requested session plan preview', () => {
+    previewStore.registerPlan('sess_1', { blockId: 'plan-block-1' });
+    previewStore.registerPlan('sess_2', { blockId: 'plan-block-2' });
+
+    previewStore.dismiss('sess_1');
+
+    expect(previewStore.get('sess_1')).toBeNull();
+    expect(previewStore.get('sess_2')).not.toBeNull();
+  });
 });

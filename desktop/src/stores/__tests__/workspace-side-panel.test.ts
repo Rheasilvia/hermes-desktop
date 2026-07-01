@@ -119,21 +119,6 @@ describe('sidePanelStore', () => {
     expect(sidePanelStore.activeTabId()).toBe('tool-files');
   });
 
-  it('opens preview as a singleton placeholder tab without changing terminal behavior', async () => {
-    vi.resetModules();
-    const { sidePanelStore } = await import('../side-panel.js');
-
-    const terminal = sidePanelStore.openTab('terminal', { cwd: '/repo/PreDoc' });
-    sidePanelStore.openTab('preview');
-    sidePanelStore.openTab('preview');
-
-    expect(sidePanelStore.openTabs().map((tab) => tab.kind)).toEqual(['terminal', 'preview']);
-    expect(sidePanelStore.openTabs().map((tab) => tab.title)).toEqual(['PreDoc', 'Preview']);
-    expect(sidePanelStore.activeView()).toBe('preview');
-    sidePanelStore.setActiveTab(terminal.id);
-    expect(sidePanelStore.activeView()).toBe('terminal');
-  });
-
   it('renames tabs with non-empty titles only', async () => {
     vi.resetModules();
     const { sidePanelStore } = await import('../side-panel.js');

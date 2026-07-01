@@ -78,7 +78,7 @@ const PreviewPlaceholder: Component<{ sessionId: string | null }> = (props) => {
               <Icon name="eye" size={24} />
             </span>
             <div class={styles.emptyTitle}>No preview selected</div>
-            <div class={styles.emptyDescription}>Preview targets will open here in a future update.</div>
+            <div class={styles.emptyDescription}>Plan previews open here from assistant plan cards.</div>
           </div>
         }
       >

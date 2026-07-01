@@ -54,6 +54,10 @@ export function makeSlashGateway(http: HttpClient): GatewayAdapter['slash'] {
       mapCommandResult(
         await http.post<Record<string, unknown>>(`${API_PREFIX}/commands/slash/exec`, params),
       ),
+    resolvePrompt: async (params): Promise<CommandResult> =>
+      mapCommandResult(
+        await http.post<Record<string, unknown>>(`${API_PREFIX}/commands/slash/resolve-prompt`, params),
+      ),
   };
 }
 

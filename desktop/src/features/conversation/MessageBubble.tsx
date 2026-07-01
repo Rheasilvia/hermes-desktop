@@ -14,14 +14,24 @@ interface MessageBubbleProps {
   message: RenderedMessage;
   showDateSeparator?: boolean;
   dateSeparatorLabel?: string;
+  turnBoundary?: boolean;
   onAction?: (action: MessageActionType) => void;
   /** Passed to AssistantMessage to control retry button visibility. */
   isLast?: boolean;
   /** Passed to AssistantMessage to disable action buttons while streaming. */
   actionsDisabled?: boolean;
+  isEditing?: boolean;
+  editDraft?: string;
+  editPending?: boolean;
+  editError?: string | null;
+  editDisabledReason?: string | null;
+  onEditDraftChange?: (value: string) => void;
+  onEditCancel?: () => void;
+  onEditConfirm?: () => void;
   onOpenPlanPreview?: (block: PlanBlock, messageId?: string | number) => void;
   onExecutePlan?: (block: PlanBlock, messageId?: string | number) => void;
   onRejectPlan?: (block: PlanBlock, messageId?: string | number) => void;
+  actionablePlanBlockId?: string | null;
   planDecisionPending?: boolean;
 }
 
@@ -53,7 +63,10 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
   const userAttachments = () => (props.message.attachments ?? []) as Array<Record<string, unknown>>;
 
   return (
-    <div class={styles.wrapper}>
+    <div
+      class={styles.wrapper}
+      classList={{ [styles.wrapperTurnBoundary]: !!props.turnBoundary }}
+    >
       <Show when={props.showDateSeparator && props.dateSeparatorLabel}>
         <DateSeparator label={props.dateSeparatorLabel!} />
       </Show>
@@ -70,6 +83,14 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
           deliveryStatus={props.message.deliveryStatus}
           failedReason={props.message.failedReason}
           onAction={props.onAction}
+          isEditing={props.isEditing}
+          editDraft={props.editDraft}
+          editPending={props.editPending}
+          editError={props.editError}
+          editDisabledReason={props.editDisabledReason}
+          onEditDraftChange={props.onEditDraftChange}
+          onEditCancel={props.onEditCancel}
+          onEditConfirm={props.onEditConfirm}
         />
       </Show>
       <Show when={role() === 'assistant' && hasRenderableAssistantBlocks(props.message)}>
@@ -85,6 +106,7 @@ export const MessageBubble: Component<MessageBubbleProps> = (props) => {
           onOpenPlanPreview={props.onOpenPlanPreview}
           onExecutePlan={props.onExecutePlan}
           onRejectPlan={props.onRejectPlan}
+          actionablePlanBlockId={props.actionablePlanBlockId}
           planDecisionPending={props.planDecisionPending}
         />
       </Show>

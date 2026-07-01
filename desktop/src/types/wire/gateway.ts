@@ -9,7 +9,7 @@ export type {
   UserInputOptionPayload, UserInputQuestionPayload, UserInputAnswersPayload,
   UserInputRequestPayload, UserInputResponsePayload,
   SudoRequestPayload, SecretRequestPayload, BackgroundCompletePayload, BtwCompletePayload,
-  ErrorPayload, TurnInterruptedPayload, GatewayStderrPayload, ProtocolErrorPayload,
+  ErrorPayload, TurnInterruptedPayload, SessionRewindPayload, GatewayStderrPayload, ProtocolErrorPayload,
   SessionTitleUpdatePayload, ModelChangedPayload, TodoItem,
   SubagentStartPayload, SubagentProgressPayload, SubagentCompletePayload,
   SubagentToolPayload, SubagentErrorPayload, SubagentRecord,

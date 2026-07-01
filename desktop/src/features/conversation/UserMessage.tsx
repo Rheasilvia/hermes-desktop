@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { For, Show, createSignal } from 'solid-js';
+import { For, Show, createEffect, createSignal } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { MessageActionBar, type MessageActionType } from './MessageActionBar.js';
 import { fileRefLabel, type UserDisplayPart, type UserFileRefDisplayPart } from './display-parts.js';
@@ -21,6 +21,14 @@ interface UserMessageProps {
   deliveryStatus?: 'failed';
   failedReason?: string;
   onAction?: (action: MessageActionType) => void;
+  isEditing?: boolean;
+  editDraft?: string;
+  editPending?: boolean;
+  editError?: string | null;
+  editDisabledReason?: string | null;
+  onEditDraftChange?: (value: string) => void;
+  onEditCancel?: () => void;
+  onEditConfirm?: () => void;
 }
 
 function formatTimestamp(ts: number): string {
@@ -33,6 +41,7 @@ function formatTimestamp(ts: number): string {
 
 export const UserMessage: Component<UserMessageProps> = (props) => {
   const [showActions, setShowActions] = createSignal(false);
+  let editTextareaRef: HTMLTextAreaElement | undefined;
   // Display parts that contribute to the text bubble (file_ref chips + text).
   // Image parts render in the gallery above, NOT in the bubble.
   const bubbleParts = () =>
@@ -51,6 +60,23 @@ export const UserMessage: Component<UserMessageProps> = (props) => {
         return isImage && path ? { path, name } : null;
       })
       .filter((x): x is { path: string; name: string } => x !== null);
+  const editConfirmDisabled = () =>
+    !!props.editPending || !!props.editDisabledReason || !(props.editDraft ?? '').trim();
+
+  createEffect(() => {
+    if (!props.isEditing) return;
+    queueMicrotask(() => {
+      editTextareaRef?.focus();
+      editTextareaRef?.setSelectionRange(editTextareaRef.value.length, editTextareaRef.value.length);
+    });
+  });
+
+  const handleEditKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      props.onEditCancel?.();
+    }
+  };
 
   return (
     <div
@@ -66,36 +92,78 @@ export const UserMessage: Component<UserMessageProps> = (props) => {
             </For>
           </div>
         </Show>
-        <div class={styles.bubble} classList={{ [styles.commandBubble]: !!props.slashCommand, [styles.inlinePartsBubble]: bubbleParts().length > 0 }}>
-          <Show
-            when={bubbleParts().length}
-            fallback={
-              <Show when={props.slashCommand} fallback={props.content}>
-                <span class={styles.commandLabel}>
-                  <Icon name="zap" size={12} />
-                  <span class={styles.commandName}>/{props.slashCommand!.command}</span>
-                </span>
-                <Show when={props.slashCommand!.args}>
-                  <span class={styles.commandArgs}>{props.slashCommand!.args}</span>
-                </Show>
+        <Show
+          when={props.isEditing}
+          fallback={
+            <div class={styles.bubble} classList={{ [styles.commandBubble]: !!props.slashCommand, [styles.inlinePartsBubble]: bubbleParts().length > 0 }}>
+              <Show
+                when={bubbleParts().length}
+                fallback={
+                  <Show when={props.slashCommand} fallback={props.content}>
+                    <span class={styles.commandLabel}>
+                      <Icon name="zap" size={12} />
+                      <span class={styles.commandName}>/{props.slashCommand!.command}</span>
+                    </span>
+                    <Show when={props.slashCommand!.args}>
+                      <span class={styles.commandArgs}>{props.slashCommand!.args}</span>
+                    </Show>
+                  </Show>
+                }
+              >
+                <For each={bubbleParts()}>
+                  {(part) => (
+                    <Show
+                      when={part.type === 'file_ref'}
+                      fallback={<span class={styles.inlineText}>{part.type === 'text' ? part.text : ''}</span>}
+                    >
+                      <span class={styles.inlineFileChip} title={(part as UserFileRefDisplayPart).refText}>
+                        <Icon name="file-code" size={12} />
+                        <span>{fileRefLabel(part as UserFileRefDisplayPart)}</span>
+                      </span>
+                    </Show>
+                  )}
+                </For>
               </Show>
-            }
-          >
-            <For each={bubbleParts()}>
-              {(part) => (
-                <Show
-                  when={part.type === 'file_ref'}
-                  fallback={<span class={styles.inlineText}>{part.type === 'text' ? part.text : ''}</span>}
-                >
-                  <span class={styles.inlineFileChip} title={(part as UserFileRefDisplayPart).refText}>
-                    <Icon name="file-code" size={12} />
-                    <span>{fileRefLabel(part as UserFileRefDisplayPart)}</span>
-                  </span>
-                </Show>
-              )}
-            </For>
-          </Show>
-        </div>
+            </div>
+          }
+        >
+          <div class={styles.editCard}>
+            <textarea
+              ref={editTextareaRef}
+              class={styles.editTextarea}
+              value={props.editDraft ?? ''}
+              aria-label="Edit user message"
+              disabled={!!props.editPending}
+              onInput={(event) => props.onEditDraftChange?.(event.currentTarget.value)}
+              onKeyDown={handleEditKeyDown}
+            />
+            <Show when={props.editError || props.editDisabledReason}>
+              <div class={styles.editError} role="alert">
+                {props.editError || props.editDisabledReason}
+              </div>
+            </Show>
+            <div class={styles.editActions}>
+              <button
+                type="button"
+                class={styles.editButton}
+                disabled={!!props.editPending}
+                onClick={() => props.onEditCancel?.()}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class={`${styles.editButton} ${styles.editPrimaryButton}`}
+                disabled={editConfirmDisabled()}
+                title={props.editDisabledReason ?? undefined}
+                onClick={() => props.onEditConfirm?.()}
+              >
+                <Icon name="refresh-cw" size={13} />
+                <span>{props.editPending ? 'Restoring...' : 'Restore & rerun'}</span>
+              </button>
+            </div>
+          </div>
+        </Show>
         <Show when={props.timestamp}>
           <span class={styles.timestamp}>{formatTimestamp(props.timestamp!)}</span>
         </Show>
@@ -115,7 +183,7 @@ export const UserMessage: Component<UserMessageProps> = (props) => {
             </Show>
           </div>
         </Show>
-        <Show when={showActions() && props.onAction}>
+        <Show when={!props.isEditing && showActions() && props.onAction}>
           <MessageActionBar variant="user" onAction={props.onAction!} />
         </Show>
       </div>

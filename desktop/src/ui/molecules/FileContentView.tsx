@@ -1,6 +1,6 @@
 /**
- * Presentational file-content viewer used by both the workspace preview modal
- * and the memory editor. Caller owns data fetching and passes the resolved
+ * Presentational file-content viewer used by workspace file previews and the
+ * memory editor. Caller owns data fetching and passes the resolved
  * content; this component only decides how to render it.
  *
  * - Markdown files render as parsed HTML by default. With `showSourceToggle`
@@ -11,11 +11,13 @@
  */
 import type { Component } from 'solid-js';
 import { Show, createEffect, createMemo, createResource, createSignal } from 'solid-js';
+import { uiStore } from '@/stores/ui.js';
 import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner.js';
 import { EmptyState } from './EmptyState.js';
 import { SegmentedControl } from './SegmentedControl.js';
 import type { Segment } from './SegmentedControl.js';
 import {
+  codeHighlightThemeForUiTheme,
   escapeHtml,
   highlightCode,
   highlightCodeBlocksIn,
@@ -39,6 +41,8 @@ export interface FileContentViewProps {
   showSourceToggle?: boolean;
   /** Initial mode for the inner toggle. Default 'preview'. */
   initialMode?: 'preview' | 'source';
+  /** Visual density. `dock` is for constrained tool panes. Default 'document'. */
+  variant?: 'document' | 'dock';
 }
 
 const HIGHLIGHT_CHAR_LIMIT = 50_000;
@@ -50,6 +54,11 @@ const TOGGLE_SEGMENTS: Segment<ViewMode>[] = [
   { id: 'source', label: 'Source' },
 ];
 
+function lineNumbersFor(content: string): string {
+  const count = content.split(/\r\n|\r|\n/).length;
+  return Array.from({ length: Math.max(1, count) }, (_, index) => String(index + 1)).join('\n');
+}
+
 export const FileContentView: Component<FileContentViewProps> = (props) => {
   const [mode, setMode] = createSignal<ViewMode>(props.initialMode ?? 'preview');
 
@@ -58,6 +67,7 @@ export const FileContentView: Component<FileContentViewProps> = (props) => {
     if (props.filename) return langFromName(props.filename);
     return null;
   });
+  const codeTheme = createMemo(() => codeHighlightThemeForUiTheme(uiStore.theme));
 
   const isMarkdown = () => inferredLang() === 'markdown';
   const showToggle = () =>
@@ -75,12 +85,12 @@ export const FileContentView: Component<FileContentViewProps> = (props) => {
       // Highlight when: non-markdown known lang, OR markdown with source mode.
       if (isMarkdown() && !showAsSource) return null;
       if (!isMarkdown() && !lang) return null;
-      return { content: props.content, lang };
+      return { content: props.content, lang, theme: codeTheme() };
     },
     async (params) => {
       if (!params) return null;
       if (params.content.length > HIGHLIGHT_CHAR_LIMIT) return null;
-      return highlightCode(params.content, params.lang);
+      return highlightCode(params.content, params.lang, params.theme);
     },
   );
 
@@ -88,6 +98,7 @@ export const FileContentView: Component<FileContentViewProps> = (props) => {
     if (!isMarkdown() || mode() !== 'preview' || !props.content) return '';
     return parseMarkdown(props.content);
   });
+  const sourceLineNumbers = createMemo(() => lineNumbersFor(props.content ?? ''));
 
   let markdownEl: HTMLDivElement | undefined;
   createEffect(() => {
@@ -95,12 +106,13 @@ export const FileContentView: Component<FileContentViewProps> = (props) => {
     // HTML changes (file switch, edit-then-read). Solid sets innerHTML before
     // effects run, so by this point the DOM contains the new <pre><code> nodes.
     const html = markdownHtml();
+    const theme = codeTheme();
     if (!html || !markdownEl) return;
-    void highlightCodeBlocksIn(markdownEl);
+    void highlightCodeBlocksIn(markdownEl, theme);
   });
 
   return (
-    <div class={styles.root}>
+    <div class={styles.root} classList={{ [styles.rootDock]: props.variant === 'dock' }}>
       <Show when={props.binary}>
         <div class={styles.binaryMsg}>Binary file — cannot preview.</div>
       </Show>
@@ -135,20 +147,23 @@ export const FileContentView: Component<FileContentViewProps> = (props) => {
         <Show
           when={isMarkdown() && mode() === 'preview'}
           fallback={
-            <pre class={styles.pre}>
-              <Show
-                when={highlighted.loading}
-                fallback={
-                  <code
-                    innerHTML={highlighted() ?? escapeHtml(props.content ?? '')}
-                  />
-                }
-              >
-                <span class={styles.center}>
-                  <LoadingSpinner size="sm" />
-                </span>
-              </Show>
-            </pre>
+            <div class={styles.sourceFrame} role="region" aria-label="Source code">
+              <pre class={styles.lineNumbers} aria-hidden="true">{sourceLineNumbers()}</pre>
+              <pre class={styles.pre}>
+                <Show
+                  when={highlighted.loading}
+                  fallback={
+                    <code
+                      innerHTML={highlighted() ?? escapeHtml(props.content ?? '')}
+                    />
+                  }
+                >
+                  <span class={styles.inlineLoading}>
+                    <LoadingSpinner size="sm" />
+                  </span>
+                </Show>
+              </pre>
+            </div>
           }
         >
           <Show

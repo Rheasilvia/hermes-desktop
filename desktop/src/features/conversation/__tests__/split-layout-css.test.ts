@@ -87,10 +87,13 @@ describe('conversation split layout CSS', () => {
     const promptDockCss = readConversationCss('turn/PromptDock.module.css');
     const recoveryCss = readConversationCss('ConversationRecoveryBanner.module.css');
     const promptDockRule = ruleBody(promptDockCss, '.dock');
+    const promptDockCompactRule = ruleBody(promptDockCss, '.itemCompactCenter');
     const recoveryBannerRule = ruleBody(recoveryCss, '.banner');
 
     expect(promptDockRule).toContain('padding: 4px 0');
     expect(promptDockRule).not.toContain('padding: 4px 32px');
+    expect(promptDockCompactRule).toContain('max-width: min(22rem, calc(100% - 3.5rem))');
+    expect(promptDockCompactRule).toContain('align-self: center');
     expect(recoveryBannerRule).toContain('margin: 0 0 var(--space-2)');
     expect(recoveryBannerRule).not.toContain('margin: 0 var(--space-6) var(--space-2)');
   });
@@ -103,6 +106,20 @@ describe('conversation split layout CSS', () => {
     expect(contentRule).toContain('max-width: 100%');
     expect(contentRule).toContain('min-width: 0');
     expect(contentRule).not.toContain('max-width: 85%');
+  });
+
+  it('uses a subtle tokenized boundary before a new user turn', () => {
+    const css = readConversationCss('MessageBubble.module.css');
+    const boundaryRule = ruleBody(css, '.wrapperTurnBoundary');
+    const boundaryDividerRule = ruleBody(css, '.wrapperTurnBoundary::before');
+
+    expect(boundaryRule).toContain('margin-top: var(--space-3)');
+    expect(boundaryRule).toContain('padding-top: var(--space-3)');
+    expect(boundaryRule).toContain('position: relative');
+    expect(boundaryDividerRule).toContain("content: ''");
+    expect(boundaryDividerRule).toContain('background: linear-gradient');
+    expect(boundaryDividerRule).toContain('color-mix(in srgb, var(--color-border)');
+    expect(boundaryDividerRule).not.toContain('#');
   });
 
   it('uses fixed icon-first controls for the compact model selector', () => {

@@ -68,6 +68,18 @@ class SessionSteerResponse(BaseModel):
     text: str
 
 
+class SessionRewindToTurnRequest(BaseModel):
+    turn_id: str
+
+
+class SessionRewindToTurnResponse(BaseModel):
+    rewoundCount: int
+    targetTurnId: str
+    targetUserSeq: int
+    newHeadSeq: Optional[int] = None
+    eventSeq: int
+
+
 class ImageAttachRequest(BaseModel):
     session_id: str
     path: str

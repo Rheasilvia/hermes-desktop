@@ -54,6 +54,90 @@
   color: var(--color-on-primary);
 }
 
+.editCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(520px, calc(100vw - 112px));
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, transparent);
+  border-radius: var(--radius-user-bubble);
+  background: color-mix(in srgb, var(--color-charcoal) 92%, var(--color-surface));
+  color: var(--color-cream);
+  box-shadow: var(--shadow-sm);
+}
+
+.editTextarea {
+  width: 100%;
+  min-height: 92px;
+  max-height: 220px;
+  resize: vertical;
+  border: 1px solid color-mix(in srgb, var(--color-cream) 18%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-charcoal) 86%, black);
+  color: var(--color-cream);
+  padding: 9px 10px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.editTextarea:focus {
+  border-color: color-mix(in srgb, var(--color-primary) 72%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 24%, transparent);
+}
+
+.editError {
+  color: color-mix(in srgb, var(--color-error) 88%, var(--color-cream));
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.editButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-cream) 22%, transparent);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: color-mix(in srgb, var(--color-cream) 88%, transparent);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.editButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-cream) 10%, transparent);
+}
+
+.editButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.editPrimaryButton {
+  border-color: color-mix(in srgb, var(--color-primary) 62%, transparent);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.editPrimaryButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 88%, white);
+}
+
 .commandBubble {
   display: flex;
   flex-direction: column;

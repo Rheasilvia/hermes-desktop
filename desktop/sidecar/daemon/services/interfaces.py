@@ -54,6 +54,14 @@ class SessionStateStore(Protocol):
         """Return LLM-format conversation messages for the session."""
         ...
 
+    def get_messages(self, session_id: str, include_inactive: bool = False) -> list[dict]:
+        """Return stored message rows for the session."""
+        ...
+
+    def rewind_to_message(self, session_id: str, target_message_id: int) -> dict[str, Any]:
+        """Soft-delete active messages from the target user message onward."""
+        ...
+
 
 class DesktopMetaStore(Protocol):
     """Interface for session_desktop_meta operations in desktop.db.

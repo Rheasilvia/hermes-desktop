@@ -180,6 +180,11 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
   });
   const hasReview = () => props.reviewData != null;
   const hasFileRows = () => fileRows().length > 0;
+  // Whether the inline diff body (DiffContent) has a previous file's content to
+  // keep showing while the next one loads. The store leaves the prior diff on
+  // `diffData` during a cache-miss fetch, so this lets us hold the previous diff
+  // instead of flashing the white "Loading diff..." empty state.
+  const hasDiffContent = () => (props.data?.files?.length ?? 0) > 0;
   const activeIndex = () => {
     const count = fileRows().length;
     if (count === 0) return 0;
@@ -657,7 +662,7 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
                       )}
                     </Show>
                     <Show
-                      when={!props.loading}
+                      when={!props.loading || hasDiffContent()}
                       fallback={<div class={styles.diffEmptyState}>Loading diff...</div>}
                     >
                       <DiffContent

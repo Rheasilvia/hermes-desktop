@@ -34,7 +34,7 @@ interface StatusFilterOption {
 const FILE_NAV_ROW_HEIGHT = 32;
 const FILE_NAV_OVERSCAN_ROWS = 8;
 const DEFAULT_FILE_NAV_VIEWPORT_HEIGHT = 320;
-const TREE_INDENT_STEP_PX = 12;
+const TREE_INDENT_STEP_PX = 16;
 const TREE_INDENT_MAX_DEPTH = 4;
 
 const STATUS_FILTERS: StatusFilterOption[] = [
@@ -363,7 +363,10 @@ export const DiffFileNavigator: Component<DiffFileNavigatorProps> = (props) => {
                       aria-level={displayRow.depth + 1}
                       aria-label={displayRow.path}
                       class={styles.diffFileDirRow}
-                      classList={{ [styles.diffFileRowFocused]: focused() }}
+                      classList={{
+                        [styles.diffFileRowFocused]: focused(),
+                        [styles.diffFileTreeRowNested]: viewMode() === 'tree' && depth() > 0,
+                      }}
                       style={{
                         height: `${FILE_NAV_ROW_HEIGHT}px`,
                         transform: `translateY(${absoluteIndex() * FILE_NAV_ROW_HEIGHT}px)`,
@@ -396,6 +399,7 @@ export const DiffFileNavigator: Component<DiffFileNavigatorProps> = (props) => {
                     classList={{
                       [styles.diffFileRowSelected]: selected(),
                       [styles.diffFileRowFocused]: focused(),
+                      [styles.diffFileTreeRowNested]: viewMode() === 'tree' && depth() > 0,
                     }}
                     style={{
                       height: `${FILE_NAV_ROW_HEIGHT}px`,
@@ -410,8 +414,12 @@ export const DiffFileNavigator: Component<DiffFileNavigatorProps> = (props) => {
                   >
                     <div
                       class={styles.diffFileRowSelect}
+                      classList={{ [styles.diffFileRowSelectTree]: viewMode() === 'tree' }}
                       aria-hidden="true"
                     >
+                      <Show when={viewMode() === 'tree'}>
+                        <span class={styles.diffFileTreeFileSpacer} data-testid="diff-file-tree-spacer" />
+                      </Show>
                       <span class={`${styles.statusDot} ${STATUS_DOT_CLASS[row.status]}`} />
                       <span class={styles.diffFileRowText}>
                         <span class={styles.diffFileRowName}>{row.basename}</span>

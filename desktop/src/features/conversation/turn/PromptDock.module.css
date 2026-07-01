@@ -27,7 +27,14 @@
 }
 
 .item {
+  width: 100%;
   animation: dockIn 180ms ease-out;
+}
+
+.itemCompactCenter {
+  width: auto;
+  max-width: min(22rem, calc(100% - 3.5rem));
+  align-self: center;
 }
 
 @keyframes dockIn {

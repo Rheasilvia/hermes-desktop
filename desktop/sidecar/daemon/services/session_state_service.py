@@ -53,3 +53,9 @@ class SessionStateService:
 
     def get_messages_as_conversation(self, session_id: str) -> list[dict]:
         return self._db.get_messages_as_conversation(session_id)
+
+    def get_messages(self, session_id: str, include_inactive: bool = False) -> list[dict]:
+        return self._db.get_messages(session_id, include_inactive=include_inactive)
+
+    def rewind_to_message(self, session_id: str, target_message_id: int) -> dict[str, Any]:
+        return self._db.rewind_to_message(session_id, target_message_id)

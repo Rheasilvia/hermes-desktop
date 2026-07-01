@@ -57,4 +57,13 @@ describe('JumpToBottom', () => {
 
     expect(screen.queryByText('0 new')).toBeNull();
   });
+
+  test('applies dock-avoid placement when requested', () => {
+    const onClick = vi.fn();
+    render(() => (
+      <JumpToBottom avoidDock unreadCount={0} visible={true} onClick={onClick} />
+    ));
+
+    expect(screen.getByRole('button', { name: 'Jump to bottom' }).parentElement?.className).toContain('wrapperAvoidDock');
+  });
 });

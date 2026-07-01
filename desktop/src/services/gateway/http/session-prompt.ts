@@ -6,6 +6,7 @@ import type {
   SessionListItem,
   SessionMessage,
   SessionMeta,
+  SessionRewindResult,
   SessionRuntime,
   SessionRuntimeUpdateResult,
   SessionSteerResponse,
@@ -212,6 +213,19 @@ export function makeSessionGateway(deps: SessionGatewayDeps): GatewayAdapter['se
     undo: async (sessionId: string): Promise<{ removed: number }> => {
       const r = await http.post<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}/undo`, {});
       return { removed: Number(r.removed ?? 0) };
+    },
+
+    rewindToTurn: async (sessionId: string, turnId: string): Promise<SessionRewindResult> => {
+      const r = await http.post<Record<string, unknown>>(`${API_PREFIX}/sessions/${sessionId}/rewind-to-turn`, {
+        turn_id: turnId,
+      });
+      return {
+        rewoundCount: Number(r.rewoundCount ?? 0),
+        targetTurnId: String(r.targetTurnId ?? turnId),
+        targetUserSeq: Number(r.targetUserSeq ?? 0),
+        newHeadSeq: typeof r.newHeadSeq === 'number' ? r.newHeadSeq : null,
+        eventSeq: Number(r.eventSeq ?? 0),
+      };
     },
 
     messages: async (sessionId: string): Promise<SessionMessage[]> => {

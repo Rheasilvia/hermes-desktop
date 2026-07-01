@@ -6,6 +6,10 @@
   overflow: hidden;
 }
 
+.rootDock {
+  background: var(--color-surface);
+}
+
 .banner {
   padding: var(--space-2) var(--space-4);
   background: var(--color-callout-bg);
@@ -49,6 +53,12 @@
   color: var(--color-on-surface);
 }
 
+.rootDock .markdown {
+  padding: var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
 /* Headings ─ document scale, larger than chat */
 .markdown h1,
 .markdown h2,
@@ -62,11 +72,38 @@
   color: var(--color-on-surface);
 }
 
+.rootDock .markdown h1,
+.rootDock .markdown h2,
+.rootDock .markdown h3,
+.rootDock .markdown h4,
+.rootDock .markdown h5,
+.rootDock .markdown h6 {
+  font-family: var(--font-sans);
+}
+
 .markdown h1 {
   font-size: var(--text-2xl);
   margin: var(--space-6) 0 var(--space-3);
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--color-border);
+}
+
+.rootDock .markdown h1 {
+  font-size: var(--text-lg);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.rootDock .markdown h2 {
+  font-size: var(--text-base);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.rootDock .markdown h3,
+.rootDock .markdown h4,
+.rootDock .markdown h5,
+.rootDock .markdown h6 {
+  font-size: var(--text-sm);
+  margin: var(--space-3) 0 var(--space-1);
 }
 .markdown h1:first-child {
   margin-top: 0;
@@ -149,17 +186,19 @@
 .markdown code {
   font-family: var(--font-mono);
   font-size: 0.9em;
-  background-color: var(--color-active-overlay);
+  color: var(--color-code-preview-fg);
+  background-color: var(--color-code-preview-inline-bg);
   padding: 1px 5px;
   border-radius: var(--radius-sm);
 }
 
 /* Code blocks */
 .markdown pre {
-  background-color: var(--color-code-block-bg);
-  color: var(--color-cream);
+  background-color: var(--color-code-preview-bg);
+  color: var(--color-code-preview-fg);
   padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--color-code-preview-border);
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   margin: var(--space-3) 0;
   font-family: var(--font-mono);
@@ -307,20 +346,93 @@
 
 /* ── Source-mode pre ───────────────────────────────────────────────────── */
 
-.pre {
+.sourceFrame {
   flex: 1;
-  margin: 0;
-  padding: var(--space-4);
+  display: grid;
+  grid-template-columns: minmax(44px, max-content) minmax(0, 1fr);
+  min-height: 0;
   overflow: auto;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: 1.6;
-  color: var(--color-on-surface);
+  color: var(--color-code-preview-fg);
+  background: var(--color-code-preview-bg);
+  border: 1px solid var(--color-code-preview-border);
+  border-radius: var(--radius-sm);
+}
+
+.rootDock .sourceFrame {
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  border: 0;
+  border-radius: 0;
+}
+
+.lineNumbers,
+.pre {
+  margin: 0;
+  padding: var(--space-4) 0;
+  font: inherit;
+  line-height: inherit;
   background: transparent;
+}
+
+.rootDock .lineNumbers,
+.rootDock .pre {
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-3);
+}
+
+.lineNumbers {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-height: 100%;
+  padding-right: var(--space-2);
+  padding-left: var(--space-3);
+  border-right: 1px solid var(--color-code-preview-border);
+  background: var(--color-code-preview-bg);
+  color: var(--color-on-surface-dim);
+  text-align: right;
+  user-select: none;
+  white-space: pre;
+}
+
+.pre {
+  min-width: max-content;
+  padding-right: var(--space-4);
+  padding-left: var(--space-4);
+  color: inherit;
 }
 
 .pre code {
   font-family: inherit;
   font-size: inherit;
   white-space: pre;
+}
+
+.inlineLoading {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) 0;
+}
+
+.sourceFrame::selection,
+.pre code::selection,
+.markdown pre::selection,
+.markdown pre code::selection {
+  background: var(--color-primary-strong);
+}
+
+.sourceFrame::-webkit-scrollbar,
+.markdown pre::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.sourceFrame::-webkit-scrollbar-thumb,
+.markdown pre::-webkit-scrollbar-thumb {
+  background: var(--color-code-preview-border);
+  border: 3px solid var(--color-code-preview-bg);
+  border-radius: var(--radius-pill);
 }

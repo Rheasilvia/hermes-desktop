@@ -50,6 +50,51 @@ def test_turn_projection_materializes_completed_turn(tmp_path):
     assert turns[0]["assistant_blocks"][2]["content"] == "core is in app.py"
 
 
+def test_turn_projection_applies_session_rewind(tmp_path):
+    from daemon.db.conversation_turns import list_turns
+
+    home = tmp_path / ".hermes"
+    sid = "sess-rewind"
+
+    append(home, sid, "user", {"text": "first"}, turn_id="turn_1")
+    append(home, sid, "message.complete", {"text": "first answer"}, turn_id="turn_1")
+    target_seq = append(home, sid, "user", {"text": "second"}, turn_id="turn_2")
+    append(home, sid, "message.complete", {"text": "second answer"}, turn_id="turn_2")
+    append(
+        home,
+        sid,
+        "session.rewind",
+        {"target_turn_id": "turn_2", "target_user_seq": target_seq},
+    )
+
+    active_turns = list_turns(home, sid)
+    all_turns = list_turns(home, sid, include_inactive=True)
+
+    assert [turn["turn_id"] for turn in active_turns] == ["turn_1"]
+    assert [turn["turn_id"] for turn in all_turns] == ["turn_1", "turn_2"]
+    assert all_turns[1]["active"] == 0
+
+
+def test_turn_projection_records_core_user_message_id(tmp_path):
+    from daemon.db.conversation_turns import list_turns
+
+    home = tmp_path / ".hermes"
+    sid = "sess-core-map"
+
+    append(home, sid, "user", {"text": "hello"}, turn_id="turn_1")
+    append(
+        home,
+        sid,
+        "turn.core_user_message",
+        {"core_user_message_id": 42},
+        turn_id="turn_1",
+    )
+
+    turns = list_turns(home, sid)
+
+    assert turns[0]["core_user_message_id"] == 42
+
+
 def test_turn_projection_persists_user_display_parts(tmp_path):
     from daemon.db.conversation_turns import list_turns
     from daemon.services.session_service import SessionService

@@ -722,6 +722,161 @@ class TestMessagesReplay:
         assert data["live_turn"]["reasoning"] == "thinking"
         assert [block["type"] for block in data["live_turn"]["blocks"]] == ["reasoning", "text"]
 
+    def test_rewind_to_turn_hides_target_and_later_turns(self, client):
+        from daemon.db.ui_messages import append, list_messages
+
+        r = client.post("/desktop/api/sessions", json={})
+        sid = r.json()["session_id"]
+        home = client.app.state.cfg.hermes_home
+        state_db = client.app.state.session_db
+
+        state_db.append_message(sid, "user", "repeat")
+        state_db.append_message(sid, "assistant", "first answer")
+        state_db.append_message(sid, "user", "repeat")
+        state_db.append_message(sid, "assistant", "second answer")
+
+        append(home, sid, "user", {"text": "repeat"}, turn_id="turn_1")
+        append(home, sid, "message.complete", {"text": "first answer"}, turn_id="turn_1")
+        append(home, sid, "user", {"text": "repeat"}, turn_id="turn_2")
+        append(home, sid, "message.complete", {"text": "second answer"}, turn_id="turn_2")
+
+        resp = client.post(
+            f"/desktop/api/sessions/{sid}/rewind-to-turn",
+            json={"turn_id": "turn_2"},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["rewoundCount"] == 2
+        assert body["targetTurnId"] == "turn_2"
+        assert body["targetUserSeq"] == 3
+        assert body["newHeadSeq"] == 2
+        assert body["eventSeq"] == 5
+
+        transcript = client.get(f"/desktop/api/sessions/{sid}/transcript").json()
+        assert [m["content"] for m in transcript["messages"]] == ["repeat", "first answer"]
+        assert transcript["max_seq"] == 5
+
+        active = state_db.get_messages_as_conversation(sid)
+        assert [m["content"] for m in active] == ["repeat", "first answer"]
+
+        rows = list_messages(home, sid)
+        assert rows[-1]["seq"] == 5
+        assert rows[-1]["type"] == "session.rewind"
+
+    def test_rewind_to_turn_fallback_skips_ui_only_interrupted_turns(self, client):
+        from daemon.db.ui_messages import append
+
+        r = client.post("/desktop/api/sessions", json={})
+        sid = r.json()["session_id"]
+        home = client.app.state.cfg.hermes_home
+        state_db = client.app.state.session_db
+
+        state_db.append_message(sid, "user", "first")
+        state_db.append_message(sid, "assistant", "first answer")
+        state_db.append_message(sid, "user", "second")
+        state_db.append_message(sid, "assistant", "second answer")
+
+        append(home, sid, "user", {"text": "first"}, turn_id="turn_1")
+        append(home, sid, "message.complete", {"text": "first answer"}, turn_id="turn_1")
+        append(home, sid, "user", {"text": "cancelled"}, turn_id="turn_cancelled")
+        append(home, sid, "turn.interrupted", {"reason": "user_interrupt"}, turn_id="turn_cancelled")
+        append(home, sid, "user", {"text": "second"}, turn_id="turn_2")
+        append(home, sid, "message.complete", {"text": "second answer"}, turn_id="turn_2")
+
+        resp = client.post(
+            f"/desktop/api/sessions/{sid}/rewind-to-turn",
+            json={"turn_id": "turn_2"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["targetUserSeq"] == 5
+        assert resp.json()["newHeadSeq"] == 4
+        active = state_db.get_messages_as_conversation(sid)
+        assert [m["content"] for m in active] == ["first", "first answer"]
+
+    def test_rewind_to_ui_only_interrupted_turn_uses_next_core_backed_turn(self, client):
+        from daemon.db.ui_messages import append
+
+        r = client.post("/desktop/api/sessions", json={})
+        sid = r.json()["session_id"]
+        home = client.app.state.cfg.hermes_home
+        state_db = client.app.state.session_db
+
+        state_db.append_message(sid, "user", "first")
+        state_db.append_message(sid, "assistant", "first answer")
+        state_db.append_message(sid, "user", "second")
+        state_db.append_message(sid, "assistant", "second answer")
+
+        append(home, sid, "user", {"text": "first"}, turn_id="turn_1")
+        append(home, sid, "message.complete", {"text": "first answer"}, turn_id="turn_1")
+        append(home, sid, "user", {"text": "cancelled"}, turn_id="turn_cancelled")
+        append(home, sid, "turn.interrupted", {"reason": "user_interrupt"}, turn_id="turn_cancelled")
+        append(home, sid, "user", {"text": "second"}, turn_id="turn_2")
+        append(home, sid, "message.complete", {"text": "second answer"}, turn_id="turn_2")
+
+        resp = client.post(
+            f"/desktop/api/sessions/{sid}/rewind-to-turn",
+            json={"turn_id": "turn_cancelled"},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["rewoundCount"] == 2
+        assert body["targetTurnId"] == "turn_cancelled"
+        assert body["targetUserSeq"] == 3
+        assert body["newHeadSeq"] == 2
+
+        transcript = client.get(f"/desktop/api/sessions/{sid}/transcript").json()
+        assert [m["content"] for m in transcript["messages"]] == ["first", "first answer"]
+        active = state_db.get_messages_as_conversation(sid)
+        assert [m["content"] for m in active] == ["first", "first answer"]
+
+    def test_rewind_to_last_ui_only_interrupted_turn_skips_core_rewind(self, client):
+        from daemon.db.ui_messages import append
+
+        r = client.post("/desktop/api/sessions", json={})
+        sid = r.json()["session_id"]
+        home = client.app.state.cfg.hermes_home
+        state_db = client.app.state.session_db
+
+        state_db.append_message(sid, "user", "first")
+        state_db.append_message(sid, "assistant", "first answer")
+
+        append(home, sid, "user", {"text": "first"}, turn_id="turn_1")
+        append(home, sid, "message.complete", {"text": "first answer"}, turn_id="turn_1")
+        append(home, sid, "user", {"text": "cancelled"}, turn_id="turn_cancelled")
+        append(home, sid, "turn.interrupted", {"reason": "user_interrupt"}, turn_id="turn_cancelled")
+
+        resp = client.post(
+            f"/desktop/api/sessions/{sid}/rewind-to-turn",
+            json={"turn_id": "turn_cancelled"},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["rewoundCount"] == 0
+        assert body["targetUserSeq"] == 3
+        assert body["newHeadSeq"] == 2
+
+        transcript = client.get(f"/desktop/api/sessions/{sid}/transcript").json()
+        assert [m["content"] for m in transcript["messages"]] == ["first", "first answer"]
+        active = state_db.get_messages_as_conversation(sid)
+        assert [m["content"] for m in active] == ["first", "first answer"]
+
+    def test_rewind_to_turn_rejects_running_session(self, client, monkeypatch):
+        r = client.post("/desktop/api/sessions", json={})
+        sid = r.json()["session_id"]
+        monkeypatch.setattr(client.app.state.agent_pool, "is_running", lambda session_id: session_id == sid)
+
+        resp = client.post(
+            f"/desktop/api/sessions/{sid}/rewind-to-turn",
+            json={"turn_id": "turn_any"},
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "SESSION_BUSY"
+
 
 class TestPromptExecute:
     """POST /prompt/execute — core turn execution."""

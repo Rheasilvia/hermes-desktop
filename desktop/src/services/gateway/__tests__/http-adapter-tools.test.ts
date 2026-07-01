@@ -202,6 +202,53 @@ describe('dispatchSseEvent — tool.progress', () => {
   });
 });
 
+describe('dispatchSseEvent — session.rewind', () => {
+  it('emits rewind payloads so stores can truncate stale messages', () => {
+    const adapter = makeAdapter();
+    const received: unknown[] = [];
+    adapter.on('session.rewind', (payload) => received.push(payload));
+
+    (adapter as any).dispatchSseEvent({
+      session_id: 'sess_1',
+      seq: 12,
+      type: 'session.rewind',
+      payload: {
+        target_turn_id: 'turn_2',
+        target_user_seq: 3,
+        rewound_count: 2,
+        new_head_seq: 2,
+      },
+    });
+
+    expect(received).toEqual([
+      {
+        session_id: 'sess_1',
+        target_turn_id: 'turn_2',
+        target_user_seq: 3,
+        rewound_count: 2,
+        new_head_seq: 2,
+        event_seq: 12,
+      },
+    ]);
+  });
+});
+
+describe('aggregateEventRows — session.rewind', () => {
+  it('truncates target and later messages when replaying raw events', () => {
+    const adapter = makeAdapter();
+
+    const messages = adapter.aggregateEventRows('sess_1', [
+      { session_id: 'sess_1', seq: 1, type: 'user', payload: { text: 'first' } },
+      { session_id: 'sess_1', seq: 2, type: 'message.complete', payload: { text: 'first response' } },
+      { session_id: 'sess_1', seq: 3, type: 'user', payload: { text: 'second' } },
+      { session_id: 'sess_1', seq: 4, type: 'message.complete', payload: { text: 'second response' } },
+      { session_id: 'sess_1', seq: 5, type: 'session.rewind', payload: { target_user_seq: 3 } },
+    ]);
+
+    expect(messages.map((message) => message.content)).toEqual(['first', 'first response']);
+  });
+});
+
 describe('commands HTTP methods', () => {
   it('maps session.steer to the session steer endpoint', async () => {
     const mockHttp = {
@@ -331,6 +378,27 @@ describe('commands HTTP methods', () => {
     });
     expect(result).toEqual({ kind: 'output', message: 'Available slash commands' });
   });
+
+  it('posts slash.resolvePrompt to the safe prompt resolver endpoint', async () => {
+    const mockHttp = {
+      get: vi.fn(),
+      post: vi.fn().mockResolvedValue({ kind: 'send', message: 'rerun this' }),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    };
+    const adapter = new HttpGatewayAdapter(mockHttp as any);
+
+    const result = await adapter.slash.resolvePrompt({ session_id: 'sess_1', command: 'queue', args: 'rerun this', raw: '/queue rerun this' });
+
+    expect(mockHttp.post).toHaveBeenCalledWith('/desktop/api/commands/slash/resolve-prompt', {
+      session_id: 'sess_1',
+      command: 'queue',
+      args: 'rerun this',
+      raw: '/queue rerun this',
+    });
+    expect(result).toEqual({ kind: 'send', message: 'rerun this' });
+  });
 });
 
 describe('delegation HTTP methods', () => {
@@ -384,6 +452,37 @@ describe('delegation HTTP methods', () => {
 });
 
 describe('session.transcript', () => {
+  it('maps rewindToTurn to the sidecar endpoint', async () => {
+    const mockHttp = {
+      get: vi.fn(),
+      post: vi.fn().mockResolvedValue({
+        rewoundCount: 4,
+        targetTurnId: 'turn_2',
+        targetUserSeq: 8,
+        newHeadSeq: 7,
+        eventSeq: 12,
+      }),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    };
+    const adapter = new HttpGatewayAdapter(mockHttp as any);
+
+    const result = await adapter.session.rewindToTurn('sess_1', 'turn_2');
+
+    expect(mockHttp.post).toHaveBeenCalledWith(
+      '/desktop/api/sessions/sess_1/rewind-to-turn',
+      { turn_id: 'turn_2' },
+    );
+    expect(result).toEqual({
+      rewoundCount: 4,
+      targetTurnId: 'turn_2',
+      targetUserSeq: 8,
+      newHeadSeq: 7,
+      eventSeq: 12,
+    });
+  });
+
   it('fetches the canonical transcript endpoint and advances replay cursor', async () => {
     const mockHttp = {
       get: vi.fn().mockResolvedValue({

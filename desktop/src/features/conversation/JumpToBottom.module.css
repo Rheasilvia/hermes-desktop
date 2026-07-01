@@ -18,6 +18,12 @@
   pointer-events: auto;
 }
 
+.wrapperAvoidDock {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
 .button {
   width: 36px;
   height: 36px;

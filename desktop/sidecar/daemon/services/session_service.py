@@ -85,6 +85,29 @@ def _is_reusable_empty_session(row: dict[str, Any]) -> bool:
     return int(row.get("message_count") or 0) == 0 and title in REUSABLE_EMPTY_TITLES
 
 
+def _turn_has_fallback_core_user(turn: dict[str, Any]) -> bool:
+    status = str(turn.get("status") or "")
+    if status != "interrupted":
+        return True
+    if str(turn.get("assistant_content") or "").strip():
+        return True
+    if str(turn.get("assistant_reasoning") or "").strip():
+        return True
+    if turn.get("tools") or turn.get("assistant_blocks"):
+        return True
+    return False
+
+
+def _valid_core_user_message_id(turn: dict[str, Any], active_user_by_id: dict[int, dict[str, Any]]) -> int | None:
+    try:
+        message_id = int(turn.get("core_user_message_id") or 0)
+    except (TypeError, ValueError):
+        return None
+    if message_id > 0 and message_id in active_user_by_id:
+        return message_id
+    return None
+
+
 def _todos_from_tools(tools: list[dict]) -> list[dict]:
     todos: list[dict] = []
     for tool in tools:
@@ -406,6 +429,107 @@ class SessionService:
             reasoning_effort=reasoning_effort,
             collaboration_mode=collaboration_mode,
         )
+
+    def rewind_to_turn(self, session_id: str, turn_id: str) -> dict[str, Any]:
+        self.get_session_or_404(session_id)
+        target_turn_id = str(turn_id or "").strip()
+        if not target_turn_id:
+            raise ValueError("turn_id is required")
+
+        from ..db.conversation_turns import list_turns
+        from ..db.ui_messages import append as append_ui_message
+
+        turns = [
+            turn for turn in list_turns(self._hermes_home, session_id)
+            if int(turn.get("user_seq") or 0) > 0
+        ]
+        target_index = next(
+            (index for index, turn in enumerate(turns) if turn.get("turn_id") == target_turn_id),
+            -1,
+        )
+        if target_index < 0:
+            raise ValueError(f"turn {target_turn_id} not found")
+
+        target_turn = turns[target_index]
+        target_user_seq = int(target_turn.get("user_seq") or 0)
+        user_rows = [
+            row for row in self._state.get_messages(session_id)
+            if row.get("role") == "user"
+        ]
+        active_user_by_id: dict[int, dict[str, Any]] = {}
+        for row in user_rows:
+            try:
+                active_user_by_id[int(row.get("id") or 0)] = row
+            except (TypeError, ValueError):
+                continue
+
+        turn_core_user_ids: dict[str, int] = {}
+        claimed_core_user_ids: set[int] = set()
+        for turn in turns:
+            mapped_id = _valid_core_user_message_id(turn, active_user_by_id)
+            if mapped_id is None:
+                continue
+            turn_core_user_ids[str(turn.get("turn_id") or "")] = mapped_id
+            claimed_core_user_ids.add(mapped_id)
+
+        available_legacy_user_rows = [
+            row for row in user_rows
+            if int(row.get("id") or 0) not in claimed_core_user_ids
+        ]
+        legacy_index = 0
+        for turn in turns:
+            legacy_turn_id = str(turn.get("turn_id") or "")
+            if legacy_turn_id in turn_core_user_ids:
+                continue
+            if not _turn_has_fallback_core_user(turn):
+                continue
+            if legacy_index >= len(available_legacy_user_rows):
+                break
+            turn_core_user_ids[legacy_turn_id] = int(available_legacy_user_rows[legacy_index]["id"])
+            legacy_index += 1
+
+        target_message_id = turn_core_user_ids.get(target_turn_id)
+        if target_message_id is None:
+            target_message_id = next(
+                (
+                    turn_core_user_ids[str(turn.get("turn_id") or "")]
+                    for turn in turns[target_index + 1:]
+                    if str(turn.get("turn_id") or "") in turn_core_user_ids
+                ),
+                None,
+            )
+
+        if target_message_id is not None:
+            result = self._state.rewind_to_message(session_id, target_message_id)
+            rewound_count = int(result.get("rewound_count") or 0)
+        else:
+            rewound_count = 0
+        previous_turns = turns[:target_index]
+        new_head_seq = max(
+            (int(turn.get("last_seq") or turn.get("user_seq") or 0) for turn in previous_turns),
+            default=0,
+        ) or None
+        payload = {
+            "target_turn_id": target_turn_id,
+            "target_user_seq": target_user_seq,
+            "rewound_count": rewound_count,
+            "new_head_seq": new_head_seq,
+        }
+        event_seq = append_ui_message(
+            self._hermes_home,
+            session_id,
+            "session.rewind",
+            payload,
+            turn_id=None,
+        )
+        return {
+            "rewoundCount": payload["rewound_count"],
+            "targetTurnId": target_turn_id,
+            "targetUserSeq": target_user_seq,
+            "newHeadSeq": new_head_seq,
+            "eventSeq": event_seq,
+            "eventPayload": payload,
+        }
 
     def rename_session(self, session_id: str, title: str) -> None:
         self.get_session_or_404(session_id)

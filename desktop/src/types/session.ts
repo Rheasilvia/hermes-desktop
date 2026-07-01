@@ -178,3 +178,11 @@ export interface SessionTranscript {
   messages: TranscriptMessage[];
   live_turn: TranscriptLiveTurn | null;
 }
+
+export interface SessionRewindResult {
+  rewoundCount: number;
+  targetTurnId: string;
+  targetUserSeq: number;
+  newHeadSeq: number | null;
+  eventSeq: number;
+}

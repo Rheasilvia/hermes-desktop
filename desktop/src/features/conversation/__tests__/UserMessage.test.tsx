@@ -1,5 +1,5 @@
-import { render, screen } from '@solidjs/testing-library';
-import { describe, test, expect } from 'vitest';
+import { fireEvent, render, screen } from '@solidjs/testing-library';
+import { describe, test, expect, vi } from 'vitest';
 import { UserMessage } from '../UserMessage.js';
 
 describe('UserMessage', () => {
@@ -71,5 +71,54 @@ describe('UserMessage', () => {
     const imgs = gallery?.querySelectorAll('img') ?? [];
     expect(imgs.length).toBeGreaterThan(0);
     expect(Array.from(imgs).some((img) => (img.getAttribute('src') ?? '').includes('clip-1.png'))).toBe(true);
+  });
+
+  test('renders an inline editor that only submits from the confirm button', () => {
+    const onDraft = vi.fn();
+    const onCancel = vi.fn();
+    const onConfirm = vi.fn();
+    render(() => (
+      <UserMessage
+        content="old text"
+        isEditing
+        editDraft="old text"
+        onEditDraftChange={onDraft}
+        onEditCancel={onCancel}
+        onEditConfirm={onConfirm}
+      />
+    ));
+
+    const textarea = screen.getByLabelText('Edit user message') as HTMLTextAreaElement;
+    fireEvent.input(textarea, { target: { value: 'new text' } });
+    expect(onDraft).toHaveBeenCalledWith('new text');
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(textarea, { key: 'Escape' });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByText('Restore & rerun'));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  test('disables restore when the inline edit draft is empty or blocked', () => {
+    const { unmount } = render(() => (
+      <UserMessage content="old text" isEditing editDraft="   " onEditConfirm={vi.fn()} />
+    ));
+    expect((screen.getByText('Restore & rerun').closest('button') as HTMLButtonElement).disabled).toBe(true);
+    unmount();
+
+    render(() => (
+      <UserMessage
+        content="old text"
+        isEditing
+        editDraft="new text"
+        editDisabledReason="Historical image messages cannot be restored yet."
+        onEditConfirm={vi.fn()}
+      />
+    ));
+    expect(screen.getByRole('alert').textContent).toContain('Historical image messages');
+    expect((screen.getByText('Restore & rerun').closest('button') as HTMLButtonElement).disabled).toBe(true);
   });
 });

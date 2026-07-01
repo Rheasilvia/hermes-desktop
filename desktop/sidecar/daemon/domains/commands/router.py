@@ -44,6 +44,16 @@ def slash_exec(body: CommandRequest, svc=Depends(get_command_service)) -> dict:
     ).model_dump(exclude_none=True)
 
 
+@router.post("/commands/slash/resolve-prompt")
+def slash_resolve_prompt(body: CommandRequest, svc=Depends(get_command_service)) -> dict:
+    return svc.resolve_prompt(
+        session_id=body.session_id,
+        command=body.command,
+        args=body.args,
+        raw=body.raw,
+    ).model_dump(exclude_none=True)
+
+
 @router.post("/commands/dispatch")
 def command_dispatch(body: CommandRequest, svc=Depends(get_command_service)) -> dict:
     return svc.exec(

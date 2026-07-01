@@ -244,6 +244,11 @@ class AgentExecutionService:
 
             _t0 = time.time()
             llm_messages = self._state.get_messages_as_conversation(session_id)
+            active_core_rows_before = self._state.get_messages(session_id)
+            core_head_id_before = max(
+                (int(row.get("id") or 0) for row in active_core_rows_before),
+                default=0,
+            )
             log.info("[perf] _run_turn get_messages_as_conversation: %.2fs", time.time() - _t0)
 
             from hermes_cli.config import load_config
@@ -326,6 +331,7 @@ class AgentExecutionService:
             # the next turn's context. UI messages are left intact.
             if isinstance(result, dict) and result.get("interrupted"):
                 self._rollback_orphaned_llm_user_message(session_id, agent)
+            self._record_core_user_message_id(session_id, turn_id, core_head_id_before)
 
             final_text = ""
             if isinstance(result, dict):
@@ -710,6 +716,37 @@ class AgentExecutionService:
             "skipped": False,
             "message": "ok",
         }
+
+    def _record_core_user_message_id(self, session_id: str, turn_id: str, core_head_id_before: int) -> None:
+        try:
+            rows = self._state.get_messages(session_id)
+        except Exception:
+            log.exception("failed to load core messages for turn mapping in %s", session_id)
+            return
+
+        core_user_message_id: int | None = None
+        for row in rows:
+            try:
+                row_id = int(row.get("id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if row_id <= core_head_id_before or row.get("role") != "user":
+                continue
+            core_user_message_id = row_id
+            break
+
+        if core_user_message_id is None:
+            return
+
+        payload = {
+            "turn_id": turn_id,
+            "core_user_message_id": core_user_message_id,
+        }
+        try:
+            seq = self._ui.append(session_id, "turn.core_user_message", payload, turn_id=turn_id)
+            self._bus.publish(session_id, seq, "turn.core_user_message", payload)
+        except Exception:
+            log.exception("failed to record core user message id for turn %s", turn_id)
 
     def _rollback_orphaned_llm_user_message(self, session_id: str, agent: Any) -> None:
         """Remove a trailing user message from the LLM session DB after an interrupt.
