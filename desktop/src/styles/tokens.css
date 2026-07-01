@@ -136,6 +136,7 @@
   --z-overlay: 300;
   --z-modal: 400;
   --z-toast: 500;
+  --z-popover: 600; /* context menus / floating popovers, above transient toasts (e.g. WorkspaceContextMenu) */
 
   /* --- Conversation: Code Blocks --- */
   --color-code-block-bg: #1e2030;

@@ -253,7 +253,10 @@
   padding: 5px 16px 7px;
   border-top: 1px solid var(--color-border);
   color: var(--color-on-surface-dim);
-  overflow: hidden;
+  /* Must stay visible: the workspace-path and git-branch popovers open upward
+     out of this row — clipping here hid them behind the input box. Children
+     (ContextUsageBar, pills) self-truncate + flex-wrap, so no horizontal spill. */
+  overflow: visible;
 }
 
 .statusContextGroup {
