@@ -150,15 +150,16 @@ def build_app(cfg: Config) -> FastAPI:
         try:
             yield
         finally:
-            # Stop notebook file-watchers (process-global observer pool). Lazily
-            # created on first watch(); guard with getattr so users who never
-            # opened a notebook don't trip AttributeError on every shutdown.
-            watcher = getattr(startup_app.state, "notebook_watch_svc", None)
-            if watcher is not None:
-                try:
-                    watcher.shutdown()
-                except Exception:
-                    log.exception("notebook watch shutdown failed")
+            # Stop notebook file-watchers for every profile home. Lazily created on
+            # first watch() and cached per-home; guard with getattr so users who
+            # never opened a notebook don't trip AttributeError on shutdown.
+            watch_svcs = getattr(startup_app.state, "profile_notebook_watch_svcs", None)
+            if watch_svcs:
+                for watcher in list(watch_svcs.values()):
+                    try:
+                        watcher.shutdown()
+                    except Exception:
+                        log.exception("notebook watch shutdown failed")
             _restore_process_hermes_home(previous_hermes_home)
 
     app = FastAPI(title="Hermes Desktop Sidecar", openapi_url=None, lifespan=lifespan)

@@ -141,6 +141,18 @@ function saveRegistry(registry: PreviewRegistry): void {
   }
 }
 
+// One-time cleanup: the pre-v2 registry lived under a different key and is no longer
+// read — drop it so stale data doesn't linger in localStorage after the v1→v2 bump.
+function dropLegacyStorage(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem('hermes.tauri.sessionPreviews.v1');
+  } catch {
+    // ignore
+  }
+}
+dropLegacyStorage();
+
 const [registry, setRegistry] = createStore<PreviewRegistry>(loadRegistry());
 
 function snapshot(): PreviewRegistry {

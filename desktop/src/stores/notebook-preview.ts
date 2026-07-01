@@ -41,14 +41,22 @@ function getState(sessionId: string): NotebookPreviewState {
   return ensureSignal(sessionId)[0]();
 }
 
+// Advance the per-session load generation. Any in-flight load()/refresh() with an
+// older generation becomes stale and self-cancels — shared by load(), refresh(),
+// and clear() so a teardown can't be undone by a slow in-flight response.
+function bumpSeq(sessionId: string): number {
+  const next = (loadSeq.get(sessionId) ?? 0) + 1;
+  loadSeq.set(sessionId, next);
+  return next;
+}
+
 /**
  * Loads a notebook into the preview pane: fetches an initial render, then asks
  * the backend to watch the file for live updates (pushed via `notebook.changed`).
  */
 async function load(sessionId: string, path: string): Promise<void> {
   const [state, setState] = ensureSignal(sessionId);
-  const mySeq = (loadSeq.get(sessionId) ?? 0) + 1;
-  loadSeq.set(sessionId, mySeq);
+  const mySeq = bumpSeq(sessionId);
   const isStale = () => (loadSeq.get(sessionId) ?? 0) !== mySeq;
   setState({ ...state(), path, cells: [], mtime: 0, loading: true, error: null });
   const gw = getGateway();
@@ -68,6 +76,10 @@ async function load(sessionId: string, path: string): Promise<void> {
       loading: false,
       error: null,
     });
+    // Re-check before watching: a clear() (pane closed) or a newer load() may have
+    // superseded us while the render was in flight — arming a watch now would leak a
+    // backend watcher that nothing will tear down.
+    if (isStale()) return;
     // Begin watching for live updates (best-effort; failures are non-fatal —
     // the user still has the static render).
     try {
@@ -82,8 +94,32 @@ async function load(sessionId: string, path: string): Promise<void> {
   }
 }
 
+/**
+ * Re-fetch the current render without (re-)arming a watch. Used when a deferred
+ * `notebook.changed` marker is replayed after a reconnect — the durable event only
+ * carries a marker, so pull the fresh render (cheap via the backend cache-aside).
+ */
+async function refresh(sessionId: string, path: string): Promise<void> {
+  const gw = getGateway();
+  if (!gw) return;
+  const mySeq = bumpSeq(sessionId);
+  const isStale = () => (loadSeq.get(sessionId) ?? 0) !== mySeq;
+  try {
+    const render = await gw.notebook.render(sessionId, path);
+    if (isStale()) return;
+    const [state, setState] = ensureSignal(sessionId);
+    if (state().path !== path) return; // pane moved to another notebook
+    setState({ path: render.path, cells: render.cells, mtime: render.mtime, loading: false, error: null });
+  } catch {
+    // Best-effort refresh; keep the existing render on failure.
+  }
+}
+
 /** Stop watching the notebook for a session (e.g. when the preview closes). */
 async function clear(sessionId: string): Promise<void> {
+  // Invalidate any in-flight load()/refresh() so a slow response can't resurrect
+  // state or re-arm a watcher after this teardown.
+  bumpSeq(sessionId);
   const gw = getGateway();
   if (gw) {
     try {
@@ -103,6 +139,12 @@ function handleChanged(payload: NotebookChangedPayload): void {
   // Only accept updates for the path the pane is currently showing. Stale
   // events (e.g. after switching notebooks) are ignored.
   if (current.path !== payload.path) return;
+  // A deferred marker (persisted for post-reconnect replay) carries no cells —
+  // re-fetch instead of clobbering the pane with an empty render.
+  if (payload.deferred) {
+    void refresh(payload.session_id, payload.path);
+    return;
+  }
   setState({
     path: payload.path,
     cells: payload.cells,
@@ -115,6 +157,7 @@ function handleChanged(payload: NotebookChangedPayload): void {
 export const notebookPreviewStore = {
   getState,
   load,
+  refresh,
   clear,
   handleChanged,
 };

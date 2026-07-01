@@ -16,8 +16,11 @@ from __future__ import annotations
 import base64
 import logging
 import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
+
+import nbformat
 
 from ..schemas.notebook import NotebookCell, NotebookOutput, NotebookRender
 from .workspace_service import WorkspaceService, WorkspaceServiceError
@@ -29,6 +32,14 @@ log = logging.getLogger(__name__)
 # client so a pathological notebook can't OOM the renderer.
 NOTEBOOK_MAX_CELLS = 500
 NOTEBOOK_MAX_OUTPUT_CHARS = 200_000
+# Reject notebooks larger than this *before* reading them into memory — the cell
+# cap alone doesn't bound total bytes (a single output can be huge).
+NOTEBOOK_MAX_BYTES = 10 * 1024 * 1024
+# Drop any single image/SVG output whose data: URL would exceed this, so one giant
+# embedded asset can't bloat the render, cache, and SSE payload.
+NOTEBOOK_MAX_IMAGE_CHARS = 2 * 1024 * 1024
+# Bound the mtime-keyed render cache so long-lived sessions don't grow unbounded.
+NOTEBOOK_CACHE_MAX = 32
 
 
 class NotebookServiceError(Exception):
@@ -60,7 +71,11 @@ def _truncate(value: str, limit: int = NOTEBOOK_MAX_OUTPUT_CHARS) -> str:
 
 
 def _build_image_data_url(mime: str, data_b64_or_bytes: Any) -> str | None:
-    """Build a data: URL for image outputs. nbformat stores base64-encoded bytes."""
+    """Build a data: URL for image outputs. nbformat stores base64-encoded bytes.
+
+    Returns None for empty payloads or when the encoded URL exceeds
+    ``NOTEBOOK_MAX_IMAGE_CHARS`` (the caller then falls through to a text form).
+    """
     if not data_b64_or_bytes:
         return None
     if isinstance(data_b64_or_bytes, (bytes, bytearray)):
@@ -70,7 +85,10 @@ def _build_image_data_url(mime: str, data_b64_or_bytes: Any) -> str | None:
         b64 = data_b64_or_bytes
     else:
         return None
-    return f"data:{mime};base64,{b64}"
+    url = f"data:{mime};base64,{b64}"
+    if len(url) > NOTEBOOK_MAX_IMAGE_CHARS:
+        return None
+    return url
 
 
 _IMAGE_MIMES = ("image/png", "image/jpeg", "image/svg+xml")
@@ -98,13 +116,17 @@ def _flatten_output(output: dict) -> NotebookOutput | None:
         for mime in _IMAGE_MIMES:
             if mime in data:
                 payload = data[mime]
-                if mime == "image/svg+xml" and isinstance(payload, (str, list)):
-                    # SVG is XML text, not base64 — render inline via html sink.
-                    return NotebookOutput(
-                        output_type=output_type,
-                        mime=mime,
-                        html=_truncate(_join_source(payload)),
-                    )
+                if mime == "image/svg+xml":
+                    # SVG is XML text, not base64. Encode it as a data: URL image and
+                    # render it via <img> (which cannot execute embedded script) — the
+                    # HTML sink's sanitizer strips <svg> entirely, so it rendered blank.
+                    svg_text = _join_source(payload) if isinstance(payload, (str, list)) else None
+                    if svg_text:
+                        svg_b64 = base64.b64encode(svg_text.encode("utf-8")).decode("ascii")
+                        svg_url = f"data:image/svg+xml;base64,{svg_b64}"
+                        if len(svg_url) <= NOTEBOOK_MAX_IMAGE_CHARS:
+                            return NotebookOutput(output_type=output_type, mime=mime, image=svg_url)
+                    continue
                 url = _build_image_data_url(mime, payload)
                 if url:
                     return NotebookOutput(
@@ -195,8 +217,9 @@ class NotebookService:
 
     def __init__(self, *, workspace_service: WorkspaceService) -> None:
         self._workspace = workspace_service
-        # Cache-aside: (session_id, resolved_path_str) -> {mtime, render}
-        self._cache: dict[tuple[str, str], dict[str, Any]] = {}
+        # Cache-aside: (session_id, resolved_path_str) -> {mtime, render}.
+        # OrderedDict + NOTEBOOK_CACHE_MAX bounds memory on long-lived sessions.
+        self._cache: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
         self._lock = threading.Lock()
 
     def render_notebook(self, session_id: str, path: str) -> NotebookRender:
@@ -218,11 +241,14 @@ class NotebookService:
 
         mtime = stat.st_mtime
         size = stat.st_size
+        if size > NOTEBOOK_MAX_BYTES:
+            raise NotebookServiceError(413, "NOTEBOOK_TOO_LARGE")
         key = (session_id, str(target))
 
         with self._lock:
             cached = self._cache.get(key)
             if cached and cached["mtime"] == mtime:
+                self._cache.move_to_end(key)
                 render = cached["render"]
                 # Refresh path to the caller-supplied relative path for display.
                 return render.model_copy(update={"path": path})
@@ -236,8 +262,6 @@ class NotebookService:
             raise NotebookServiceError(403, f"cannot read notebook: {exc}") from exc
 
         try:
-            import nbformat
-
             nb = nbformat.reads(raw, as_version=4)
             # nbformat.validate raises NotebookValidationError on structural issues;
             # we tolerate minor issues and still render best-effort.
@@ -253,5 +277,8 @@ class NotebookService:
 
         with self._lock:
             self._cache[key] = {"mtime": mtime, "render": render}
+            self._cache.move_to_end(key)
+            while len(self._cache) > NOTEBOOK_CACHE_MAX:
+                self._cache.popitem(last=False)
 
         return render

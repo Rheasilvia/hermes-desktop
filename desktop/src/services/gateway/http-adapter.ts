@@ -875,6 +875,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           mtime: Number(payload.mtime ?? 0),
           size: Number(payload.size ?? 0),
           truncated: Boolean(payload.truncated),
+          deferred: Boolean(payload.deferred),
           event_seq: eventSeq,
         } as GatewayEventMap['notebook.changed']);
         break;

@@ -179,4 +179,83 @@ def test_watcher_publishes_notebook_changed_on_mutation(workspace, tmp_path):
     assert event["type"] == "notebook.changed"
     assert event["session_id"] == "s1"
     assert event["payload"]["path"] == "live.ipynb"
+    # The live/published event carries the full render (cells)...
     assert "# edited by agent" in event["payload"]["cells"][0]["source"]
+
+    # ...but only a slim marker (no cell bodies, deferred=True) is persisted, so the
+    # durable log and SSE-replay path stay small.
+    import json
+
+    changed = [r for r in ui.list_messages("s1") if r["type"] == "notebook.changed"]
+    assert changed, "a notebook.changed marker should be persisted"
+    marker = json.loads(changed[-1]["payload_json"])
+    assert marker.get("deferred") is True
+    assert not marker.get("cells")
+
+
+def test_rejects_oversized_notebook(workspace, monkeypatch):
+    root, ws, nb_svc = workspace
+    from daemon.services import notebook_service as m
+
+    monkeypatch.setattr(m, "NOTEBOOK_MAX_BYTES", 8)  # any real .ipynb is bigger
+    _write_notebook(root / "big.ipynb", [new_markdown_cell("# lots of content here")])
+    with pytest.raises(NotebookServiceError) as exc:
+        nb_svc.render_notebook("s1", "big.ipynb")
+    assert exc.value.status_code == 413
+    assert "NOTEBOOK_TOO_LARGE" in exc.value.detail
+
+
+def test_svg_output_becomes_image_data_url(workspace):
+    root, ws, nb_svc = workspace
+    svg = "<svg xmlns='http://www.w3.org/2000/svg'><rect width='10' height='10'/></svg>"
+    code = new_code_cell("plot()")
+    code.outputs = [new_output(output_type="display_data", data={"image/svg+xml": svg}, metadata={})]
+    _write_notebook(root / "svg.ipynb", [code])
+
+    render = nb_svc.render_notebook("s1", "svg.ipynb")
+    out = render.cells[0].outputs[0]
+    # SVG must be an <img>-renderable data URL (the HTML sink strips <svg> entirely).
+    assert out.image is not None
+    assert out.image.startswith("data:image/svg+xml;base64,")
+    assert out.html is None
+
+
+def test_oversized_image_drops_to_text_fallback(workspace, monkeypatch):
+    root, ws, nb_svc = workspace
+    from daemon.services import notebook_service as m
+
+    monkeypatch.setattr(m, "NOTEBOOK_MAX_IMAGE_CHARS", 8)
+    png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    code = new_code_cell("img()")
+    code.outputs = [
+        new_output(
+            output_type="execute_result",
+            execution_count=1,
+            data={"image/png": png_b64, "text/plain": "fallback text"},
+            metadata={},
+        )
+    ]
+    _write_notebook(root / "img.ipynb", [code])
+
+    render = nb_svc.render_notebook("s1", "img.ipynb")
+    out = render.cells[0].outputs[0]
+    assert out.image is None  # dropped: too large
+    assert out.text == "fallback text"  # gracefully falls through
+
+
+def test_watch_rejects_non_ipynb(workspace, tmp_path):
+    root, ws, nb_svc = workspace
+    (root / "notes.txt").write_text("hi")
+    watch = NotebookWatchService(
+        workspace_service=ws,
+        notebook_service=nb_svc,
+        ui_messages=UIMessageService(tmp_path / "home"),
+        event_bus=EventBus(),
+    )
+    try:
+        with pytest.raises(NotebookServiceError) as exc:
+            watch.watch("s1", "notes.txt")
+        assert exc.value.status_code == 400
+        assert "s1" not in watch._entries  # no observer left behind
+    finally:
+        watch.shutdown()

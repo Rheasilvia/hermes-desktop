@@ -24,7 +24,7 @@ from watchdog.observers import Observer
 
 from ..schemas.notebook import NotebookRenderPayload
 from .event_bus import EventBus
-from .notebook_service import NotebookService, NotebookServiceError
+from .notebook_service import NotebookService, NotebookServiceError, _is_notebook_path
 from .ui_message_service import UIMessageService
 from .workspace_service import WorkspaceService, WorkspaceServiceError
 
@@ -78,8 +78,12 @@ class NotebookWatchService:
         that switched workspaces cannot keep watching a stale/out-of-scope file.
         """
         target = self._workspace.resolve_abs_path(session_id, relative_path, access="read")
-        # Stop any existing watcher for this session first.
-        self._stop_locked(session_id)
+        # Fail fast on non-notebook / missing targets instead of spawning an observer
+        # that could never emit a render.
+        if not _is_notebook_path(target):
+            raise NotebookServiceError(400, "NOTEBOOK_NOT_IPYNB")
+        if not target.exists() or not target.is_file():
+            raise NotebookServiceError(404, "NOTEBOOK_NOT_FOUND")
 
         cancel = threading.Event()
         handler = _NotebookHandler(
@@ -96,6 +100,10 @@ class NotebookWatchService:
         observer.start()
 
         with self._lock:
+            # Stop any existing watcher for this session and register the new one
+            # atomically — both under the lock so concurrent watch()/clear() calls
+            # can't orphan an Observer thread.
+            self._stop_locked(session_id)
             self._entries[session_id] = _WatchEntry(
                 observer=observer,
                 session_id=session_id,
@@ -149,11 +157,20 @@ class NotebookWatchService:
             size=render.size,
             truncated=render.truncated,
         )
-        payload_dict = payload.model_dump()
-        # append+publish are paired: append gives a durable seq for SSE replay.
-        seq = self._ui_messages.append(session_id, "notebook.changed", payload_dict)
+        # Persist only a slim marker (no cells/images) so the durable event log and
+        # SSE-replay path stay small; publish the full render for live consumers.
+        # append+publish stay paired: append gives the durable seq. On reconnect the
+        # replayed marker (deferred=True) triggers one cheap client re-fetch.
+        marker = {
+            "path": render.path,
+            "mtime": render.mtime,
+            "size": render.size,
+            "truncated": render.truncated,
+            "deferred": True,
+        }
+        seq = self._ui_messages.append(session_id, "notebook.changed", marker)
         try:
-            self._bus.publish(session_id, seq, "notebook.changed", payload_dict)
+            self._bus.publish(session_id, seq, "notebook.changed", payload.model_dump())
         except Exception:
             log.exception("notebook watcher: failed to publish event for %s", session_id)
 

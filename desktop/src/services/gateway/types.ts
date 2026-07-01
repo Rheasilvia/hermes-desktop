@@ -135,6 +135,9 @@ export interface NotebookChangedPayload {
   mtime: number;
   size: number;
   truncated?: boolean;
+  /** True for a persisted marker replayed after reconnect — the client should
+   *  re-fetch the render rather than apply the (empty) cells. */
+  deferred?: boolean;
   event_seq?: number;
 }
 

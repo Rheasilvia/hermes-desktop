@@ -32,7 +32,7 @@ def watch_notebook(
     try:
         path = svc.watch(session_id, body.path)
         return NotebookWatchResult(ok=True, path=path).model_dump()
-    except WorkspaceServiceError as exc:
+    except (NotebookServiceError, WorkspaceServiceError) as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
