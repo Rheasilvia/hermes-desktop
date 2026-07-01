@@ -248,7 +248,7 @@ export const WorkspaceTreeView: Component<WorkspaceTreeViewProps> = (props) => {
                 sessionId={sessionId()}
                 position={{ x: menu().x, y: menu().y }}
                 onClose={() => setContextMenu(null)}
-                onPreview={() => setPreviewNode(menu().node)}
+                onPreview={() => openFile(menu().node)}
               />
             )}
           </Show>
