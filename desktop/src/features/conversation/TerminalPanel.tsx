@@ -9,8 +9,10 @@ import type { Component } from 'solid-js';
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import { composerInsertionStore } from '@/stores/composer-insertions.js';
 import { isMac } from '@/services/keyboard.js';
+import { terminalReadStore, type TerminalReadResult, type TerminalReadWindow } from '@/stores/terminal-read.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import type { AttachmentChip } from './composer/AttachmentChips.js';
+import { readTerminalBufferWindow } from './terminal-buffer.js';
 import styles from './TerminalPanel.module.css';
 
 interface TerminalPanelProps {
@@ -180,6 +182,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   let dataDisposable: { dispose: () => void } | null = null;
   let pendingFrame: number | null = null;
   let themeObserver: MutationObserver | null = null;
+  let unregisterTerminalReader: (() => void) | null = null;
   let textEncoder: TextEncoder | null = null;
   let textDecoder: TextDecoder | null = null;
   let runningStatus = 'Terminal running';
@@ -416,17 +419,14 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     void ensureStarted();
   };
 
-  const visibleTerminalSnapshot = () => {
-    if (!terminal) return '';
-    const buffer = terminal.buffer.active;
-    const lines: string[] = [];
-    const start = buffer.viewportY;
-    for (let row = 0; row < terminal.rows; row += 1) {
-      const line = buffer.getLine(start + row);
-      if (line) lines.push(line.translateToString(true));
-    }
-    return lines.join('\n').trim();
+  const readTerminalWindow = (window: TerminalReadWindow = {}): TerminalReadResult | null => {
+    // Only answer once the PTY is live and mounted; otherwise let the caller
+    // fall back to the empty payload so the agent's read_terminal never hangs.
+    if (!terminal || !running()) return null;
+    return readTerminalBufferWindow(terminal.buffer.active, terminal.rows, window);
   };
+
+  const visibleTerminalSnapshot = () => readTerminalWindow()?.text.trim() ?? '';
 
   const sendSelectionToChat = () => {
     const text = terminal?.getSelection().trim();
@@ -551,6 +551,11 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     }
     terminalEventsReady = true;
 
+    // Let the agent's read_terminal tool read this terminal's xterm buffer via
+    // the gateway bridge. Registered even before the PTY starts; the responder
+    // returns null until it's running so requests fall back to an empty answer.
+    unregisterTerminalReader = terminalReadStore.register(props.sessionId ?? null, readTerminalWindow);
+
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
         scheduleFrame(() => {
@@ -578,6 +583,8 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   onCleanup(() => {
     disposed = true;
     terminalEventsReady = false;
+    unregisterTerminalReader?.();
+    unregisterTerminalReader = null;
     pendingOutput.clear();
     const id = sessionId();
     if (id) {

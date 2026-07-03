@@ -7,6 +7,7 @@ import type {
   ApprovalRequestPayload, ClarifyRequestPayload,
   UserInputRequestPayload, UserInputResponsePayload,
   SudoRequestPayload, SecretRequestPayload,
+  TerminalReadRequestPayload,
   BackgroundCompletePayload, BtwCompletePayload,
   SubagentStartPayload, SubagentProgressPayload,
   SubagentCompletePayload, SubagentToolPayload, SubagentErrorPayload,
@@ -19,6 +20,7 @@ import { backgroundTaskStore } from '@/stores/background-tasks.js';
 import { notebookPreviewStore } from '@/stores/notebook-preview.js';
 import { delegationStore } from '@/stores/delegation.js';
 import { sessionStore } from '@/stores/session.js';
+import { terminalReadStore, emptyTerminalReadResult } from '@/stores/terminal-read.js';
 import { nativeNotifications } from '@/services/notifications/native-notifications.js';
 
 // Error codes emitted by B1 classifier that map to a provider-setup action
@@ -65,6 +67,20 @@ export function useGatewayEvents(opts: {
   const onSudoRequest = (p: SudoRequestPayload) => chatStore.handleSudoRequest(p.session_id, p);
   const onSecretRequest = (p: SecretRequestPayload) => chatStore.handleSecretRequest(p.session_id, p);
   const onClarifyRequest = (p: ClarifyRequestPayload) => chatStore.handleClarifyRequest(p.session_id, p);
+  const onTerminalReadRequest = (p: TerminalReadRequestPayload) => {
+    const gw = opts.getGateway();
+    if (!gw) return;
+    // Read the requested window from a mounted TerminalPanel's xterm buffer;
+    // fall back to an empty payload when no terminal is open so the agent's
+    // read_terminal tool resolves promptly instead of waiting for its timeout.
+    const window = { start: p.start, count: p.count };
+    const result = terminalReadStore.read(p.session_id, window) ?? emptyTerminalReadResult(window);
+    void gw.terminal
+      .readRespond({ request_id: p.request_id, value: JSON.stringify(result) })
+      .catch(() => {
+        // Sidecar already 404s a stale request_id (timed out); nothing to do.
+      });
+  };
   const onUserInputRequest = (p: UserInputRequestPayload) => chatStore.handleUserInputRequest(p.session_id, p);
   const onUserInputResponse = (p: UserInputResponsePayload) => chatStore.handleUserInputResponse(p.session_id, p);
   const onBackgroundComplete = (p: BackgroundCompletePayload) => {
@@ -111,6 +127,7 @@ export function useGatewayEvents(opts: {
     gw.on('sudo.request', onSudoRequest);
     gw.on('secret.request', onSecretRequest);
     gw.on('clarify.request', onClarifyRequest);
+    gw.on('terminal.read.request', onTerminalReadRequest);
     gw.on('user_input.request', onUserInputRequest);
     gw.on('user_input.response', onUserInputResponse);
     gw.on('background.complete', onBackgroundComplete);
@@ -143,6 +160,7 @@ export function useGatewayEvents(opts: {
     gw.off('sudo.request', onSudoRequest);
     gw.off('secret.request', onSecretRequest);
     gw.off('clarify.request', onClarifyRequest);
+    gw.off('terminal.read.request', onTerminalReadRequest);
     gw.off('user_input.request', onUserInputRequest);
     gw.off('user_input.response', onUserInputResponse);
     gw.off('background.complete', onBackgroundComplete);

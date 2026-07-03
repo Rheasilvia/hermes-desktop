@@ -118,6 +118,11 @@ class SecretRespondRequest(BaseModel):
     value: str = ""
 
 
+class TerminalReadRespondRequest(BaseModel):
+    request_id: str
+    value: str = ""
+
+
 # ── Response models ────────────────────────────────────────────────────────
 
 
