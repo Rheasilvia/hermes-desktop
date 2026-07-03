@@ -5,18 +5,8 @@ adds latency to the user-facing reply.
 """
 
 import logging
-import re
 import threading
 from typing import Callable, Optional
-
-_THINK_BLOCK_RE = re.compile(
-    r"<(?:think|thinking|reasoning|thought|REASONING_SCRATCHPAD)[^>]*>.*?</(?:think|thinking|reasoning|thought|REASONING_SCRATCHPAD)>",
-    re.DOTALL | re.IGNORECASE,
-)
-
-
-def _strip_think_blocks(text: str) -> str:
-    return _THINK_BLOCK_RE.sub("", text).strip()
 
 from agent.auxiliary_client import call_llm
 
@@ -110,7 +100,7 @@ def _call_with_agent(agent, messages: list, model: str = "") -> Optional[str]:
 def generate_title(
     user_message: str,
     assistant_response: str,
-    timeout: float = 30.0,
+    timeout: Optional[float] = None,
     failure_callback: Optional[FailureCallback] = None,
     main_runtime: dict = None,
     agent=None,
@@ -149,12 +139,21 @@ def generate_title(
         {"role": "user", "content": user_content},
     ]
 
+    # Strip reasoning/think blocks that think-enabled models (MiniMax M2.7,
+    # DeepSeek, Gemma, etc.) emit even for a title prompt. The canonical
+    # scrubber handles unterminated blocks, orphan closes, mixed case, and
+    # tool-call XML — the old regex-only helper only matched closed pairs, so
+    # leaked reasoning became the session title on the agent path (the path
+    # the desktop sidecar always takes). Imported lazily to avoid a circular
+    # import at module load.
+    from agent.agent_runtime_helpers import strip_think_blocks
+
     # Try agent's client first (uses session-specific provider config)
     if agent:
         try:
             title = _call_with_agent(agent, messages, model=title_model)
             if title:
-                title = _strip_think_blocks(title)
+                title = strip_think_blocks(None, title)
                 title = title.strip('"\'')
                 if title.lower().startswith("title:"):
                     title = title[6:].strip()
@@ -175,7 +174,8 @@ def generate_title(
             timeout=timeout,
             main_runtime=main_runtime,
         )
-        title = _strip_think_blocks(response.choices[0].message.content or "")
+        content = response.choices[0].message.content or ""
+        title = strip_think_blocks(None, content).strip()
         # Clean up: remove quotes, trailing punctuation, prefixes like "Title: "
         title = title.strip('"\'')
         if title.lower().startswith("title:"):
