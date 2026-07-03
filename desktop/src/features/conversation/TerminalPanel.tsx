@@ -8,6 +8,7 @@ import '@xterm/xterm/css/xterm.css';
 import type { Component } from 'solid-js';
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import { composerInsertionStore } from '@/stores/composer-insertions.js';
+import { isMac } from '@/services/keyboard.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import type { AttachmentChip } from './composer/AttachmentChips.js';
 import styles from './TerminalPanel.module.css';
@@ -274,6 +275,20 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   };
 
   const handleHostKeyDown = (event: KeyboardEvent) => {
+    // Cmd+L (macOS only): send the current terminal selection to the composer.
+    // Restricted to Cmd so we never shadow Ctrl+L, which is a real terminal
+    // control code (form feed / clear) on Linux/Windows. Handled before
+    // keyToTerminalInput (which ignores meta combos). No-op without a selection.
+    if (isMac() && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
+        && event.key.toLowerCase() === 'l') {
+      const selection = terminal?.getSelection().trim();
+      if (selection) {
+        event.preventDefault();
+        event.stopPropagation();
+        sendSelectionToChat();
+        return;
+      }
+    }
     const input = keyToTerminalInput(event);
     if (!input) return;
     const epoch = xtermDataEpoch;

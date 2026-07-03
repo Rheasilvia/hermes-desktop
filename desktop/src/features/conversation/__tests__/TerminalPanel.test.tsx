@@ -9,6 +9,7 @@ type TerminalListener = (event: { payload: unknown }) => void;
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   isTauri: vi.fn(),
+  isMac: vi.fn(() => true),
   listen: vi.fn(),
   listeners: new Map<string, TerminalListener[]>(),
   fitAddons: [] as Array<{
@@ -25,6 +26,7 @@ const mocks = vi.hoisted(() => ({
     focus: ReturnType<typeof vi.fn>;
     refresh: ReturnType<typeof vi.fn>;
     reset: ReturnType<typeof vi.fn>;
+    getSelection: ReturnType<typeof vi.fn>;
     write: ReturnType<typeof vi.fn>;
     open: ReturnType<typeof vi.fn>;
     emitData: (data: string) => void;
@@ -38,6 +40,10 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: mocks.listen,
+}));
+
+vi.mock('@/services/keyboard.js', () => ({
+  isMac: () => mocks.isMac(),
 }));
 
 vi.mock('@xterm/addon-fit', () => ({
@@ -83,6 +89,7 @@ vi.mock('@xterm/xterm', () => ({
     focus = vi.fn();
     refresh = vi.fn();
     reset = vi.fn();
+    getSelection = vi.fn(() => '');
     write = vi.fn((_data: string | Uint8Array, callback?: () => void) => {
       callback?.();
     });
@@ -141,9 +148,11 @@ function terminalStartCalls() {
   return mocks.invoke.mock.calls.filter(([command]) => command === 'terminal_start');
 }
 
-function renderTerminal(initialActive = true) {
+function renderTerminal(initialActive = true, onSendToChat?: (text: string) => void) {
   const [active, setActive] = createSignal(initialActive);
-  const result = render(() => <TerminalPanel active={active()} cwd="/repo" />);
+  const result = render(() => (
+    <TerminalPanel active={active()} cwd="/repo" onSendToChat={onSendToChat} />
+  ));
   return { setActive, unmount: result.unmount };
 }
 
@@ -157,6 +166,7 @@ describe('TerminalPanel', () => {
     mocks.webglAddons.length = 0;
     mocks.terminalInstances.length = 0;
     mocks.isTauri.mockReturnValue(true);
+    mocks.isMac.mockReturnValue(true);
     mocks.listen.mockImplementation(async (event: TerminalEvent, listener: TerminalListener) => {
       const listeners = mocks.listeners.get(event) ?? [];
       listeners.push(listener);
@@ -592,5 +602,39 @@ describe('TerminalPanel', () => {
     await waitFor(() => {
       expect(screen.queryByText(PTY_START_ERROR)).toBeNull();
     });
+  });
+
+  it('sends the terminal selection to chat on Cmd+L (macOS)', async () => {
+    const onSendToChat = vi.fn();
+    renderTerminal(true, onSendToChat);
+    setHostSize(480, 320);
+    await waitFor(() => {
+      expect(terminalStartCalls()).toHaveLength(1);
+    });
+
+    const terminal = mocks.terminalInstances[mocks.terminalInstances.length - 1];
+    terminal.getSelection.mockReturnValue('  selected output  ');
+
+    const host = screen.getByTestId('terminal-host');
+    fireEvent.keyDown(host, { key: 'l', metaKey: true });
+
+    expect(onSendToChat).toHaveBeenCalledWith('selected output');
+  });
+
+  it('does not send on Cmd+L when there is no selection', async () => {
+    const onSendToChat = vi.fn();
+    renderTerminal(true, onSendToChat);
+    setHostSize(480, 320);
+    await waitFor(() => {
+      expect(terminalStartCalls()).toHaveLength(1);
+    });
+
+    const terminal = mocks.terminalInstances[mocks.terminalInstances.length - 1];
+    terminal.getSelection.mockReturnValue('');
+
+    const host = screen.getByTestId('terminal-host');
+    fireEvent.keyDown(host, { key: 'l', metaKey: true });
+
+    expect(onSendToChat).not.toHaveBeenCalled();
   });
 });
