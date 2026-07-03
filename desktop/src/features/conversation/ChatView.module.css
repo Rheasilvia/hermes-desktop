@@ -261,3 +261,45 @@
 .noModelBtn:hover {
   background: var(--color-warning-surface);
 }
+
+/* App-level file-drop overlay (covers the whole chat view while dragging). */
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-overlay);
+  border: 2px dashed var(--color-primary);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  animation: dropOverlayFade var(--transition-fast) ease-out;
+}
+
+.dropOverlayInner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-8);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-primary);
+}
+
+.dropOverlayIcon {
+  color: var(--color-primary);
+}
+
+.dropOverlayText {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-on-surface);
+}
+
+@keyframes dropOverlayFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

@@ -290,6 +290,31 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const [messageListMounted, setMessageListMounted] = createSignal(false);
   const [steeringQueuedId, setSteeringQueuedId] = createSignal<string | null>(null);
   const [queuedSteerWarning, setQueuedSteerWarning] = createSignal<string | null>(null);
+  // App-level file-drop overlay. The composer owns attachment state and
+  // registers its drop handler here; ChatView tracks drag-hover so a drop
+  // anywhere in the chat area (not just on the textarea) is accepted.
+  const [isDragging, setIsDragging] = createSignal(false);
+  let composerDropHandler: ((event: DragEvent) => void) | null = null;
+  let dragDepth = 0;
+  const hasFiles = (event: DragEvent): boolean =>
+    Array.from(event.dataTransfer?.types ?? []).includes('Files');
+  const handleChatDragEnter = (event: DragEvent) => {
+    if (!hasFiles(event)) return;
+    dragDepth += 1;
+    setIsDragging(true);
+  };
+  const handleChatDragLeave = (event: DragEvent) => {
+    if (!hasFiles(event)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) setIsDragging(false);
+  };
+  const handleChatDrop = (event: DragEvent) => {
+    dragDepth = 0;
+    setIsDragging(false);
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    composerDropHandler?.(event);
+  };
   let wasBusy = false;
   let suppressNextAutoDrain = false;
   let escapePrioritySurfaceAtKeydown = false;
@@ -1360,7 +1385,14 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   // ── Render ────────────────────────────────────────────────────────────
 
   return (
-    <div class={styles.chatView} ref={(el) => { rootRef = el; }}>
+    <div
+      class={styles.chatView}
+      ref={(el) => { rootRef = el; }}
+      onDragEnter={handleChatDragEnter}
+      onDragOver={(event) => { if (hasFiles(event)) event.preventDefault(); }}
+      onDragLeave={handleChatDragLeave}
+      onDrop={handleChatDrop}
+    >
       <Show when={error()}>
         <ErrorBanner
           message={error()!}
@@ -1563,6 +1595,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
                   contextUsage={sessionUsage.get(sessionId())}
                   sttEnabled={sttEnabled()}
                   maxVoiceRecordingSeconds={maxVoiceRecordingSeconds()}
+                  onRegisterDrop={(handler) => { composerDropHandler = handler; }}
                 />
               </div>
             </div>
@@ -1574,6 +1607,15 @@ export const ChatView: Component<ChatViewProps> = (props) => {
           sessionId={sessionId()}
           workspacePath={cwd()}
         />
+
+        <Show when={isDragging()}>
+          <div class={styles.dropOverlay} aria-hidden="true">
+            <div class={styles.dropOverlayInner}>
+              <Icon name="paperclip" size={28} class={styles.dropOverlayIcon} />
+              <span class={styles.dropOverlayText}>Drop files to attach</span>
+            </div>
+          </div>
+        </Show>
       </div>
     </div>
   );
