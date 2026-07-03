@@ -1,0 +1,225 @@
+.projectsView {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: 100%;
+  padding: var(--space-5);
+  min-height: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface);
+  margin: 0;
+}
+
+.errorBanner {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-md);
+  background: var(--color-error-surface);
+  color: var(--color-error);
+  font-size: var(--text-sm);
+}
+
+.loadingWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+}
+
+.content {
+  display: flex;
+  gap: var(--space-5);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Left: project list ─────────────────────────────────────────── */
+
+.listPanel {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+}
+
+.projectRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.projectRow:hover {
+  border-color: var(--color-primary);
+}
+
+.projectRowActive {
+  border-color: var(--color-primary);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-sm);
+}
+
+.projectInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.projectName {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectPath {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* ── Right: worktree / branch detail ────────────────────────────── */
+
+.detailPanel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow-y: auto;
+}
+
+.detailPlaceholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.sectionTitle {
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface);
+  margin: 0;
+}
+
+.branchRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.branchCurrent {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-muted);
+}
+
+.worktreeList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.worktreeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.worktreeInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.worktreePath {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worktreeBadges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.worktreeBranch {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-on-surface-muted);
+}
+
+/* ── Modal form ─────────────────────────────────────────────────── */
+
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}

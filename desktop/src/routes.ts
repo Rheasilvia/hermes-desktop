@@ -22,6 +22,7 @@ export const ROUTES = {
   MEMORY: '/memory',
   GATEWAY: '/gateway',
   CRON: '/cron',
+  PROJECTS: '/projects',
 } as const;
 
 export type RoutePath = (typeof ROUTES)[keyof typeof ROUTES];
