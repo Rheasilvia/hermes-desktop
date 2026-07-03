@@ -80,6 +80,47 @@ async function loadWorktrees(repoPath: string): Promise<void> {
   }
 }
 
+async function addWorktree(input: {
+  repoPath: string;
+  path: string;
+  branch: string;
+  createBranch?: boolean;
+}): Promise<void> {
+  const gateway = getGateway();
+  if (!gateway) return;
+  setError(null);
+  try {
+    await gateway.projects.addWorktree(input);
+    await loadWorktrees(input.repoPath);
+  } catch (e) {
+    setError(errorMessage(e, 'Failed to add worktree'));
+  }
+}
+
+async function removeWorktree(input: { repoPath: string; path: string }): Promise<void> {
+  const gateway = getGateway();
+  if (!gateway) return;
+  setError(null);
+  try {
+    await gateway.projects.removeWorktree(input);
+    await loadWorktrees(input.repoPath);
+  } catch (e) {
+    setError(errorMessage(e, 'Failed to remove worktree'));
+  }
+}
+
+async function switchBranch(input: { repoPath: string; path: string; branch: string }): Promise<void> {
+  const gateway = getGateway();
+  if (!gateway) return;
+  setError(null);
+  try {
+    await gateway.projects.switchBranch({ path: input.path, branch: input.branch });
+    await loadWorktrees(input.repoPath);
+  } catch (e) {
+    setError(errorMessage(e, 'Failed to switch branch'));
+  }
+}
+
 function errorMessage(error: unknown, fallback: string): string {
   if (typeof error === 'string') return error;
   if (error instanceof Error && error.message) return error.message;
@@ -97,6 +138,9 @@ export const projectStore = {
   addProject,
   setActiveProject,
   loadWorktrees,
+  addWorktree,
+  removeWorktree,
+  switchBranch,
   resetForTests() {
     requestSeq += 1;
     activeSeq += 1;

@@ -11,3 +11,4 @@ export { chatStore } from './chat.js';
 export { modelStore } from './models.js';
 export { analyticsStore } from './analytics.js';
 export { cronStore } from './cron.js';
+export { projectStore } from './projects.js';

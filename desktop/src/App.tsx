@@ -14,6 +14,7 @@ import styles from './App.module.css';
 
 const ConversationPage = lazy(() => import('@/pages/ConversationPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
+const ProjectsPage = lazy(() => import('@/pages/ProjectsPage'));
 
 const RedirectRoute: Component<{ to: string }> = (props) => {
   const navigate = useNavigate();
@@ -91,6 +92,9 @@ const App: Component = () => {
           )} />
           <Route path="/settings/*section" component={() => (
             <ModuleSuspense moduleName="Settings"><SettingsPage /></ModuleSuspense>
+          )} />
+          <Route path="/projects" component={() => (
+            <ModuleSuspense moduleName="Projects"><ProjectsPage /></ModuleSuspense>
           )} />
           <Route path="/model" component={() => <RedirectRoute to="/settings/model" />} />
           <Route path="/skills" component={() => <RedirectRoute to="/settings/skills" />} />

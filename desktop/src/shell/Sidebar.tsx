@@ -258,6 +258,12 @@ export const Sidebar: Component = () => {
     {
       items: [
         {
+          href: ROUTES.PROJECTS,
+          label: 'Projects',
+          icon: 'folder',
+          active: isActive(ROUTES.PROJECTS),
+        },
+        {
           href: ROUTES.SETTINGS_GENERAL,
           label: 'Settings',
           icon: 'settings',
