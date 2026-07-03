@@ -97,30 +97,22 @@
   opacity: 0.45;
 }
 
-.reviewShipButton {
+/* ── Ship bar (labeled commit/push/PR actions) ───────────── */
+
+.reviewShipBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 6px var(--space-2);
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-surface);
+}
+
+.reviewShipBar :global(button) {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-on-surface);
-  cursor: pointer;
-  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-}
-
-.reviewShipButton:hover:not(:disabled) {
-  border-color: var(--color-border-focus);
-  background: var(--color-hover-overlay);
-}
-
-.reviewShipButton:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
+  gap: 6px;
 }
 
 .diffHeaderFilesButton {
@@ -1084,7 +1076,9 @@
 }
 
 .diffFileRow:hover .diffFileRowCounts,
-.diffFileRow:focus-within .diffFileRowCounts {
+.diffFileRow:focus-within .diffFileRowCounts,
+.diffFileRow:hover .diffFileRowChurn,
+.diffFileRow:focus-within .diffFileRowChurn {
   opacity: 0;
 }
 
@@ -1124,6 +1118,38 @@
 
 .diffFileRowDeletions {
   color: var(--diff-deletion-color);
+}
+
+/* ── Per-file churn bar ──────────────────────────────────── */
+
+.diffFileRowChurn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.diffFileRowChurnBar {
+  display: flex;
+  width: var(--churn-width, 100%);
+  min-width: 12px;
+  max-width: 48px;
+  height: 3px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  background: var(--color-hover-overlay);
+}
+
+.diffFileRowChurnAdd {
+  height: 100%;
+  background: var(--diff-addition-color);
+}
+
+.diffFileRowChurnDel {
+  height: 100%;
+  background: var(--diff-deletion-color);
 }
 
 .diffFileEmptyState {

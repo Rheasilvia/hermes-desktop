@@ -342,8 +342,8 @@ describe('DiffPanel', () => {
 
     const commitOrPushButton = screen.getByRole('button', { name: 'Commit or push' });
     const createPrButton = screen.getByRole('button', { name: 'Create PR' });
-    expect(commitOrPushButton.textContent).toBe('');
-    expect(createPrButton.textContent).toBe('');
+    expect(commitOrPushButton.textContent).toContain('Commit');
+    expect(createPrButton.textContent).toContain('PR');
     await fireEvent.click(screen.getByRole('button', { name: 'Refresh review' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Stage all changes' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Revert all changes' }));
