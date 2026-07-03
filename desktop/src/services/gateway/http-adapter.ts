@@ -76,6 +76,7 @@ export class HttpGatewayAdapter implements GatewayAdapter {
   readonly userInput: GatewayAdapter['userInput'];
   readonly sudo: GatewayAdapter['sudo'];
   readonly secret: GatewayAdapter['secret'];
+  readonly terminal: GatewayAdapter['terminal'];
   readonly cron: GatewayAdapter['cron'];
   readonly mcp: GatewayAdapter['mcp'];
   readonly memory: GatewayAdapter['memory'];
@@ -249,6 +250,11 @@ export class HttpGatewayAdapter implements GatewayAdapter {
     this.secret = {
       respond: async (params: { request_id: string; value: string }): Promise<void> => {
         await this.http.post(`${API_PREFIX}/secret/respond`, params);
+      },
+    };
+    this.terminal = {
+      readRespond: async (params: { request_id: string; value: string }): Promise<void> => {
+        await this.http.post(`${API_PREFIX}/terminal/read/respond`, params);
       },
     };
     this.cron = {
@@ -813,6 +819,16 @@ export class HttpGatewayAdapter implements GatewayAdapter {
           prompt: String(payload.prompt ?? ''),
           env_var: String(payload.env_var ?? ''),
         } as GatewayEventMap['secret.request']);
+        break;
+      case 'terminal.read.request':
+        this.emit('terminal.read.request', {
+          session_id: sid,
+          request_id: String(payload.request_id ?? ''),
+          start: payload.start != null ? Number(payload.start) : undefined,
+          count: payload.count != null ? Number(payload.count) : undefined,
+          turn_id: turnId,
+          event_seq: eventSeq,
+        } as GatewayEventMap['terminal.read.request']);
         break;
       case 'clarify.request':
         this.emit('clarify.request', {

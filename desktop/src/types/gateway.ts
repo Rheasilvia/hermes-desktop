@@ -471,6 +471,21 @@ export interface SecretRequestPayload {
   request_id: string;
 }
 
+/**
+ * read_terminal request event payload. The agent asked to read the in-app
+ * terminal's xterm buffer; the renderer answers via gateway.terminal.readRespond.
+ * `start`/`count` describe the requested [start, start+count) line window; both
+ * omitted means the visible screen.
+ */
+export interface TerminalReadRequestPayload {
+  session_id: string;
+  request_id: string;
+  start?: number;
+  count?: number;
+  turn_id?: string;
+  event_seq?: number;
+}
+
 /** Background complete event payload. */
 export interface BackgroundCompletePayload {
   task_id: string;

@@ -589,6 +589,24 @@ class AgentExecutionService:
                 turn_id=turn_id,
             )
 
+        def read_terminal(**window: int) -> str:
+            # The embedded terminal's xterm buffer lives in the desktop
+            # renderer, so — like clarify — block the agent worker on the
+            # gateway prompt bridge: emit terminal.read.request with the
+            # requested [start, start+count) window, wait for the renderer to
+            # POST /terminal/read/respond, and hand the JSON string back to the
+            # read_terminal tool. A short timeout keeps a closed/unmounted panel
+            # from pinning the running-agent guard; the tool reports "" as a
+            # timeout/no-terminal error.
+            answer = self._block_for_prompt(
+                "terminal.read.request",
+                session_id,
+                {k: v for k, v in window.items() if v is not None},
+                timeout=20,
+                turn_id=turn_id,
+            )
+            return answer
+
         def request_user_input(args: dict[str, Any]) -> dict[str, Any]:
             if collaboration_mode != "plan":
                 return {"error": "request_user_input is unavailable outside Plan Mode"}
@@ -605,6 +623,7 @@ class AgentExecutionService:
             return {"answers": answers}
 
         remember("clarify_callback", clarify)
+        remember("read_terminal_callback", read_terminal)
         remember("request_user_input_callback", request_user_input)
         remember("_desktop_collaboration_mode", collaboration_mode)
         return previous

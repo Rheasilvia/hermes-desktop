@@ -70,6 +70,7 @@ import type {
   UserInputResponsePayload,
   SudoRequestPayload,
   SecretRequestPayload,
+  TerminalReadRequestPayload,
   BackgroundCompletePayload,
   BtwCompletePayload,
   ErrorPayload,
@@ -113,6 +114,7 @@ export interface GatewayEventMap {
   'user_input.response': UserInputResponsePayload;
   'sudo.request': SudoRequestPayload;
   'secret.request': SecretRequestPayload;
+  'terminal.read.request': TerminalReadRequestPayload;
   'background.complete': BackgroundCompletePayload;
   'btw.complete': BtwCompletePayload;
   'notebook.changed': NotebookChangedPayload;
@@ -293,6 +295,16 @@ export interface SudoMethods {
 /** Secret method group. */
 export interface SecretMethods {
   respond(params: { request_id: string; value: string }): Promise<void>;
+}
+
+/** read_terminal method group. */
+export interface TerminalMethods {
+  /**
+   * Answer a `terminal.read.request` with the serialized xterm buffer window.
+   * `value` is the JSON string {total_lines, start, end, viewport_rows,
+   * cursor_row, text} — or an empty payload when no terminal is open.
+   */
+  readRespond(params: { request_id: string; value: string }): Promise<void>;
 }
 
 /** Cron method group. */
@@ -516,6 +528,7 @@ export interface GatewayAdapter extends GatewayEventEmitter {
   readonly userInput: UserInputMethods;
   readonly sudo: SudoMethods;
   readonly secret: SecretMethods;
+  readonly terminal: TerminalMethods;
   readonly cron: CronMethods;
   readonly mcp: McpMethods;
   readonly memory: MemoryMethods;

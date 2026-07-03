@@ -31,6 +31,7 @@ from ..schemas.conversation import (
     UpdateSessionRuntimeRequest,
     SetSessionProviderRequest,
     SudoRespondRequest,
+    TerminalReadRespondRequest,
     UserInputRespondRequest,
 )
 from ..services.dependencies import (
@@ -568,4 +569,17 @@ async def secret_respond(body: SecretRespondRequest):
 
     if not resolve_blocking_prompt(body.request_id, body.value):
         raise HTTPException(status_code=404, detail="NO_PENDING_SECRET_REQUEST")
+    return {"ok": True}
+
+
+@router.post("/terminal/read/respond")
+async def terminal_read_respond(body: TerminalReadRespondRequest):
+    # Renderer's answer to a terminal.read.request raised by the read_terminal
+    # tool from the agent worker thread. `value` is the JSON string
+    # {total_lines, start, end, viewport_rows, cursor_row, text} (or an empty
+    # payload when no terminal is open). Resolving unblocks that worker.
+    from ..services.agent_execution_service import resolve_blocking_prompt
+
+    if not resolve_blocking_prompt(body.request_id, body.value):
+        raise HTTPException(status_code=404, detail="NO_PENDING_TERMINAL_READ_REQUEST")
     return {"ok": True}

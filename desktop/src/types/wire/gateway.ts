@@ -8,7 +8,7 @@ export type {
   ToolGeneratingPayload, ToolErrorPayload, ApprovalRequestPayload, ClarifyRequestPayload,
   UserInputOptionPayload, UserInputQuestionPayload, UserInputAnswersPayload,
   UserInputRequestPayload, UserInputResponsePayload,
-  SudoRequestPayload, SecretRequestPayload, BackgroundCompletePayload, BtwCompletePayload,
+  SudoRequestPayload, SecretRequestPayload, TerminalReadRequestPayload, BackgroundCompletePayload, BtwCompletePayload,
   ErrorPayload, TurnInterruptedPayload, SessionRewindPayload, GatewayStderrPayload, ProtocolErrorPayload,
   SessionTitleUpdatePayload, ModelChangedPayload, TodoItem,
   SubagentStartPayload, SubagentProgressPayload, SubagentCompletePayload,
