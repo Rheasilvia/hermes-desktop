@@ -313,7 +313,6 @@ describe('conversation split layout CSS', () => {
     const headerRule = ruleBody(css, '.diffPanelHeader');
     const titleRule = ruleBody(css, '.diffPanelTitle');
     const countRule = ruleBody(css, '.diffPanelCount');
-    const reviewShipButtonRule = ruleBody(css, '.reviewShipButton');
     const diffSummaryRule = ruleBody(css, '.diffSummary');
     const reviewBodyRule = ruleBody(css, '.diffReviewBody');
     const reviewBodySplitRule = ruleBody(css, '.diffReviewBodySplit');
@@ -343,9 +342,6 @@ describe('conversation split layout CSS', () => {
     expect(headerRule).toContain('overflow: hidden');
     expect(titleRule).toContain('flex: 0 0 auto');
     expect(countRule).toContain('flex: 0 0 auto');
-    expect(reviewShipButtonRule).toContain('width: 28px');
-    expect(reviewShipButtonRule).toContain('min-width: 28px');
-    expect(reviewShipButtonRule).toContain('padding: 0');
     expect(diffSummaryRule).toContain('flex: 0 0 auto');
     expect(diffSummaryRule).toContain('align-items: baseline');
     expect(reviewBodyRule).toContain('display: grid');

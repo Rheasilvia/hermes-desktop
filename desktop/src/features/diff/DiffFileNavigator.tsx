@@ -8,13 +8,15 @@ import type {
   DiffFileNavigatorRow,
   DiffFileStatusFilter,
 } from './diff-file-navigator-model.js';
-import { filterDiffFileRows } from './diff-file-navigator-model.js';
+import { churnBarSegments, filterDiffFileRows } from './diff-file-navigator-model.js';
 import styles from './DiffPanel.module.css';
 
 interface DiffFileNavigatorProps {
   rows: DiffFileNavigatorRow[];
   activeIndex: number;
   ariaLabel: string;
+  /** Largest ins+del churn across all rows, used to scale each row's bar width. */
+  maxChurn?: number;
   onSelect: (index: number) => void;
   onClose?: () => void;
   reviewFiles?: ReviewFile[];
@@ -427,13 +429,40 @@ export const DiffFileNavigator: Component<DiffFileNavigatorProps> = (props) => {
                           <span class={styles.diffFileRowDir}>{row.dirname}</span>
                         </Show>
                       </span>
-                      <span class={styles.diffFileRowCounts}>
-                        <Show when={row.insertions > 0}>
-                          <span class={styles.diffFileRowInsertions}>+{row.insertions}</span>
-                        </Show>
-                        <Show when={row.deletions > 0}>
-                          <span class={styles.diffFileRowDeletions}>-{row.deletions}</span>
-                        </Show>
+                      <span class={styles.diffFileRowChurn}>
+                        <span class={styles.diffFileRowCounts}>
+                          <Show when={row.insertions > 0}>
+                            <span class={styles.diffFileRowInsertions}>+{row.insertions}</span>
+                          </Show>
+                          <Show when={row.deletions > 0}>
+                            <span class={styles.diffFileRowDeletions}>-{row.deletions}</span>
+                          </Show>
+                        </span>
+                        {(() => {
+                          const churn = churnBarSegments(row.insertions, row.deletions, props.maxChurn);
+                          return (
+                            <Show when={churn.total > 0}>
+                              <span
+                                class={styles.diffFileRowChurnBar}
+                                aria-hidden="true"
+                                style={{ '--churn-width': `${churn.widthFraction * 100}%` } as JSX.CSSProperties}
+                              >
+                                <Show when={churn.addPct > 0}>
+                                  <span
+                                    class={styles.diffFileRowChurnAdd}
+                                    style={{ width: `${churn.addPct}%` }}
+                                  />
+                                </Show>
+                                <Show when={churn.delPct > 0}>
+                                  <span
+                                    class={styles.diffFileRowChurnDel}
+                                    style={{ width: `${churn.delPct}%` }}
+                                  />
+                                </Show>
+                              </span>
+                            </Show>
+                          );
+                        })()}
                       </span>
                     </div>
                     <Show when={file()}>
