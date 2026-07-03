@@ -22,8 +22,15 @@ def normalize_permission_mode(mode: str | None) -> str:
     return value
 
 
-def normalize_reasoning_effort(effort: str | None, *, strict: bool = True) -> str:
+def normalize_reasoning_effort(effort: str | bool | None, *, strict: bool = True) -> str:
+    # A JS boolean `false` (reasoning off) serializes to Python `False`, and
+    # some callers pre-stringify it to "False"/"false". Map all of these to the
+    # canonical "none" so "off" is never silently coerced back to the default.
+    if effort is False:
+        return "none"
     value = str(effort or "").strip().lower()
+    if value == "false":
+        return "none"
     if value in REASONING_EFFORTS:
         return value
     if strict:

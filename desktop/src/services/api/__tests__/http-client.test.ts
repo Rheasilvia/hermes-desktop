@@ -128,4 +128,37 @@ describe('HttpClient', () => {
       traceId: 'abc',
     });
   });
+
+  it('does not attach an abort signal when no timeout is given', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const c = new HttpClient();
+    await c.get('/x');
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.signal).toBeUndefined();
+  });
+
+  it('passes an abort signal when a timeout is given', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const c = new HttpClient();
+    await c.get('/x', { timeoutMs: 5000 });
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('surfaces a timeout as a non-retried REQUEST_TIMEOUT ApiError', async () => {
+    // AbortSignal.timeout aborts the fetch with a DOMException named TimeoutError.
+    fetchMock.mockRejectedValue(
+      new DOMException('The operation timed out.', 'TimeoutError'),
+    );
+    const c = new HttpClient();
+    await expect(c.get('/x', { timeoutMs: 10 })).rejects.toMatchObject({
+      code: 'REQUEST_TIMEOUT',
+    });
+    // A timeout must not be retried even for GET (budget already spent).
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

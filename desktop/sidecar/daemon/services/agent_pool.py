@@ -253,7 +253,9 @@ class AgentPool:
 
             if effort is not None:
                 from hermes_constants import parse_reasoning_effort
-                normalized = normalize_reasoning_effort(str(effort))
+                # Pass the raw value (may be a JS boolean False) — the
+                # normalizer maps False/"false" → "none" (reasoning off).
+                normalized = normalize_reasoning_effort(effort)
                 parsed = parse_reasoning_effort(normalized)
             if collaboration_mode is not None:
                 normalized_collaboration_mode = normalize_collaboration_mode(str(collaboration_mode))

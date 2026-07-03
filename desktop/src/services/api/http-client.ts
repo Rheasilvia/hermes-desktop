@@ -73,7 +73,7 @@ export class HttpClient {
   private async send(
     path: string,
     init: RequestInit,
-    opts: { retryNetwork: boolean; retryAuthOnce: boolean },
+    opts: { retryNetwork: boolean; retryAuthOnce: boolean; timeoutMs?: number },
   ): Promise<unknown> {
     const info = await this.info();
     const url = `${info.base_url}${path}`;
@@ -90,7 +90,14 @@ export class HttpClient {
     let lastError: unknown;
     while (true) {
       try {
-        const resp = await fetch(url, merged);
+        // Per-call timeout is opt-in: with no `timeoutMs` the request has no
+        // upper bound (historical behavior — long agent turns must not be
+        // cut off). Callers that want a bound (e.g. cold-start boot loads)
+        // pass an explicit budget. A fresh signal per attempt so retries get
+        // the full budget rather than a shared, already-elapsed deadline.
+        const signal =
+          opts.timeoutMs != null ? AbortSignal.timeout(opts.timeoutMs) : undefined;
+        const resp = await fetch(url, signal ? { ...merged, signal } : merged);
         if (resp.status === 401 && opts.retryAuthOnce) {
           opts.retryAuthOnce = false;
           const fresh = await this.info(true);
@@ -125,6 +132,16 @@ export class HttpClient {
         return await resp.json();
       } catch (err) {
         lastError = err;
+        // AbortSignal.timeout fires a DOMException named "TimeoutError".
+        // Surface it as a clear ApiError instead of a raw DOMException, and
+        // never retry it — the caller's budget is already spent.
+        if (err instanceof DOMException && err.name === 'TimeoutError') {
+          throw makeApiError(
+            'REQUEST_TIMEOUT',
+            `Request timed out after ${opts.timeoutMs}ms: ${path}`,
+            'unknown',
+          );
+        }
         const isNetwork = err instanceof TypeError;
         if (
           opts.retryNetwork &&
@@ -140,11 +157,11 @@ export class HttpClient {
     }
   }
 
-  get<T>(path: string): Promise<T> {
+  get<T>(path: string, opts?: { timeoutMs?: number }): Promise<T> {
     return this.send(
       path,
       { method: 'GET' },
-      { retryNetwork: true, retryAuthOnce: true },
+      { retryNetwork: true, retryAuthOnce: true, timeoutMs: opts?.timeoutMs },
     ) as Promise<T>;
   }
 
