@@ -42,6 +42,9 @@ runtime.
 
 > ⚠️ **Platform support:** Hermes Desktop currently runs on **macOS only**.
 > Windows and Linux packaging is configured but not yet tested or supported.
+> For upstream Hermes runtime or CLI use on Windows, use the PowerShell
+> installer at `scripts/install.ps1`; that is separate from this Tauri desktop
+> packaging status.
 
 **Prerequisites** (macOS)
 
