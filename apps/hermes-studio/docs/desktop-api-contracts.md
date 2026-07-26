@@ -1,5 +1,9 @@
 # Desktop API Contract Inventory
 
+> **Superseded historical inventory.** This Tauri-stage document is retained
+> for history. The active Electron sidecar contract is documented in
+> [API_CONTRACTS.md](./API_CONTRACTS.md).
+
 This table is the stage-one source of truth for Tauri desktop resource APIs.
 Electron is only a reference for capability parity; the implementation below
 targets `desktop/`.

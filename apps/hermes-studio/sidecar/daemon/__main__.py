@@ -19,10 +19,20 @@ except ImportError:
     from daemon.config import load_config  # type: ignore[no-redef]
 
 
-def _announce(server: uvicorn.Server, port: int) -> None:
+def _bound_port(server: uvicorn.Server) -> int:
+    """Return the port from the socket Uvicorn actually bound."""
+    for running_server in getattr(server, "servers", []):
+        for sock in running_server.sockets or []:
+            address = sock.getsockname()
+            if isinstance(address, tuple) and len(address) >= 2:
+                return int(address[1])
+    raise RuntimeError("Uvicorn started without an inspectable TCP socket")
+
+
+def _announce(server: uvicorn.Server) -> None:
     while not server.started:
         time.sleep(0.01)
-    sys.stdout.write(f"READY {port}\n")
+    sys.stdout.write(f"READY {_bound_port(server)}\n")
     sys.stdout.flush()
 
 
@@ -38,7 +48,7 @@ def main() -> int:
         access_log=False,
     )
     server = uvicorn.Server(config)
-    threading.Thread(target=_announce, args=(server, cfg.port), daemon=True).start()
+    threading.Thread(target=_announce, args=(server,), daemon=True).start()
     server.run()
     return 0
 

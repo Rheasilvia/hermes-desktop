@@ -1,11 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+import sys
 
 from PyInstaller.utils.hooks import collect_submodules, is_module_or_submodule
 
 block_cipher = None
-ROOT = Path.cwd().parent.parent
+SIDECAR_ROOT = Path(SPECPATH).resolve()
+ROOT = SIDECAR_ROOT.parents[2]
 
 hiddenimports = (
     collect_submodules("daemon")
@@ -21,8 +23,8 @@ hiddenimports = (
 )
 
 a = Analysis(
-    ["daemon/__main__.py"],
-    pathex=[".", str(ROOT)],
+    [str(SIDECAR_ROOT / "daemon" / "__main__.py")],
+    pathex=[str(SIDECAR_ROOT), str(ROOT)],
     binaries=[],
     datas=[],
     hiddenimports=hiddenimports,
@@ -37,5 +39,7 @@ exe = EXE(
     pyz, a.scripts, a.binaries, a.zipfiles, a.datas,
     name="daemon",
     debug=False, bootloader_ignore_signals=False,
-    strip=True, upx=False, console=True,
+    strip=not sys.platform.startswith("win"),
+    upx=False,
+    console=not sys.platform.startswith("win"),
 )

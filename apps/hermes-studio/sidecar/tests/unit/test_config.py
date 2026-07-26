@@ -33,6 +33,13 @@ def test_load_config_respects_port_env(monkeypatch, tmp_path):
     assert cfg.port == 18081
 
 
+def test_load_config_accepts_ephemeral_port(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("DESKTOP_BACKEND_PORT", "0")
+
+    assert load_config().port == 0
+
+
 def test_load_config_respects_token_env(monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("DESKTOP_BACKEND_TOKEN", "my-test-token")

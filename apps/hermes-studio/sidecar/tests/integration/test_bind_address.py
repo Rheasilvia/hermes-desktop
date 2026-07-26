@@ -34,15 +34,17 @@ def _free_loopback_port() -> int:
         sock.close()
 
 
-def test_sidecar_binds_loopback_only(tmp_path: Path) -> None:
+@pytest.mark.parametrize("use_ephemeral_port", [True, False])
+def test_sidecar_binds_loopback_only(tmp_path: Path, use_ephemeral_port: bool) -> None:
     """Verify the sidecar prints READY <port>, accepts 127.0.0.1, and
     refuses connections on external interfaces."""
     home = _setup_home(tmp_path)
+    requested_port = 0 if use_ephemeral_port else _free_loopback_port()
     env = {
         **os.environ,
         "HERMES_HOME": str(home),
         "DESKTOP_BACKEND_TOKEN": "integration-token",
-        "DESKTOP_BACKEND_PORT": str(_free_loopback_port()),
+        "DESKTOP_BACKEND_PORT": str(requested_port),
     }
     proc = subprocess.Popen(
         [sys.executable, "-m", "daemon"],
@@ -71,6 +73,10 @@ def test_sidecar_binds_loopback_only(tmp_path: Path) -> None:
                 if ready_err:
                     stderr = os.read(proc.stderr.fileno(), 4096).decode(errors="replace")
             raise AssertionError(f"sidecar did not announce READY <port>\n{stderr}")
+
+        assert port > 0
+        if requested_port:
+            assert port == requested_port
 
         # Loopback works
         r = httpx.get(f"http://127.0.0.1:{port}/desktop/api/health", timeout=2)

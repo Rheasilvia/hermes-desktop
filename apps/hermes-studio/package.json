@@ -14,10 +14,10 @@
     "build:renderer": "vite build",
     "build:electron": "node scripts/bundle-electron.mjs",
     "start": "npm run build && electron .",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
+    "pack": "npm run backend:build && npm run build && electron-builder --dir",
+    "dist": "npm run backend:build && npm run build && electron-builder",
     "tauri": "tauri",
-    "backend:build": "bash sidecar/scripts/build_dist.sh",
+    "backend:build": "uv run --directory sidecar python scripts/build_dist.py",
     "tauri:dev": "npm run backend:build && tauri dev",
     "tauri:build": "tauri build",
     "type-check": "npm run typecheck",
@@ -86,7 +86,17 @@
     ],
     "asar": true,
     "asarUnpack": [
-      "**/*.node"
+      "node_modules/node-pty/**"
+    ],
+    "extraResources": [
+      {
+        "from": "sidecar/dist/electron",
+        "to": "sidecar",
+        "filter": [
+          "daemon",
+          "daemon.exe"
+        ]
+      }
     ],
     "mac": {
       "target": [

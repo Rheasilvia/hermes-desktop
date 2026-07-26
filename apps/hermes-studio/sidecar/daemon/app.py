@@ -181,14 +181,11 @@ def build_app(cfg: Config) -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        # http(s)://localhost|127.0.0.1 → dev (vite devUrl http://localhost:1420)
-        # tauri://localhost            → macOS/Linux production webview
-        # https://tauri.localhost      → Windows production webview
-        allow_origin_regex=(
-            r"(https?://(localhost|127\.0\.0\.1)(:\d+)?"
-            r"|tauri://localhost"
-            r"|https://tauri\.localhost)"
-        ),
+        allow_origins=[
+            "hermes-studio://app",
+            "http://localhost:1420",
+            "http://127.0.0.1:1420",
+        ],
         allow_credentials=False,
         allow_methods=["GET", "PATCH", "PUT", "POST", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "X-Desktop-Workspace-Grant"],
