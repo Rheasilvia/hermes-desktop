@@ -206,6 +206,37 @@ class TestEnsure:
         with pytest.raises(ld.FeatureUnavailable, match="still not importable"):
             ld.ensure("test.cache", prompt=False)
 
+    def test_frozen_runtime_refuses_install_without_spawning_python(self, monkeypatch):
+        monkeypatch.setitem(ld.LAZY_DEPS, "test.frozen", ("zzzfake>=1",))
+        monkeypatch.setattr(ld, "_is_satisfied", lambda spec: False)
+        monkeypatch.setattr(ld.sys, "frozen", True, raising=False)
+        monkeypatch.setattr(
+            ld.subprocess,
+            "run",
+            lambda *args, **kwargs: pytest.fail("frozen app must not invoke pip"),
+        )
+
+        with pytest.raises(
+            ld.FeatureUnavailable,
+            match="unavailable in a frozen Hermes application",
+        ) as exc_info:
+            ld.ensure("test.frozen", prompt=False)
+        assert "pip cannot modify the packaged executable" in str(exc_info.value)
+        assert "To enable manually" not in str(exc_info.value)
+
+    def test_internal_installer_is_defensive_in_frozen_runtime(self, monkeypatch):
+        monkeypatch.setattr(ld.sys, "frozen", True, raising=False)
+        monkeypatch.setattr(
+            ld.subprocess,
+            "run",
+            lambda *args, **kwargs: pytest.fail("frozen app must not invoke pip"),
+        )
+
+        result = ld._venv_pip_install(("zzzfake>=1",))
+
+        assert result.success is False
+        assert "frozen Hermes application" in result.stderr
+
 
 # ---------------------------------------------------------------------------
 # is_available

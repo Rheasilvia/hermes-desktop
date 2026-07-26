@@ -65,6 +65,13 @@ execute bits, and verifies the real frozen executable's `READY <port>` stdout
 protocol plus authenticated loopback health. The Windows executable retains a
 console subsystem so stdout remains pipeable; Electron launches it with
 `windowsHide: true`, so no console window is shown.
+The same smoke gate invokes the staged binary with interpreter-style arguments
+and requires an immediate non-zero rejection, then exercises the private POSIX
+MCP watchdog dispatch with a short-lived child. Every probe and health launch
+collects only its own descendant tree on timeout or exit; it never kills by
+process name. Optional dependencies required by a frozen release must be
+included at build time because a packaged daemon cannot mutate itself with
+lazy `pip` installation.
 
 `build` bundles the renderer/main/preload and stages only the matching
 `node-pty` runtime into `dist/node_modules/node-pty`. A matching prebuild is

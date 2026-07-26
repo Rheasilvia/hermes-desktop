@@ -83,6 +83,16 @@ from hermes_cli._subprocess_compat import windows_hide_flags
 
 logger = logging.getLogger(__name__)
 
+_FROZEN_INSTALL_REASON = (
+    "runtime dependency installation is unavailable in a frozen Hermes "
+    "application; install a package that bundles this feature"
+)
+
+
+def _is_frozen_runtime() -> bool:
+    """Return whether Hermes is running from an application freezer."""
+    return bool(getattr(sys, "frozen", False))
+
 
 # =============================================================================
 # Allowlist of lazy-installable backends.
@@ -263,16 +273,26 @@ class FeatureUnavailable(RuntimeError):
     installs, or the install attempt failed.
     """
 
-    def __init__(self, feature: str, missing: tuple[str, ...], reason: str):
+    def __init__(
+        self,
+        feature: str,
+        missing: tuple[str, ...],
+        reason: str,
+        *,
+        remediation: str | None = None,
+    ):
         self.feature = feature
         self.missing = missing
         self.reason = reason
+        self.remediation = remediation
         super().__init__(self._format())
 
     def _format(self) -> str:
         spec_list = " ".join(repr(s) for s in self.missing)
-        return (
-            f"Feature {self.feature!r} unavailable: {self.reason}. "
+        prefix = f"Feature {self.feature!r} unavailable: {self.reason}. "
+        if self.remediation:
+            return prefix + self.remediation
+        return prefix + (
             f"To enable manually: uv pip install {spec_list}  "
             f"(or: pip install {spec_list})."
         )
@@ -639,6 +659,13 @@ def _venv_pip_install(specs: tuple[str, ...], *, timeout: int = 300) -> _Install
     if not specs:
         return _InstallResult(True, "", "")
 
+    # In a frozen application sys.executable is the application binary, not a
+    # Python interpreter or mutable virtualenv.  Calling it with ``-m pip``
+    # recursively re-enters the application and can leak an unbounded process
+    # tree.  Frozen distributions must bundle optional features at build time.
+    if _is_frozen_runtime():
+        return _InstallResult(False, "", _FROZEN_INSTALL_REASON)
+
     target = _lazy_install_target()
     constraints: Optional[Path] = None
 
@@ -766,6 +793,17 @@ def ensure(feature: str, *, prompt: bool = True) -> None:
     unsupported = _unsupported_feature_reason(feature)
     if unsupported:
         raise FeatureUnavailable(feature, missing, unsupported)
+
+    if _is_frozen_runtime():
+        raise FeatureUnavailable(
+            feature,
+            missing,
+            _FROZEN_INSTALL_REASON,
+            remediation=(
+                "Install a Hermes application build that bundles the required "
+                "feature; pip cannot modify the packaged executable."
+            ),
+        )
 
     # Validate every spec against the allowlist + safety regex. Belt and
     # braces — the keys-in-LAZY_DEPS check above already constrains this.

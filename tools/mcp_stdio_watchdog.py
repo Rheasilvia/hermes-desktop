@@ -25,14 +25,17 @@ instead, which:
   2. transparently passes stdin/stdout/stderr through — the MCP stdio
      protocol talks directly over those pipes, so the supervisor must be a
      no-op relay, not a bytes-in-the-middle proxy;
-  3. runs a background thread that polls the direct POSIX parent identity:
-     compare current ``getppid()`` against the parent PID recorded when the
-     wrapper was created;
+  3. runs a background thread that polls the parent identity. Normal Python
+     launches compare direct ``getppid()``. A PyInstaller one-file launch has
+     an intermediate bootloader parent, so its explicit frozen entry point
+     compares the original parent's PID plus process creation time instead;
   4. the instant the original parent is gone, terminates the real child's
      process group (SIGTERM, grace period, then SIGKILL) and exits.
 
-This is intentionally a thin, standard-library-only script so it starts fast
-and can't itself become a resource leak.
+This is intentionally a thin script so it starts fast and cannot itself become
+a resource leak. Normal Python launches use only the standard library; the
+explicit frozen mode uses the already-bundled ``psutil`` solely to distinguish
+the original parent from PyInstaller's intermediate bootloader.
 
 Usage (see ``tools/mcp_tool.py::_run_stdio``)::
 
@@ -54,9 +57,35 @@ _POLL_INTERVAL_S = 2.0
 _TERM_GRACE_S = 3.0
 
 
-def _is_orphaned(original_ppid: int, getppid=os.getppid) -> bool:
-    """Return whether this process no longer has its original POSIX parent."""
-    return getppid() != original_ppid
+def _is_orphaned(
+    original_ppid: int,
+    getppid=os.getppid,
+    *,
+    parent_create_time: float | None = None,
+    process_factory=None,
+) -> bool:
+    """Return whether the original parent identity is gone.
+
+    ``parent_create_time`` is used only by an explicitly integrated frozen
+    entry point. PyInstaller one-file inserts a bootloader between this Python
+    process and the original Hermes process, so a direct ``getppid`` comparison
+    would immediately report a false orphan. Creation time closes the PID-reuse
+    race while allowing that known intermediary.
+    """
+    if parent_create_time is None:
+        return getppid() != original_ppid
+
+    try:
+        if process_factory is None:
+            import psutil
+
+            process_factory = psutil.Process
+        parent = process_factory(original_ppid)
+        return not parent.is_running() or abs(
+            parent.create_time() - parent_create_time
+        ) > 1e-6
+    except Exception:
+        return True
 
 
 def _terminate_process_group(proc: subprocess.Popen) -> None:
@@ -92,9 +121,16 @@ def _terminate_process_group(proc: subprocess.Popen) -> None:
             continue
 
 
-def _watchdog_loop(proc: subprocess.Popen, original_ppid: int) -> None:
+def _watchdog_loop(
+    proc: subprocess.Popen,
+    original_ppid: int,
+    parent_create_time: float | None = None,
+) -> None:
     while proc.poll() is None:
-        if _is_orphaned(original_ppid):
+        if _is_orphaned(
+            original_ppid,
+            parent_create_time=parent_create_time,
+        ):
             _terminate_process_group(proc)
             return
         time.sleep(_POLL_INTERVAL_S)
@@ -105,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Parent-death watchdog for a stdio MCP subprocess.",
     )
     parser.add_argument("--ppid", type=int, required=True)
+    parser.add_argument("--parent-create-time", type=float)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
 
@@ -141,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
 
     watchdog = threading.Thread(
         target=_watchdog_loop,
-        args=(proc, args.ppid),
+        args=(proc, args.ppid, args.parent_create_time),
         daemon=True,
     )
     watchdog.start()

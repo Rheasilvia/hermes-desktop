@@ -221,6 +221,14 @@ the staging directory is cleared first so output from another host cannot leak
 into the package. electron-builder copies it to packaged
 `resources/sidecar`. `node-pty` native files are unpacked from ASAR and its
 POSIX helper is repaired in the writable `app.asar.unpacked` tree when needed.
+The frozen daemon is an application entry point, not a Python interpreter: it
+rejects arbitrary argv such as `-m pip`, disables runtime lazy installation,
+and exposes only one private dispatch action for the bundled POSIX MCP
+parent-death watchdog. That action tracks the original Studio process by PID
+and creation time because the one-file bootloader is the watchdog's immediate
+parent. Frozen entry points that do not advertise that action
+safely retain normal MCP shutdown cleanup without attempting to execute a
+Python source path through themselves.
 Windows sets the package app id early for toast identity. macOS enables hardened
 runtime and uses Studio-owned main/inherit entitlements for microphone and
 Electron native runtime requirements.

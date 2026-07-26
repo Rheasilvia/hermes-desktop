@@ -709,9 +709,48 @@ def _wrap_command_with_watchdog(command: str, args: list) -> tuple[str, list]:
     except Exception:
         # Never let watchdog bookkeeping failure block a real MCP connection.
         return command, args
+    watchdog_prefix: list[str]
+    frozen_parent_identity: list[str] = []
+    if bool(getattr(sys, "frozen", False)):
+        frozen_entrypoint = getattr(sys, "_hermes_mcp_watchdog_entrypoint", None)
+        if not isinstance(frozen_entrypoint, str) or not frozen_entrypoint:
+            # A frozen executable is not necessarily able to execute a Python
+            # source path.  Entry points that bundle the watchdog explicitly
+            # opt in through the process-local marker above; all others keep
+            # the existing command rather than recursively re-entering their
+            # application entry point.
+            logger.warning(
+                "MCP stdio parent-death watchdog unavailable in this frozen "
+                "runtime; relying on normal MCP shutdown cleanup"
+            )
+            return command, args
+        watchdog_prefix = [frozen_entrypoint]
+        try:
+            import psutil
+
+            parent_create_time = psutil.Process(my_pid).create_time()
+        except Exception:
+            logger.warning(
+                "MCP stdio parent-death watchdog could not capture the frozen "
+                "parent process identity; relying on normal MCP shutdown cleanup"
+            )
+            return command, args
+        frozen_parent_identity = [
+            "--parent-create-time",
+            repr(parent_create_time),
+        ]
+    else:
+        watchdog_prefix = [
+            os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "mcp_stdio_watchdog.py",
+            )
+        ]
+
     watchdog_args = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_stdio_watchdog.py"),
+        *watchdog_prefix,
         "--ppid", str(my_pid),
+        *frozen_parent_identity,
         "--",
         command,
         *args,
