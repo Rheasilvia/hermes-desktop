@@ -62,12 +62,12 @@ function validFixture() {
   put(
     root,
     'apps/hermes-studio/docs/NATIVE_BRIDGE.md',
-    '# Native bridge\n\n## Capability ledger\n\n| Public bridge API/event | Legacy origin | Main validation/ownership | Unit/automated evidence | Packaged acceptance |\n| --- | --- | --- | --- | --- |\n| `app.version()` | old version | trusted sender | routing test | packaged version |\n| `backend.onReady()` | old ready event | frozen event payload | unsubscribe test | packaged ready event |\n',
+    '# Native bridge\n\n## Renderer API\n\nOnly the current Electron bridge is active.\n\n## Capability ledger\n\n| Public bridge API/event | Legacy origin | Main validation/ownership | Unit/automated evidence | Packaged acceptance |\n| --- | --- | --- | --- | --- |\n| `app.version()` | old version | trusted sender | routing test | packaged version |\n| `backend.restart()` | lifecycle addition | trusted sender; the same token and workspace grant remain unchanged while only the child, port, and SidecarInfo update | restart test | packaged child and port change while token and grant remain stable |\n| `backend.onReady()` | old ready event | frozen event payload | unsubscribe test | packaged ready event |\n| `backend.onRestarted()` | lifecycle event | replacement SidecarInfo carries the updated port and same token; hidden grant remains unchanged | restart event test | reconnect to the new port with the same token and grant |\n| `window.startDrag()` | old window plugin | trusted sender; always returns `WINDOW_DRAG_REGION_REQUIRED`; there is no programmatic drag | native-bridge-main rejection test | CSS `-webkit-app-region: drag` moves the window and a direct API call is stably rejected |\n\nLegacy Tauri entries in this ledger are retired dispositions.\n\n## Request validation\n\nCurrent boundary rules only.\n\n## Verification\n\n### Retired-surface search\n\nThe final search verifies that Tauri imports stay absent.\n\n### Automated and packaged evidence\n\nCurrent evidence only.\n',
   );
   put(
     root,
     'apps/hermes-studio/src/shared/native-bridge.ts',
-    'export type Unsubscribe = () => void\n\nexport interface HermesStudioBridge {\n  app: {\n    version(): Promise<string>\n  }\n  backend: {\n    onReady(callback: (value: string) => void): Unsubscribe\n  }\n}\n',
+    'export type Unsubscribe = () => void\n\nexport interface HermesStudioBridge {\n  app: {\n    version(): Promise<string>\n  }\n  backend: {\n    restart(): Promise<string>\n    onReady(callback: (value: string) => void): Unsubscribe\n    onRestarted(callback: (value: string) => void): Unsubscribe\n  }\n  window: {\n    startDrag(): Promise<void>\n  }\n}\n',
   );
   put(
     root,
@@ -86,7 +86,7 @@ function validFixture() {
   put(
     root,
     'apps/hermes-studio/docs/decisions/ADR-001-electron-shell.md',
-    '# ADR\n\n- Status: Accepted\n\n## Decision\n\nRetain the SolidJS renderer over REST and SSE. `apps/desktop` is not Hermes Studio and is not a runtime dependency. Studio has the independent appId `com.hermes-agent.studio`, userData directory `hermes-studio-electron`, and installation identity. There is no migration of prior local UI state. Version 1 has no updater. Only one active turn per session is allowed; a second same-session request returns `SESSION_BUSY` (409), and concurrent use of the same profile and session across clients is unsupported. The former `src-tauri` source tree has been deleted.\n\n## Alternatives\n\nAdopting it was Rejected. JSON-RPC over UDS or a Windows Named\nPipe is deferred until a concrete transport requirement justifies a second protocol.\n',
+    '# ADR\n\n- Status: Accepted\n\n## Context\n\nThe Tauri host is historical.\n\n## Decision\n\nRetain the SolidJS renderer over REST and SSE. `apps/desktop` is not Hermes Studio and is not a runtime dependency. Studio has the independent appId `com.hermes-agent.studio`, userData directory `hermes-studio-electron`, and installation identity. There is no migration of prior local UI state. Version 1 has no updater. Only one active turn per session is allowed; a second same-session request returns `SESSION_BUSY` (409), and concurrent use of the same profile and session across clients is unsupported.\n\n12. The former `src-tauri` source tree has been deleted.\n\n## Consequences\n\nOnly Electron is current.\n\n## Alternatives considered\n\nThe Tauri alternative was rejected. JSON-RPC over UDS or a Windows Named\nPipe is deferred until a concrete transport requirement justifies a second protocol.\n\n## Superseded records\n\nHistorical Tauri records remain linked here.\n',
   );
   for (const file of historyFiles) {
     put(
@@ -181,16 +181,38 @@ test('rejects retired host and directory descriptions in active docs', () => {
   assert.ok(errors.some(error => error.includes('retired desktop/ path')));
 });
 
-test('allows migration terms only in the ADR, capability ledger, and superseded history', () => {
+test('allows retired terms only in scoped historical sections and regression fixtures', () => {
   const root = validFixture();
   const adrPath = join(root, 'apps/hermes-studio/docs/decisions/ADR-001-electron-shell.md');
   const bridgePath = join(root, 'apps/hermes-studio/docs/NATIVE_BRIDGE.md');
   const architecturePath = join(root, 'apps/hermes-studio/docs/ARCHITECTURE.md');
-  writeFileSync(adrPath, `${readFileSync(adrPath, 'utf8')}\nTauri used the prior \`desktop/src\` path.\n`);
-  writeFileSync(bridgePath, `${readFileSync(bridgePath, 'utf8')}\nLegacy Tauri capability: \`src-tauri\`.\n`);
+  writeFileSync(adrPath, readFileSync(adrPath, 'utf8').replace(
+    '## Context\n',
+    '## Context\n\nTauri used the prior `desktop/src` path.\n',
+  ));
+  writeFileSync(bridgePath, readFileSync(bridgePath, 'utf8').replace(
+    '## Capability ledger\n',
+    '## Capability ledger\n\nLegacy Tauri capability: `src-tauri`.\n',
+  ));
   writeFileSync(architecturePath, `${readFileSync(architecturePath, 'utf8')}\nA legacy-key regression fixture retains one Tauri storage key.\n`);
 
   assert.deepEqual(validateDocs(root), []);
+});
+
+test('rejects retired terms outside the ADR and bridge historical sections', () => {
+  const root = validFixture();
+  const adrPath = join(root, 'apps/hermes-studio/docs/decisions/ADR-001-electron-shell.md');
+  const bridgePath = join(root, 'apps/hermes-studio/docs/NATIVE_BRIDGE.md');
+  writeFileSync(adrPath, readFileSync(adrPath, 'utf8').replace(
+    '## Consequences\n',
+    '## Consequences\n\nTauri is still a supported current host.\n',
+  ));
+  writeFileSync(bridgePath, `${readFileSync(bridgePath, 'utf8')}\nTauri is still a supported current host.\n`);
+
+  const errors = validateDocs(root);
+
+  assert.ok(errors.some(error => error.includes('ADR-001-electron-shell.md') && error.includes('retired Tauri')));
+  assert.ok(errors.some(error => error.includes('NATIVE_BRIDGE.md') && error.includes('retired Tauri')));
 });
 
 test('requires semantic structure in canonical authority documents', () => {
@@ -250,6 +272,51 @@ test('requires every public native bridge member to have complete ledger evidenc
   );
   errors = validateDocs(root);
   assert.ok(errors.some(error => error.includes('app.version()') && error.includes('validation')));
+});
+
+test('rejects stale ledger rows after a public bridge member is removed', () => {
+  const root = validFixture();
+  const bridgeSource = join(root, 'apps/hermes-studio/src/shared/native-bridge.ts');
+  writeFileSync(
+    bridgeSource,
+    readFileSync(bridgeSource, 'utf8').replace('    version(): Promise<string>\n', ''),
+  );
+
+  const errors = validateDocs(root);
+
+  assert.ok(errors.some(error => error.includes('stale capability-ledger row for app.version()')));
+});
+
+test('requires the startDrag ledger row to document stable rejection and CSS acceptance', () => {
+  const root = validFixture();
+  const bridgeDoc = join(root, 'apps/hermes-studio/docs/NATIVE_BRIDGE.md');
+  writeFileSync(
+    bridgeDoc,
+    readFileSync(bridgeDoc, 'utf8')
+      .replace('always returns `WINDOW_DRAG_REGION_REQUIRED`; there is no programmatic drag', 'starts a native programmatic drag')
+      .replace('CSS `-webkit-app-region: drag` moves the window and a direct API call is stably rejected', 'the bridge moves the window'),
+  );
+
+  const errors = validateDocs(root);
+
+  assert.ok(errors.some(error => error.includes('window.startDrag()') && error.includes('stable rejection')));
+  assert.ok(errors.some(error => error.includes('window.startDrag()') && error.includes('CSS drag-region acceptance')));
+});
+
+test('requires restart rows to document stable manager secrets and updated process identity', () => {
+  const root = validFixture();
+  const bridgeDoc = join(root, 'apps/hermes-studio/docs/NATIVE_BRIDGE.md');
+  writeFileSync(
+    bridgeDoc,
+    readFileSync(bridgeDoc, 'utf8')
+      .replace('the same token and workspace grant remain unchanged while only the child, port, and SidecarInfo update', 'credential replacement creates a new credential')
+      .replace('replacement SidecarInfo carries the updated port and same token; hidden grant remains unchanged', 'replacement SidecarInfo carries a new credential'),
+  );
+
+  const errors = validateDocs(root);
+
+  assert.ok(errors.some(error => error.includes('backend.restart()') && error.includes('stable token and grant')));
+  assert.ok(errors.some(error => error.includes('backend.onRestarted()') && error.includes('updated SidecarInfo')));
 });
 
 test('requires API contracts to link every sidecar router and schema source', () => {

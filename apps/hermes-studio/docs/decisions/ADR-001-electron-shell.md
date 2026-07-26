@@ -55,9 +55,10 @@ Hermes Studio uses this architecture:
    explicit superseded status and must not be used as current guidance.
 11. Studio does not adopt or embed the upstream Desktop client in
    `apps/desktop`; that remains a separate React application and reference.
-12. The former `src-tauri` source tree has been deleted. It is represented only
-    by explicitly superseded historical documents and is not retained as a
-    comparison tree, runtime, build target, or architectural authority.
+12. The former `src-tauri` source tree has been deleted.
+    It is represented only by explicitly superseded historical documents and
+    is not retained as a comparison tree, runtime, build target, or
+    architectural authority.
 
 The sidecar permits one active turn per session. A second prompt for the same
 session returns `SESSION_BUSY` with HTTP `409`; selected session mutations are

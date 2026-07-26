@@ -35,7 +35,7 @@ escape hatch.
 Bridge presence is authoritative. In Electron, backend discovery, native
 settings, OS integrations, and lifecycle events either succeed through this
 object or surface a controlled failure; renderer code never falls back to
-legacy Tauri APIs. A bridge-absent Vite renderer may use explicit
+retired native-host APIs. A bridge-absent Vite renderer may use explicit
 development-only backend configuration and otherwise keeps native features
 inert.
 
@@ -65,10 +65,10 @@ it is not an active API.
 | `app.platform()` | `get_platform` | Trusted sender; main normalizes to `macos`, `windows`, or `linux`. | `native-bridge-main.test.ts` covers the normalized result. | Value matches the native runner OS. |
 | `app.nativeState()` | Electron addition | Trusted sender; main reads packaged, focused, and maximized state. | Bridge and window-state tests cover the object and envelope. | Reports `isPackaged: true` and current focus/maximize state. |
 | `backend.info()` | `sidecar_info` | Trusted sender; main returns only the current loopback URL and ephemeral API token, never the workspace grant. | `native-bridge-main.test.ts` and `sidecar-manager.test.ts` cover routing and credential ownership. | Renderer reaches authenticated sidecar health using returned data. |
-| `backend.restart()` | Electron lifecycle addition | Trusted sender; main owns serialized stop/start, retry limits, and credential replacement. | `sidecar-manager.test.ts` covers restart serialization, replacement, and failure. | Restart changes the endpoint as needed and the renderer recovers. |
+| `backend.restart()` | Electron lifecycle addition | Trusted sender; main serializes bounded child stop/start. The same manager-owned API token and hidden workspace grant remain unchanged; only the child process, random port, and returned `SidecarInfo` update. | `sidecar-manager.test.ts` covers child/port replacement, retry caps, token injection, and grant non-exposure. | Child and port change, `SidecarInfo.token` remains byte-identical, and workspace selection still works with the same hidden grant. |
 | `backend.onReady()` | Electron lifecycle event | Preload accepts only the named main event, freezes `SidecarInfo`, and returns idempotent unsubscribe. | `preload-bridge.test.ts` checks event filtering, freezing, and unsubscribe. | First packaged sidecar readiness reaches the renderer exactly once. |
 | `backend.onUnhealthy()` | Electron lifecycle event | Main emits a safe reason only; preload freezes the payload and exposes no process handle. | `preload-bridge.test.ts` and `sidecar-manager.test.ts` cover event shape and health failure. | Stopping/failing health produces the controlled unhealthy state. |
-| `backend.onRestarted()` | Electron lifecycle event | Main publishes the replacement `SidecarInfo`; preload restricts the listener to its channel. | Preload and sidecar-manager restart tests cover replacement delivery. | A packaged restart reconnects REST/SSE with the new credential. |
+| `backend.onRestarted()` | Electron lifecycle event | Main publishes the updated `SidecarInfo` with the new port and same API token; the same hidden workspace grant remains main-only. Preload restricts the listener to its channel. | Preload and sidecar-manager restart tests cover updated `SidecarInfo`, listener cleanup, and grant non-exposure. | Reconnect REST/SSE to the new port with the same token, then confirm workspace selection still uses the unchanged hidden grant. |
 | `backend.onFailed()` | Electron lifecycle event | Main maps startup failure to stable `NativeError`; stacks and secrets are removed. | Preload and native-error tests cover safe failure payloads. | Forced startup failure shows a controlled error without exposing the token. |
 | `hermesHome.path()` | `get_hermes_home` | Trusted sender; main resolves the active profile-aware Hermes Home. | `hermes-home.test.ts` and bridge routing tests cover resolution. | Path reflects the selected Hermes profile home. |
 | `hermesHome.readText()` | `read_file` | Relative path only; canonical containment, no-follow descriptor checks, UTF-8, identity revalidation, and byte cap. | `hermes-home.test.ts` covers traversal, symlink, encoding, growth, and size cases. | Read a small profile file; traversal and symlink escape are rejected. |
@@ -91,7 +91,7 @@ it is not an active API.
 | `window.minimize()` | Former window plugin | Trusted current main-frame sender; operation targets only the owned main window. | `native-bridge-main.test.ts` verifies sender admission and routing. | Custom titlebar minimizes the packaged window. |
 | `window.toggleMaximize()` | Former window plugin | Trusted sender; main toggles only the owned window and emits normalized state. | Bridge and `window-state.test.ts` cover toggling/state persistence. | Custom titlebar maximizes and restores on each native OS. |
 | `window.close()` | Former window plugin | Trusted sender; close enters the coordinated shutdown path. | Bridge and shutdown tests cover routing and cleanup ordering. | Close exits cleanly and stops sidecar/PTYs. |
-| `window.startDrag()` | Former window plugin | Trusted sender; main begins native drag only for the owned frameless window. | Bridge routing tests cover the dedicated channel. | Drag the packaged window from its titlebar. |
+| `window.startDrag()` | Former window plugin | Trusted sender, but main performs no programmatic drag and always returns `WINDOW_DRAG_REGION_REQUIRED`. | `native-bridge-main.test.ts` asserts the stable rejection; `NativeDragRegions.test.ts` and `TitleBar.test.tsx` prove CSS regions are present and renderer interaction never calls the API. | Drag the packaged window through CSS `-webkit-app-region: drag`; a direct API call is stably rejected with `WINDOW_DRAG_REGION_REQUIRED`. |
 | `window.focus()` | Electron single-instance addition | Trusted sender; main restores a minimized window and focuses it. | `window-state.test.ts` covers restore/focus behavior. | Activation or a second launch focuses the existing instance. |
 | `window.state()` | Former window-state plugin | Trusted sender; main returns only normalized focus/maximized/minimized booleans. | Bridge and window-state tests cover the state object. | State matches native minimize/maximize/focus changes. |
 | `window.onFocus()` | Former window-state event | Main emits a boolean for the owned window; preload restricts channel and unsubscribe. | `preload-bridge.test.ts` covers frozen listener surface and removal. | Focus and blur update renderer state without duplicate listeners. |
@@ -213,9 +213,12 @@ The bridge emits:
 - window focus and state changes;
 - notification click and action events.
 
-The backend binds a new random loopback port after a restart. Main delivers the
-lifecycle event and then reloads the renderer so the new document CSP can name
-that exact origin; renderer startup re-subscribes and calls `backend.info()`.
+The API token and hidden workspace grant are created once for the main-process
+`SidecarManager` lifetime and do not rotate during a backend restart. Restart
+replaces the child process, binds a new random loopback port, and updates
+`SidecarInfo`; main delivers the lifecycle event and then reloads the renderer
+so the new document CSP can name that exact origin. Renderer startup
+re-subscribes and calls `backend.info()` with the unchanged token.
 
 Notification action buttons are a macOS capability in Electron. Other hosts
 still display the notification and return `actionsSupported: false`.
@@ -233,6 +236,11 @@ npm run lint
 npm test
 npm run build
 npm run test:e2e
+```
+
+### Retired-surface search
+
+```bash
 rg -n "@tauri-apps|data-tauri|isTauri|Tauri|tauri:" src \
   --glob '*.{ts,tsx}' --glob '!**/*.test.*' --glob '!**/__tests__/**'
 rg -n "\.startDrag\(" src \
@@ -240,8 +248,10 @@ rg -n "\.startDrag\(" src \
 ```
 
 The final search must report no production renderer dependency on Tauri and no
-programmatic drag call. Historical strings may remain only in explicit legacy
-isolation tests until the Task 5 source/package deletion pass.
+programmatic drag call. Historical strings may remain only in the scoped
+capability ledger/search explanation and explicit legacy-isolation tests.
+
+### Automated and packaged evidence
 
 The Electron Vitest suites cover exact main-frame sender/origin checks, IPC
 schemas, shutdown admission/draining, and stable envelopes; bridge

@@ -218,17 +218,33 @@ function checkLinks(repoRoot, file, errors) {
   }
 }
 
-function retiredTermsAllowed(relativePath, line) {
-  if (relativePath.endsWith('docs/decisions/ADR-001-electron-shell.md')) return true;
-  if (relativePath.endsWith('docs/NATIVE_BRIDGE.md')) return true;
+function retiredTermsAllowed(relativePath, line, section) {
+  if (relativePath.endsWith('docs/decisions/ADR-001-electron-shell.md')) {
+    if (['Context', 'Alternatives considered', 'Superseded records'].includes(section.h2)) return true;
+    return section.h2 === 'Decision'
+      && /^\s*\d+\.\s+The former `src-tauri` source tree has been deleted\.\s*$/u.test(line);
+  }
+  if (relativePath.endsWith('docs/NATIVE_BRIDGE.md')) {
+    if (section.h2 === 'Capability ledger') return true;
+    return section.h2 === 'Verification' && section.h3 === 'Retired-surface search';
+  }
   return /legacy(?:-| )key.*regression|regression.*legacy(?:-| )key/iu.test(line);
 }
 
 function checkRetiredDescriptions(repoRoot, file, errors) {
   const relativePath = relative(repoRoot, file);
   const lines = readFileSync(file, 'utf8').split(/\r?\n/u);
+  const section = { h2: '', h3: '' };
   lines.forEach((line, index) => {
-    if (retiredTermsAllowed(relativePath, line)) return;
+    const h2 = line.match(/^##\s+(.+?)\s*$/u);
+    const h3 = line.match(/^###\s+(.+?)\s*$/u);
+    if (h2) {
+      section.h2 = h2[1];
+      section.h3 = '';
+    } else if (h3) {
+      section.h3 = h3[1];
+    }
+    if (retiredTermsAllowed(relativePath, line, section)) return;
     if (/\btauri\b|@tauri-apps|src-tauri|tauri:/iu.test(line)) {
       errors.push(`${relativePath}:${index + 1}: retired Tauri description in active documentation`);
     }
@@ -339,8 +355,11 @@ function checkNativeBridgeLedger(repoRoot, errors) {
     if (!columns.some(predicate)) errors.push(`${bridgePath}: missing capability-ledger ${description}`);
   }
 
+  const ledgerStart = lines.findIndex(line => /^## Capability ledger\s*$/iu.test(line));
+  const nextSectionOffset = lines.slice(ledgerStart + 1).findIndex(line => /^##\s+/u.test(line));
+  const ledgerEnd = nextSectionOffset === -1 ? lines.length : ledgerStart + 1 + nextSectionOffset;
   const ledgerRows = new Map();
-  for (const line of lines) {
+  for (const line of lines.slice(ledgerStart, ledgerEnd)) {
     const cells = line.split('|').slice(1, -1).map(cell => cell.trim());
     const entryMatch = cells[0]?.match(/^`([^`]+)`$/u);
     if (!entryMatch) continue;
@@ -353,8 +372,8 @@ function checkNativeBridgeLedger(repoRoot, errors) {
   const publicEntries = parseNativeBridgeEntries(readFileSync(absoluteSourcePath, 'utf8'));
   if (!publicEntries.length) {
     errors.push(`${sourcePath}: could not derive public HermesStudioBridge members`);
-    return;
   }
+  const publicEntrySet = new Set(publicEntries);
   for (const entry of publicEntries) {
     const rows = ledgerRows.get(entry) ?? [];
     if (!rows.length) {
@@ -367,6 +386,50 @@ function checkNativeBridgeLedger(repoRoot, errors) {
       if (isMissingLedgerEvidence(row[columnIndex])) {
         errors.push(`${bridgePath}: ${entry} is missing ${description}`);
       }
+    }
+  }
+  for (const entry of ledgerRows.keys()) {
+    if (!publicEntrySet.has(entry)) {
+      errors.push(`${bridgePath}: stale capability-ledger row for ${entry} is absent from HermesStudioBridge`);
+    }
+  }
+
+  const rowCell = (entry, index) => ledgerRows.get(entry)?.[0]?.[index] ?? '';
+  const stableSecret = (text, name) => new RegExp(
+    `(?:same|unchanged|stable)[\\s\\S]{0,100}${name}|${name}[\\s\\S]{0,100}(?:same|unchanged|stable)`,
+    'iu',
+  ).test(text);
+
+  if (publicEntrySet.has('window.startDrag()')) {
+    const validation = rowCell('window.startDrag()', 2);
+    const acceptance = rowCell('window.startDrag()', 4);
+    if (!/WINDOW_DRAG_REGION_REQUIRED/u.test(validation) || !/no programmatic drag|programmatic drag[^.]{0,80}(?:reject|unavailable|unsupported)/iu.test(validation)) {
+      errors.push(`${bridgePath}: window.startDrag() is missing its stable rejection contract`);
+    }
+    if (!/-webkit-app-region:\s*drag/u.test(acceptance) || !/direct API[^.]{0,100}(?:reject|fail)/iu.test(acceptance)) {
+      errors.push(`${bridgePath}: window.startDrag() is missing CSS drag-region acceptance`);
+    }
+  }
+
+  if (publicEntrySet.has('backend.restart()')) {
+    const validation = rowCell('backend.restart()', 2);
+    if (!stableSecret(validation, 'token') || !stableSecret(validation, '(?:workspace )?grant')) {
+      errors.push(`${bridgePath}: backend.restart() must document the stable token and grant`);
+    }
+    if (!/child/iu.test(validation) || !/port/iu.test(validation) || !/SidecarInfo/u.test(validation)) {
+      errors.push(`${bridgePath}: backend.restart() must document the updated child, port, and SidecarInfo`);
+    }
+  }
+  if (publicEntrySet.has('backend.onRestarted()')) {
+    const validation = rowCell('backend.onRestarted()', 2);
+    if (!stableSecret(validation, 'token') || !stableSecret(validation, '(?:workspace )?grant') || !/port/iu.test(validation) || !/SidecarInfo/u.test(validation)) {
+      errors.push(`${bridgePath}: backend.onRestarted() must document stable secrets and updated SidecarInfo`);
+    }
+  }
+  for (const entry of ['backend.restart()', 'backend.onRestarted()']) {
+    const text = (ledgerRows.get(entry)?.[0] ?? []).join(' ');
+    if (/credential replacement|new credential/iu.test(text)) {
+      errors.push(`${bridgePath}: ${entry} must not claim credential replacement`);
     }
   }
 }
