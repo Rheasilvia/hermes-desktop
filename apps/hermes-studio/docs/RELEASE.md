@@ -23,6 +23,31 @@ uv sync --frozen --extra dev
 uv run --frozen --extra dev python -m pytest -q
 ```
 
+## Native CI workflow
+
+The reusable
+[`.github/workflows/studio-native.yml`](../../../.github/workflows/studio-native.yml)
+workflow is invoked by the root CI workflow when Studio-native inputs change.
+It is also part of the required-jobs aggregation; a skipped matrix is distinct
+from a failed one. The native matrix builds on the exact target it ships:
+
+| Target | GitHub runner | Expected architecture | Installer output |
+| --- | --- | --- | --- |
+| macOS arm64 | `macos-15` | `arm64` | DMG |
+| macOS x64 | `macos-15-intel` | `x64` | DMG |
+| Windows x64 | `windows-2025` | `x64` | NSIS `.exe` |
+| Linux x64 | `ubuntu-24.04` | `x64` | AppImage, deb, rpm, plus a mode-preserving tar |
+
+Every matrix job verifies the Node runner architecture, installs the frozen
+Node/Python environments, runs ESLint, CSS-token validation, both TypeScript
+projects, Vitest/packaging tests, the sidecar boundary check and pytest suite,
+builds Studio, runs `npm run test:packaged` (under Xvfb on Linux), builds the
+host installer, and checks exact artifact names. The uploaded
+`hermes-studio-unsigned-{platform}-{arch}-{sha}` artifacts are unsigned internal
+test outputs retained for seven days, not distributable releases. Signing and
+publication require a separately trusted release workflow and the credentials
+below.
+
 ## Native build and package
 
 The common current-host flow is:
@@ -63,8 +88,8 @@ Artifacts use the exact name:
 Hermes-Studio-${version}-${os}-${arch}.${ext}
 ```
 
-Application icons are owned by `build/assets`, independently of the retained
-former-host reference tree.
+Application icons are owned by `build/assets`; no retired native source tree is
+kept as a packaging input or reference copy.
 
 ## Signing and notarization
 

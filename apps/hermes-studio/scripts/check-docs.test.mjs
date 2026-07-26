@@ -46,23 +46,47 @@ function validFixture() {
   for (const file of canonicalFiles) put(root, file);
   put(
     root,
+    'README.md',
+    '# Root\n\n## Two desktop products\n\nHermes Studio lives in `apps/hermes-studio`; the separate Hermes Desktop lives in `apps/desktop`. They have independent renderer and backend contracts. `npm run dev` starts the sidecar on port `0` and reads `READY <port>`; port 18080 is only for `npm run backend`.\n',
+  );
+  put(
+    root,
+    'apps/hermes-studio/README.md',
+    '# Studio\n\n## Installation\n\nRun `npm install`, `npm run pack`, `npm run dist`, and `npm run test:packaged`.\n\n## Relationship to Hermes Desktop\n\n`apps/desktop` is a separate product with an independent app identity and UI state. Both may use one Hermes profile, but concurrent work on the same session is unsupported and Studio returns `SESSION_BUSY` (409) for a second turn.\n\n## Troubleshooting\n\nInspect the Studio log and run the packaged smoke test.\n',
+  );
+  put(
+    root,
     'apps/hermes-studio/docs/ARCHITECTURE.md',
     '# Architecture\n\n## Process and trust boundaries\n\nElectron main isolates the renderer and owns the sidecar.\n\n## Startup and recovery\n\nRestart with bounded recovery.\n',
   );
   put(
     root,
     'apps/hermes-studio/docs/NATIVE_BRIDGE.md',
-    '# Native bridge\n\n## Capability ledger\n\n| Legacy registered entry | Electron renderer API | Main validation/ownership | Unit/automated evidence | Packaged acceptance |\n| --- | --- | --- | --- | --- |\n| old | new | validate | test | package |\n',
+    '# Native bridge\n\n## Capability ledger\n\n| Public bridge API/event | Legacy origin | Main validation/ownership | Unit/automated evidence | Packaged acceptance |\n| --- | --- | --- | --- | --- |\n| `app.version()` | old version | trusted sender | routing test | packaged version |\n| `backend.onReady()` | old ready event | frozen event payload | unsubscribe test | packaged ready event |\n',
   );
+  put(
+    root,
+    'apps/hermes-studio/src/shared/native-bridge.ts',
+    'export type Unsubscribe = () => void\n\nexport interface HermesStudioBridge {\n  app: {\n    version(): Promise<string>\n  }\n  backend: {\n    onReady(callback: (value: string) => void): Unsubscribe\n  }\n}\n',
+  );
+  put(
+    root,
+    'apps/hermes-studio/docs/API_CONTRACTS.md',
+    '# API contracts\n\n## Namespace and REST authority\n\n`/desktop/api` remains an internal compatibility namespace for the Studio adapter and sidecar tests; it is not a public API or an old-host dependency. Every payload is defined by the linked [health router](../sidecar/daemon/routers/health.py), [events router](../sidecar/daemon/routers/events.py), and [error schema](../sidecar/daemon/schemas/error.py). Failures use `ErrorEnvelope`.\n\n## SSE event stream\n\n`GET /desktop/api/events/stream?token=...` emits `{ session_id, seq, type, payload }`; payload types are the renderer `GatewayEventMap`. A positive sequence is accepted only when strictly greater than the last sequence for that session. On reconnect the client replays durable messages and the server replays pending interactions.\n',
+  );
+  put(root, 'apps/hermes-studio/sidecar/daemon/routers/health.py', 'router = APIRouter()\n');
+  put(root, 'apps/hermes-studio/sidecar/daemon/routers/events.py', 'router = APIRouter()\n');
+  put(root, 'apps/hermes-studio/sidecar/daemon/schemas/error.py', 'class ErrorEnvelope: ...\n');
   put(
     root,
     'apps/hermes-studio/docs/RELEASE.md',
-    '# Release\n\n```bash\nnpm run dist:mac # DMG\nnpm run dist:win # NSIS\nnpm run dist:linux # AppImage, deb, rpm\n```\n\n`Hermes-Studio-${version}-${os}-${arch}.${ext}`\n\n## Signing and notarization\n\n`INTERNAL-BUILD.txt` and `HERMES_STUDIO_RELEASE=1`. There is intentionally no updater bridge.\n',
+    '# Release\n\nThe [native workflow](../../../.github/workflows/studio-native.yml) runs macOS arm64 on `macos-15`, macOS x64 on `macos-15-intel`, Windows x64 on `windows-2025`, and Linux x64 on `ubuntu-24.04`.\n\n```bash\nnpm run dist:mac # DMG\nnpm run dist:win # NSIS\nnpm run dist:linux # AppImage, deb, rpm\n```\n\n`Hermes-Studio-${version}-${os}-${arch}.${ext}`\n\n## Signing and notarization\n\n`INTERNAL-BUILD.txt` and `HERMES_STUDIO_RELEASE=1`. There is intentionally no updater bridge.\n',
   );
+  put(root, '.github/workflows/studio-native.yml', 'name: Hermes Studio Native\n');
   put(
     root,
     'apps/hermes-studio/docs/decisions/ADR-001-electron-shell.md',
-    '# ADR\n\n- Status: Accepted\n\n## Decision\n\nRetain the SolidJS renderer over REST and SSE. `apps/desktop` is not Hermes Studio and is not a runtime dependency.\n\n## Alternatives\n\nAdopting it was Rejected.\n',
+    '# ADR\n\n- Status: Accepted\n\n## Decision\n\nRetain the SolidJS renderer over REST and SSE. `apps/desktop` is not Hermes Studio and is not a runtime dependency. Studio has the independent appId `com.hermes-agent.studio`, userData directory `hermes-studio-electron`, and installation identity. There is no migration of prior local UI state. Version 1 has no updater. Only one active turn per session is allowed; a second same-session request returns `SESSION_BUSY` (409), and concurrent use of the same profile and session across clients is unsupported. The former `src-tauri` source tree has been deleted.\n\n## Alternatives\n\nAdopting it was Rejected. JSON-RPC over UDS or a Windows Named\nPipe is deferred until a concrete transport requirement justifies a second protocol.\n',
   );
   for (const file of historyFiles) {
     put(
@@ -89,6 +113,7 @@ function validFixture() {
     `${JSON.stringify({
       scripts: {
         dev: 'vite',
+        backend: 'python -m daemon',
         build: 'vite build',
         pack: 'electron-builder --dir',
         dist: 'electron-builder',
@@ -99,6 +124,7 @@ function validFixture() {
         lint: 'eslint src electron',
         test: 'vitest run',
         'test:e2e': 'playwright test',
+        'test:packaged': 'node scripts/test-packaged.mjs',
         'docs:check': 'node scripts/check-docs.mjs',
       },
     })}\n`,
@@ -169,7 +195,10 @@ test('allows migration terms only in the ADR, capability ledger, and superseded 
 
 test('requires semantic structure in canonical authority documents', () => {
   const root = validFixture();
+  put(root, 'README.md', '# Root\n');
+  put(root, 'apps/hermes-studio/README.md', '# Studio\n');
   put(root, 'apps/hermes-studio/docs/ARCHITECTURE.md', '# Architecture\n');
+  put(root, 'apps/hermes-studio/docs/API_CONTRACTS.md', '# API\n');
   put(root, 'apps/hermes-studio/docs/NATIVE_BRIDGE.md', '# Native bridge\n');
   put(root, 'apps/hermes-studio/docs/RELEASE.md', '# Release\n');
   put(root, 'apps/hermes-studio/docs/decisions/ADR-001-electron-shell.md', '# ADR\n');
@@ -177,9 +206,68 @@ test('requires semantic structure in canonical authority documents', () => {
   const errors = validateDocs(root);
 
   assert.ok(errors.some(error => error.includes('process and trust boundaries')));
+  assert.ok(errors.some(error => error.includes('two desktop products')));
+  assert.ok(errors.some(error => error.includes('port-zero handshake')));
+  assert.ok(errors.some(error => error.includes('installation section')));
+  assert.ok(errors.some(error => error.includes('official Desktop comparison')));
+  assert.ok(errors.some(error => error.includes('internal compatibility namespace')));
+  assert.ok(errors.some(error => error.includes('SSE envelope fields')));
   assert.ok(errors.some(error => error.includes('capability ledger section')));
   assert.ok(errors.some(error => error.includes('macOS distribution target')));
+  assert.ok(errors.some(error => error.includes('native packaging workflow')));
+  assert.ok(errors.some(error => error.includes('Windows x64 runner')));
   assert.ok(errors.some(error => error.includes('accepted status')));
+  assert.ok(errors.some(error => error.includes('deferred local JSON-RPC transport')));
+  assert.ok(errors.some(error => error.includes('independent application identity')));
+  assert.ok(errors.some(error => error.includes('no prior UI-state migration')));
+  assert.ok(errors.some(error => error.includes('version-one no-updater decision')));
+  assert.ok(errors.some(error => error.includes('same-session concurrency limit')));
+  assert.ok(errors.some(error => error.includes('same-profile cross-client limit')));
+  assert.ok(errors.some(error => error.includes('retired source removal')));
+});
+
+test('requires every public native bridge member to have complete ledger evidence', () => {
+  const root = validFixture();
+  const bridgeSource = join(root, 'apps/hermes-studio/src/shared/native-bridge.ts');
+  writeFileSync(
+    bridgeSource,
+    readFileSync(bridgeSource, 'utf8').replace(
+      'version(): Promise<string>',
+      'version(): Promise<string>\n    quit(): Promise<void>',
+    ),
+  );
+
+  let errors = validateDocs(root);
+  assert.ok(errors.some(error => error.includes('app.quit()')));
+
+  const bridgeDoc = join(root, 'apps/hermes-studio/docs/NATIVE_BRIDGE.md');
+  writeFileSync(
+    bridgeDoc,
+    readFileSync(bridgeDoc, 'utf8').replace(
+      '| `app.version()` | old version | trusted sender | routing test | packaged version |',
+      '| `app.version()` | old version |  | routing test | packaged version |',
+    ),
+  );
+  errors = validateDocs(root);
+  assert.ok(errors.some(error => error.includes('app.version()') && error.includes('validation')));
+});
+
+test('requires API contracts to link every sidecar router and schema source', () => {
+  const root = validFixture();
+  put(root, 'apps/hermes-studio/sidecar/daemon/routers/new_surface.py', 'router = APIRouter()\n');
+  put(root, 'apps/hermes-studio/sidecar/daemon/schemas/new_surface.py', 'class NewPayload: ...\n');
+
+  const errors = validateDocs(root);
+
+  assert.ok(errors.some(error => error.includes('routers/new_surface.py')));
+  assert.ok(errors.some(error => error.includes('schemas/new_surface.py')));
+});
+
+test('rejects restoration of the retired native source tree', () => {
+  const root = validFixture();
+  put(root, 'apps/hermes-studio/src-tauri/Cargo.toml', '[package]\nname = "retired"\n');
+
+  assert.ok(validateDocs(root).some(error => error.includes('src-tauri')));
 });
 
 test('requires the real-data history plan to link current contracts', () => {

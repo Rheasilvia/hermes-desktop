@@ -36,15 +36,37 @@ Hermes Studio uses this architecture:
 6. Host-native Electron packages are the supported distribution artifacts.
    Packaging, signing, and release validation follow
    [RELEASE.md](../RELEASE.md).
-7. Documents that describe the former shell or former application path are
+7. Studio has an independent application and installation identity:
+   electron-builder `appId` `com.hermes-agent.studio`, product/executable name
+   `Hermes Studio`, Windows AppUserModelID `com.hermes-agent.studio`, and an
+   Electron `userData` directory named `hermes-studio-electron`. These values
+   are intentionally distinct from the upstream Desktop product in
+   `apps/desktop` (`com.nousresearch.hermes`, product name `Hermes`). Both can
+   therefore be installed without one replacing the other.
+8. There is no migration of prior local UI state. Studio reads only its
+   `hermes.studio.*` storage namespace and dedicated Electron `userData`;
+   neither former-shell local state nor `apps/desktop` UI state is imported,
+   rewritten, or deleted. This does not copy or fork Hermes runtime data:
+   the selected profile under `HERMES_HOME` remains shared Hermes data.
+9. Version 1 has no updater bridge, update UI, or in-app installation path.
+   Packages are installed or replaced through the distribution channel.
+10. Documents that describe the former shell or former application path are
    historical records. They live under [docs/history](../history/) with an
    explicit superseded status and must not be used as current guidance.
-8. Studio does not adopt or embed the upstream Desktop client in
+11. Studio does not adopt or embed the upstream Desktop client in
    `apps/desktop`; that remains a separate React application and reference.
+12. The former `src-tauri` source tree has been deleted. It is represented only
+    by explicitly superseded historical documents and is not retained as a
+    comparison tree, runtime, build target, or architectural authority.
 
-The legacy Rust source may remain temporarily for historical comparison during
-the transition, but it is not a current runtime, build target, or architectural
-authority.
+The sidecar permits one active turn per session. A second prompt for the same
+session returns `SESSION_BUSY` with HTTP `409`; selected session mutations are
+also blocked while that session runs. A Studio process has one active profile,
+although separate sessions in that profile may run independently. Studio and
+the upstream Desktop can coexist against the same Hermes profile, but there is
+no cross-client lock for profile/config writes and concurrent control of the
+same session is unsupported. Use separate profiles for concurrent app testing,
+or at minimum separate sessions and no simultaneous profile mutation.
 
 ## Consequences
 
@@ -52,12 +74,16 @@ authority.
   validation in Electron main and explicit tests at the trust boundary.
 - Studio must remain independently buildable; it does not import the upstream
   `apps/desktop` renderer or its runtime state.
+- Installing Studio does not upgrade, replace, or migrate upstream Desktop.
+  Shared Hermes sessions/configuration remain visible only because both apps
+  may resolve the same `HERMES_HOME`, not because their application state is
+  coupled.
 - Documentation, automation, and release instructions use
   `apps/hermes-studio` and the Electron command surface.
 - A documentation consistency check guards canonical paths, documented npm
   commands, relative links, and accidental reactivation of retired guidance.
-- Removing transition-only source or dependencies is a separate cleanup and
-  should happen only when packaging and regression evidence make it safe.
+- Reintroducing a retired native source tree or a second active host requires a
+  new ADR and a concrete supported consumer.
 
 ## Alternatives considered
 
@@ -82,6 +108,16 @@ frozen preload API keeps privilege reviewable, validated, and testable.
 
 Rejected. Page-controlled connection data would weaken sidecar authentication
 and make packaged behavior depend on renderer state.
+
+### Replace REST/SSE with local JSON-RPC
+
+Deferred. JSON-RPC over a Unix domain socket (UDS) on macOS/Linux and a Named
+Pipe on Windows could remove the loopback HTTP listener, but it would also add
+a second protocol, platform-specific connection lifecycle, renderer adapter,
+and packaged acceptance matrix while the authenticated REST/SSE contract is
+already functional. Revisit only when a concrete security, performance, or
+multi-window requirement cannot be met by the current transport; do not run
+both transports speculatively.
 
 ## Superseded records
 

@@ -38,6 +38,24 @@ runtime.
 | 🔌 **Hermes core compatibility** | Continues to use the upstream agent concepts: providers, models, skills, tools, memory, sessions, and config. |
 | 🧩 **Open development surface** | Hermes Studio lives in `apps/hermes-studio/` and can be run, tested, and packaged independently from the upstream CLI and gateway surfaces. |
 
+## 🖥️ Two desktop products
+
+This repository intentionally contains two separate desktop applications. They
+reuse the Hermes agent core, but neither product imports or launches the other:
+
+| Product | Source and stack | Backend contract | Installation identity |
+| :-- | :-- | :-- | :-- |
+| **Hermes Studio** | `apps/hermes-studio`: Electron + SolidJS workbench | Studio-owned Python sidecar over authenticated REST/SSE | “Hermes Studio”, `com.hermes-agent.studio`, dedicated `hermes-studio-electron` UI data |
+| **Hermes Desktop** | `apps/desktop`: Electron + React/assistant-ui chat client inherited from upstream | Headless `hermes serve` over JSON-RPC/WebSocket | “Hermes”, `com.nousresearch.hermes`, independent Desktop UI data |
+
+The products have independent renderer, preload, transport, packaging, and
+local UI-state contracts; `apps/desktop` is not a runtime dependency or fallback
+for Hermes Studio. They can be installed together and can resolve the same
+Hermes profile under `HERMES_HOME`, but cross-app locking is not provided. Do
+not drive the same session from both applications concurrently, and avoid
+simultaneous profile/config writes; use separate profiles for concurrent app
+testing.
+
 ## 🚀 Quick Start
 
 > **Platform packaging:** Hermes Studio has host-native targets for macOS,
@@ -49,7 +67,7 @@ runtime.
 
 - A macOS, Windows, or Linux host for its matching package target
 - Node.js
-- `uv` and Python 3.11 for the sidecar environment
+- `uv` and Python 3.12 for the sidecar environment
 
 **Run in development mode**
 
@@ -59,8 +77,11 @@ npm install
 npm run dev
 ```
 
-In development, Vite serves the frontend on `http://localhost:1420` and the
-desktop sidecar uses port `18080`.
+In `npm run dev`, Vite serves the renderer on `http://localhost:1420`; Electron
+starts the sidecar on port `0`, reads its `READY <port>` handshake, and injects
+the resulting loopback URL through the frozen bridge. Port `18080` belongs only
+to the standalone `npm run backend` command and bridge-absent browser
+development path.
 
 ## 🛠️ Useful Commands
 
@@ -77,6 +98,7 @@ Run these from `apps/hermes-studio/`:
 | `npm run lint` | Run ESLint for the renderer and Electron sources |
 | `npm run test` | Run Vitest unit tests |
 | `npm run test:e2e` | Run Playwright end-to-end tests |
+| `npm run test:packaged` | Build and smoke-test the actual current-host application bundle |
 | `npm run docs:check` | Validate canonical documentation, links, and commands |
 
 ## 📁 Repository Layout
@@ -86,6 +108,7 @@ Run these from `apps/hermes-studio/`:
 | `apps/hermes-studio/` | Hermes Studio: Electron shell, SolidJS frontend, sidecar daemon, tests, and design docs |
 | `apps/hermes-studio/src` | Studio frontend features, stores, shell layout, services, and UI primitives |
 | `apps/hermes-studio/sidecar` | Python daemon used by Hermes Studio |
+| `apps/desktop/` | Separate upstream Hermes Desktop Electron + React application |
 | `run_agent.py`, `model_tools.py`, `toolsets.py` | Upstream Hermes agent runtime surfaces retained by this fork |
 | `skills/`, `plugins/`, `tools/` | Hermes extension surfaces inherited from upstream |
 
