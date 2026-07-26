@@ -72,14 +72,21 @@ origin. Object, base, ancestor, and form capabilities are disabled.
 ## Startup and recovery
 
 1. Register privileged app and asset schemes before Electron is ready.
-2. Claim the single-instance lock; a second launch focuses the existing window.
-3. Select a Studio-specific Electron `userData` directory, validate/prune the
+2. Select the Studio-specific Electron `userData` directory before claiming the
+   single-instance lock. The packaged smoke harness may instead supply its own
+   existing, canonical directory only when an internal test marker is present,
+   the app is packaged, and the directory is a generated child of the OS temp
+   root; normal development and production launches cannot override this path.
+3. Claim the single-instance lock in that `userData` namespace; a second normal
+   launch focuses the existing window while a packaged smoke run remains
+   isolated from a user's running Studio instance.
+4. Validate/prune the
    bounded persistent attachment staging inventory, and configure the default
    session's permissions and security headers.
-4. Register protocols, native services, validated IPC handlers, and lifecycle
+5. Register protocols, native services, validated IPC handlers, and lifecycle
    event forwarding.
-5. Create and show the window independently of backend readiness.
-6. Start the sidecar asynchronously. Failure produces a typed lifecycle event
+6. Create and show the window independently of backend readiness.
+7. Start the sidecar asynchronously. Failure produces a typed lifecycle event
    while the shell remains available in degraded mode.
 
 Electron main creates one `SidecarManager` and is the only owner of its process.

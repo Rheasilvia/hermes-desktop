@@ -22,6 +22,15 @@ const studioRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const SUPPORTED_PLATFORMS = new Set(['darwin', 'win32', 'linux'])
 const SUPPORTED_ARCHITECTURES = new Set(['x64', 'arm64'])
 
+export function createPackagedSmokeLaunchEnvironment(baseEnvironment, hermesHome, userData) {
+  return {
+    ...baseEnvironment,
+    HERMES_HOME: hermesHome,
+    HERMES_STUDIO_INTERNAL_PACKAGED_SMOKE: '1',
+    HERMES_STUDIO_INTERNAL_PACKAGED_SMOKE_USER_DATA: userData,
+  }
+}
+
 function directories(root, depth = 0) {
   if (!existsSync(root) || depth > 3) return []
   const result = [root]
@@ -367,7 +376,9 @@ export async function smokePackagedApplication(application) {
   const { _electron } = await import('playwright')
   const temporary = mkdtempSync(path.join(os.tmpdir(), 'hermes-studio-packaged-smoke-'))
   const hermesHome = path.join(temporary, '.hermes')
+  const userData = path.join(temporary, 'electron-user-data')
   const assetPath = path.join(hermesHome, 'smoke', 'opaque.gif')
+  mkdirSync(userData, { mode: 0o700 })
   mkdirSync(path.dirname(assetPath), { recursive: true })
   writeFileSync(assetPath, Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64'))
   let electronApp
@@ -375,7 +386,7 @@ export async function smokePackagedApplication(application) {
   try {
     electronApp = await _electron.launch({
       executablePath: application.executablePath,
-      env: { ...process.env, HERMES_HOME: hermesHome },
+      env: createPackagedSmokeLaunchEnvironment(process.env, hermesHome, userData),
       timeout: 120_000,
     })
     const page = await electronApp.firstWindow({ timeout: 120_000 })

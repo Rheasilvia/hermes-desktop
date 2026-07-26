@@ -11,6 +11,7 @@ import {
   session,
   shell,
 } from 'electron'
+import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import * as pty from 'node-pty'
@@ -47,7 +48,11 @@ configureEarlyAppIdentity(app)
 const rawDevServerUrl = process.env.HERMES_STUDIO_DEV_SERVER
 const devOrigin = rawDevServerUrl ? parseDevServerUrl(rawDevServerUrl) : undefined
 const rendererRoot = path.join(app.getAppPath(), 'dist', 'renderer')
-const userData = resolveStudioUserData(app.getPath('appData'))
+const userData = resolveStudioUserData(app.getPath('appData'), {
+  env: process.env,
+  isPackaged: app.isPackaged,
+  temporaryRoot: os.tmpdir(),
+})
 app.setPath('userData', userData)
 
 let mainWindow: BrowserWindow | undefined

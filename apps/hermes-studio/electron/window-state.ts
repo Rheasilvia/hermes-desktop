@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 export interface DisplayBounds {
@@ -25,6 +25,14 @@ export interface WindowLike {
 }
 
 const DEFAULT_STATE: PersistedWindowState = { width: 1200, height: 800, maximized: false }
+const PACKAGED_SMOKE_MARKER = 'HERMES_STUDIO_INTERNAL_PACKAGED_SMOKE'
+const PACKAGED_SMOKE_USER_DATA = 'HERMES_STUDIO_INTERNAL_PACKAGED_SMOKE_USER_DATA'
+
+export interface StudioUserDataOptions {
+  env?: Readonly<Record<string, string | undefined>>
+  isPackaged?: boolean
+  temporaryRoot?: string
+}
 
 function finiteInteger(value: unknown): value is number {
   return Number.isFinite(value) && Number.isInteger(value)
@@ -51,8 +59,52 @@ export function sanitizeWindowState(raw: unknown, displays: readonly DisplayBoun
   return { ...candidate, maximized }
 }
 
-export function resolveStudioUserData(appDataPath: string): string {
-  return path.join(appDataPath, 'hermes-studio-electron')
+export function resolveStudioUserData(
+  appDataPath: string,
+  options: StudioUserDataOptions = {},
+): string {
+  const environment = options.env ?? {}
+  const marker = environment[PACKAGED_SMOKE_MARKER]
+  const override = environment[PACKAGED_SMOKE_USER_DATA]
+  if (marker === undefined && override === undefined) {
+    return path.join(appDataPath, 'hermes-studio-electron')
+  }
+  if (marker !== '1' || !override) {
+    throw new Error('The packaged smoke userData override requires the internal packaged smoke marker')
+  }
+  if (!options.isPackaged) {
+    throw new Error('The packaged smoke userData override requires a packaged application')
+  }
+  if (!options.temporaryRoot || !path.isAbsolute(override)) {
+    throw new Error('The packaged smoke userData override must be an absolute temporary directory')
+  }
+
+  let temporaryRoot: string
+  let userData: string
+  try {
+    temporaryRoot = realpathSync(options.temporaryRoot)
+    userData = realpathSync(override)
+  } catch {
+    throw new Error('The packaged smoke userData override must name an existing temporary directory')
+  }
+  if (!statSync(userData).isDirectory()) {
+    throw new Error('The packaged smoke userData override must name an existing temporary directory')
+  }
+
+  const parent = path.dirname(userData)
+  const relativeParent = path.relative(temporaryRoot, parent)
+  const smokeDirectory = path.basename(parent)
+  const isDirectTemporaryChild = relativeParent !== ''
+    && !path.isAbsolute(relativeParent)
+    && path.dirname(relativeParent) === '.'
+  if (
+    !isDirectTemporaryChild
+    || !/^hermes-studio-packaged-smoke-[A-Za-z0-9]{6,}$/.test(smokeDirectory)
+    || path.basename(userData) !== 'electron-user-data'
+  ) {
+    throw new Error('The packaged smoke userData override must use a generated packaged smoke directory')
+  }
+  return userData
 }
 
 export function focusExistingWindow(window: WindowLike | undefined): boolean {

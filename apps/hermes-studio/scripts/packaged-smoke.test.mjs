@@ -6,12 +6,29 @@ import test from 'node:test'
 
 import {
   assertNativeBinaryTarget,
+  createPackagedSmokeLaunchEnvironment,
   findPackagedApplication,
   inspectNativeBinary,
   parseSmokeArguments,
   resolvePackagedApplication,
   validatePackagedLayout,
 } from './packaged-smoke.mjs'
+
+test('launches packaged smoke with isolated Hermes Home and Electron userData', () => {
+  const environment = createPackagedSmokeLaunchEnvironment(
+    { PATH: '/bin' },
+    '/tmp/hermes-studio-packaged-smoke-test/.hermes',
+    '/tmp/hermes-studio-packaged-smoke-test/electron-user-data',
+  )
+
+  assert.deepEqual(environment, {
+    PATH: '/bin',
+    HERMES_HOME: '/tmp/hermes-studio-packaged-smoke-test/.hermes',
+    HERMES_STUDIO_INTERNAL_PACKAGED_SMOKE: '1',
+    HERMES_STUDIO_INTERNAL_PACKAGED_SMOKE_USER_DATA:
+      '/tmp/hermes-studio-packaged-smoke-test/electron-user-data',
+  })
+})
 
 function nativeFixture(platform, arch) {
   if (platform === 'darwin') {
