@@ -5,6 +5,20 @@ export interface NativeError {
   message: string
 }
 
+export function isNativeError(value: unknown): value is NativeError {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { code?: unknown }).code === 'string'
+    && typeof (value as { message?: unknown }).message === 'string'
+}
+
+export function nativeErrorMessage(error: unknown, fallback: string): string {
+  if (isNativeError(error) && error.message.trim()) return error.message
+  if (error instanceof Error && error.message.trim()) return error.message
+  if (typeof error === 'string' && error.trim()) return error
+  return fallback
+}
+
 export type IpcResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: NativeError }

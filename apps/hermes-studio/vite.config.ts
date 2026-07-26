@@ -14,7 +14,9 @@ try {
 }
 
 export default defineConfig({
-  base: './',
+  // Production runs on a host-bearing custom scheme. Root-relative assets are
+  // required so a reload of /conversation/:id still resolves /assets/*.
+  base: '/',
   plugins: [solid()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),

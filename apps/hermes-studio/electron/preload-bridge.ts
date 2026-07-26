@@ -17,18 +17,14 @@ export interface WebUtilsLike {
   getPathForFile(file: File): string
 }
 
-export class HermesStudioNativeError extends Error {
-  readonly code: string
-
-  constructor(error: NativeError) {
-    super(error.message)
-    this.name = 'HermesStudioNativeError'
-    this.code = error.code
-  }
+function throwNativeError(error: NativeError): never {
+  // Electron drops custom Error properties at the isolated contextBridge
+  // boundary. Cloneable data preserves both public fields in the renderer.
+  throw { code: error.code, message: error.message }
 }
 
 function invalidDroppedFiles(message: string): never {
-  throw new HermesStudioNativeError({ code: 'INVALID_ARGUMENT', message })
+  return throwNativeError({ code: 'INVALID_ARGUMENT', message })
 }
 
 function droppedFileDescriptors(
@@ -39,7 +35,7 @@ function droppedFileDescriptors(
     return invalidDroppedFiles(`Dropped files must contain between 1 and ${MAX_DROPPED_FILES} entries`)
   }
   if (!webUtils) {
-    throw new HermesStudioNativeError({
+    return throwNativeError({
       code: 'DROPPED_FILE_UNBACKED',
       message: 'Dropped file is not backed by an operating-system path',
     })
@@ -79,7 +75,7 @@ function droppedFileDescriptors(
       // failure stable and do not invoke a privileged main-process path.
     }
     if (!sourcePath) {
-      throw new HermesStudioNativeError({
+      return throwNativeError({
         code: 'DROPPED_FILE_UNBACKED',
         message: 'Dropped file is not backed by an operating-system path',
       })
@@ -100,9 +96,9 @@ export function createHermesStudioBridge(ipc: IpcRendererLike, webUtils?: WebUti
   const invoke = async <T>(channel: string, payload?: unknown): Promise<T> => {
     const result = await ipc.invoke(channel, payload) as IpcResult<T>
     if (!result || typeof result !== 'object' || !('ok' in result)) {
-      throw new HermesStudioNativeError({ code: 'IPC_RESPONSE_INVALID', message: 'Native bridge returned an invalid response' })
+      return throwNativeError({ code: 'IPC_RESPONSE_INVALID', message: 'Native bridge returned an invalid response' })
     }
-    if (!result.ok) throw new HermesStudioNativeError(result.error)
+    if (!result.ok) return throwNativeError(result.error)
     return deepFreeze(result.value)
   }
 

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
 import { createHermesStudioBridge } from './preload-bridge.js'
-import { IPC_CHANNELS, type IpcResult } from '../src/shared/native-bridge.js'
+import { IPC_CHANNELS, nativeErrorMessage, type IpcResult } from '../src/shared/native-bridge.js'
 
 describe('preload bridge', () => {
   it('exposes only the frozen capability API and unwraps success envelopes', async () => {
@@ -31,18 +31,19 @@ describe('preload bridge', () => {
     expect(Object.isFrozen(bridge.backend.onReady)).toBe(true)
   })
 
-  it('throws stable native errors from failure envelopes', async () => {
+  it('rejects with stable cloneable native errors from failure envelopes', async () => {
     const bridge = createHermesStudioBridge({
       invoke: async () => ({ ok: false, error: { code: 'NOT_READY', message: 'Backend is not ready' } }),
       on: () => undefined,
       off: () => undefined,
     })
 
-    await expect(bridge.backend.info()).rejects.toMatchObject({
-      name: 'HermesStudioNativeError',
+    const error = await bridge.backend.info().catch((failure: unknown) => failure)
+    expect(error).toEqual({
       code: 'NOT_READY',
       message: 'Backend is not ready',
     })
+    expect(nativeErrorMessage(error, 'fallback')).toBe('Backend is not ready')
   })
 
   it('returns idempotent unsubscribe functions and freezes event payloads', () => {
@@ -97,9 +98,9 @@ describe('preload bridge', () => {
 
     await expect(bridge.workspace.importDroppedFiles('desktop_1', [
       { name: 'synthetic.png', type: 'image/png', size: 1 } as File,
-    ])).rejects.toMatchObject({
-      name: 'HermesStudioNativeError',
+    ])).rejects.toEqual({
       code: 'DROPPED_FILE_UNBACKED',
+      message: 'Dropped file is not backed by an operating-system path',
     })
     expect(invoke).not.toHaveBeenCalled()
   })
@@ -121,7 +122,6 @@ describe('preload bridge', () => {
       [{ name: 'file.txt', type: 'text/plain', size: 1.5 } as File],
     ]) {
       await expect(bridge.workspace.importDroppedFiles('desktop_1', files)).rejects.toMatchObject({
-        name: 'HermesStudioNativeError',
         code: 'INVALID_ARGUMENT',
       })
     }

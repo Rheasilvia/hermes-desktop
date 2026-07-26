@@ -166,5 +166,11 @@ describe('Electron host security wiring', () => {
       .toBe('no-cache')
     expect((await createAppProtocolResponse('hermes-studio://app/', root)).headers.get('Cache-Control'))
       .toBe('no-cache')
+    const deepLink = await createAppProtocolResponse(
+      'hermes-studio://app/conversation/desktop_123?source=restart%2Fsmoke#pending',
+      root,
+    )
+    expect(await deepLink.text()).toBe('<html></html>')
+    expect(deepLink.headers.get('Content-Type')).toBe('text/html; charset=utf-8')
   })
 })

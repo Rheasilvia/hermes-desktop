@@ -10,10 +10,37 @@ import {
   createTerminalSentinelCommand,
   findPackagedApplication,
   inspectNativeBinary,
+  isTrustedPackagedRendererUrl,
   parseSmokeArguments,
+  redactRendererDiagnostic,
   resolvePackagedApplication,
   validatePackagedLayout,
 } from './packaged-smoke.mjs'
+
+test('redacts renderer diagnostic credentials without hiding useful context', () => {
+  assert.equal(
+    redactRendererDiagnostic('Fetch http://127.0.0.1:1234/events?token=secret-value&mode=sse failed'),
+    'Fetch http://127.0.0.1:1234/events?token=<redacted>&mode=sse failed',
+  )
+  assert.equal(
+    redactRendererDiagnostic('Authorization: Bearer secret.value/with-symbols'),
+    'Authorization: Bearer <redacted>',
+  )
+  assert.equal(redactRendererDiagnostic('net::ERR_CONNECTION_REFUSED'), 'net::ERR_CONNECTION_REFUSED')
+})
+
+test('accepts only trusted packaged renderer origin routes', () => {
+  assert.equal(isTrustedPackagedRendererUrl('hermes-studio://app/'), true)
+  assert.equal(isTrustedPackagedRendererUrl('hermes-studio://app/conversation/desktop_123'), true)
+  assert.equal(isTrustedPackagedRendererUrl('hermes-studio://app/settings/model?source=smoke#picker'), true)
+
+  assert.equal(isTrustedPackagedRendererUrl('https://app/conversation/desktop_123'), false)
+  assert.equal(isTrustedPackagedRendererUrl('file:///conversation/desktop_123'), false)
+  assert.equal(isTrustedPackagedRendererUrl('hermes-studio://other/conversation/desktop_123'), false)
+  assert.equal(isTrustedPackagedRendererUrl('hermes-studio://user@app/conversation/desktop_123'), false)
+  assert.equal(isTrustedPackagedRendererUrl('hermes-studio://app:123/conversation/desktop_123'), false)
+  assert.equal(isTrustedPackagedRendererUrl('not a URL'), false)
+})
 
 test('launches packaged smoke with isolated Hermes Home and Electron userData', () => {
   const environment = createPackagedSmokeLaunchEnvironment(

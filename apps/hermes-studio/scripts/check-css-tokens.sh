@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Fail if any *.module.css under desktop/src contains a hardcoded color
+# Fail if any *.module.css under apps/hermes-studio/src contains a hardcoded color
 # literal (hex or rgb/rgba) that isn't annotated with the `literal-ok`
 # escape comment.
 #
-# Theme files under desktop/src/styles/themes/ define the literal palette
+# Theme files under apps/hermes-studio/src/styles/themes/ define the literal palette
 # values and are exempt.
 
 set -euo pipefail

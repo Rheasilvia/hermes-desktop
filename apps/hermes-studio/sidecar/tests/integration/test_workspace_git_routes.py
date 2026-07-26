@@ -14,6 +14,19 @@ def _create_session(client, workspace_grant, workspace):
     return response.json()["session_id"]
 
 
+def _current_git_branch(workspace: Path) -> str:
+    result = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=workspace,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    branch = result.stdout.strip()
+    assert branch
+    return branch
+
+
 def test_workspace_children_are_session_scoped(client, auth, workspace_grant, tmp_path):
     workspace = tmp_path / "workspace"
     outside = tmp_path / "outside"
@@ -222,8 +235,9 @@ def test_git_checkout_is_not_gated_by_agent_sandbox_mode(client, auth, workspace
         ["git", "-c", "user.name=Test", "-c", "user.email=t@e.com", "commit", "-m", "init"],
         cwd=workspace, check=True, capture_output=True,
     )
+    initial_branch = _current_git_branch(workspace)
     subprocess.run(["git", "checkout", "-b", "feature"], cwd=workspace, check=True, capture_output=True)
-    subprocess.run(["git", "checkout", "master"], cwd=workspace, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", initial_branch], cwd=workspace, check=True, capture_output=True)
     sid = _create_session(client, workspace_grant, workspace)
     settings = client.get("/desktop/api/settings", headers=auth).json()
     settings["desktop_sandbox"] = {"mode": "read-only", "network_access": "restricted"}
@@ -251,8 +265,9 @@ def test_git_checkout_runs_without_sandbox_runner(client, auth, workspace_grant,
         ["git", "-c", "user.name=Test", "-c", "user.email=t@e.com", "commit", "-m", "init"],
         cwd=workspace, check=True, capture_output=True,
     )
+    initial_branch = _current_git_branch(workspace)
     subprocess.run(["git", "checkout", "-b", "feature"], cwd=workspace, check=True, capture_output=True)
-    subprocess.run(["git", "checkout", "master"], cwd=workspace, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", initial_branch], cwd=workspace, check=True, capture_output=True)
     sid = _create_session(client, workspace_grant, workspace)
     monkeypatch.setattr("daemon.services.sandbox_runner.get_sandbox_runner", lambda: None)
 

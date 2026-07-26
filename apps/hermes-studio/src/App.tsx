@@ -10,6 +10,7 @@ import { createHttpGateway } from '@/services/gateway/index.js';
 import type { GatewayAdapter } from '@/services/gateway/types.js';
 import { initBootstrap } from '@/shell/bootstrap.js';
 import { modelsStore } from '@/stores/models.js';
+import { nativeErrorMessage } from '@/shared/native-bridge.js';
 import styles from './App.module.css';
 
 const ConversationPage = lazy(() => import('@/pages/ConversationPage'));
@@ -109,7 +110,7 @@ const App: Component = () => {
       if (!isCurrent()) return;
       disposeBootstrap?.();
       disposeBootstrap = null;
-      setBootError(e instanceof Error ? e.message : 'Could not connect to the Hermes backend.');
+      setBootError(nativeErrorMessage(e, 'Could not connect to the Hermes backend.'));
       setBootState('error');
     }
   };

@@ -8,11 +8,12 @@ import type { Component } from 'solid-js';
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import { composerInsertionStore } from '@/stores/composer-insertions.js';
 import { getNativeHost } from '@/services/native-host.js';
-import type {
-  NativePlatform,
-  TerminalDataEvent,
-  TerminalErrorEvent,
-  TerminalExitEvent,
+import {
+  nativeErrorMessage,
+  type NativePlatform,
+  type TerminalDataEvent,
+  type TerminalErrorEvent,
+  type TerminalExitEvent,
 } from '@/shared/native-bridge.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import type { AttachmentChip } from './composer/AttachmentChips.js';
@@ -239,7 +240,8 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     if (!id || !running()) return;
     if (!textEncoder) textEncoder = new TextEncoder();
     const bytes = Array.from(textEncoder.encode(input));
-    void nativeHost?.terminal.write(id, bytes).catch((err) => setError(String(err)));
+    void nativeHost?.terminal.write(id, bytes)
+      .catch((err) => setError(nativeErrorMessage(err, 'Terminal write failed')));
   };
 
   const handleTerminalDrop = (event: DragEvent) => {
@@ -257,7 +259,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
         }));
         if (paths.length > 0) sendTerminalInput(paths.join(' '));
       })
-      .catch((err) => setError(String(err)));
+      .catch((err) => setError(nativeErrorMessage(err, 'Could not import dropped files')));
   };
 
   const handleHostKeyDown = (event: KeyboardEvent) => {
@@ -347,7 +349,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     const id = sessionId();
     if (!id || !running()) return true;
     void nativeHost?.terminal.resize(id, terminal.cols, terminal.rows)
-      .catch((err) => setError(String(err)));
+      .catch((err) => setError(nativeErrorMessage(err, 'Terminal resize failed')));
     return true;
   };
 
@@ -399,7 +401,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
       fitAndResize({ focus: true, refresh: true });
     } catch (err) {
       if (disposed) return;
-      setError(String(err));
+      setError(nativeErrorMessage(err, 'Terminal failed to start'));
       setStatus('Terminal failed to start');
       setStartBlocked(true);
     } finally {

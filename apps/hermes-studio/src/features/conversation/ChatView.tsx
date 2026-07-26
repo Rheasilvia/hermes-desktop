@@ -16,6 +16,7 @@ import { uiStore } from '@/stores/ui.js';
 import { configStore } from '@/stores/config.js';
 import { getGateway } from '@/stores/context.js';
 import { getNativeHost } from '@/services/native-host.js';
+import { nativeErrorMessage } from '@/shared/native-bridge.js';
 import { getVoiceRecordingLimit, isAutoTtsEnabled, isSttEnabled, isTtsAvailable } from '@/lib/voice/voice-config.js';
 import { playSpeechText } from '@/lib/voice/voice-playback.js';
 import type { CommandResult, ConnectionState } from '@/services/gateway/types.js';
@@ -468,7 +469,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
         chatStore.markUserMessageFailed(
           sid,
           crypto.randomUUID(),
-          error instanceof Error ? error.message : 'Failed to attach image',
+          nativeErrorMessage(error, 'Failed to attach image'),
         );
         return false;
       }

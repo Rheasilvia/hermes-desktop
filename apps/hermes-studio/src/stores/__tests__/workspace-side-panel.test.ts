@@ -386,6 +386,19 @@ describe('gitViewStore', () => {
     expect(gitViewStore.reviewError()).toContain('Retry');
   });
 
+  it('preserves cloneable native error messages when the tools installer cannot start', async () => {
+    vi.resetModules();
+    nativeHostMock.installMacosCommandLineTools
+      .mockReset()
+      .mockRejectedValue({ code: 'INSTALL_FAILED', message: 'Installer launch was denied' });
+    const { gitViewStore } = await import('../git-view.js');
+
+    await gitViewStore.installCommandLineTools();
+
+    expect(gitViewStore.installingTools()).toBe(false);
+    expect(gitViewStore.reviewError()).toContain('Installer launch was denied');
+  });
+
   it('self-heals the error when retry re-fetches review after a fix', async () => {
     vi.resetModules();
     // First fetch fails with the missing-tools error.

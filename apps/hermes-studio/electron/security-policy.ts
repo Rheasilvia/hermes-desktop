@@ -104,7 +104,11 @@ export function buildContentSecurityPolicy(devOrigin?: string, backendOrigin?: s
 }
 
 export function safeRendererAssetPath(rawUrl: string): string {
-  if (/%(?:2e|2f|5c)/i.test(rawUrl)) {
+  // Search parameters and fragments are renderer/router state, not filesystem
+  // input. Check only the raw URL prefix that contains the authority and path
+  // so encoded separators remain visible before WHATWG URL normalization.
+  const rawAuthorityAndPath = rawUrl.split(/[?#]/, 1)[0]
+  if (/%(?:2e|2f|5c)/i.test(rawAuthorityAndPath)) {
     throw nativeError('APP_PROTOCOL_PATH_INVALID', 'Encoded path separators and traversal are not allowed')
   }
   let url: URL
@@ -113,7 +117,7 @@ export function safeRendererAssetPath(rawUrl: string): string {
   } catch {
     throw nativeError('APP_PROTOCOL_URL_INVALID', 'App protocol URL is invalid')
   }
-  if (!isTrustedStudioUrl(url.toString()) || url.search || url.hash) {
+  if (!isTrustedStudioUrl(url.toString())) {
     throw nativeError('APP_PROTOCOL_URL_INVALID', 'App protocol URL is not trusted')
   }
   const decoded = decodeURIComponent(url.pathname)

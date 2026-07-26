@@ -53,6 +53,12 @@ export function createTerminalSentinelCommand(shell, sentinel) {
   return `printf '%s%s\\n' '${left}' '${right}'\n`
 }
 
+export function redactRendererDiagnostic(value) {
+  return String(value)
+    .replace(/([?&](?:token|api[_-]?key)=)[^&\s"'<>]+/gi, '$1<redacted>')
+    .replace(/\b(Bearer)\s+[^\s"'<>]+/gi, '$1 <redacted>')
+}
+
 function directories(root, depth = 0) {
   if (!existsSync(root) || depth > 3) return []
   const result = [root]
@@ -378,18 +384,40 @@ async function assertHealthStops(info) {
   }, 15_000, 'owned sidecar cleanup')
 }
 
-async function waitForRenderer(page) {
+export function isTrustedPackagedRendererUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl)
+    return !(
+      url.protocol !== 'hermes-studio:'
+      || url.hostname !== 'app'
+      || url.port !== ''
+      || url.username !== ''
+      || url.password !== ''
+    )
+  } catch {
+    return false
+  }
+}
+
+async function waitForRenderer(page, diagnostics = []) {
   await retry(async () => {
     await page.waitForLoadState('domcontentloaded', { timeout: 5_000 })
-    if (page.url() !== 'hermes-studio://app/') {
+    if (!isTrustedPackagedRendererUrl(page.url())) {
       throw new Error(`packaged renderer loaded an unexpected URL: ${page.url()}`)
     }
     const state = await page.evaluate(() => ({
       bridge: Boolean(window.hermesStudio),
       mounted: Boolean(document.querySelector('#root')?.firstElementChild),
+      readyState: document.readyState,
+      rootPresent: Boolean(document.querySelector('#root')),
+      bodyText: document.body?.innerText.slice(0, 300) ?? '',
     }))
     if (!state.bridge) throw new Error('preload bridge is unavailable')
-    if (!state.mounted) throw new Error('packaged renderer did not mount the Studio UI')
+    if (!state.mounted) {
+      throw new Error(
+        `packaged renderer did not mount the Studio UI; state=${JSON.stringify(state)}; diagnostics=${JSON.stringify(diagnostics.slice(-20))}`,
+      )
+    }
   }, 30_000, 'packaged renderer')
 }
 
@@ -419,13 +447,32 @@ export async function smokePackagedApplication(application) {
       timeout: 120_000,
     })
     const page = await electronApp.firstWindow({ timeout: 120_000 })
-    await waitForRenderer(page)
+    const rendererDiagnostics = []
+    const recordRendererDiagnostic = (entry) => {
+      rendererDiagnostics.push(entry)
+      if (rendererDiagnostics.length > 100) rendererDiagnostics.shift()
+    }
+    page.on('console', (message) => recordRendererDiagnostic({
+      type: 'console',
+      level: message.type(),
+      text: redactRendererDiagnostic(message.text()),
+    }))
+    page.on('pageerror', (error) => recordRendererDiagnostic({
+      type: 'pageerror',
+      message: redactRendererDiagnostic(error.message),
+    }))
+    page.on('requestfailed', (request) => recordRendererDiagnostic({
+      type: 'requestfailed',
+      url: redactRendererDiagnostic(request.url()),
+      error: redactRendererDiagnostic(request.failure()?.errorText ?? 'unknown'),
+    }))
+    await waitForRenderer(page, rendererDiagnostics)
     activeInfo = await waitForBackend(page)
     // The initial READY event updates the CSP's exact loopback origin and
     // schedules one renderer reload. Let that navigation finish before a
     // long, stateful bridge evaluation begins.
     await new Promise((resolve) => setTimeout(resolve, 500))
-    await waitForRenderer(page)
+    await waitForRenderer(page, rendererDiagnostics)
     activeInfo = await waitForBackend(page)
     await assertHealth(activeInfo)
 
@@ -570,7 +617,10 @@ export async function smokePackagedApplication(application) {
       let terminalId = ''
       let terminalStopped = false
       let stoppedWriteRejected = false
+      let stoppedWriteErrorShape = false
       let output = ''
+      let terminalStage = 'subscribe'
+      const terminalEvents = []
       let finish
       let fail
       const observed = new Promise((resolve, reject) => { finish = resolve; fail = reject })
@@ -580,12 +630,15 @@ export async function smokePackagedApplication(application) {
         if (output.includes(sentinel)) finish()
       })
       const unsubscribeExit = bridge.terminal.onExit((event) => {
+        terminalEvents.push({ type: 'exit', id: event.id, code: event.code, signal: event.signal })
         if (event.id === terminalId) fail(new Error(`PTY exited before sentinel (${event.code})`))
       })
       const unsubscribeError = bridge.terminal.onError((event) => {
+        terminalEvents.push({ type: 'error', id: event.id, error: event.error })
         if (event.id === terminalId) fail(new Error(event.error))
       })
       try {
+        terminalStage = 'start'
         const terminal = await bridge.terminal.start({ cwd: null, cols: 80, rows: 24 })
         terminalId = terminal.id
         const shell = terminal.shell.toLowerCase()
@@ -594,21 +647,35 @@ export async function smokePackagedApplication(application) {
           : shell.endsWith('cmd.exe') || shell.endsWith('cmd')
             ? commands.cmd
             : commands.posix
+        terminalStage = 'resize'
         await bridge.terminal.resize(terminal.id, 100, 30)
+        terminalStage = 'write'
         await bridge.terminal.write(terminal.id, Array.from(new TextEncoder().encode(command)))
+        terminalStage = 'observe-output'
         await Promise.race([
           observed,
           new Promise((_, reject) => setTimeout(() => reject(new Error('PTY sentinel timed out')), 30_000)),
         ])
+        terminalStage = 'stop'
         await bridge.terminal.stop(terminal.id)
         terminalStopped = true
         try {
+          terminalStage = 'verify-stopped-write'
           await bridge.terminal.write(terminal.id, [13])
         } catch (error) {
           if (!error || error.code !== 'TERMINAL_NOT_FOUND') throw error
+          stoppedWriteErrorShape = typeof error.message === 'string' && error.message.length > 0
           stoppedWriteRejected = true
         }
         if (!stoppedWriteRejected) throw new Error('stopped PTY still accepted input')
+      } catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error ? error.code : 'NO_CODE'
+        const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : String(error)
+        throw new Error(`PTY ${terminalStage} failed (${code}): ${message}; events=${JSON.stringify(terminalEvents)}`)
       } finally {
         if (terminalId && !terminalStopped) await bridge.terminal.stop(terminalId).catch(() => {})
         unsubscribeData()
@@ -626,7 +693,7 @@ export async function smokePackagedApplication(application) {
         sessionCrud,
         sse,
         notification,
-        pty: output.includes(sentinel) && stoppedWriteRejected,
+        pty: output.includes(sentinel) && stoppedWriteRejected && stoppedWriteErrorShape,
       }
     }, {
       backend: activeInfo,
@@ -654,6 +721,11 @@ export async function smokePackagedApplication(application) {
     page.on('domcontentloaded', observeRendererReload)
     try {
       await page.evaluate(({ markerKey, infoKey, errorKey }) => {
+        history.replaceState(
+          history.state,
+          '',
+          `${location.pathname}?packaged-smoke=restart%2Frecovery#pending`,
+        )
         sessionStorage.setItem(markerKey, 'pending')
         sessionStorage.removeItem(infoKey)
         sessionStorage.removeItem(errorKey)
@@ -688,13 +760,14 @@ export async function smokePackagedApplication(application) {
         await retry(async () => {
           if (!rendererReloaded) throw new Error('renderer reload has not arrived')
         }, 120_000, 'renderer reload after backend origin change')
-        await waitForRenderer(page)
+        await waitForRenderer(page, rendererDiagnostics)
         await assertHealthStops(previousInfo)
       } else {
         await new Promise((resolve) => setTimeout(resolve, 500))
         assert.equal(rendererReloaded, false, 'same-origin backend restart unexpectedly reloaded the renderer')
       }
 
+      assert.match(page.url(), /\?packaged-smoke=restart%2Frecovery#pending$/)
       assert.equal(await page.evaluate((markerKey) => sessionStorage.getItem(markerKey), restartMarkerKey), 'pending')
       assert.deepEqual(await waitForBackend(page), activeInfo)
       await assertHealth(activeInfo)

@@ -46,9 +46,12 @@ Main handlers always return one of:
 { ok: false, error: { code: string, message: string } }
 ```
 
-Preload converts the second form into `HermesStudioNativeError`, preserving
-only the stable `code` and safe `message`. Native stack traces and secrets are
-not sent to the renderer.
+Preload rejects the call with a cloneable `{ code, message }` object.
+This is deliberate: Electron drops custom properties from `Error` values when
+they cross an isolated `contextBridge`, while plain data preserves both stable
+fields. Promise-rejection cloning does not preserve an object's frozen state,
+so consumers treat the shape as immutable data rather than relying on
+`Object.isFrozen`. Native stack traces and secrets are not sent to the renderer.
 
 ## Capability ledger
 

@@ -7,6 +7,7 @@ import {
   REVIEW_FILE_RAIL_MIN_WIDTH,
 } from '@/lib/review-split-layout.js';
 import { getNativeHost } from '@/services/native-host.js';
+import { nativeErrorMessage } from '@/shared/native-bridge.js';
 import { getGateway } from './context.js';
 import { toastStore } from './toast.js';
 import { composerInsertionStore } from './composer-insertions.js';
@@ -729,9 +730,7 @@ function applyReviewError(error: unknown, fallback: string): void {
 // Plain string extraction for error signals that only need a message
 // (no machine-readable code / install-action wiring).
 function errorMessage(error: unknown, fallback: string): string {
-  if (typeof error === 'string') return error;
-  if (error instanceof Error && error.message) return error.message;
-  return fallback;
+  return nativeErrorMessage(error, fallback);
 }
 
 // Whether the renderer can offer a one-click fix for the current review error.
@@ -761,11 +760,8 @@ async function installCommandLineTools(): Promise<void> {
       'The macOS installer has opened. Click Install in that prompt, then press Retry once it finishes.',
     );
   } catch (e) {
-    setReviewError(
-      e instanceof Error && e.message
-        ? `Could not start the installer: ${e.message}. Run \`xcode-select --install\` from a terminal, then Retry.`
-        : 'Could not start the installer. Run `xcode-select --install` from a terminal, then press Retry.',
-    );
+    const message = nativeErrorMessage(e, 'the native installer could not be started');
+    setReviewError(`Could not start the installer: ${message}. Run \`xcode-select --install\` from a terminal, then Retry.`);
   } finally {
     setInstallingTools(false);
   }

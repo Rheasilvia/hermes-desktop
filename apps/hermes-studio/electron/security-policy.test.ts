@@ -73,7 +73,9 @@ describe('Studio security policy', () => {
   it('maps app protocol paths without traversal or encoded separators', () => {
     expect(safeRendererAssetPath('hermes-studio://app/')).toBe('index.html')
     expect(safeRendererAssetPath('hermes-studio://app/assets/app.js')).toBe('assets/app.js')
+    expect(safeRendererAssetPath('hermes-studio://app/memory?scope=session%2Fdesktop_1#selection')).toBe('memory')
     expect(() => safeRendererAssetPath('hermes-studio://app/%2e%2e/secret')).toThrow()
+    expect(() => safeRendererAssetPath('hermes-studio://app/%2e%2e/secret?scope=session%2Fdesktop_1')).toThrow()
     expect(() => safeRendererAssetPath('hermes-studio://app/assets%2Fsecret')).toThrow()
     expect(() => safeRendererAssetPath('hermes-studio://evil/index.html')).toThrow()
   })

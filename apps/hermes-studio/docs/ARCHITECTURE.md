@@ -65,6 +65,11 @@ entitlements.
 
 App responses receive a strict CSP, `Referrer-Policy: no-referrer`, and
 `X-Content-Type-Options: nosniff`. Production script policy is self-only.
+Vite emits assets from the Studio origin root, so an extensionless SPA deep
+link falls back to `index.html` and still reloads `/assets/*` from that root.
+The protocol validates the raw path but deliberately ignores query parameters
+and fragments when resolving a file; router state therefore survives a
+sidecar-triggered reload without becoming filesystem input.
 Only renderer assets with recognized content-hash filenames receive immutable
 one-year caching; HTML and stable-name assets use `no-cache`.
 Development adds only the exact Vite HTTP/WebSocket origin and development-only

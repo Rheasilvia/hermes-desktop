@@ -28,6 +28,12 @@ const manifest = JSON.parse(readFileSync(path.join(studioRoot, 'package.json'), 
 }
 
 describe('native package contract', () => {
+  it('builds renderer assets from the Studio origin root for SPA deep-link reloads', () => {
+    const viteConfig = readFileSync(path.join(studioRoot, 'vite.config.ts'), 'utf8')
+    expect(viteConfig).toMatch(/base:\s*['"]\/['"]/)
+    expect(viteConfig).not.toMatch(/base:\s*['"]\.\/['"]/)
+  })
+
   it('pins Electron and stages node-pty through target-aware package hooks', () => {
     expect(manifest.devDependencies?.electron).toBe('40.10.2')
     expect(manifest.devDependencies?.['electron-builder']).toBe('26.8.1')
