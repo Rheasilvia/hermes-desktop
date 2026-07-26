@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/banner.png" alt="Hermes Desktop" width="100%" />
+<img src="assets/banner.png" alt="Hermes Studio" width="100%" />
 
-# Hermes Desktop
+# Hermes Studio
 
 A desktop-first fork of [Hermes Agent](https://github.com/NousResearch/hermes-agent), bringing the agent runtime into a native desktop workbench.
 
@@ -12,9 +12,9 @@ A desktop-first fork of [Hermes Agent](https://github.com/NousResearch/hermes-ag
 
 ---
 
-Hermes Desktop keeps the upstream Hermes agent foundation — providers, models,
+Hermes Studio keeps the upstream Hermes agent foundation — providers, models,
 skills, tools, memory, sessions, and config — and wraps it in a native desktop
-workspace built with **Tauri**, **SolidJS**, **TypeScript**, and a **Python
+workspace built with **Electron**, **SolidJS**, **TypeScript**, and a **Python
 sidecar**.
 
 The goal is to make Hermes feel like a local workbench for software tasks:
@@ -24,7 +24,7 @@ runtime.
 
 <div align="center">
 
-![Hermes Desktop home screen](desktop/public/hermes-desktop-home.png)
+![Hermes Studio home screen](apps/hermes-studio/public/hermes-desktop-home.png)
 
 </div>
 
@@ -32,33 +32,32 @@ runtime.
 
 | | |
 | :-- | :-- |
-| 🖥️ **Native desktop app** | A Tauri v2 shell with custom window chrome, sidebar navigation, prompt composer, right-side environment panel, and desktop packaging targets. |
-| 🐍 **Desktop-owned sidecar** | A Python daemon under `desktop/sidecar` exposes the local API surface used by the frontend and keeps desktop concerns out of the core agent loop. |
+| 🖥️ **Native desktop app** | An Electron shell with custom window chrome, sidebar navigation, prompt composer, right-side environment panel, and desktop packaging targets. |
+| 🐍 **Desktop-owned sidecar** | A Python daemon under `apps/hermes-studio/sidecar` exposes the local API surface used by the frontend and keeps desktop concerns out of the core agent loop. |
 | 💬 **Workspace-first chat** | Conversations organized around local projects, git/workspace state, prompt planning controls, tool output, and approval flows. |
 | 🔌 **Hermes core compatibility** | Continues to use the upstream agent concepts: providers, models, skills, tools, memory, sessions, and config. |
-| 🧩 **Open development surface** | The desktop app lives in `desktop/` and can be run, tested, and packaged independently from the upstream CLI and gateway surfaces. |
+| 🧩 **Open development surface** | Hermes Studio lives in `apps/hermes-studio/` and can be run, tested, and packaged independently from the upstream CLI and gateway surfaces. |
 
 ## 🚀 Quick Start
 
-> ⚠️ **Platform support:** Hermes Desktop currently runs on **macOS only**.
+> ⚠️ **Platform support:** Hermes Studio currently runs on **macOS only**.
 > Windows and Linux packaging is configured but not yet tested or supported.
 > For upstream Hermes runtime or CLI use on Windows, use the PowerShell
-> installer at `scripts/install.ps1`; that is separate from this Tauri desktop
+> installer at `scripts/install.ps1`; that is separate from this Electron desktop
 > packaging status.
 
 **Prerequisites** (macOS)
 
 - macOS 11 (Big Sur) or newer
 - Node.js
-- Rust and the [Tauri system prerequisites](https://v2.tauri.app/start/prerequisites/) for macOS
 - `uv` and Python 3.11 for the sidecar environment
 
 **Run in development mode**
 
 ```bash
-cd desktop
+cd apps/hermes-studio
 npm install
-npm run tauri:dev
+npm run dev
 ```
 
 In development, Vite serves the frontend on `http://localhost:1420` and the
@@ -66,17 +65,16 @@ desktop sidecar uses port `18080`.
 
 ## 🛠️ Useful Commands
 
-Run these from `desktop/`:
+Run these from `apps/hermes-studio/`:
 
 | Command | Description |
 | :-- | :-- |
-| `npm run dev` | Start the Vite frontend only |
+| `npm run dev` | Start the Vite frontend and Electron shell |
 | `npm run backend` | Start the Python sidecar daemon |
-| `npm run tauri:dev` | Build the sidecar and run the Tauri desktop app |
-| `npm run build` | Build the production frontend |
-| `npm run tauri:build` | Build the packaged desktop application |
-| `npm run type-check` | Run TypeScript type checking |
-| `npm run lint` | Run ESLint for `desktop/src` |
+| `npm run build` | Build the renderer and Electron processes |
+| `npm run dist` | Build the packaged Electron application |
+| `npm run typecheck` | Run renderer and Electron TypeScript checks |
+| `npm run lint` | Run ESLint for the renderer and Electron sources |
 | `npm run test` | Run Vitest unit tests |
 | `npm run test:e2e` | Run Playwright end-to-end tests |
 
@@ -84,15 +82,15 @@ Run these from `desktop/`:
 
 | Path | Purpose |
 | :-- | :-- |
-| `desktop/` | The desktop product: Tauri shell, SolidJS frontend, sidecar daemon, tests, and design docs |
-| `desktop/src` | Desktop frontend features, stores, shell layout, services, and UI primitives |
-| `desktop/sidecar` | Python daemon used by the desktop app |
-| `desktop/src-tauri` | Rust/Tauri desktop integration and app packaging config |
+| `apps/hermes-studio/` | Hermes Studio: Electron shell, SolidJS frontend, sidecar daemon, tests, and design docs |
+| `apps/hermes-studio/src` | Studio frontend features, stores, shell layout, services, and UI primitives |
+| `apps/hermes-studio/sidecar` | Python daemon used by Hermes Studio |
+| `apps/hermes-studio/src-tauri` | Temporary Tauri parity reference |
 | `run_agent.py`, `model_tools.py`, `toolsets.py` | Upstream Hermes agent runtime surfaces retained by this fork |
 | `skills/`, `plugins/`, `tools/` | Hermes extension surfaces inherited from upstream |
 
 For desktop-specific architecture notes, see
-[desktop/README.md](desktop/README.md) and [desktop/DESIGN.md](desktop/DESIGN.md).
+[apps/hermes-studio/README.md](apps/hermes-studio/README.md) and [apps/hermes-studio/DESIGN.md](apps/hermes-studio/DESIGN.md).
 
 ## 🔗 Relationship to Upstream Hermes Agent
 
@@ -101,7 +99,7 @@ This project is based on the open-source Hermes Agent codebase from
 provides the agent core, CLI, TUI, messaging gateway, tooling, skills, memory,
 provider integrations, and scheduling foundations.
 
-This fork focuses on the native desktop experience in `desktop/`. When working
+This fork focuses on the Hermes Studio experience in `apps/hermes-studio/`. When working
 on the desktop app, prefer extending that surface rather than changing upstream
 core behavior — unless the desktop feature genuinely requires a shared runtime
 change.

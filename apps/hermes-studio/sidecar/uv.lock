@@ -276,7 +276,7 @@ dev = [
 requires-dist = [
     { name = "curl-cffi", specifier = ">=0.7,<1.0" },
     { name = "fastapi", specifier = ">=0.110,<1.0" },
-    { name = "hermes-agent", extras = ["mcp"], editable = "../../" },
+    { name = "hermes-agent", extras = ["mcp"], editable = "../../../" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "idna", specifier = ">=3.15,<4" },
     { name = "nbformat", specifier = ">=5.10,<6" },
@@ -352,7 +352,7 @@ wheels = [
 [[package]]
 name = "hermes-agent"
 version = "0.19.0"
-source = { editable = "../../" }
+source = { editable = "../../../" }
 dependencies = [
     { name = "certifi" },
     { name = "concurrent-log-handler", marker = "sys_platform == 'win32'" },

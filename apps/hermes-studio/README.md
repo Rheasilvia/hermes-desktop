@@ -1,6 +1,6 @@
-# Hermes Desktop
+# Hermes Studio
 
-A Tauri v2 desktop application built with SolidJS and TypeScript, serving as the UI client for the Hermes AI agent system.
+An Electron desktop application built with SolidJS and TypeScript, serving as the UI client for the Hermes AI agent system.
 
 ## Features
 
@@ -16,22 +16,21 @@ A Tauri v2 desktop application built with SolidJS and TypeScript, serving as the
 ## Setup
 
 ```bash
-cd desktop
+cd apps/hermes-studio
 npm install
 ```
 
 ## Development
 
 ```bash
-npm run dev          # Start Vite dev server (port 1420)
-npm run tauri:dev   # Start Tauri development mode with Rust backend
+npm run dev          # Start Vite and Electron (port 1420)
 ```
 
 ## Build
 
 ```bash
-npm run build        # Build production frontend
-npm run tauri:build # Build complete Tauri application
+npm run build        # Build the renderer and Electron processes
+npm run dist         # Create the platform package
 ```
 
 ## Testing
@@ -47,8 +46,8 @@ npm run test:e2e:ui   # Run Playwright tests with UI
 ## Type Checking & Linting
 
 ```bash
-npm run type-check    # Run TypeScript type checking
-npm run lint          # Run ESLint on src/
+npm run typecheck     # Run renderer and Electron TypeScript checks
+npm run lint          # Run ESLint on renderer and Electron sources
 ```
 
 ## Architecture
@@ -56,7 +55,7 @@ npm run lint          # Run ESLint on src/
 Hermes Desktop uses a **Gateway Adapter Pattern** where all communication with the Python backend goes through typed interfaces. The application consists of:
 
 - **Frontend**: SolidJS with TypeScript, Vite build system, and modular CSS
-- **Desktop Shell**: Tauri v2 (Rust) providing native platform integration
+- **Desktop Shell**: Electron main and preload processes
 - **Backend**: Python sidecar (`daemon`) serving as the API layer
 - **State Management**: SolidJS stores with dependency injection
 - **Testing**: Vitest for unit tests, Playwright for E2E tests

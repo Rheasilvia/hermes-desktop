@@ -1,7 +1,7 @@
 """Pydantic models for the memory router.
 
 Field names mirror the dataclasses in ``services.memory_files`` and the
-TypeScript types in ``desktop/src/types/memory.ts``. The cross-language
+TypeScript types in ``apps/hermes-studio/src/types/memory.ts``. The cross-language
 parity test (``tests/unit/test_memory_schema_parity.py``) enforces that
 every field here exists in the matching TS interface and vice versa.
 
@@ -14,7 +14,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from ..services.memory_files import ALL_NAMES, PROJECT_FILES, USER_FILES
+from daemon.services.memory_files import ALL_NAMES, PROJECT_FILES, USER_FILES
 
 Scope = Literal["user", "project"]
 WellKnownName = Literal[

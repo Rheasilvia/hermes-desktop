@@ -14,6 +14,7 @@ try {
 }
 
 export default defineConfig({
+  base: './',
   plugins: [solid()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -25,6 +26,10 @@ export default defineConfig({
     },
   },
   clearScreen: false,
+  build: {
+    outDir: 'dist/renderer',
+    emptyOutDir: false,
+  },
   server: {
     port: 1420,
     strictPort: true,

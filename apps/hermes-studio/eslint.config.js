@@ -5,7 +5,7 @@ export default [
 
   // Base TypeScript config
   {
-    files: ["src/**/*.{ts,tsx}"],
+    files: ["src/**/*.{ts,tsx}", "electron/**/*.ts"],
     languageOptions: {
       parser: tsParser,
     },

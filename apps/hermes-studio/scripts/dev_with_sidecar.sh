@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 本地完整验证：启动 Python 侧车 + Vite dev server（不需要 Tauri）
 set -euo pipefail
-REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
+APP_ROOT="$REPO/apps/hermes-studio"
 
 cleanup() {
   if [ -n "${SIDECAR_PID:-}" ]; then
@@ -17,7 +18,7 @@ echo "dev-token" > ~/.hermes/desktop/sidecar.token
 chmod 600 ~/.hermes/desktop/sidecar.token
 
 echo "==> 启动 Python 侧车..."
-cd "$REPO/desktop/sidecar"
+cd "$APP_ROOT/sidecar"
 uv run python -m daemon > /tmp/sidecar_stdout.txt 2>/dev/null &
 SIDECAR_PID=$!
 
@@ -32,12 +33,12 @@ PORT=$(grep -oP 'READY \K\d+' /tmp/sidecar_stdout.txt)
 echo "==> 侧车就绪: http://127.0.0.1:$PORT"
 
 # 写入实际端口
-cat > "$REPO/desktop/.env.development.local" << EOF
+cat > "$APP_ROOT/.env.development.local" << EOF
 VITE_API_MODE=http
 VITE_SIDECAR_URL=http://127.0.0.1:$PORT
 VITE_SIDECAR_TOKEN=dev-token
 EOF
 
 echo "==> 启动 Vite dev server..."
-cd "$REPO/desktop"
+cd "$APP_ROOT"
 npm run dev

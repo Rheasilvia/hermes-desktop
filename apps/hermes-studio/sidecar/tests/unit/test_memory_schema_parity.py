@@ -2,7 +2,7 @@
 
 Asserts that every field name in the Pydantic memory models (Python) is
 present in the matching TypeScript interface in
-``desktop/src/types/memory.ts``, and vice versa.
+``apps/hermes-studio/src/types/memory.ts``, and vice versa.
 
 Structural guard: catches the case where one side gains or renames a field
 without the other being updated. Does not check type compatibility — only
@@ -23,8 +23,8 @@ from daemon.schemas.memory import (
     MemorySearchHit,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-TS_TYPES = REPO_ROOT / "desktop" / "src" / "types" / "memory.ts"
+REPO_ROOT = Path(__file__).resolve().parents[5]
+TS_TYPES = REPO_ROOT / "apps" / "hermes-studio" / "src" / "types" / "memory.ts"
 
 
 def _read_ts() -> str:

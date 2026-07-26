@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 SIDECAR_ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = SIDECAR_ROOT.parents[1]
+REPO_ROOT = SIDECAR_ROOT.parents[2]
 for path in (str(SIDECAR_ROOT), str(REPO_ROOT)):
     if path not in sys.path:
         sys.path.insert(0, path)
