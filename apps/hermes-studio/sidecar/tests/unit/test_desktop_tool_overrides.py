@@ -419,7 +419,7 @@ class TestSharedImportDoesNotInstallOverrides:
         assert overrides._INSTALLED is True
 
     def test_plan_tools_registered_only_by_desktop_install(self):
-        """Desktop-only plan tools are registered by the Tauri sidecar install hook."""
+        """Desktop-only plan tools are registered by the Studio sidecar install hook."""
         overrides = fresh_desktop_overrides_module()
         _, fake_registry, fake_registry_module, fake_model_tools = build_fake_registry()
 

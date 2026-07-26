@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate NousResearch app icons from SVG for Tauri. Run: python3 scripts/generate-nousresearch-icons.py"""
+"""Generate Hermes Studio Electron Builder icons from the NousResearch SVG."""
 
 import os
 import struct
@@ -9,7 +9,7 @@ from PIL import Image
 # Source SVG and output directories
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SVG_PATH = os.path.join(SCRIPT_DIR, "..", "src", "assets", "nousresearch.svg")
-ICONS_DIR = os.path.join(SCRIPT_DIR, "..", "src-tauri", "icons")
+ICONS_DIR = os.path.join(SCRIPT_DIR, "..", "build", "assets")
 
 # Icon sizes to generate
 SIZES = [16, 32, 64, 128, 256, 512, 1024]
@@ -153,38 +153,6 @@ def create_icns(png_paths: dict, out_path: str) -> None:
     print(f"  Generated icon.icns")
 
 
-def update_tauri_config() -> None:
-    """Update tauri.conf.json to use the new icon paths."""
-    config_path = os.path.join(SCRIPT_DIR, "..", "src-tauri", "tauri.conf.json")
-    with open(config_path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # Replace old icon paths referencing src/assets/icons with src-tauri/icons paths
-    old_icon_block = '''"icon": [
-      "../src/assets/icons/favicon/icon_32x32.png",
-      "../src/assets/icons/app/icon_128x128.png",
-      "../src/assets/icons/app/icon_256x256.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]'''
-
-    new_icon_block = '''"icon": [
-      "icons/icon_32x32.png",
-      "icons/icon_128x128.png",
-      "icons/icon_256x256.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]'''
-
-    if old_icon_block in content:
-        content = content.replace(old_icon_block, new_icon_block)
-        with open(config_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        print("  Updated tauri.conf.json icon paths")
-    else:
-        print("  Warning: Could not find expected icon block in tauri.conf.json")
-
-
 def main():
     print("Generating NousResearch app icons...")
     os.makedirs(ICONS_DIR, exist_ok=True)
@@ -195,17 +163,14 @@ def main():
     create_ico(png_paths, os.path.join(ICONS_DIR, "icon.ico"))
     create_icns(png_paths, os.path.join(ICONS_DIR, "icon.icns"))
 
-    # Also copy the 256x256 as the default icon.png for Tauri
+    # Electron Builder resolves build/assets/icon.{png,ico,icns} by platform.
     if 256 in png_paths:
         import shutil
 
         shutil.copy2(png_paths[256], os.path.join(ICONS_DIR, "icon.png"))
         print("  Copied 256x256 as icon.png")
 
-    update_tauri_config()
-
-    print("\nDone! Generated icons in src-tauri/icons/")
-    print("You can now delete src/assets/icons/ if no longer needed.")
+    print("\nDone! Generated Electron icons in build/assets/")
 
 
 if __name__ == "__main__":

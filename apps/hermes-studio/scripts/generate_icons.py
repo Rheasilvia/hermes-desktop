@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate pixel-art Hermes app icons for Tauri. Run manually: python3 scripts/generate_icons.py"""
+"""Generate pixel-art Hermes Studio icons for Electron Builder."""
 
 from PIL import Image, ImageDraw
 import os
@@ -77,10 +77,10 @@ def add_rounded_corners(img, radius_ratio=0.18):
     return result
 
 
-def generate_tauri_icons():
-    """Generate all icon sizes needed by Tauri."""
+def generate_electron_icons():
+    """Generate Electron Builder icons and the renderer asset."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    icons_dir = os.path.join(script_dir, '..', 'src-tauri', 'icons')
+    icons_dir = os.path.join(script_dir, '..', 'build', 'assets')
     assets_dir = os.path.join(script_dir, '..', 'src', 'assets')
 
     os.makedirs(icons_dir, exist_ok=True)
@@ -125,9 +125,10 @@ def generate_tauri_icons():
     except Exception as e:
         print(f"ICO generation failed: {e}")
 
-    # Generate ICNS for macOS (requires external tool, skip for now)
-    print("\nDone! Note: icon.icns requires macOS iconutil or sips.")
+    # Generate ICNS for macOS with generate-nousresearch-icons.py, whose
+    # cross-platform writer emits the container Electron Builder expects.
+    print("\nDone! Run generate-nousresearch-icons.py to refresh icon.icns.")
 
 
 if __name__ == '__main__':
-    generate_tauri_icons()
+    generate_electron_icons()

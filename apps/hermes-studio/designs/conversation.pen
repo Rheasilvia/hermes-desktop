@@ -7145,7 +7145,7 @@
                           "type": "text",
                           "id": "kwQqM",
                           "fill": "#30302e",
-                          "content": "Working on hermes-agent desktop app, Tauri v2 + SolidJS.",
+                          "content": "Working on Hermes Studio, Electron + SolidJS.",
                           "fontFamily": "Inter",
                           "fontSize": 11,
                           "fontWeight": "normal"

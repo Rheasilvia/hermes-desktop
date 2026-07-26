@@ -1,62 +1,56 @@
 #!/usr/bin/env bash
-# Hermes Desktop — Cross-platform build script
-# Usage: ./scripts/build.sh [win|windows|mac|macos|linux|all|current]
+# Hermes Studio — host-native Electron installer build.
+# Usage: ./scripts/build.sh [win|windows|mac|macos|linux|current]
 set -euo pipefail
 
-PLATFORM="${1:-current}"
+REQUESTED="${1:-current}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+HOST_PLATFORM="$(node -p 'process.platform')"
 
-cd "$PROJECT_DIR"
-
-echo "=== Hermes Desktop Build ==="
-echo "Platform: $PLATFORM"
-echo "Project:  $PROJECT_DIR"
-echo ""
-
-# Install dependencies
-echo "[1/3] Installing dependencies..."
-npm ci
-
-# Type-check
-echo "[2/3] Type-checking..."
-npx tsc --noEmit
-
-# Build
-echo "[3/3] Building..."
-case "$PLATFORM" in
-  win|windows)
-    echo "Building Windows NSIS installer..."
-    npm run tauri build -- --bundles nsis
+case "$REQUESTED" in
+  current)
+    case "$HOST_PLATFORM" in
+      darwin) TARGET="mac" ;;
+      win32) TARGET="win" ;;
+      linux) TARGET="linux" ;;
+      *) echo "Unsupported host platform: $HOST_PLATFORM" >&2; exit 2 ;;
+    esac
     ;;
-  mac|macos)
-    echo "Building macOS DMG..."
-    npm run tauri build -- --bundles dmg
-    ;;
-  linux)
-    echo "Building Linux packages (deb, rpm, AppImage)..."
-    npm run tauri build -- --bundles deb,rpm,appimage
-    ;;
+  mac|macos) TARGET="mac" ;;
+  win|windows) TARGET="win" ;;
+  linux) TARGET="linux" ;;
   all)
-    echo "Building all platform targets..."
-    npm run tauri build
+    echo "Cross-platform sidecars are unsupported; run this script on each native host." >&2
+    exit 2
     ;;
-  current|*)
-    echo "Building for current platform..."
-    npm run tauri build
+  *) echo "Unknown target: $REQUESTED" >&2; exit 2 ;;
+esac
+
+case "$TARGET:$HOST_PLATFORM" in
+  mac:darwin|win:win32|linux:linux) ;;
+  *)
+    echo "Target $TARGET must be built on its native host (current: $HOST_PLATFORM)." >&2
+    exit 2
     ;;
 esac
 
-echo ""
-echo "=== Build complete ==="
-echo "Artifacts in: $PROJECT_DIR/src-tauri/target/release/bundle/"
-echo ""
+cd "$PROJECT_DIR"
 
-# List produced artifacts
-if [ -d "src-tauri/target/release/bundle" ]; then
-  echo "Produced artifacts:"
-  find src-tauri/target/release/bundle -maxdepth 2 -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.exe" -o -name "*.msi" -o -name "*.app" \) 2>/dev/null | while read -r f; do
-    SIZE=$(du -h "$f" | cut -f1)
-    echo "  $SIZE  $f"
-  done || true
-fi
+echo "=== Hermes Studio native build ($TARGET) ==="
+echo "[1/3] Installing workspace dependencies..."
+npm ci
+echo "[2/3] Running Studio checks..."
+npm run check
+echo "[3/3] Building sidecar and installers..."
+npm run "dist:$TARGET"
+
+echo "=== Build complete ==="
+echo "Artifacts in: $PROJECT_DIR/release/"
+find release -maxdepth 1 -type f \( \
+  -name 'Hermes-Studio-*.dmg' -o \
+  -name 'Hermes-Studio-*.exe' -o \
+  -name 'Hermes-Studio-*.AppImage' -o \
+  -name 'Hermes-Studio-*.deb' -o \
+  -name 'Hermes-Studio-*.rpm' \
+\) -print 2>/dev/null || true

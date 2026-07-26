@@ -1,4 +1,4 @@
-"""Profile endpoints for Tauri desktop."""
+"""Profile endpoints for Hermes Studio."""
 
 from __future__ import annotations
 

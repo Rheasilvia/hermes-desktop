@@ -596,7 +596,7 @@ class AgentPool:
 
     @staticmethod
     def _ensure_desktop_plan_toolset(agent: Any) -> None:
-        """Keep Tauri-only plan tools available even with restricted toolsets."""
+        """Keep Studio-only plan tools available even with restricted toolsets."""
         enabled = getattr(agent, "enabled_toolsets", None)
         if enabled is None or "desktop_plan" in enabled:
             return
