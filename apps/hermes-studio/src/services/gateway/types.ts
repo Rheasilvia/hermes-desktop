@@ -1,5 +1,5 @@
 /**
- * Gateway adapter types for the Hermes Desktop app.
+ * Gateway adapter types for Hermes Studio.
  * Defines the contract between the UI and the Hermes gateway.
  */
 

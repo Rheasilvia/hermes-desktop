@@ -162,7 +162,7 @@ def build_app(cfg: Config) -> FastAPI:
                         log.exception("notebook watch shutdown failed")
             _restore_process_hermes_home(previous_hermes_home)
 
-    app = FastAPI(title="Hermes Desktop Sidecar", openapi_url=None, lifespan=lifespan)
+    app = FastAPI(title="Hermes Studio Sidecar", openapi_url=None, lifespan=lifespan)
 
     # Initialize event bus on app state — used by SSE stream and
     # the agent pool to fan out ui_messages events to all connected windows.

@@ -1,7 +1,7 @@
 [project]
 name = "daemon"
 version = "0.1.0"
-description = "Hermes Desktop sidecar (FastAPI). Local 127.0.0.1 only."
+description = "Hermes Studio sidecar (FastAPI). Local 127.0.0.1 only."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.110,<1.0",
