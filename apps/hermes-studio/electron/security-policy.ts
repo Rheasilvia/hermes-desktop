@@ -28,6 +28,15 @@ export function parseDevServerUrl(raw: string): string {
   return url.origin
 }
 
+export function resolveDevServerOrigin(
+  environment: Readonly<Record<string, string | undefined>>,
+  isPackaged: boolean,
+): string | undefined {
+  if (isPackaged) return undefined
+  const raw = environment.HERMES_STUDIO_DEV_SERVER
+  return raw ? parseDevServerUrl(raw) : undefined
+}
+
 export function isTrustedStudioUrl(raw: string, devOrigin?: string): boolean {
   try {
     const url = new URL(raw)

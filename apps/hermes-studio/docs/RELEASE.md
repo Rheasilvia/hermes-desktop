@@ -145,19 +145,24 @@ It builds the sidecar and app, creates the current-host unpacked package, then
 launches the packaged executable through Playwright's Electron driver. The
 smoke gate verifies:
 
-- the renderer loads from `hermes-studio://app/`;
+- the renderer loads and mounts the Studio UI from `hermes-studio://app/`, even
+  if the invoking shell contains a development-server variable;
 - the deeply frozen preload bridge is present, Node globals are absent, and
   `app.nativeState()` reports a packaged process;
 - the packaged sidecar reaches authenticated loopback health;
 - restricted Hermes Home write/read/list operations work;
 - an image loads only through a signed opaque asset handle;
-- session create/list/delete works without model credentials, the SSE endpoint
-  rejects missing and invalid query credentials, and an authenticated SSE
-  connection opens;
+- session create/list/delete works without model credentials and the deleted
+  session is absent from a subsequent list;
+- the SSE endpoint rejects missing and invalid query credentials, then an
+  authenticated stream delivers and validates a deterministic
+  `profile.changed` event;
 - notifications either succeed or return the stable
   `NOTIFICATIONS_UNAVAILABLE` capability result;
-- an explicit backend restart reaches health through the renderer reload;
-- `node-pty` starts and returns a unique sentinel through the frozen bridge;
+- an explicit backend restart emits `backend.onRestarted`, preserves the API
+  token, reaches health, and reloads only when the loopback origin changes;
+- `node-pty` starts, resizes, executes a command whose expected sentinel cannot
+  be satisfied by terminal input echo, stops, and rejects later writes;
 - the packaged sidecar and PTY payloads are in their exact resource paths;
 - every executable/native payload matches the runner platform and CPU, and the
   POSIX sidecar and `spawn-helper` are executable; and

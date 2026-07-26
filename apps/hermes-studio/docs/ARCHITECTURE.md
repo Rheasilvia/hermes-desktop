@@ -50,7 +50,9 @@ The window is frameless and uses `contextIsolation: true`, `sandbox: true`,
 `allowRunningInsecureContent: false`. Production content is served by the
 privileged `hermes-studio://app/` protocol rather than `file://`. Development
 accepts only `http://127.0.0.1:1420` or `http://localhost:1420`; credentials,
-other ports, paths, queries, and fragments are rejected.
+other ports, paths, queries, and fragments are rejected. A packaged process
+ignores `HERMES_STUDIO_DEV_SERVER` even when the parent environment contains it,
+so a production executable cannot load the development renderer.
 
 Navigation, redirects, new windows, and webview attachment are denied. Both
 permission request and permission check handlers default-deny everything except

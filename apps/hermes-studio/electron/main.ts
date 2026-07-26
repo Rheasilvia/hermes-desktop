@@ -32,7 +32,7 @@ import { registerNativeBridge } from './native-bridge-main.js'
 import { IpcAdmissionController } from './ipc-router.js'
 import { toNativeError } from './native-errors.js'
 import { NotificationManager } from './notification-manager.js'
-import { buildContentSecurityPolicy, parseDevServerUrl } from './security-policy.js'
+import { buildContentSecurityPolicy, resolveDevServerOrigin } from './security-policy.js'
 import { isTrustedMainFrameSender } from './ipc-trust.js'
 import { NativeShutdownCoordinator, runNativeCleanup } from './shutdown-coordinator.js'
 import { SidecarManager, resolveHermesHome } from './sidecar-manager.js'
@@ -45,8 +45,7 @@ import { selectWorkspaceForSession, WorkspaceGrants } from './workspace-grants.j
 protocol.registerSchemesAsPrivileged([...STUDIO_SCHEMES])
 configureEarlyAppIdentity(app)
 
-const rawDevServerUrl = process.env.HERMES_STUDIO_DEV_SERVER
-const devOrigin = rawDevServerUrl ? parseDevServerUrl(rawDevServerUrl) : undefined
+const devOrigin = resolveDevServerOrigin(process.env, app.isPackaged)
 const rendererRoot = path.join(app.getAppPath(), 'dist', 'renderer')
 const userData = resolveStudioUserData(app.getPath('appData'), {
   env: process.env,

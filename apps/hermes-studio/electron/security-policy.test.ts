@@ -6,6 +6,7 @@ import {
   isMicrophonePermission,
   isTrustedStudioUrl,
   parseDevServerUrl,
+  resolveDevServerOrigin,
   safeRendererAssetPath,
 } from './security-policy.js'
 
@@ -26,6 +27,12 @@ describe('Studio security policy', () => {
     expect(() => parseDevServerUrl('http://0.0.0.0:1420')).toThrow(/development server/i)
     expect(() => parseDevServerUrl('https://127.0.0.1:1420')).toThrow(/development server/i)
     expect(() => parseDevServerUrl('http://127.0.0.1:1420/path')).toThrow(/development server/i)
+  })
+
+  it('never enables the development renderer in a packaged application', () => {
+    const environment = { HERMES_STUDIO_DEV_SERVER: 'http://127.0.0.1:1420' }
+    expect(resolveDevServerOrigin(environment, false)).toBe('http://127.0.0.1:1420')
+    expect(resolveDevServerOrigin(environment, true)).toBeUndefined()
   })
 
   it('allows safe external URLs and rejects script, file, credential, and remote cleartext URLs', () => {

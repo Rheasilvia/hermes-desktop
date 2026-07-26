@@ -23,12 +23,34 @@ const SUPPORTED_PLATFORMS = new Set(['darwin', 'win32', 'linux'])
 const SUPPORTED_ARCHITECTURES = new Set(['x64', 'arm64'])
 
 export function createPackagedSmokeLaunchEnvironment(baseEnvironment, hermesHome, userData) {
+  const environment = { ...baseEnvironment }
+  delete environment.HERMES_STUDIO_DEV_SERVER
   return {
-    ...baseEnvironment,
+    ...environment,
     HERMES_HOME: hermesHome,
     HERMES_STUDIO_INTERNAL_PACKAGED_SMOKE: '1',
     HERMES_STUDIO_INTERNAL_PACKAGED_SMOKE_USER_DATA: userData,
   }
+}
+
+export function createTerminalSentinelCommand(shell, sentinel) {
+  if (!/^[A-Z0-9_]{8,}$/.test(sentinel)) throw new Error('PTY sentinel is invalid')
+  const midpoint = Math.floor(sentinel.length / 2)
+  const left = sentinel.slice(0, midpoint)
+  const right = sentinel.slice(midpoint)
+  const normalizedShell = shell.toLowerCase()
+  if (normalizedShell.includes('powershell') || normalizedShell.includes('pwsh')) {
+    return `Write-Output ('${left}' + '${right}')\r\n`
+  }
+  if (normalizedShell.endsWith('cmd.exe') || normalizedShell.endsWith('cmd')) {
+    return [
+      `set "HERMES_STUDIO_SMOKE_LEFT=${left}"`,
+      `set "HERMES_STUDIO_SMOKE_RIGHT=${right}"`,
+      'echo %HERMES_STUDIO_SMOKE_LEFT%%HERMES_STUDIO_SMOKE_RIGHT%',
+      '',
+    ].join('\r\n')
+  }
+  return `printf '%s%s\\n' '${left}' '${right}'\n`
 }
 
 function directories(root, depth = 0) {
@@ -359,8 +381,15 @@ async function assertHealthStops(info) {
 async function waitForRenderer(page) {
   await retry(async () => {
     await page.waitForLoadState('domcontentloaded', { timeout: 5_000 })
-    const ready = await page.evaluate(() => Boolean(window.hermesStudio))
-    if (!ready) throw new Error('preload bridge is unavailable')
+    if (page.url() !== 'hermes-studio://app/') {
+      throw new Error(`packaged renderer loaded an unexpected URL: ${page.url()}`)
+    }
+    const state = await page.evaluate(() => ({
+      bridge: Boolean(window.hermesStudio),
+      mounted: Boolean(document.querySelector('#root')?.firstElementChild),
+    }))
+    if (!state.bridge) throw new Error('preload bridge is unavailable')
+    if (!state.mounted) throw new Error('packaged renderer did not mount the Studio UI')
   }, 30_000, 'packaged renderer')
 }
 
@@ -400,7 +429,13 @@ export async function smokePackagedApplication(application) {
     activeInfo = await waitForBackend(page)
     await assertHealth(activeInfo)
 
-    const bridgeResult = await page.evaluate(async ({ backend, imagePath }) => {
+    const terminalSentinel = `HERMES_STUDIO_PTY_${Date.now()}_EXECUTED`
+    const terminalCommands = {
+      posix: createTerminalSentinelCommand('/bin/sh', terminalSentinel),
+      cmd: createTerminalSentinelCommand('cmd.exe', terminalSentinel),
+      powershell: createTerminalSentinelCommand('powershell.exe', terminalSentinel),
+    }
+    const bridgeResult = await page.evaluate(async ({ backend, imagePath, sentinel, commands }) => {
       const bridge = window.hermesStudio
       const nativeState = await bridge.app.nativeState()
       const platform = await bridge.app.platform()
@@ -450,7 +485,6 @@ export async function smokePackagedApplication(application) {
         if (!Array.isArray(sessions) || !sessions.some((session) => session.id === sessionId)) {
           throw new Error('created session was not returned by list')
         }
-        sessionCrud = true
         for (const tokenQuery of ['', '?token=packaged-smoke-invalid']) {
           const response = await fetch(`${backend.baseUrl}/desktop/api/events/stream${tokenQuery}`)
           if (response.status !== 401) {
@@ -461,26 +495,62 @@ export async function smokePackagedApplication(application) {
             throw new Error(`SSE rejected-credential check returned ${body.code ?? 'no error code'}`)
           }
         }
+
+        const profiles = await api('/desktop/api/profiles')
+        const activeProfileId = profiles.activeProfileId
+        if (typeof activeProfileId !== 'string' || !activeProfileId) {
+          throw new Error('profile list returned no active profile')
+        }
         sse = await new Promise((resolve, reject) => {
           const source = new EventSource(`${backend.baseUrl}/desktop/api/events/stream?token=${encodeURIComponent(backend.token)}`)
-          const timer = setTimeout(() => {
+          let settled = false
+          let triggered = false
+          const finish = (callback, value) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
             source.close()
-            reject(new Error('SSE connection timed out'))
-          }, 15_000)
+            callback(value)
+          }
+          const fail = (error) => finish(
+            reject,
+            error instanceof Error ? error : new Error(String(error)),
+          )
+          const timer = setTimeout(() => fail(new Error('SSE event delivery timed out')), 15_000)
           source.onopen = () => {
-            clearTimeout(timer)
-            source.close()
-            resolve(true)
+            if (triggered) return
+            triggered = true
+            void api('/desktop/api/profiles/active', {
+              method: 'PUT',
+              body: JSON.stringify({ profileId: activeProfileId }),
+            }).catch(fail)
           }
-          source.onerror = () => {
-            clearTimeout(timer)
-            source.close()
-            reject(new Error('SSE connection failed'))
+          source.onmessage = (event) => {
+            try {
+              const envelope = JSON.parse(event.data)
+              if (envelope.type !== 'profile.changed') return
+              if (
+                envelope.session_id !== ''
+                || envelope.seq !== 0
+                || envelope.payload?.profileId !== activeProfileId
+              ) {
+                throw new Error('SSE profile.changed payload did not match the active profile')
+              }
+              finish(resolve, true)
+            } catch (error) {
+              fail(error)
+            }
           }
+          source.onerror = () => fail(new Error('SSE connection failed'))
         })
       } finally {
         await api(`/desktop/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
       }
+      const sessionsAfterDelete = await api('/desktop/api/sessions')
+      if (!Array.isArray(sessionsAfterDelete) || sessionsAfterDelete.some((session) => session.id === sessionId)) {
+        throw new Error('deleted session remained visible in the session list')
+      }
+      sessionCrud = true
 
       let notification
       try {
@@ -497,8 +567,9 @@ export async function smokePackagedApplication(application) {
         }
       }
 
-      const sentinel = `HERMES_STUDIO_PTY_${Date.now()}`
       let terminalId = ''
+      let terminalStopped = false
+      let stoppedWriteRejected = false
       let output = ''
       let finish
       let fail
@@ -519,10 +590,10 @@ export async function smokePackagedApplication(application) {
         terminalId = terminal.id
         const shell = terminal.shell.toLowerCase()
         const command = shell.includes('powershell') || shell.includes('pwsh')
-          ? `Write-Output '${sentinel}'\r\n`
+          ? commands.powershell
           : shell.endsWith('cmd.exe') || shell.endsWith('cmd')
-            ? `echo ${sentinel}\r\n`
-            : `printf '${sentinel}\\n'\n`
+            ? commands.cmd
+            : commands.posix
         await bridge.terminal.resize(terminal.id, 100, 30)
         await bridge.terminal.write(terminal.id, Array.from(new TextEncoder().encode(command)))
         await Promise.race([
@@ -530,7 +601,16 @@ export async function smokePackagedApplication(application) {
           new Promise((_, reject) => setTimeout(() => reject(new Error('PTY sentinel timed out')), 30_000)),
         ])
         await bridge.terminal.stop(terminal.id)
+        terminalStopped = true
+        try {
+          await bridge.terminal.write(terminal.id, [13])
+        } catch (error) {
+          if (!error || error.code !== 'TERMINAL_NOT_FOUND') throw error
+          stoppedWriteRejected = true
+        }
+        if (!stoppedWriteRejected) throw new Error('stopped PTY still accepted input')
       } finally {
+        if (terminalId && !terminalStopped) await bridge.terminal.stop(terminalId).catch(() => {})
         unsubscribeData()
         unsubscribeExit()
         unsubscribeError()
@@ -546,9 +626,14 @@ export async function smokePackagedApplication(application) {
         sessionCrud,
         sse,
         notification,
-        pty: output.includes(sentinel),
+        pty: output.includes(sentinel) && stoppedWriteRejected,
       }
-    }, { backend: activeInfo, imagePath: assetPath })
+    }, {
+      backend: activeInfo,
+      imagePath: assetPath,
+      sentinel: terminalSentinel,
+      commands: terminalCommands,
+    })
 
     assert.equal(bridgeResult.nativeState.isPackaged, true)
     assert.equal(bridgeResult.nodeGlobalsAbsent, true)
@@ -561,17 +646,64 @@ export async function smokePackagedApplication(application) {
     assert.equal(bridgeResult.pty, true)
 
     const previousInfo = activeInfo
-    const reloaded = page.waitForEvent('domcontentloaded', { timeout: 120_000 })
-    await page.evaluate(() => {
-      sessionStorage.setItem('hermes-studio-packaged-restart', 'pending')
-      void window.hermesStudio.backend.restart()
-    })
-    await reloaded
-    await waitForRenderer(page)
-    assert.equal(await page.evaluate(() => sessionStorage.getItem('hermes-studio-packaged-restart')), 'pending')
-    activeInfo = await waitForBackend(page)
-    await assertHealth(activeInfo)
-    if (activeInfo.baseUrl !== previousInfo.baseUrl) await assertHealthStops(previousInfo)
+    const restartMarkerKey = 'hermes-studio-packaged-restart'
+    const restartInfoKey = 'hermes-studio-packaged-restart-info'
+    const restartErrorKey = 'hermes-studio-packaged-restart-error'
+    let rendererReloaded = false
+    const observeRendererReload = () => { rendererReloaded = true }
+    page.on('domcontentloaded', observeRendererReload)
+    try {
+      await page.evaluate(({ markerKey, infoKey, errorKey }) => {
+        sessionStorage.setItem(markerKey, 'pending')
+        sessionStorage.removeItem(infoKey)
+        sessionStorage.removeItem(errorKey)
+        let unsubscribe = () => {}
+        unsubscribe = window.hermesStudio.backend.onRestarted((info) => {
+          sessionStorage.setItem(infoKey, JSON.stringify(info))
+          unsubscribe()
+        })
+        void window.hermesStudio.backend.restart().catch((error) => {
+          sessionStorage.setItem(errorKey, JSON.stringify({
+            code: error?.code ?? 'BACKEND_RESTART_FAILED',
+            message: error?.message ?? String(error),
+          }))
+          unsubscribe()
+        })
+      }, { markerKey: restartMarkerKey, infoKey: restartInfoKey, errorKey: restartErrorKey })
+
+      const restartObservation = await retry(async () => {
+        const observation = await page.evaluate(({ infoKey, errorKey }) => ({
+          info: sessionStorage.getItem(infoKey),
+          error: sessionStorage.getItem(errorKey),
+        }), { infoKey: restartInfoKey, errorKey: restartErrorKey })
+        if (!observation.info && !observation.error) throw new Error('backend restarted event has not arrived')
+        return observation
+      }, 120_000, 'backend restarted event')
+      if (restartObservation.error) throw new Error(`backend restart failed: ${restartObservation.error}`)
+      activeInfo = JSON.parse(restartObservation.info)
+
+      assert.equal(typeof activeInfo.baseUrl, 'string')
+      assert.equal(activeInfo.token, previousInfo.token, 'backend restart rotated the API token')
+      if (activeInfo.baseUrl !== previousInfo.baseUrl) {
+        await retry(async () => {
+          if (!rendererReloaded) throw new Error('renderer reload has not arrived')
+        }, 120_000, 'renderer reload after backend origin change')
+        await waitForRenderer(page)
+        await assertHealthStops(previousInfo)
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        assert.equal(rendererReloaded, false, 'same-origin backend restart unexpectedly reloaded the renderer')
+      }
+
+      assert.equal(await page.evaluate((markerKey) => sessionStorage.getItem(markerKey), restartMarkerKey), 'pending')
+      assert.deepEqual(await waitForBackend(page), activeInfo)
+      await assertHealth(activeInfo)
+      await page.evaluate((keys) => {
+        for (const key of keys) sessionStorage.removeItem(key)
+      }, [restartMarkerKey, restartInfoKey, restartErrorKey])
+    } finally {
+      page.off('domcontentloaded', observeRendererReload)
+    }
 
     await electronApp.close()
     electronApp = undefined

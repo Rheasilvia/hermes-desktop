@@ -7,6 +7,7 @@ import test from 'node:test'
 import {
   assertNativeBinaryTarget,
   createPackagedSmokeLaunchEnvironment,
+  createTerminalSentinelCommand,
   findPackagedApplication,
   inspectNativeBinary,
   parseSmokeArguments,
@@ -16,7 +17,10 @@ import {
 
 test('launches packaged smoke with isolated Hermes Home and Electron userData', () => {
   const environment = createPackagedSmokeLaunchEnvironment(
-    { PATH: '/bin' },
+    {
+      PATH: '/bin',
+      HERMES_STUDIO_DEV_SERVER: 'http://127.0.0.1:1420',
+    },
     '/tmp/hermes-studio-packaged-smoke-test/.hermes',
     '/tmp/hermes-studio-packaged-smoke-test/electron-user-data',
   )
@@ -28,6 +32,15 @@ test('launches packaged smoke with isolated Hermes Home and Electron userData', 
     HERMES_STUDIO_INTERNAL_PACKAGED_SMOKE_USER_DATA:
       '/tmp/hermes-studio-packaged-smoke-test/electron-user-data',
   })
+})
+
+test('requires command execution rather than PTY input echo for the terminal sentinel', () => {
+  const sentinel = 'HERMES_STUDIO_PTY_123456_EXECUTED'
+  for (const shell of ['/bin/zsh', '/bin/bash', 'cmd.exe', 'powershell.exe', 'pwsh.exe']) {
+    const command = createTerminalSentinelCommand(shell, sentinel)
+    assert.equal(command.includes(sentinel), false, `${shell} command contains the complete sentinel`)
+    assert.ok(command.endsWith('\n'))
+  }
 })
 
 function nativeFixture(platform, arch) {
