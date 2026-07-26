@@ -113,7 +113,10 @@ Native `EventSource` cannot attach the REST bearer header, so
 [sse-lifecycle.ts](../src/services/gateway/http/sse-lifecycle.ts) puts the
 ephemeral token in the query string. Treat the URL as secret: do not log,
 persist, or expose it to renderer state. One connection is multiplexed across
-sessions. The server sends a keepalive comment every 15 seconds and each data
+sessions. Before opening the stream, the sidecar compares the query credential
+to its configured token with a constant-time comparison; a missing or invalid
+token returns the standard `AUTH_FAILED` envelope with HTTP `401`. The server
+sends a keepalive comment every 15 seconds and each data
 frame is one JSON envelope:
 
 ```json

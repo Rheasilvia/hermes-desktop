@@ -20,11 +20,12 @@ GET /desktop/api/events/stream?token=...
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from starlette.responses import StreamingResponse
 
 log = logging.getLogger(__name__)
@@ -99,7 +100,6 @@ async def _replay_pending_user_inputs() -> AsyncGenerator[str, None]:
 
 async def _event_generator(
     request: Request,
-    token: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Drain the event bus queue and yield SSE-formatted bytes."""
     bus = request.app.state.event_bus
@@ -136,14 +136,24 @@ async def _event_generator(
         bus.unsubscribe(queue)
 
 
+def _authorize_event_stream(request: Request, token: str | None) -> None:
+    """Validate the EventSource query credential before opening the stream."""
+    expected = request.app.state.cfg.token
+    if expected is None:
+        return
+    if not token or not hmac.compare_digest(token, expected):
+        raise HTTPException(status_code=401, detail="AUTH_FAILED")
+
+
 @router.get("/events/stream")
 async def event_stream(
     request: Request,
     token: str | None = Query(default=None),
 ):
     """SSE event stream (multiplexed across all sessions)."""
+    _authorize_event_stream(request, token)
     return StreamingResponse(
-        _event_generator(request, token),
+        _event_generator(request),
         media_type="text/event-stream",
         headers={
             "X-Accel-Buffering": "no",

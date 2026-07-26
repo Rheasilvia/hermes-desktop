@@ -451,6 +451,16 @@ export async function smokePackagedApplication(application) {
           throw new Error('created session was not returned by list')
         }
         sessionCrud = true
+        for (const tokenQuery of ['', '?token=packaged-smoke-invalid']) {
+          const response = await fetch(`${backend.baseUrl}/desktop/api/events/stream${tokenQuery}`)
+          if (response.status !== 401) {
+            throw new Error(`SSE rejected-credential check returned HTTP ${response.status}`)
+          }
+          const body = await response.json()
+          if (body.code !== 'AUTH_FAILED') {
+            throw new Error(`SSE rejected-credential check returned ${body.code ?? 'no error code'}`)
+          }
+        }
         sse = await new Promise((resolve, reject) => {
           const source = new EventSource(`${backend.baseUrl}/desktop/api/events/stream?token=${encodeURIComponent(backend.token)}`)
           const timer = setTimeout(() => {

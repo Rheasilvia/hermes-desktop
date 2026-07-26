@@ -1,3 +1,10 @@
+from types import SimpleNamespace
+
+import pytest
+
+from daemon.routers.events import event_stream
+
+
 def test_missing_token_rejected(client):
     r = client.get("/desktop/api/cron/jobs")
     assert r.status_code == 401
@@ -23,3 +30,23 @@ def test_session_runtime_endpoint_requires_token(client):
         json={"reasoningEffort": "medium"},
     )
     assert r.status_code == 401
+
+
+def test_sse_missing_query_token_rejected(client):
+    r = client.get("/desktop/api/events/stream")
+    assert r.status_code == 401
+    assert r.json()["code"] == "AUTH_FAILED"
+
+
+def test_sse_wrong_query_token_rejected(client):
+    r = client.get("/desktop/api/events/stream?token=wrong")
+    assert r.status_code == 401
+    assert r.json()["code"] == "AUTH_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_sse_correct_query_token_accepted(client):
+    request = SimpleNamespace(app=client.app)
+    response = await event_stream(request, token="test-token")
+    assert response.status_code == 200
+    assert response.media_type == "text/event-stream"

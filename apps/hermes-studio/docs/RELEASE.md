@@ -151,8 +151,9 @@ smoke gate verifies:
 - the packaged sidecar reaches authenticated loopback health;
 - restricted Hermes Home write/read/list operations work;
 - an image loads only through a signed opaque asset handle;
-- session create/list/delete and the SSE connection work without model
-  credentials;
+- session create/list/delete works without model credentials, the SSE endpoint
+  rejects missing and invalid query credentials, and an authenticated SSE
+  connection opens;
 - notifications either succeed or return the stable
   `NOTIFICATIONS_UNAVAILABLE` capability result;
 - an explicit backend restart reaches health through the renderer reload;
