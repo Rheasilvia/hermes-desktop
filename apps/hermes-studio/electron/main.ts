@@ -28,12 +28,12 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  sidecar = new SidecarManager({
-    appRoot: app.getAppPath(),
-    resourcesPath: process.resourcesPath,
-    isPackaged: app.isPackaged,
-  })
   try {
+    sidecar = new SidecarManager({
+      appRoot: app.getAppPath(),
+      resourcesPath: process.resourcesPath,
+      isPackaged: app.isPackaged,
+    })
     await sidecar.start()
   } catch (error) {
     // A failed sidecar must not prevent the shell from opening in degraded mode.

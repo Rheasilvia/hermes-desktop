@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import queue
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -20,7 +19,7 @@ SIDECAR_ROOT = Path(__file__).resolve().parents[1]
 if str(SIDECAR_ROOT) not in sys.path:
     sys.path.insert(0, str(SIDECAR_ROOT))
 
-from build_support import BuildLayout  # noqa: E402
+from build_support import BuildLayout, stage_executable  # noqa: E402
 
 
 def _reader(stream, lines: queue.Queue[str]) -> None:
@@ -96,11 +95,7 @@ def build(*, smoke: bool = True) -> Path:
     subprocess.run(layout.pyinstaller_command(), cwd=SIDECAR_ROOT, check=True)
     if not layout.built_executable.is_file():
         raise FileNotFoundError(f"PyInstaller output missing: {layout.built_executable}")
-    layout.staged_executable.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(layout.built_executable, layout.staged_executable)
-    if sys.platform != "win32":
-        mode = layout.staged_executable.stat().st_mode
-        layout.staged_executable.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    stage_executable(layout)
     if smoke:
         port = smoke_check(layout.staged_executable)
         print(f"Smoke check passed on 127.0.0.1:{port}")

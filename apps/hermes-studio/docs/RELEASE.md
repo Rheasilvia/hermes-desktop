@@ -19,9 +19,10 @@ npm run pack
 `sidecar/scripts/build_dist.py`. It synchronizes the frozen sidecar build
 environment, runs PyInstaller, stages
 `sidecar/dist/electron/daemon` (`daemon.exe` on Windows), preserves executable
-bits on macOS/Linux, and smoke-tests `READY <port>` plus the loopback health
-endpoint. `npm run pack` repeats the sidecar build before producing an unpacked
-electron-builder application. `npm run dist` builds the configured installers.
+bits on macOS/Linux, removes stale staging output from other platforms, and
+smoke-tests `READY <port>` plus the loopback health endpoint. `npm run pack`
+repeats the sidecar build before producing an unpacked electron-builder
+application. `npm run dist` builds the configured installers.
 
 The active electron-builder targets are DMG on macOS, NSIS on Windows, and
 AppImage/deb/rpm on Linux. Artifacts use:

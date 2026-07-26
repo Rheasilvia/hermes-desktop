@@ -27,9 +27,12 @@ the backend URL itself as `http://127.0.0.1:<port>` and probes
 
 Three consecutive failed probes trigger a restart. Restart delays are
 exponential (1, 2, 4, 8, 16 seconds, capped at 30 seconds), with no more than
-five attempts in a rolling 60-second window. Shutdown targets only the child
-created by the manager: a detached process group on POSIX or `taskkill /PID
-<owned-pid> /T /F` on Windows. No process-name-wide kill is used.
+five attempts in a rolling 60-second window. An initial spawn, READY timeout,
+or pre-READY exit opens the shell in degraded mode and enters that same bounded
+background recovery policy. Shutdown waits for any in-flight restart cleanup
+and prevents a delayed restart from spawning a new child. It targets only the
+child created by the manager: a detached process group on POSIX or `taskkill
+/PID <owned-pid> /T /F` on Windows. No process-name-wide kill is used.
 
 Sidecar stderr is appended to
 `$HERMES_HOME/logs/hermes-studio.log` (default `~/.hermes`). Known generated
@@ -40,7 +43,9 @@ parameters are redacted before writing.
 
 PyInstaller builds only for the runner's native OS and architecture. The build
 entry stages exactly one executable at `sidecar/dist/electron/daemon[.exe]`;
-electron-builder copies it to the packaged `resources/sidecar` directory.
+the staging directory is cleared first so an executable from another host
+cannot leak into the package. electron-builder copies it to the packaged
+`resources/sidecar` directory.
 `node-pty` native files are unpacked from ASAR. Cross-compiling a PyInstaller
 binary by pretending to be another host is unsupported; CI must use native
 macOS, Windows, and Linux runners.

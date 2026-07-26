@@ -9,7 +9,7 @@
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite --host 127.0.0.1 --port 1420",
     "dev:electron": "npm run build:electron -- --dev && wait-on http://127.0.0.1:1420 && cross-env HERMES_STUDIO_DEV_SERVER=http://127.0.0.1:1420 electron .",
-    "backend": "DESKTOP_BACKEND_PORT=18080 DESKTOP_BACKEND_TOKEN=dev-secret uv run --directory sidecar python -m daemon",
+    "backend": "cross-env DESKTOP_BACKEND_PORT=18080 DESKTOP_BACKEND_TOKEN=dev-secret uv run --directory sidecar python -m daemon",
     "build": "npm run build:renderer && npm run build:electron",
     "build:renderer": "vite build",
     "build:electron": "node scripts/bundle-electron.mjs",

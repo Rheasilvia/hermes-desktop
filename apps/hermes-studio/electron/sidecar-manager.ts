@@ -43,6 +43,11 @@ export interface SidecarManagerOptions extends SidecarPaths {
   healthIntervalMs?: number
 }
 
+export interface SidecarLogIo {
+  mkdir(directory: string): void
+  append(file: string, contents: string): void
+}
+
 export function resolveSidecarCommand(paths: SidecarPaths): SidecarCommand {
   const platform = paths.platform ?? process.platform
   if (!paths.isPackaged) {
@@ -134,6 +139,10 @@ export function redactSidecarLog(line: string, secrets: readonly string[] = []):
   for (const secret of secrets) {
     if (secret) redacted = redacted.replace(new RegExp(escapeRegExp(secret), 'g'), '[REDACTED]')
   }
+  redacted = redacted.replace(
+    /(["']?Authorization["']?\s*[:=]\s*)(["'])(?:Bearer\s+)?[^"'\r\n]+\2/gi,
+    '$1$2[REDACTED]$2',
+  )
   redacted = redacted.replace(/(Authorization\s*[:=]\s*)(?:Bearer\s+)?[^\s,;]+/gi, '$1[REDACTED]')
   redacted = redacted.replace(
     /(["']?(?:api[_-]?key|access[_-]?token|auth[_-]?token|backend[_-]?token|workspace[_-]?grant(?:[_-]?token)?|password|secret|token)["']?\s*[=:]\s*)[^\s,;&]+/gi,
@@ -151,13 +160,29 @@ export function redactSidecarLog(line: string, secrets: readonly string[] = []):
   return redacted
 }
 
-export function createSidecarLogWriter(logPath: string, secrets: readonly string[]): (line: string) => void {
-  mkdirSync(path.dirname(logPath), { recursive: true })
+export function createSidecarLogWriter(
+  logPath: string,
+  secrets: readonly string[],
+  io: SidecarLogIo = {
+    mkdir: (directory) => mkdirSync(directory, { recursive: true }),
+    append: (file, contents) => appendFileSync(file, contents, { encoding: 'utf8', mode: 0o600 }),
+  },
+): (line: string) => void {
+  let ready = false
+  let disabled = false
   return (line: string) => {
-    appendFileSync(logPath, `${new Date().toISOString()} ${redactSidecarLog(line, secrets)}\n`, {
-      encoding: 'utf8',
-      mode: 0o600,
-    })
+    if (disabled) return
+    try {
+      if (!ready) {
+        io.mkdir(path.dirname(logPath))
+        ready = true
+      }
+      io.append(logPath, `${new Date().toISOString()} ${redactSidecarLog(line, secrets)}\n`)
+    } catch {
+      // Logging must never interrupt process supervision. Do not echo the
+      // original line to stderr/console because it may contain a secret.
+      disabled = true
+    }
   }
 }
 
@@ -226,6 +251,8 @@ export class SidecarManager extends EventEmitter {
   #info?: SidecarInfo
   #healthTimer?: ReturnType<typeof setInterval>
   #restart?: Promise<void>
+  #cleanup?: Promise<void>
+  #cleanupChild?: ChildProcess
   #stopping = false
   #intentionalStops = new WeakSet<ChildProcess>()
 
@@ -251,9 +278,14 @@ export class SidecarManager extends EventEmitter {
 
   async start(): Promise<SidecarInfo> {
     this.#stopping = false
-    const info = await this.#spawnAndWait()
-    this.#startHealthChecks()
-    return info
+    try {
+      const info = await this.#spawnAndWait()
+      this.#startHealthChecks()
+      return info
+    } catch (error) {
+      if (!this.#stopping) this.#startBackgroundRestart('initial sidecar startup failed')
+      throw error
+    }
   }
 
   async stop(): Promise<void> {
@@ -262,13 +294,11 @@ export class SidecarManager extends EventEmitter {
       this.#clearInterval(this.#healthTimer)
       this.#healthTimer = undefined
     }
-    const child = this.#child
-    this.#child = undefined
     this.#info = undefined
-    if (child) {
-      this.#intentionalStops.add(child)
-      await this.#terminateTree(child, this.#platform)
-    }
+    const child = this.#child
+    const cleanup = child ? this.#terminateChild(child) : this.#cleanup
+    const restart = this.#restart
+    await Promise.allSettled([cleanup, restart].filter((work): work is Promise<void> => work !== undefined))
   }
 
   async probeNow(): Promise<boolean> {
@@ -295,7 +325,11 @@ export class SidecarManager extends EventEmitter {
   #startHealthChecks(): void {
     if (this.#healthTimer) this.#clearInterval(this.#healthTimer)
     this.#healthTimer = this.#setInterval(
-      () => void this.probeNow(),
+      () => {
+        void this.probeNow().catch((error) => {
+          this.#log(`sidecar health supervision failed: ${error instanceof Error ? error.message : String(error)}`)
+        })
+      },
       this.#options.healthIntervalMs ?? HEALTH_INTERVAL_MS,
     )
   }
@@ -339,14 +373,12 @@ export class SidecarManager extends EventEmitter {
       child.once('exit', (code, signal) => {
         if (this.#intentionalStops.has(child) || this.#stopping) return
         this.#log(`sidecar exited unexpectedly code=${String(code)} signal=${String(signal)}`)
-        void this.#scheduleRestart('sidecar exited unexpectedly')
+        this.#startBackgroundRestart('sidecar exited unexpectedly')
       })
       this.emit('ready', this.info)
       return { ...this.#info }
     } catch (error) {
-      this.#intentionalStops.add(child)
-      if (this.#child === child) this.#child = undefined
-      await this.#terminateTree(child, this.#platform)
+      await this.#terminateChild(child)
       throw error
     }
   }
@@ -387,6 +419,32 @@ export class SidecarManager extends EventEmitter {
     return this.#restart
   }
 
+  #startBackgroundRestart(reason: string): void {
+    void this.#scheduleRestart(reason).catch((error) => {
+      this.#log(`sidecar restart supervision failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
+  }
+
+  #terminateChild(child: ChildProcess): Promise<void> {
+    if (this.#cleanupChild === child && this.#cleanup) return this.#cleanup
+    if (this.#child === child) this.#child = undefined
+    this.#intentionalStops.add(child)
+    this.#cleanupChild = child
+    const cleanup = Promise.resolve()
+      .then(() => this.#terminateTree(child, this.#platform))
+      .catch((error) => {
+        this.#log(`failed to terminate owned sidecar tree: ${error instanceof Error ? error.message : String(error)}`)
+      })
+      .finally(() => {
+        if (this.#cleanupChild === child) {
+          this.#cleanupChild = undefined
+          this.#cleanup = undefined
+        }
+      })
+    this.#cleanup = cleanup
+    return cleanup
+  }
+
   async #restartAfterFailure(reason: string): Promise<void> {
     const delay = this.#restartWindow.nextDelay(this.#now())
     if (delay === undefined) {
@@ -397,16 +455,13 @@ export class SidecarManager extends EventEmitter {
     }
     this.#log(`${reason}; restarting in ${delay}ms`)
     const child = this.#child
-    this.#child = undefined
     this.#info = undefined
-    if (child) {
-      this.#intentionalStops.add(child)
-      await this.#terminateTree(child, this.#platform)
-    }
+    if (child) await this.#terminateChild(child)
     await this.#sleep(delay)
     if (this.#stopping) return
     try {
       await this.#spawnAndWait()
+      this.#startHealthChecks()
       this.emit('restarted', this.info)
     } catch (error) {
       this.#log(`sidecar restart failed: ${error instanceof Error ? error.message : String(error)}`)
