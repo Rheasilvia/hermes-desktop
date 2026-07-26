@@ -74,6 +74,10 @@ def build_app(cfg: Config) -> FastAPI:
     def _set_process_hermes_home() -> str | None:
         previous = os.environ.get("HERMES_HOME")
         os.environ["HERMES_HOME"] = str(cfg.hermes_home)
+        # Gate desktop-only tools (read_terminal / close_terminal) on for every
+        # agent this sidecar spawns. check_read_terminal_requirements() reads
+        # HERMES_DESKTOP, so the tool is offered only inside the desktop app.
+        os.environ.setdefault("HERMES_DESKTOP", "1")
         return previous
 
     def _restore_process_hermes_home(previous: str | None) -> None:
