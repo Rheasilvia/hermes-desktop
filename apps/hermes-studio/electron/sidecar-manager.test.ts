@@ -416,6 +416,8 @@ describe('SidecarManager', () => {
 
   it('waits for in-flight restart cleanup on stop and never respawns', async () => {
     const cleanup = deferred()
+    const backoff = deferred()
+    const sleep = vi.fn(async () => backoff.promise)
     let spawned = 0
     const terminateTree = vi.fn(async () => cleanup.promise)
     const manager = new SidecarManager({
@@ -428,7 +430,7 @@ describe('SidecarManager', () => {
         return child
       }) as unknown as typeof import('node:child_process').spawn,
       fetch: vi.fn(async () => new Response(null, { status: 503 })),
-      sleep: async () => undefined,
+      sleep,
       setInterval: vi.fn(() => 1) as unknown as typeof globalThis.setInterval,
       clearInterval: vi.fn() as unknown as typeof globalThis.clearInterval,
       terminateTree,
@@ -446,8 +448,10 @@ describe('SidecarManager', () => {
     expect(spawned).toBe(1)
 
     cleanup.resolve()
+    await vi.waitFor(() => expect(stopResolved).toBe(true), { timeout: 200 })
     await Promise.all([restartingProbe, stopping])
     expect(stopResolved).toBe(true)
+    expect(sleep).not.toHaveBeenCalled()
     expect(spawned).toBe(1)
   })
 

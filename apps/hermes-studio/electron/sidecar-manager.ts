@@ -483,6 +483,7 @@ export class SidecarManager extends EventEmitter {
     const child = this.#child
     this.#info = undefined
     if (child) await this.#terminateChild(child)
+    if (this.#stopping) return
     await this.#waitForBackoff(delay)
     if (this.#stopping) return
     try {
