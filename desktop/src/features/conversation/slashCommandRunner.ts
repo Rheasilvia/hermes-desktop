@@ -51,8 +51,13 @@ export function createSlashCommandRunner(opts: {
     }
     const raw = text.trim();
     const withoutSlash = raw.slice(1).trim();
-    const [command, ...rest] = withoutSlash.split(/\s+/);
-    const args = rest.join(' ');
+    // Split the command name from its args on the FIRST run of horizontal
+    // whitespace only. Using /\s+/ here would collapse embedded newlines in
+    // multiline args (e.g. `/goal <multi-line spec>`) into spaces and drop the
+    // line structure; `[\s\S]*` preserves the remainder verbatim.
+    const match = withoutSlash.match(/^(\S+)(?:[ \t]+([\s\S]*))?$/);
+    const command = match?.[1] ?? withoutSlash;
+    const args = match?.[2] ?? '';
     const params = { session_id: opts.sessionId(), command, args, raw };
     let result: CommandResult;
     try {
