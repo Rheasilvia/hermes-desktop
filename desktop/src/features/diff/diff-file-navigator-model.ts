@@ -82,6 +82,41 @@ export function buildReviewFileRows(files: ReviewFile[]): DiffFileNavigatorRow[]
   });
 }
 
+export interface DiffChurnBar {
+  /** Total churn (insertions + deletions) for the row. */
+  total: number;
+  /** Percentage of the ins/del split that is insertions (0–100). */
+  addPct: number;
+  /** Percentage of the ins/del split that is deletions (0–100). */
+  delPct: number;
+  /**
+   * Fraction (0–1) of the fixed bar track this row should fill, scaled by the
+   * row's churn relative to the largest churn in the change set. Falls back to
+   * a full-width bar when no positive `maxChurn` is provided.
+   */
+  widthFraction: number;
+}
+
+/**
+ * Derive the proportional churn bar segments for a single file row. The ins/del
+ * split is always relative to the row's own churn; the overall bar width is
+ * optionally scaled against the busiest file so a 200-line change reads as a
+ * visibly longer bar than a 2-line one.
+ */
+export function churnBarSegments(
+  insertions: number,
+  deletions: number,
+  maxChurn = 0,
+): DiffChurnBar {
+  const total = insertions + deletions;
+  if (total <= 0) {
+    return { total: 0, addPct: 0, delPct: 0, widthFraction: 0 };
+  }
+  const addPct = (insertions / total) * 100;
+  const widthFraction = maxChurn > 0 ? Math.min(1, total / maxChurn) : 1;
+  return { total, addPct, delPct: 100 - addPct, widthFraction };
+}
+
 export function filterDiffFileRows(
   rows: DiffFileNavigatorRow[],
   query: string,

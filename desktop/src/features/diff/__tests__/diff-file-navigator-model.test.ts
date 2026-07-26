@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DiffFile, FileStatus, LineKind } from '@/types/diff.js';
 import {
   buildDiffFileRows,
+  churnBarSegments,
   filterDiffFileRows,
 } from '../diff-file-navigator-model.js';
 
@@ -69,5 +70,27 @@ describe('diff file navigator model', () => {
     expect(filterDiffFileRows(rows, 'src/legacy/newname', 'all').map((row) => row.index)).toEqual([2]);
     expect(filterDiffFileRows(rows, '', 'added').map((row) => row.index)).toEqual([1]);
     expect(filterDiffFileRows(rows, 'src', 'modified').map((row) => row.index)).toEqual([0]);
+  });
+});
+
+describe('churnBarSegments', () => {
+  it('splits the bar proportionally by insertions and deletions', () => {
+    expect(churnBarSegments(3, 1)).toMatchObject({ total: 4, addPct: 75, delPct: 25 });
+    expect(churnBarSegments(0, 2)).toMatchObject({ total: 2, addPct: 0, delPct: 100 });
+  });
+
+  it('renders nothing when there is no churn', () => {
+    expect(churnBarSegments(0, 0)).toEqual({ total: 0, addPct: 0, delPct: 0, widthFraction: 0 });
+  });
+
+  it('fills the full track when no max churn is provided', () => {
+    expect(churnBarSegments(5, 5).widthFraction).toBe(1);
+  });
+
+  it('scales bar width relative to the busiest file and clamps to the full track', () => {
+    expect(churnBarSegments(10, 10, 100).widthFraction).toBeCloseTo(0.2);
+    expect(churnBarSegments(80, 20, 100).widthFraction).toBe(1);
+    // A row cannot exceed the max churn, but guard against overflow regardless.
+    expect(churnBarSegments(150, 0, 100).widthFraction).toBe(1);
   });
 });

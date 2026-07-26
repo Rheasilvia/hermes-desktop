@@ -11,6 +11,7 @@ import {
   shouldUseReviewSplit,
 } from '@/lib/review-split-layout.js';
 import { Icon } from '@/ui/atoms/Icon.js';
+import { Button } from '@/ui/atoms/Button.js';
 import { DiffSummary } from './DiffSummary.js';
 import { DiffContent } from './DiffContent.js';
 import { DiffFileNavigator } from './DiffFileNavigator.js';
@@ -180,6 +181,12 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
   });
   const hasReview = () => props.reviewData != null;
   const hasFileRows = () => fileRows().length > 0;
+  // Largest per-file churn (ins+del) across the change set. Threaded into the
+  // file navigator so each row's churn bar width scales relative to the busiest
+  // file rather than every bar rendering at full width.
+  const maxChurn = createMemo(() =>
+    fileRows().reduce((max, row) => Math.max(max, row.insertions + row.deletions), 0),
+  );
   // Whether the inline diff body (DiffContent) has a previous file's content to
   // keep showing while the next one loads. The store leaves the prior diff on
   // `diffData` during a cache-miss fetch, so this lets us hold the previous diff
@@ -519,26 +526,6 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
                     >
                       <Icon name="archive-restore" size={14} />
                     </button>
-                    <button
-                      type="button"
-                      class={styles.reviewShipButton}
-                      aria-label="Commit or push"
-                      title="Commit or push"
-                      disabled={!showShipControls()}
-                      onClick={() => openShip('commit')}
-                    >
-                      <Icon name="git-branch" size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      class={styles.reviewShipButton}
-                      aria-label={existingPrUrl() ? 'Open PR' : 'Create PR'}
-                      disabled={!canCreatePr() && !existingPrUrl()}
-                      title={createPrTitle()}
-                      onClick={handleCreatePrClick}
-                    >
-                      <Icon name="git-pull-request" size={14} />
-                    </button>
                   </div>
                 </Show>
                 <button
@@ -554,6 +541,42 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
                 </button>
               </div>
             </div>
+            <Show when={showShipControls()}>
+              <div class={styles.reviewShipBar} aria-label="Ship changes">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  aria-label="Commit or push"
+                  title="Commit or push"
+                  onClick={() => openShip('commit')}
+                >
+                  <Icon name="git-branch" size={13} />
+                  <span>Commit</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  aria-label="Push commits"
+                  title="Push committed changes"
+                  disabled={busy('push')}
+                  onClick={() => props.onPush?.()}
+                >
+                  <Icon name="arrow-up" size={13} />
+                  <span>{props.actionBusyKey === 'push' ? 'Pushing…' : 'Push'}</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  aria-label={existingPrUrl() ? 'Open PR' : 'Create PR'}
+                  title={createPrTitle()}
+                  disabled={!canCreatePr() && !existingPrUrl()}
+                  onClick={handleCreatePrClick}
+                >
+                  <Icon name="git-pull-request" size={13} />
+                  <span>{existingPrUrl() ? 'Open PR' : 'PR'}</span>
+                </Button>
+              </div>
+            </Show>
           </Show>
           <div class={styles.diffPanelBody}>
             <Switch fallback={null}>
@@ -693,6 +716,7 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
                       rows={fileRows()}
                       activeIndex={activeIndex()}
                       ariaLabel="Changed files"
+                      maxChurn={maxChurn()}
                       onSelect={handleSelectFile}
                       reviewFiles={props.reviewData?.files}
                       actionBusyKey={props.actionBusyKey}
@@ -718,6 +742,7 @@ export const DiffPanel: Component<DiffPanelProps> = (props) => {
                           rows={fileRows()}
                           activeIndex={activeIndex()}
                           ariaLabel="Changed files drawer"
+                          maxChurn={maxChurn()}
                           onSelect={handleSelectFile}
                           onClose={() => setFileDrawerOpen(false)}
                           reviewFiles={props.reviewData?.files}
