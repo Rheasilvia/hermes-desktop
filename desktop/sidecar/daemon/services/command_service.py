@@ -116,6 +116,7 @@ _DEFERRED = frozenset({
 _TERMINAL_ONLY = frozenset({
     "redraw", "statusbar", "skin", "indicator", "busy", "mouse", "prompt",
     "copy", "paste", "image", "quit", "exit", "details", "handoff", "snapshot",
+    "battery",
 })
 
 # Registry/TUI commands that exist upstream but have no working Desktop
@@ -132,6 +133,7 @@ _DESKTOP_TRIMMED = frozenset({
     "profile", "gquota", "insights", "debug", "save",
     "rollback", "curator", "kanban", "update", "version",
     "suggestions", "blueprint", "credits", "billing", "pet", "hatch", "learn",
+    "journey", "egress", "subscription", "topup",
 })
 
 # Catalog/help "supported" flag derives from this union — single source of truth,

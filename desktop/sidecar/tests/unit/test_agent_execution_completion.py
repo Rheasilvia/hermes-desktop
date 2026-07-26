@@ -106,6 +106,9 @@ class _FakeState:
     def get_messages_as_conversation(self, sid):
         return []
 
+    def get_messages(self, sid, include_inactive=False):
+        return []
+
     def get_session(self, sid):
         return None
 

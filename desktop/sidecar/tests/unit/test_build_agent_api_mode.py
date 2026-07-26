@@ -47,6 +47,7 @@ def _drive_build_agent(
     fake_conn.execute.return_value.fetchone.return_value = {
         "provider": provider,
         "reasoning_effort": reasoning_effort,
+        "collaboration_mode": "default",
     }
     monkeypatch.setattr("daemon.db.connection.connect", lambda home: fake_conn)
     monkeypatch.setattr("daemon.db.connection.ensure_schema", lambda c: None)
