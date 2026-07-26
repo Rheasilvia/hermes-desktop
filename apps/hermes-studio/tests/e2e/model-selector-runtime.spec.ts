@@ -103,13 +103,17 @@ test.describe('Chat model picker runtime', () => {
     await expectPersistedRuntime(request, offSession, 'none');
 
     await page.goto(`/conversation/${highSession}`);
+    await expect(page).toHaveURL(new RegExp(`/conversation/${highSession}$`));
     await expect(page.getByTestId('model-effort-trigger')).toContainText('High');
     await page.reload();
+    await expect(page).toHaveURL(new RegExp(`/conversation/${highSession}$`));
     await expect(page.getByTestId('model-effort-trigger')).toContainText('High');
 
     await page.goto(`/conversation/${offSession}`);
+    await expect(page).toHaveURL(new RegExp(`/conversation/${offSession}$`));
     await expect(page.getByTestId('model-effort-trigger')).toContainText('Off');
     await page.reload();
+    await expect(page).toHaveURL(new RegExp(`/conversation/${offSession}$`));
     await expect(page.getByTestId('model-effort-trigger')).toContainText('Off');
   });
 });

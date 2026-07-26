@@ -139,6 +139,27 @@ describe('ModelSelector reasoning effort', () => {
     expect(screen.queryByText('Left / Right to adjust reasoning')).toBeNull();
   });
 
+  it('disables the effort segment until the runtime update is persisted', async () => {
+    let resolveUpdate!: (value: Awaited<ReturnType<GatewayAdapter['session']['updateRuntime']>>) => void;
+    const gateway = makeGateway();
+    vi.mocked(gateway.session.updateRuntime).mockImplementationOnce(() => new Promise((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    await renderSelector(gateway);
+    const effort = screen.getByTestId('model-effort-trigger') as HTMLButtonElement;
+
+    fireEvent.click(effort);
+
+    expect(effort.disabled).toBe(true);
+    resolveUpdate({
+      id: 'session-1',
+      runtime: { reasoningEffort: 'high', collaborationMode: 'default' },
+      appliedToActiveTurn: true,
+      appliesNextTurn: false,
+    });
+    await waitFor(() => expect(effort.disabled).toBe(false));
+  });
+
   it('uses right arrow on the effort segment to increase effort without opening the model picker', async () => {
     const gateway = await renderSelector();
 

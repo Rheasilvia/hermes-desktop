@@ -290,7 +290,7 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
           aria-label={effortButtonTitle()}
           aria-keyshortcuts="ArrowLeft ArrowRight"
           title={effortButtonTitle()}
-          disabled={props.disabled || !hasModel()}
+          disabled={props.disabled || !hasModel() || runtimePending()}
           data-testid="model-effort-trigger"
         >
           <span>{props.compact ? compactEffortLabel(currentEffort()) : effortLabel(currentEffort())}</span>

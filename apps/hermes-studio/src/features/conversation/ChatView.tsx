@@ -1042,7 +1042,15 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     setInlineEdit(null);
     untrack(async () => {
       await chatStore.loadMessages(sid);
-      const exists = sessionStore.sessions.some((s) => s.id === sid);
+      let exists = sessionStore.sessions.some((s) => s.id === sid);
+      if (!exists) {
+        // A deep-linked conversation can mount before AppLayout's initial
+        // session hydration finishes. Refresh once before treating the route
+        // as stale; otherwise a fast transcript response can redirect a valid
+        // session to the most recent empty conversation.
+        await sessionStore.loadSessions();
+        exists = sessionStore.sessions.some((s) => s.id === sid);
+      }
       if (!exists) {
         const remaining = sessionStore.sessions;
         if (remaining.length > 0) {

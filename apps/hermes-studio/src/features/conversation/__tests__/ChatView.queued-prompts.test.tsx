@@ -10,10 +10,11 @@ interface SteerResult {
   text?: string;
 }
 
-const { state, chatMocks, queueMocks, cardMocks, gatewayMocks } = vi.hoisted(() => {
+const { state, chatMocks, sessionMocks, queueMocks, cardMocks, gatewayMocks, navigateMock } = vi.hoisted(() => {
   const state = {
     messages: [] as Array<Record<string, unknown>>,
     queue: [] as QueuedPromptEntry[],
+    sessions: [{ id: 'sess-queue' }] as Array<{ id: string }>,
     streaming: false,
     gatewayConnected: true,
   };
@@ -23,6 +24,10 @@ const { state, chatMocks, queueMocks, cardMocks, gatewayMocks } = vi.hoisted(() 
     cancelMessage: vi.fn(async () => undefined),
     sendMessage: vi.fn(async () => true),
     appendUserMessage: vi.fn(),
+  };
+  const sessionMocks = {
+    loadSessions: vi.fn(async () => undefined),
+    createSession: vi.fn(),
   };
   const queueMocks = {
     enqueue: vi.fn((sid: string, payload: { text: string; attachments?: QueuedPromptEntry['attachments'] }) => {
@@ -51,11 +56,19 @@ const { state, chatMocks, queueMocks, cardMocks, gatewayMocks } = vi.hoisted(() 
     steer: vi.fn(async (): Promise<SteerResult> => ({ status: 'queued' })),
     imageAttach: vi.fn(async () => undefined),
   };
-  return { state, chatMocks, queueMocks, cardMocks, gatewayMocks };
+  return {
+    state,
+    chatMocks,
+    sessionMocks,
+    queueMocks,
+    cardMocks,
+    gatewayMocks,
+    navigateMock: vi.fn(),
+  };
 });
 
 vi.mock('@solidjs/router', () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => navigateMock,
 }));
 
 vi.mock('@/stores/chat.js', () => ({
@@ -97,11 +110,12 @@ vi.mock('@/stores/session.js', () => ({
   sessionStore: {
     activeSession: { id: 'sess-queue', title: 'Queue', cwd: '/repo', permissionMode: 'auto', runtime: { collaborationMode: 'default' } },
     activeSessionId: 'sess-queue',
-    sessions: [{ id: 'sess-queue' }],
+    get sessions() { return state.sessions; },
     setActiveSession: vi.fn(),
     getSessionModel: () => ({ provider: 'test', model: 'test-model' }),
     setSessionModel: vi.fn(),
-    createSession: vi.fn(),
+    createSession: sessionMocks.createSession,
+    loadSessions: sessionMocks.loadSessions,
     branchSession: vi.fn(),
     updateCwd: vi.fn(),
     setPermissionMode: vi.fn(),
@@ -269,6 +283,7 @@ describe('ChatView queued follow-up UI', () => {
     vi.clearAllMocks();
     state.messages = [];
     state.queue = [];
+    state.sessions = [{ id: 'sess-queue' }];
     state.streaming = false;
     state.gatewayConnected = true;
     gatewayMocks.steer.mockResolvedValue({ status: 'queued' });
@@ -276,6 +291,9 @@ describe('ChatView queued follow-up UI', () => {
     gatewayMocks.imageAttach.mockResolvedValue(undefined);
     persistSessionImage.mockReset();
     chatMocks.appendUserMessage.mockReset();
+    sessionMocks.loadSessions.mockReset();
+    sessionMocks.loadSessions.mockResolvedValue(undefined);
+    sessionMocks.createSession.mockReset();
     persistSessionImage.mockResolvedValue({
       path: '/home/.hermes/assets/sess-queue/persisted.png',
       url: 'hermes-studio-asset://asset/persisted-image-handle',
@@ -323,6 +341,19 @@ describe('ChatView queued follow-up UI', () => {
         name: 'photo.png',
       })],
     );
+  });
+
+  it('refreshes sessions before rejecting a valid deep-linked conversation', async () => {
+    state.sessions = [];
+    sessionMocks.loadSessions.mockImplementationOnce(async () => {
+      state.sessions = [{ id: 'sess-queue' }];
+    });
+
+    await renderChatView();
+
+    await vi.waitFor(() => expect(sessionMocks.loadSessions).toHaveBeenCalledOnce());
+    expect(sessionMocks.createSession).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('enqueues follow-up messages while streaming without showing the old notice card', async () => {
