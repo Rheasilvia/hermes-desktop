@@ -120,6 +120,33 @@ jobs:
         working-directory: apps/hermes-studio/sidecar
         run: uv run --frozen --python 3.12 --extra dev --extra build pytest -q
 
+      - name: Install Playwright Chromium
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/retry
+        with:
+          working-directory: apps/hermes-studio
+          command: npx playwright install --with-deps chromium
+
+      - name: Run Studio browser E2E
+        if: runner.os == 'Linux'
+        working-directory: apps/hermes-studio
+        env:
+          OPENROUTER_API_KEY: ""
+          OPENAI_API_KEY: ""
+          NOUS_API_KEY: ""
+        run: npm run test:e2e
+
+      - name: Upload Studio browser E2E evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hermes-studio-browser-e2e-linux-x64-${{ github.sha }}
+          path: |
+            apps/hermes-studio/playwright-report
+            apps/hermes-studio/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
       # test:packaged performs the host-native PyInstaller build and READY /
       # health smoke, rebuilds/stages node-pty for Electron, creates the
       # unpacked application, validates its resources, and launches it.
@@ -192,6 +219,186 @@ jobs:
               exit 1
             fi
           done
+
+      # Exercise the final installer, not only electron-builder's --dir output.
+      # The shared packaged smoke launches the installed app, waits for READY
+      # and authenticated health, exercises PTY, exits, and checks sidecar cleanup.
+      - name: Install, smoke-test, and uninstall macOS DMG
+        if: runner.os == 'macOS'
+        working-directory: apps/hermes-studio
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(release/Hermes-Studio-*-mac-"$EXPECTED_ARCH".dmg)
+          mount_root="$(mktemp -d "$RUNNER_TEMP/hermes-studio-dmg.XXXXXX")"
+          install_root="$(mktemp -d "$RUNNER_TEMP/hermes-studio-install.XXXXXX")"
+          mounted=0
+          cleanup() {
+            set +e
+            if [ "$mounted" -eq 1 ]; then
+              hdiutil detach "$mount_root" -force >/dev/null
+            fi
+            rm -rf "$install_root" "$mount_root"
+          }
+          trap cleanup EXIT
+
+          hdiutil attach "${artifacts[0]}" -nobrowse -readonly -mountpoint "$mount_root"
+          mounted=1
+          source_app="$mount_root/Hermes Studio.app"
+          installed_app="$install_root/Hermes Studio.app"
+          test -d "$source_app"
+          bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$source_app/Contents/Info.plist")"
+          test "$bundle_id" = "com.hermes-agent.studio"
+          ditto "$source_app" "$installed_app"
+          hdiutil detach "$mount_root"
+          mounted=0
+
+          test -x "$installed_app/Contents/MacOS/Hermes Studio"
+          npm run test:packaged:existing -- --app-path "$installed_app"
+
+          rm -rf "$installed_app"
+          test ! -e "$installed_app"
+
+      - name: Install, smoke-test, and uninstall Windows NSIS package
+        if: runner.os == 'Windows'
+        working-directory: apps/hermes-studio
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Get-StudioUninstallEntries {
+            @(
+              Get-ItemProperty `
+                -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' `
+                -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -eq 'Hermes Studio' }
+            )
+          }
+          $installer = @(Get-ChildItem release/Hermes-Studio-*-win-x64.exe)
+          if ($installer.Count -ne 1) {
+            throw "Expected one Windows NSIS installer, found $($installer.Count)"
+          }
+          $installRoot = Join-Path $env:RUNNER_TEMP "hermes-studio-install-$([guid]::NewGuid())"
+          $uninstaller = $null
+          try {
+            $install = Start-Process `
+              -FilePath $installer[0].FullName `
+              -ArgumentList '/S', "/D=$installRoot" `
+              -Wait -PassThru
+            if ($install.ExitCode -ne 0) {
+              throw "NSIS installer exited with code $($install.ExitCode)"
+            }
+
+            $app = Join-Path $installRoot 'Hermes Studio.exe'
+            if (-not (Test-Path -LiteralPath $app -PathType Leaf)) {
+              throw "Installed Hermes Studio executable is missing: $app"
+            }
+            if ((Get-Item -LiteralPath $app).VersionInfo.ProductName -ne 'Hermes Studio') {
+              throw 'Installed executable has the wrong ProductName'
+            }
+            if (-not (Test-Path -LiteralPath (Join-Path $installRoot 'resources/INTERNAL-BUILD.txt'))) {
+              throw 'Installed internal package marker is missing'
+            }
+            $uninstaller = @(Get-ChildItem -LiteralPath $installRoot -Filter 'Uninstall*.exe')
+            if ($uninstaller.Count -ne 1) {
+              throw "Expected one Studio uninstaller, found $($uninstaller.Count)"
+            }
+            $uninstallEntries = @(Get-StudioUninstallEntries)
+            if ($uninstallEntries.Count -ne 1) {
+              throw "Expected one Hermes Studio uninstall entry, found $($uninstallEntries.Count)"
+            }
+            if ($uninstallEntries[0].UninstallString -notlike "*$installRoot*") {
+              throw 'Hermes Studio uninstall entry points at a different installation'
+            }
+
+            & npm.cmd run test:packaged:existing -- --app-path $installRoot
+            if ($LASTEXITCODE -ne 0) {
+              throw "Installed application smoke exited with code $LASTEXITCODE"
+            }
+
+            $uninstall = Start-Process -FilePath $uninstaller[0].FullName -ArgumentList '/S' -Wait -PassThru
+            if ($uninstall.ExitCode -ne 0) {
+              throw "NSIS uninstaller exited with code $($uninstall.ExitCode)"
+            }
+            $deadline = [DateTime]::UtcNow.AddSeconds(60)
+            while (
+              (
+                (Test-Path -LiteralPath $installRoot) -or
+                @(Get-StudioUninstallEntries).Count -ne 0
+              ) -and
+              [DateTime]::UtcNow -lt $deadline
+            ) {
+              Start-Sleep -Milliseconds 250
+            }
+            if (Test-Path -LiteralPath $installRoot) {
+              throw "NSIS uninstall left the installation directory behind: $installRoot"
+            }
+            if (@(Get-StudioUninstallEntries).Count -ne 0) {
+              throw 'NSIS uninstall left the Hermes Studio uninstall entry behind'
+            }
+          }
+          finally {
+            if (Test-Path -LiteralPath $installRoot) {
+              if (
+                $null -ne $uninstaller -and
+                $uninstaller.Count -eq 1 -and
+                (Test-Path -LiteralPath $uninstaller[0].FullName)
+              ) {
+                try {
+                  Start-Process -FilePath $uninstaller[0].FullName -ArgumentList '/S' -Wait | Out-Null
+                }
+                catch {
+                  Write-Warning "Best-effort NSIS cleanup failed: $($_.Exception.Message)"
+                }
+              }
+              if (Test-Path -LiteralPath $installRoot) {
+                Remove-Item -LiteralPath $installRoot -Recurse -Force
+              }
+            }
+          }
+
+      - name: Install, smoke-test, and uninstall Linux deb package
+        if: runner.os == 'Linux'
+        working-directory: apps/hermes-studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(release/Hermes-Studio-*-linux-x64.deb)
+          package_name="$(dpkg-deb -f "${artifacts[0]}" Package)"
+          if [ "$package_name" != "hermes-studio" ]; then
+            echo "Unexpected Debian package identity: $package_name" >&2
+            exit 1
+          fi
+          cleanup() {
+            set +e
+            sudo dpkg --purge "$package_name" >/dev/null 2>&1
+          }
+          trap cleanup EXIT
+
+          sudo apt-get install -y "$PWD/${artifacts[0]}"
+          dpkg-query -W -f='${Status}\n' "$package_name" | grep -qx 'install ok installed'
+          mapfile -t app_asars < <(dpkg -L "$package_name" | grep '/resources/app\.asar$')
+          if [ "${#app_asars[@]}" -ne 1 ]; then
+            printf 'Expected one installed app.asar, found %s\n' "${#app_asars[@]}" >&2
+            dpkg -L "$package_name"
+            exit 1
+          fi
+          install_root="$(dirname "$(dirname "${app_asars[0]}")")"
+          test -f "$install_root/resources/INTERNAL-BUILD.txt"
+
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" \
+            npm run test:packaged:existing -- --app-path "$install_root"
+
+          sudo dpkg --purge "$package_name"
+          if dpkg-query -W "$package_name" >/dev/null 2>&1; then
+            echo "Debian package remains installed after purge: $package_name" >&2
+            exit 1
+          fi
+          test ! -e "$install_root"
+          trap - EXIT
 
       - name: Preserve Linux installer modes for artifact download
         if: runner.os == 'Linux'

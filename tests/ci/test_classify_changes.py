@@ -62,7 +62,20 @@ def _lanes(
 
 
 CASES = {
-    "docs-only → nothing heavy": (["README.md", "docs/guide.md"], _lanes()),
+    "generic docs-only → nothing heavy": (["docs/guide.md"], _lanes()),
+    "root Studio entry docs → frontend docs gate only": (
+        ["README.md", "AGENTS.md"],
+        _lanes(frontend=True),
+    ),
+    "superseded Studio plans → frontend docs gate only": (
+        [
+            "docs/plans/2026-05-11-git-diff-panel-design.md",
+            "docs/plans/2026-06-10-tauri-desktop-workspace-sandbox-v2.md",
+            "docs/plans/2026-06-10-tauri-desktop-workspace-sandbox.md",
+            "plans/desktop-conversation-real-data.md",
+        ],
+        _lanes(frontend=True),
+    ),
     "python source → python only on PR": (
         ["run_agent.py"],
         _lanes(python=True, scan=True),
@@ -120,9 +133,9 @@ CASES = {
         ["Makefile"],
         _lanes(python=True),
     ),
-    "mixed docs+python → python only on PR": (
+    "mixed Studio entry docs+python → frontend + python": (
         ["README.md", "agent/x.py"],
-        _lanes(python=True, scan=True),
+        _lanes(python=True, frontend=True, scan=True),
     ),
     "mixed docs+frontend → frontend": (["README.md", "apps/x.tsx"], _lanes(frontend=True)),
     # Supply-chain lanes

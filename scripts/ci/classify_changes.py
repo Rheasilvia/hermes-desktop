@@ -48,6 +48,14 @@ _STUDIO_NATIVE_FILES = _ROOT_NPM | {
     "scripts/ci/classify_changes.py",
     "tests/ci/test_classify_changes.py",
 }
+_STUDIO_DOC_GATE_FILES = {
+    "README.md",
+    "AGENTS.md",
+    "docs/plans/2026-05-11-git-diff-panel-design.md",
+    "docs/plans/2026-06-10-tauri-desktop-workspace-sandbox-v2.md",
+    "docs/plans/2026-06-10-tauri-desktop-workspace-sandbox.md",
+    "plans/desktop-conversation-real-data.md",
+}
 _DOCKER_META = ("docker/", ".hadolint.yml", "Dockerfile") # docker setup
 _SITE = ("website/", "skills/", "optional-skills/")  # docs site + skill pages
 # Prose/frontend trees that can't touch Python. skills/ is excluded on purpose.
@@ -123,7 +131,12 @@ def classify(files: list[str]) -> dict[str, bool]:
     ret = {
         "python": any(not _py_irrelevant(f) for f in files),
         "docker_meta":  any(f.startswith(_DOCKER_META) for f in files),
-        "frontend": any(f.startswith(_FRONTEND) or f in _ROOT_NPM for f in files),
+        "frontend": any(
+            f.startswith(_FRONTEND)
+            or f in _ROOT_NPM
+            or f in _STUDIO_DOC_GATE_FILES
+            for f in files
+        ),
         # Keep the four-runner native matrix focused on Studio and the root
         # manifests that determine its JS/Python dependency graphs. Main pushes
         # still fail open and run this lane, providing integration coverage for

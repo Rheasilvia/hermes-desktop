@@ -58,6 +58,8 @@ def test_native_lane_has_required_quality_packaging_and_unsigned_contracts():
         "uv sync --frozen --python 3.12",
         "uv run --frozen --python 3.12",
         "pytest -q",
+        "npx playwright install --with-deps chromium",
+        "npm run test:e2e",
         "npm run test:packaged",
     ):
         assert command in commands
@@ -69,6 +71,39 @@ def test_native_lane_has_required_quality_packaging_and_unsigned_contracts():
     )
     assert "xvfb" in linux_setup
     assert "rpm" in linux_setup
+    browser_e2e = next(step for step in steps if step.get("name") == "Run Studio browser E2E")
+    assert browser_e2e["if"] == "runner.os == 'Linux'"
+    installer_smokes = [
+        step for step in steps if step.get("name", "").startswith("Install, smoke-test, and uninstall")
+    ]
+    assert {step["if"] for step in installer_smokes} == {
+        "runner.os == 'macOS'",
+        "runner.os == 'Windows'",
+        "runner.os == 'Linux'",
+    }
+    assert all("test:packaged:existing -- --app-path" in step["run"] for step in installer_smokes)
+
+    mac_smoke = next(step["run"] for step in installer_smokes if step["if"] == "runner.os == 'macOS'")
+    assert "hdiutil attach" in mac_smoke
+    assert "com.hermes-agent.studio" in mac_smoke
+    assert "test ! -e \"$installed_app\"" in mac_smoke
+
+    windows_smoke = next(
+        step["run"] for step in installer_smokes if step["if"] == "runner.os == 'Windows'"
+    )
+    assert "-ArgumentList '/S', \"/D=$installRoot\"" in windows_smoke
+    assert "VersionInfo.ProductName -ne 'Hermes Studio'" in windows_smoke
+    assert "Get-StudioUninstallEntries" in windows_smoke
+    assert "NSIS uninstaller" in windows_smoke
+    assert "NSIS uninstall left the installation directory behind" in windows_smoke
+
+    linux_smoke = next(
+        step["run"] for step in installer_smokes if step["if"] == "runner.os == 'Linux'"
+    )
+    assert 'package_name" != "hermes-studio"' in linux_smoke
+    assert "sudo apt-get install -y" in linux_smoke
+    assert "sudo dpkg --purge" in linux_smoke
+    assert 'test ! -e "$install_root"' in linux_smoke
     assert "[ ! -x \"${artifacts[0]}\" ]" in commands
     assert "Hermes-Studio-$version-linux-x64.tar" in commands
 
@@ -94,7 +129,13 @@ def test_orchestrator_exposes_gates_and_aggregates_native_lane():
     assert ci["jobs"]["studio-native"]["uses"] == (
         "./.github/workflows/studio-native.yml"
     )
-    assert "studio-native" in ci["jobs"]["all-checks-pass"]["needs"]
+    aggregate = ci["jobs"]["all-checks-pass"]
+    assert "studio-native" in aggregate["needs"]
+    assert aggregate["permissions"] == {"contents": "read"}
+    assert any(
+        step.get("run") == "python3 scripts/ci/evaluate_required_jobs.py"
+        for step in aggregate["steps"]
+    )
 
 
 def test_native_workflow_commands_are_backed_by_studio_package_scripts():
@@ -117,6 +158,7 @@ def test_native_workflow_commands_are_backed_by_studio_package_scripts():
         "typecheck",
         "test",
         "test:packaged",
+        "test:packaged:existing",
         "dist:mac",
         "dist:win",
         "dist:linux",
