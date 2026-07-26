@@ -1,21 +1,31 @@
-import { invoke } from '@tauri-apps/api/core';
+import { getNativeHost } from '@/services/native-host.js';
 import type { FsAdapter } from './types.js';
 
-export class TauriFsAdapter implements FsAdapter {
+function nativeHost() {
+  const host = getNativeHost();
+  if (!host) throw new Error('Hermes Studio native file access is unavailable');
+  return host;
+}
+
+function isNotFound(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'HERMES_HOME_PATH_NOT_FOUND';
+}
+
+export class ElectronFsAdapter implements FsAdapter {
   async readText(relPath: string): Promise<string | null> {
     try {
-      return await invoke<string>('read_file', { path: relPath });
-    } catch (e) {
-      const msg = String(e);
-      if (msg.includes('No such file') || msg.includes('Failed to read file')) {
-        return null;
-      }
-      throw e;
+      return await nativeHost().hermesHome.readText(relPath);
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
     }
   }
 
   async writeText(relPath: string, content: string): Promise<void> {
-    await invoke<void>('write_file', { path: relPath, content });
+    await nativeHost().hermesHome.writeText(relPath, content);
   }
 
   async rename(relPath: string, newRelPath: string): Promise<void> {
@@ -23,7 +33,7 @@ export class TauriFsAdapter implements FsAdapter {
     if (text === null) return;
     await this.writeText(newRelPath, text);
     try {
-      await invoke<void>('write_file', { path: relPath, content: '' });
+      await this.writeText(relPath, '');
     } catch {
       // best-effort
     }
@@ -49,5 +59,5 @@ export class MemoryFsAdapter implements FsAdapter {
 }
 
 export function createFsAdapter(): FsAdapter {
-  return new TauriFsAdapter();
+  return getNativeHost() ? new ElectronFsAdapter() : new MemoryFsAdapter();
 }

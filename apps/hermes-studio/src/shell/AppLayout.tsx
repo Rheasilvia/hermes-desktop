@@ -12,6 +12,7 @@ import { clampSidebarWidth, uiStore } from '@/stores/ui.js';
 import { sidePanelStore } from '@/stores/side-panel.js';
 import { initKeyboardShortcuts, destroyKeyboardShortcuts } from '@/services/keyboard.js';
 import { loadState } from '@/services/api/state.js';
+import { getNativeHost } from '@/services/native-host.js';
 import { LoadingSpinner } from '@/ui/atoms/LoadingSpinner';
 import { getGateway } from '@/stores/context.js';
 import { setApprovalResponder, setSessionFocuser, teardownNativeNotifications } from '@/services/notifications/native-notifications.js';
@@ -437,16 +438,11 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
   };
 
   onMount(async () => {
-    // Detect the OS once so platform-specific chrome (e.g. the title bar's
-    // native-vs-custom window controls) renders correctly. Off-Tauri (browser
-    // preview) this resolves to 'unknown' and is harmless.
+    // Detect the OS once so platform-specific chrome renders correctly. The
+    // browser preview keeps the store's harmless `unknown` fallback.
     try {
-      const { isTauri } = await import('@tauri-apps/api/core');
-      if (isTauri()) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const platform = await invoke<'macos' | 'windows' | 'linux'>('get_platform');
-        uiStore.setPlatform(platform);
-      }
+      const platform = await getNativeHost()?.app.platform();
+      if (platform) uiStore.setPlatform(platform);
     } catch {
       /* best-effort — 'unknown' platform falls back to no custom controls */
     }
@@ -495,10 +491,6 @@ export const AppLayout: Component<AppLayoutProps> = (props) => {
       : null);
     setSessionFocuser((sessionId) => {
       if (sessionId) navigate(`/conversation/${sessionId}`);
-      void import('@tauri-apps/api/core').then(({ isTauri }) => {
-        if (!isTauri()) return;
-        return import('@tauri-apps/api/window').then(({ getCurrentWindow }) => getCurrentWindow().setFocus());
-      }).catch(() => {});
     });
     onCleanup(() => {
       setApprovalResponder(null);

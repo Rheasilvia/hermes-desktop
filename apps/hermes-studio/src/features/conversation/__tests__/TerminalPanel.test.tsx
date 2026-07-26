@@ -2,14 +2,21 @@ import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TerminalPanel } from '../TerminalPanel.js';
+import { installNativeHostMock } from '@/services/native-host.js';
+import type { HermesStudioBridge } from '@/shared/native-bridge.js';
 
 type TerminalEvent = 'terminal_data' | 'terminal_exit' | 'terminal_error';
-type TerminalListener = (event: { payload: unknown }) => void;
+type TerminalListener = (event: any) => void;
 
 const mocks = vi.hoisted(() => ({
-  invoke: vi.fn(),
-  isTauri: vi.fn(),
-  listen: vi.fn(),
+  terminalStart: vi.fn(),
+  terminalWrite: vi.fn(),
+  terminalResize: vi.fn(),
+  terminalStop: vi.fn(),
+  onTerminalData: vi.fn(),
+  onTerminalExit: vi.fn(),
+  onTerminalError: vi.fn(),
+  importDroppedFiles: vi.fn(),
   listeners: new Map<string, TerminalListener[]>(),
   fitAddons: [] as Array<{
     fit: ReturnType<typeof vi.fn>;
@@ -29,15 +36,6 @@ const mocks = vi.hoisted(() => ({
     open: ReturnType<typeof vi.fn>;
     emitData: (data: string) => void;
   }>,
-}));
-
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: mocks.invoke,
-  isTauri: mocks.isTauri,
-}));
-
-vi.mock('@tauri-apps/api/event', () => ({
-  listen: mocks.listen,
 }));
 
 vi.mock('@xterm/addon-fit', () => ({
@@ -133,21 +131,23 @@ function setHostSize(width: number, height: number) {
 
 function emitTerminalEvent(event: TerminalEvent, payload: unknown) {
   for (const listener of mocks.listeners.get(event) ?? []) {
-    listener({ payload });
+    listener(payload);
   }
 }
 
 function terminalStartCalls() {
-  return mocks.invoke.mock.calls.filter(([command]) => command === 'terminal_start');
+  return mocks.terminalStart.mock.calls;
 }
 
 function renderTerminal(initialActive = true) {
   const [active, setActive] = createSignal(initialActive);
-  const result = render(() => <TerminalPanel active={active()} cwd="/repo" />);
+  const result = render(() => <TerminalPanel active={active()} cwd="/repo" sessionId="chat-session" />);
   return { setActive, unmount: result.unmount };
 }
 
 describe('TerminalPanel', () => {
+  let restoreNativeHost = () => {};
+
   beforeEach(() => {
     let startSequence = 0;
     document.documentElement.removeAttribute('data-theme');
@@ -156,25 +156,51 @@ describe('TerminalPanel', () => {
     mocks.fitAddons.length = 0;
     mocks.webglAddons.length = 0;
     mocks.terminalInstances.length = 0;
-    mocks.isTauri.mockReturnValue(true);
-    mocks.listen.mockImplementation(async (event: TerminalEvent, listener: TerminalListener) => {
+    mocks.terminalStart.mockReset();
+    mocks.terminalWrite.mockReset();
+    mocks.terminalWrite.mockResolvedValue(undefined);
+    mocks.terminalResize.mockReset();
+    mocks.terminalResize.mockResolvedValue(undefined);
+    mocks.terminalStop.mockReset();
+    mocks.terminalStop.mockResolvedValue(undefined);
+    mocks.importDroppedFiles.mockReset();
+    mocks.importDroppedFiles.mockResolvedValue([]);
+    mocks.onTerminalData.mockReset();
+    mocks.onTerminalExit.mockReset();
+    mocks.onTerminalError.mockReset();
+    restoreNativeHost();
+    restoreNativeHost = installNativeHostMock({
+      workspace: { importDroppedFiles: mocks.importDroppedFiles },
+      terminal: {
+        start: mocks.terminalStart,
+        write: mocks.terminalWrite,
+        resize: mocks.terminalResize,
+        stop: mocks.terminalStop,
+        onData: mocks.onTerminalData,
+        onExit: mocks.onTerminalExit,
+        onError: mocks.onTerminalError,
+      },
+    } as unknown as HermesStudioBridge);
+    const addListener = (event: TerminalEvent, listener: TerminalListener) => {
       const listeners = mocks.listeners.get(event) ?? [];
       listeners.push(listener);
       mocks.listeners.set(event, listeners);
-      return vi.fn();
-    });
-    mocks.invoke.mockImplementation(async (command: string) => {
-      if (command === 'terminal_start') {
-        startSequence += 1;
-        return {
-          id: `terminal-${startSequence}`,
-          pid: 1234 + startSequence,
-          shell: '/bin/zsh',
-          cwd: '/repo',
-          reused: false,
-        };
-      }
-      return undefined;
+      return vi.fn(() => {
+        mocks.listeners.set(event, (mocks.listeners.get(event) ?? []).filter((item) => item !== listener));
+      });
+    };
+    mocks.onTerminalData.mockImplementation((listener: TerminalListener) => addListener('terminal_data', listener));
+    mocks.onTerminalExit.mockImplementation((listener: TerminalListener) => addListener('terminal_exit', listener));
+    mocks.onTerminalError.mockImplementation((listener: TerminalListener) => addListener('terminal_error', listener));
+    mocks.terminalStart.mockImplementation(async () => {
+      startSequence += 1;
+      return {
+        id: `terminal-${startSequence}`,
+        pid: 1234 + startSequence,
+        shell: '/bin/zsh',
+        cwd: '/repo',
+        reused: false,
+      };
     });
     vi.stubGlobal('ResizeObserver', ResizeObserverMock);
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
@@ -184,6 +210,8 @@ describe('TerminalPanel', () => {
   });
 
   afterEach(() => {
+    restoreNativeHost();
+    restoreNativeHost = () => {};
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -201,7 +229,7 @@ describe('TerminalPanel', () => {
     await waitFor(() => {
       expect(terminalStartCalls()).toHaveLength(1);
     });
-    expect(mocks.invoke).toHaveBeenCalledWith('terminal_start', {
+    expect(mocks.terminalStart).toHaveBeenCalledWith({
       cwd: '/repo',
       cols: 100,
       rows: 32,
@@ -263,7 +291,8 @@ describe('TerminalPanel', () => {
       return rafCallbacks.length;
     }));
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
-    mocks.isTauri.mockReturnValue(false);
+    restoreNativeHost();
+    restoreNativeHost = installNativeHostMock(null);
 
     renderTerminal(false);
     const fitAddon = mocks.fitAddons[0];
@@ -373,13 +402,10 @@ describe('TerminalPanel', () => {
 
   it('buffers terminal_data that arrives before terminal_start resolves', async () => {
     let resolveStart: (value: unknown) => void = () => {};
-    mocks.invoke.mockImplementation((command: string) => {
-      if (command === 'terminal_start') {
-        return new Promise((resolve) => {
-          resolveStart = resolve;
-        });
-      }
-      return Promise.resolve(undefined);
+    mocks.terminalStart.mockImplementation(() => {
+      return new Promise((resolve) => {
+        resolveStart = resolve;
+      });
     });
 
     renderTerminal(true);
@@ -409,6 +435,65 @@ describe('TerminalPanel', () => {
     expect(screen.queryByText('Shell started. Waiting for output...')).toBeNull();
   });
 
+  it('surfaces an exit emitted before terminal_start resolves and allows retry', async () => {
+    let attempt = 0;
+    mocks.terminalStart.mockImplementation(async () => {
+      attempt += 1;
+      const id = attempt === 1 ? 'terminal-early-exit' : 'terminal-after-retry';
+      if (attempt === 1) {
+        emitTerminalEvent('terminal_exit', { id, code: 127, signal: null });
+      }
+      return {
+        id,
+        pid: 1200 + attempt,
+        shell: '/bin/zsh',
+        cwd: '/repo',
+        reused: false,
+      };
+    });
+
+    renderTerminal(true);
+    setHostSize(480, 320);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Terminal exited with code 127').length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    });
+    expect(screen.queryByText('Shell started. Waiting for output...')).toBeNull();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(terminalStartCalls()).toHaveLength(2));
+    await waitFor(() => {
+      expect(screen.queryByText('Terminal exited with code 127')).toBeNull();
+      expect(screen.getByText('Shell started. Waiting for output...')).toBeTruthy();
+    });
+  });
+
+  it('surfaces an error emitted before terminal_start resolves instead of marking it running', async () => {
+    mocks.terminalStart.mockImplementation(async () => {
+      const result = {
+        id: 'terminal-early-error',
+        pid: 1234,
+        shell: '/bin/zsh',
+        cwd: '/repo',
+        reused: false,
+      };
+      emitTerminalEvent('terminal_error', { id: result.id, error: 'PTY initialization failed' });
+      return result;
+    });
+
+    renderTerminal(true);
+    setHostSize(480, 320);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('PTY initialization failed').length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    });
+    expect(screen.queryByText('Shell started. Waiting for output...')).toBeNull();
+    expect(mocks.terminalStop).toHaveBeenCalledWith('terminal-early-error');
+  });
+
   it('marks output as running only after xterm write flushes', async () => {
     renderTerminal(true);
     setHostSize(480, 320);
@@ -435,7 +520,7 @@ describe('TerminalPanel', () => {
     });
   });
 
-  it('uses the DOM renderer in the Tauri desktop path', () => {
+  it('uses the DOM renderer in the native desktop path', () => {
     renderTerminal(false);
 
     expect(mocks.webglAddons).toHaveLength(0);
@@ -463,8 +548,29 @@ describe('TerminalPanel', () => {
     unmount();
 
     await waitFor(() => {
-      expect(mocks.invoke).toHaveBeenCalledWith('terminal_stop', { id: 'terminal-1' });
+      expect(mocks.terminalStop).toHaveBeenCalledWith('terminal-1');
     });
+  });
+
+  it('unsubscribes from all native terminal events when unmounted', async () => {
+    const { unmount } = renderTerminal(false);
+
+    await waitFor(() => {
+      expect(mocks.onTerminalData).toHaveBeenCalledTimes(1);
+      expect(mocks.onTerminalExit).toHaveBeenCalledTimes(1);
+      expect(mocks.onTerminalError).toHaveBeenCalledTimes(1);
+    });
+    const unsubscribers = [
+      mocks.onTerminalData.mock.results[0]?.value,
+      mocks.onTerminalExit.mock.results[0]?.value,
+      mocks.onTerminalError.mock.results[0]?.value,
+    ];
+
+    unmount();
+
+    for (const unsubscribe of unsubscribers) {
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    }
   });
 
   it('forwards keystrokes as raw bytes to terminal_write', async () => {
@@ -478,10 +584,67 @@ describe('TerminalPanel', () => {
     const terminal = mocks.terminalInstances[mocks.terminalInstances.length - 1];
     terminal?.emitData('你好\r');
 
-    const writeCalls = mocks.invoke.mock.calls.filter(([command]) => command === 'terminal_write');
-    expect(writeCalls).toHaveLength(1);
-    const [, payload] = writeCalls[0];
-    expect(payload).toEqual({ id: 'terminal-1', data: Array.from(new TextEncoder().encode('你好\r')) });
+    expect(mocks.terminalWrite).toHaveBeenCalledWith(
+      'terminal-1',
+      Array.from(new TextEncoder().encode('你好\r')),
+    );
+  });
+
+  it('imports Electron 40 file drops and shell-quotes returned paths into the PTY', async () => {
+    const sourceFile = new File(['report'], 'report one.txt', { type: 'text/plain' });
+    const sourceImage = new File(['image'], 'owner photo.png', { type: 'image/png' });
+    mocks.importDroppedFiles.mockResolvedValue([
+      { kind: 'file', path: '/repo/report one.txt', name: 'report one.txt' },
+      { kind: 'image', path: "/tmp/staged/owner's.png", name: 'owner photo.png' },
+    ]);
+
+    renderTerminal(true);
+    setHostSize(480, 320);
+    await waitFor(() => expect(terminalStartCalls()).toHaveLength(1));
+
+    await fireEvent.drop(screen.getByTestId('terminal-host'), {
+      dataTransfer: { files: [sourceFile, sourceImage] },
+    });
+
+    expect(mocks.importDroppedFiles).toHaveBeenCalledWith('chat-session', [sourceFile, sourceImage]);
+    await waitFor(() => {
+      const expected = "'/repo/report one.txt' '/tmp/staged/owner'\\''s.png'";
+      expect(mocks.terminalWrite).toHaveBeenCalledWith(
+        'terminal-1',
+        Array.from(new TextEncoder().encode(expected)),
+      );
+    });
+  });
+
+  it('quotes dropped Windows paths for the PowerShell returned by terminal_start', async () => {
+    const sourceFile = new File(['report'], 'report.txt', { type: 'text/plain' });
+    const windowsPath = String.raw`C:\Users\Hermes Studio\owner's & $draft[1].txt`;
+    mocks.terminalStart.mockResolvedValue({
+      id: 'terminal-windows',
+      pid: 4321,
+      shell: String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`,
+      cwd: String.raw`C:\Users\Hermes Studio`,
+      reused: false,
+    });
+    mocks.importDroppedFiles.mockResolvedValue([
+      { kind: 'file', path: windowsPath, name: 'report.txt' },
+    ]);
+
+    renderTerminal(true);
+    setHostSize(480, 320);
+    await waitFor(() => expect(terminalStartCalls()).toHaveLength(1));
+
+    await fireEvent.drop(screen.getByTestId('terminal-host'), {
+      dataTransfer: { files: [sourceFile] },
+    });
+
+    const expected = String.raw`'C:\Users\Hermes Studio\owner''s & $draft[1].txt'`;
+    await waitFor(() => {
+      expect(mocks.terminalWrite).toHaveBeenCalledWith(
+        'terminal-windows',
+        Array.from(new TextEncoder().encode(expected)),
+      );
+    });
   });
 
   it('falls back to host keydown forwarding when xterm textarea does not receive focus', async () => {
@@ -498,12 +661,11 @@ describe('TerminalPanel', () => {
     await fireEvent.keyDown(host, { key: 'c', ctrlKey: true });
 
     await waitFor(() => {
-      expect(mocks.invoke.mock.calls.filter(([command]) => command === 'terminal_write')).toHaveLength(3);
+      expect(mocks.terminalWrite).toHaveBeenCalledTimes(3);
     });
-    const writeCalls = mocks.invoke.mock.calls.filter(([command]) => command === 'terminal_write');
-    expect(writeCalls[0][1]).toEqual({ id: 'terminal-1', data: Array.from(new TextEncoder().encode('a')) });
-    expect(writeCalls[1][1]).toEqual({ id: 'terminal-1', data: Array.from(new TextEncoder().encode('\r')) });
-    expect(writeCalls[2][1]).toEqual({ id: 'terminal-1', data: [3] });
+    expect(mocks.terminalWrite.mock.calls[0]).toEqual(['terminal-1', Array.from(new TextEncoder().encode('a'))]);
+    expect(mocks.terminalWrite.mock.calls[1]).toEqual(['terminal-1', Array.from(new TextEncoder().encode('\r'))]);
+    expect(mocks.terminalWrite.mock.calls[2]).toEqual(['terminal-1', [3]]);
   });
 
   it('adapts the xterm theme to the desktop theme', async () => {
@@ -528,10 +690,7 @@ describe('TerminalPanel', () => {
   const PTY_START_ERROR = 'Terminal failed to start: pseudo-terminal allocation failed';
 
   it('stops retrying terminal_start after a start failure (no flash loop)', async () => {
-    mocks.invoke.mockImplementation(async (command: string) => {
-      if (command === 'terminal_start') throw PTY_START_ERROR;
-      return undefined;
-    });
+    mocks.terminalStart.mockRejectedValue(PTY_START_ERROR);
 
     renderTerminal(true);
     setHostSize(480, 320);
@@ -557,19 +716,16 @@ describe('TerminalPanel', () => {
 
   it('retries terminal_start only after the user clicks Retry', async () => {
     let startAttempts = 0;
-    mocks.invoke.mockImplementation(async (command: string) => {
-      if (command === 'terminal_start') {
-        startAttempts += 1;
-        if (startAttempts === 1) throw PTY_START_ERROR;
-        return {
-          id: 'terminal-retry',
-          pid: 1234,
-          shell: '/bin/zsh',
-          cwd: '/repo',
-          reused: false,
-        };
-      }
-      return undefined;
+    mocks.terminalStart.mockImplementation(async () => {
+      startAttempts += 1;
+      if (startAttempts === 1) throw PTY_START_ERROR;
+      return {
+        id: 'terminal-retry',
+        pid: 1234,
+        shell: '/bin/zsh',
+        cwd: '/repo',
+        reused: false,
+      };
     });
 
     renderTerminal(true);

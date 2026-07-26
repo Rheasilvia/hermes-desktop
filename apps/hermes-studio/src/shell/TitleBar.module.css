@@ -15,6 +15,7 @@
   user-select: none;
   -webkit-user-select: none;
   z-index: var(--z-sticky);
+  -webkit-app-region: drag;
 }
 
 .dragSurface {
@@ -25,9 +26,8 @@
 
 /* Navigation toolbar is anchored to the titlebar, not to the sidebar/layout
    flow, so toggling the sidebar cannot move it into the macOS traffic lights.
-   Buttons stop mousedown propagation so they don't start a window drag; the
-   session title span deliberately does not so users can grab the title text to
-   move the window. */
+   Buttons use CSS no-drag regions; the session title deliberately remains in
+   the drag region so users can grab the title text to move the window. */
 .actionToolbar {
   position: absolute;
   top: 50%;
@@ -94,6 +94,19 @@
   pointer-events: auto;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-app-region: drag;
+}
+
+.actionButton,
+.controlBtn,
+.toolTabItem,
+.toolTab,
+.toolTabRenameInput,
+.toolTabClose,
+.addToolButton,
+.toolMenu,
+.toolMenuItem {
+  -webkit-app-region: no-drag;
 }
 
 .toolTabs {

@@ -1,9 +1,8 @@
 import { uiStore } from '@/stores/ui.js';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 import { loadDesktopSettings, type DesktopSettings } from './desktop-settings.js';
 
 export type ThemeName = 'light' | 'dark';
-
-const STORAGE_KEY_THEME = 'hermes-desktop-theme';
 
 export function setTheme(name: ThemeName): void {
   document.documentElement.dataset.theme = name;
@@ -28,7 +27,7 @@ export async function initTheme(): Promise<void> {
     if (isValidTheme(desktop.theme)) {
       theme = desktop.theme;
     } else {
-      const stored = localStorage.getItem(STORAGE_KEY_THEME);
+      const stored = localStorage.getItem(STORAGE_KEYS.theme);
       theme = isValidTheme(stored ?? undefined) ? stored as ThemeName : getSystemPreference();
     }
   } catch {

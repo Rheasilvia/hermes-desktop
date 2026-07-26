@@ -1,4 +1,5 @@
 import { createStore, produce } from 'solid-js/store';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 
 export interface FileUrlPreviewTarget {
   kind: 'file' | 'url';
@@ -43,7 +44,6 @@ export interface SessionPreviewRecord {
 
 type PreviewRegistry = Record<string, SessionPreviewRecord[]>;
 
-const STORAGE_KEY = 'hermes.tauri.sessionPreviews.v2';
 const MAX_RECORDS_PER_SESSION = 1;
 const MAX_SESSIONS = 120;
 
@@ -112,7 +112,7 @@ function isPreviewRecord(value: unknown): value is SessionPreviewRecord {
 function loadRegistry(): PreviewRegistry {
   if (typeof window === 'undefined') return {};
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEYS.sessionPreviews);
     const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : null;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const out: PreviewRegistry = {};
@@ -132,26 +132,14 @@ function saveRegistry(registry: PreviewRegistry): void {
   try {
     const pruned = pruneRegistry(registry);
     if (Object.keys(pruned).length === 0) {
-      window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(STORAGE_KEYS.sessionPreviews);
     } else {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(pruned));
+      window.localStorage.setItem(STORAGE_KEYS.sessionPreviews, JSON.stringify(pruned));
     }
   } catch {
     // Preview persistence is a convenience; failures are non-fatal.
   }
 }
-
-// One-time cleanup: the pre-v2 registry lived under a different key and is no longer
-// read — drop it so stale data doesn't linger in localStorage after the v1→v2 bump.
-function dropLegacyStorage(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.removeItem('hermes.tauri.sessionPreviews.v1');
-  } catch {
-    // ignore
-  }
-}
-dropLegacyStorage();
 
 const [registry, setRegistry] = createStore<PreviewRegistry>(loadRegistry());
 

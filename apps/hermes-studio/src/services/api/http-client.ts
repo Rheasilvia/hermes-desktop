@@ -1,8 +1,16 @@
 import type { ApiError } from './types';
+import { getNativeHost } from '@/services/native-host.js';
+import type { SidecarInfo } from '@/shared/native-bridge.js';
 
-interface SidecarInfo {
+export interface HttpBackendInfo {
   base_url: string;
   token: string;
+}
+
+interface BrowserSidecarEnvironment {
+  PROD?: boolean;
+  VITE_SIDECAR_URL?: string;
+  VITE_SIDECAR_TOKEN?: string;
 }
 
 const RETRY_DELAYS_MS = [100, 300, 700];
@@ -28,43 +36,42 @@ function makeApiError(
   return e;
 }
 
-function envSidecarInfo(): SidecarInfo | null {
-  const url = import.meta.env.VITE_SIDECAR_URL;
-  const token = import.meta.env.VITE_SIDECAR_TOKEN;
+export function browserSidecarInfo(
+  environment: BrowserSidecarEnvironment = import.meta.env,
+): HttpBackendInfo | null {
+  if (environment.PROD) return null;
+  const url = environment.VITE_SIDECAR_URL;
+  const token = environment.VITE_SIDECAR_TOKEN;
   if (url && token) {
     return { base_url: url, token };
   }
   return null;
 }
 
-async function tauriSidecarInfo(): Promise<SidecarInfo | null> {
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    return (await invoke('sidecar_info')) as SidecarInfo;
-  } catch {
-    return null;
-  }
-}
-
 export class HttpClient {
-  private cached: SidecarInfo | null = null;
+  private cached: HttpBackendInfo | null = null;
 
-  private async info(force = false): Promise<SidecarInfo> {
+  updateBackendInfo(info: SidecarInfo): void {
+    this.cached = { base_url: info.baseUrl, token: info.token };
+  }
+
+  async backendInfo(force = false): Promise<HttpBackendInfo> {
     if (!this.cached || force) {
-      // In Tauri, the sidecar owns the live token. Env vars are only a
-      // browser-only fallback for standalone web debugging.
-      const tauri = await tauriSidecarInfo();
-      if (tauri) {
-        this.cached = tauri;
+      const nativeHost = getNativeHost();
+      if (nativeHost) {
+        // A present Electron bridge is authoritative. Discovery failures must
+        // never downgrade to build-time browser credentials.
+        const native = await nativeHost.backend.info();
+        this.cached = { base_url: native.baseUrl, token: native.token };
         return this.cached;
       }
-      const env = envSidecarInfo();
+      const env = browserSidecarInfo();
       if (env) {
         this.cached = env;
         return this.cached;
       }
       throw new Error(
-        'No sidecar available. Set VITE_SIDECAR_URL and VITE_SIDECAR_TOKEN, or run inside Tauri.',
+        'No backend available. Start Hermes Studio in Electron or configure the browser development server.',
       );
     }
     return this.cached;
@@ -75,8 +82,8 @@ export class HttpClient {
     init: RequestInit,
     opts: { retryNetwork: boolean; retryAuthOnce: boolean },
   ): Promise<unknown> {
-    const info = await this.info();
-    const url = `${info.base_url}${path}`;
+    const info = await this.backendInfo();
+    let url = `${info.base_url}${path}`;
     const merged: RequestInit = {
       ...init,
       headers: {
@@ -93,7 +100,8 @@ export class HttpClient {
         const resp = await fetch(url, merged);
         if (resp.status === 401 && opts.retryAuthOnce) {
           opts.retryAuthOnce = false;
-          const fresh = await this.info(true);
+          const fresh = await this.backendInfo(true);
+          url = `${fresh.base_url}${path}`;
           (merged.headers as Record<string, string>).Authorization =
             `Bearer ${fresh.token}`;
           continue;

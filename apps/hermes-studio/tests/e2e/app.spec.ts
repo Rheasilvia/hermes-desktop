@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Hermes Desktop App', () => {
+test.describe('Hermes Studio App', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
   });
@@ -9,14 +9,16 @@ test.describe('Hermes Desktop App', () => {
     await expect(page).toHaveTitle(/Hermes/);
   });
 
-  test('sidebar navigation items are visible', async ({ page }) => {
+  test('sidebar session controls and settings navigation are visible', async ({ page }) => {
     await expect(page.getByRole('button', { name: /New Chat/ })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Sessions' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Conversations/ })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
   });
 
-  test('navigating to Sessions changes URL', async ({ page }) => {
-    await page.getByRole('link', { name: 'Sessions' }).click();
-    await expect(page).toHaveURL(/\/sessions/);
+  test('starting a new chat opens a new conversation route', async ({ page }) => {
+    const previousUrl = page.url();
+    await page.getByRole('button', { name: /New Chat/ }).click();
+    await expect(page).toHaveURL(/\/conversation\/[^/]+$/);
+    await expect.poll(() => page.url()).not.toBe(previousUrl);
   });
 });

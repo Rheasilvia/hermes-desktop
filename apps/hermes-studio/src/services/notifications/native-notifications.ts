@@ -1,23 +1,15 @@
 /**
- * Native OS notifications via @tauri-apps/plugin-notification.
+ * Native OS notifications exposed by the frozen Electron preload bridge.
  *
- * Additive layer on top of the always-present inline UI (approval cards,
- * toasts). Fires an OS notification only when the app window is unfocused
- * OR the event belongs to a session other than the active one — matching
- * the Electron reference implementation's `shouldFire` heuristic.
- *
- * Approval action buttons (Approve/Reject) attach directly to the
- * notification's `actions` and resolve via the `onAction` callback, which
- * receives `notification.actionId`. On platforms where the OS drops action
- * buttons (Windows / unsigned macOS), the notification body still shows and
- * the `onAction` callback simply never fires; the inline approval card is
- * always rendered regardless, so the user is never blocked.
- *
- * All Tauri APIs are behind an `isTauri()` gate + dynamic import so this
- * module is inert in the browser/vite-preview environment.
+ * This is an additive layer over the always-present inline UI. The browser
+ * preview intentionally has no native notification implementation.
  */
 
-import { isTauri } from '@tauri-apps/api/core';
+import { getNativeHost } from '@/services/native-host.js';
+import type {
+  HermesStudioBridge,
+  NativeNotificationContext,
+} from '@/shared/native-bridge.js';
 import { desktopSettingsStore } from '@/stores/desktop-settings';
 import { sessionStore } from '@/stores/session';
 
@@ -41,14 +33,10 @@ const DEFAULT_PREFS: NativeNotificationPrefs = {
 
 const PREFS_KEY = 'notifications';
 
-/**
- * Reads the native-notification prefs from the desktop settings store's
- * opaque `ui` bag, deep-merging over defaults so a missing key never blocks
- * dispatch.
- */
+/** Reads notification preferences from the desktop settings UI bag. */
 export function readNativeNotificationPrefs(): NativeNotificationPrefs {
   const ui = desktopSettingsStore.settings().ui as Record<string, unknown> | undefined;
-  const prefsNode = (ui?.[PREFS_KEY] as Record<string, unknown> | undefined);
+  const prefsNode = ui?.[PREFS_KEY] as Record<string, unknown> | undefined;
   const raw = prefsNode?.['native'] as Partial<NativeNotificationPrefs> | undefined;
   if (!raw) return DEFAULT_PREFS;
   return {
@@ -57,96 +45,98 @@ export function readNativeNotificationPrefs(): NativeNotificationPrefs {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Window-focus tracking (does not exist elsewhere in the app today).
-// ---------------------------------------------------------------------------
-
 let windowFocused = true;
-let focusInitialized = false;
-
-// Teardown handles for listeners attached during init. Kept so the shell can
-// release them on unmount/reload instead of leaking across navigations.
+let initializedHost: HermesStudioBridge | null = null;
+let initialization: Promise<boolean> | null = null;
+let lifecycleGeneration = 0;
 const teardownFns: Array<() => void> = [];
 
-async function initFocusTracking(): Promise<void> {
-  if (focusInitialized || !isTauri()) return;
-  focusInitialized = true;
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  const win = getCurrentWindow();
-  windowFocused = await win.isFocused();
-  const unlisten = await win.onFocusChanged(({ payload: focused }: { payload: boolean }) => {
-    windowFocused = focused;
-  });
-  teardownFns.push(unlisten);
-}
-
-/** Releases every native-notification listener. Call from the shell onCleanup. */
-export function teardownNativeNotifications(): void {
-  while (teardownFns.length) {
-    const fn = teardownFns.pop();
-    try { fn?.(); } catch { /* best-effort */ }
-  }
-  focusInitialized = false;
-  actionListenerAttached = false;
-}
-
-/** True when the app window is unfocused OR the event is for a non-active session. */
-function shouldFire(sessionId: string | undefined): boolean {
-  if (!windowFocused) return true;
-  const active = sessionStore.activeSessionId;
-  if (sessionId && active && sessionId !== active) return true;
-  return false;
-}
-
-// ---------------------------------------------------------------------------
-// Action callback + dispatch.
-// ---------------------------------------------------------------------------
-
-/** Pending approval context, carried in the notification's `extra` payload. */
-interface PendingApproval {
-  sessionId: string;
-  command: string;
-}
-
 /** Resolves an approval action back to the sidecar. Set by the chat layer. */
-export type ApprovalResponder = (sessionId: string, command: string, choice: 'once' | 'deny') => Promise<void>;
+export type ApprovalResponder = (
+  sessionId: string,
+  command: string,
+  choice: 'once' | 'deny',
+) => Promise<void>;
 let approvalResponder: ApprovalResponder | null = null;
 
-/** The chat/event layer registers how an approval choice is sent to the sidecar. */
 export function setApprovalResponder(fn: ApprovalResponder | null): void {
   approvalResponder = fn;
 }
 
-/** Focuses the window and routes to a session — set by the shell layer. */
+/** Routes to a session after the native window has been focused. */
 export type SessionFocuser = (sessionId: string | null) => void;
 let sessionFocuser: SessionFocuser | null = null;
 
-/** The shell layer registers how a notification click focuses + routes. */
 export function setSessionFocuser(fn: SessionFocuser | null): void {
   sessionFocuser = fn;
 }
 
-let actionListenerAttached = false;
+function focusAndRoute(host: HermesStudioBridge, context?: NativeNotificationContext): void {
+  void host.window.focus().catch(() => undefined);
+  sessionFocuser?.(context?.sessionId ?? null);
+}
 
-async function ensureActionListener(): Promise<void> {
-  if (actionListenerAttached || !isTauri()) return;
-  actionListenerAttached = true;
-  const { onAction } = await import('@tauri-apps/plugin-notification');
-  // The callback receives the notification Options the action was attached
-  // to, plus `actionId` identifying the pressed button. We stash the
-  // approval context in `extra` at send time and resolve it here.
-  const unlisten = await onAction((notification) => {
-    const n = notification as unknown as Record<string, unknown>;
-    const actionId = n['actionId'] as string | undefined;
-    const extra = n['extra'] as PendingApproval | undefined;
-    if (!extra || !approvalResponder) return;
-    if (actionId === 'approve') {
-      void approvalResponder(extra.sessionId, extra.command, 'once');
-    } else if (actionId === 'reject') {
-      void approvalResponder(extra.sessionId, extra.command, 'deny');
+async function initializeNativeNotifications(host: HermesStudioBridge): Promise<boolean> {
+  if (initializedHost === host && initialization) {
+    return initialization;
+  }
+
+  teardownNativeNotifications();
+  initializedHost = host;
+  const generation = lifecycleGeneration;
+  initialization = (async () => {
+    try {
+      const state = await host.app.nativeState();
+      windowFocused = state.focused;
+    } catch {
+      windowFocused = true;
     }
-  });
-  teardownFns.push(unlisten as unknown as () => void);
+
+    if (generation !== lifecycleGeneration || initializedHost !== host) return false;
+
+    teardownFns.push(host.window.onFocus((focused) => {
+      windowFocused = focused;
+    }));
+    teardownFns.push(host.notifications.onClick((event) => {
+      focusAndRoute(host, event.context);
+    }));
+    teardownFns.push(host.notifications.onAction((event) => {
+      focusAndRoute(host, event.context);
+      const { sessionId, command } = event.context ?? {};
+      if (!sessionId || !command || !approvalResponder) return;
+      if (event.actionId === 'approve') {
+        void approvalResponder(sessionId, command, 'once');
+      } else if (event.actionId === 'reject') {
+        void approvalResponder(sessionId, command, 'deny');
+      }
+    }));
+    return true;
+  })();
+
+  return initialization;
+}
+
+/** Releases every native subscription. Call from the shell on cleanup. */
+export function teardownNativeNotifications(): void {
+  lifecycleGeneration += 1;
+  while (teardownFns.length) {
+    const unsubscribe = teardownFns.pop();
+    try {
+      unsubscribe?.();
+    } catch {
+      // best-effort cleanup
+    }
+  }
+  initializedHost = null;
+  initialization = null;
+  windowFocused = true;
+}
+
+/** True when the app is unfocused or the event belongs to another session. */
+function shouldFire(sessionId: string | undefined): boolean {
+  if (!windowFocused) return true;
+  const active = sessionStore.activeSessionId;
+  return Boolean(sessionId && active && sessionId !== active);
 }
 
 export interface DispatchOptions {
@@ -154,66 +144,45 @@ export interface DispatchOptions {
   body: string;
   kind: NativeNotificationKind;
   sessionId?: string;
-  /** When set, attaches Approve/Reject action buttons + carries approval context. */
+  /** When set, attaches Approve/Reject actions and approval context. */
   approval?: { command: string };
 }
 
-/**
- * Sends a native notification if prefs allow this kind AND the shouldFire
- * heuristic passes. No-op (not even an error) when filtered out.
- */
+/** Sends a native notification when preferences and focus rules allow it. */
 export async function dispatchNativeNotification(opts: DispatchOptions): Promise<void> {
-  if (!isTauri()) return;
+  const host = getNativeHost();
+  if (!host) return;
+
   const prefs = readNativeNotificationPrefs();
   if (!prefs.enabled || !prefs.kinds[opts.kind]) return;
+
+  if (!await initializeNativeNotifications(host)) return;
   if (!shouldFire(opts.sessionId)) return;
 
-  await Promise.all([initFocusTracking(), ensureActionListener()]);
-
-  const mod = await import('@tauri-apps/plugin-notification');
-  // Permission may be undetermined; request once. Failures are non-fatal.
-  try {
-    const already = typeof mod.isPermissionGranted === 'function' ? await mod.isPermissionGranted() : true;
-    if (!already) {
-      const permission = typeof mod.requestPermission === 'function' ? await mod.requestPermission() : true;
-      if (permission !== true && permission !== 'granted') return;
-    }
-  } catch {
-    return;
-  }
-
-  if (opts.approval && opts.sessionId) {
-    try {
-      // The runtime supports actions/extra/actionTypeId even though the
-      // published Options type omits them; cast to satisfy tsc.
-      const notificationOpts = {
-        title: opts.title,
-        body: opts.body,
-        actionTypeId: 'approval',
-        actions: [
-          { id: 'approve', title: 'Approve' },
-          { id: 'reject', title: 'Reject' },
-        ],
-        extra: { sessionId: opts.sessionId, command: opts.approval.command } satisfies PendingApproval,
-      };
-      mod.sendNotification(notificationOpts as Parameters<typeof mod.sendNotification>[0]);
-    } catch {
-      /* best-effort */
-    }
-    return;
-  }
+  const context: NativeNotificationContext | undefined = opts.sessionId
+    ? { sessionId: opts.sessionId, ...(opts.approval ? { command: opts.approval.command } : {}) }
+    : undefined;
 
   try {
-    mod.sendNotification({ title: opts.title, body: opts.body });
+    await host.notifications.show({
+      title: opts.title,
+      body: opts.body,
+      ...(opts.approval && opts.sessionId
+        ? {
+            actions: [
+              { id: 'approve', title: 'Approve' },
+              { id: 'reject', title: 'Reject' },
+            ],
+          }
+        : {}),
+      ...(context ? { context } : {}),
+    });
   } catch {
-    /* best-effort */
+    // Native notifications are best-effort; inline UI remains authoritative.
   }
 }
 
-/**
- * Convenience wrappers for the five kinds. These are what the event
- * subscription layer calls.
- */
+/** Convenience wrappers used by the gateway event subscription layer. */
 export const nativeNotifications = {
   approval(sessionId: string, command: string, description: string): void {
     void dispatchNativeNotification({

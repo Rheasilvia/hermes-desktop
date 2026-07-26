@@ -1,4 +1,3 @@
-import { invoke, isTauri } from '@tauri-apps/api/core';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -8,8 +7,16 @@ import '@xterm/xterm/css/xterm.css';
 import type { Component } from 'solid-js';
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import { composerInsertionStore } from '@/stores/composer-insertions.js';
+import { getNativeHost } from '@/services/native-host.js';
+import type {
+  NativePlatform,
+  TerminalDataEvent,
+  TerminalErrorEvent,
+  TerminalExitEvent,
+} from '@/shared/native-bridge.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import type { AttachmentChip } from './composer/AttachmentChips.js';
+import { quoteTerminalPath } from './terminal-shell-quote.js';
 import styles from './TerminalPanel.module.css';
 
 interface TerminalPanelProps {
@@ -17,33 +24,6 @@ interface TerminalPanelProps {
   cwd: string | null;
   sessionId?: string | null;
   onSendToChat?: (text: string) => void;
-}
-
-interface TerminalStartResult {
-  id: string;
-  pid: number | null;
-  shell: string;
-  cwd: string;
-  reused: boolean;
-}
-
-interface TerminalDataEvent {
-  id: string;
-  // Raw bytes from the PTY (see terminal.rs::TerminalDataEvent). Avoids the
-  // UTF-8-lossy middle layer that corrupted multi-byte sequences spanning
-  // read-chunk boundaries. Reconstructed into a Uint8Array for xterm.
-  data: number[];
-}
-
-interface TerminalExitEvent {
-  id: string;
-  code: number;
-  signal: string | null;
-}
-
-interface TerminalErrorEvent {
-  id: string;
-  error: string;
 }
 
 type TerminalThemeName = 'light' | 'dark' | 'earth';
@@ -167,6 +147,7 @@ const keyToTerminalInput = (event: KeyboardEvent) => {
 };
 
 export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
+  const nativeHost = getNativeHost();
   let host: HTMLDivElement | undefined;
   let xtermHost: HTMLDivElement | undefined;
   let terminal: XTerm | null = null;
@@ -186,7 +167,11 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   let disposed = false;
   let focusingHost = false;
   let xtermDataEpoch = 0;
+  let nativePlatform: NativePlatform | null = null;
+  let activeShell: string | null = null;
   const pendingOutput = new Map<string, number[][]>();
+  const pendingExits = new Map<string, TerminalExitEvent>();
+  const pendingErrors = new Map<string, TerminalErrorEvent>();
 
   const [sessionId, setSessionId] = createSignal<string | null>(null);
   const [starting, setStarting] = createSignal(false);
@@ -254,23 +239,25 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     if (!id || !running()) return;
     if (!textEncoder) textEncoder = new TextEncoder();
     const bytes = Array.from(textEncoder.encode(input));
-    void invoke('terminal_write', { id, data: bytes }).catch((err) => setError(String(err)));
-  };
-
-  const shellQuote = (path: string) => {
-    if (/^[A-Za-z0-9_./:-]+$/.test(path)) return path;
-    return `'${path.replace(/'/g, "'\\''")}'`;
+    void nativeHost?.terminal.write(id, bytes).catch((err) => setError(String(err)));
   };
 
   const handleTerminalDrop = (event: DragEvent) => {
     const files = Array.from(event.dataTransfer?.files ?? []);
     if (files.length === 0) return;
     event.preventDefault();
-    const paths = files
-      .map((file) => String((file as File & { path?: string }).path || file.webkitRelativePath || file.name || '').trim())
-      .filter(Boolean)
-      .map(shellQuote);
-    if (paths.length > 0) sendTerminalInput(paths.join(' '));
+    const chatSessionId = props.sessionId?.trim();
+    if (!nativeHost || !chatSessionId) return;
+    void nativeHost.workspace.importDroppedFiles(chatSessionId, files)
+      .then((imported) => {
+        if (disposed || props.sessionId?.trim() !== chatSessionId) return;
+        const paths = imported.map((file) => quoteTerminalPath(file.path, {
+          shell: activeShell,
+          platform: nativePlatform,
+        }));
+        if (paths.length > 0) sendTerminalInput(paths.join(' '));
+      })
+      .catch((err) => setError(String(err)));
   };
 
   const handleHostKeyDown = (event: KeyboardEvent) => {
@@ -306,6 +293,34 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     }
   };
 
+  const exitMessage = (event: TerminalExitEvent) => event.signal
+    ? `Terminal exited: ${event.signal}`
+    : `Terminal exited with code ${event.code}`;
+
+  const consumePendingStartFailure = (id: string) => {
+    const earlyExit = pendingExits.get(id);
+    const earlyError = pendingErrors.get(id);
+    pendingExits.delete(id);
+    pendingErrors.delete(id);
+    if (!earlyExit && !earlyError) return false;
+
+    pendingOutput.delete(id);
+    setRunning(false);
+    setSessionId(null);
+    setHasOutput(false);
+    setStartBlocked(true);
+    if (earlyExit) {
+      const message = exitMessage(earlyExit);
+      setError(message);
+      setStatus(message);
+    } else if (earlyError) {
+      setError(earlyError.error);
+      setStatus('Terminal error');
+      void nativeHost?.terminal.stop(id).catch(() => {});
+    }
+    return true;
+  };
+
   const scheduleFrame = (callback: () => void) => {
     if (pendingFrame !== null) return;
     if (typeof requestAnimationFrame === 'function') {
@@ -331,11 +346,8 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     if (options.focus) focusTerminal();
     const id = sessionId();
     if (!id || !running()) return true;
-    void invoke('terminal_resize', {
-      id,
-      cols: terminal.cols,
-      rows: terminal.rows,
-    }).catch((err) => setError(String(err)));
+    void nativeHost?.terminal.resize(id, terminal.cols, terminal.rows)
+      .catch((err) => setError(String(err)));
     return true;
   };
 
@@ -351,7 +363,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   const ensureStarted = async () => {
     if (disposed || sessionId() || starting() || startBlocked()) return;
     if (!terminal) return;
-    if (!isTauri()) {
+    if (!nativeHost) {
       setStatus('Terminal is available in the desktop app.');
       return;
     }
@@ -368,16 +380,18 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     fitAndResize();
 
     try {
-      const result = await invoke<TerminalStartResult>('terminal_start', {
+      const result = await nativeHost.terminal.start({
         cwd: props.cwd,
         cols: terminal.cols || fallbackTerminalSize.cols,
         rows: terminal.rows || fallbackTerminalSize.rows,
       });
       if (disposed) {
-        void invoke('terminal_stop', { id: result.id }).catch(() => {});
+        void nativeHost.terminal.stop(result.id).catch(() => {});
         return;
       }
+      activeShell = result.shell;
       runningStatus = `${result.reused ? 'Attached' : 'Running'} ${result.shell} in ${result.cwd}`;
+      if (consumePendingStartFailure(result.id)) return;
       setSessionId(result.id);
       setRunning(true);
       setStatus(runningStatus);
@@ -457,10 +471,17 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     terminal.loadAddon(new Unicode11Addon());
     terminal.unicode.activeVersion = '11';
     terminal.open(xtermHost);
-    // Tauri's macOS WebView can report a healthy WebGL canvas while painting
-    // blank. Keep DOM rendering on the local desktop path; browser preview and
-    // other non-Tauri hosts can still use WebGL when available.
-    if (!isTauri()) {
+    const platformRequest = nativeHost?.app?.platform?.();
+    if (platformRequest) {
+      void platformRequest
+        .then((platform) => {
+          if (!disposed) nativePlatform = platform;
+        })
+        .catch(() => {});
+    }
+    // Keep DOM rendering on the native desktop path. Browser preview can use
+    // WebGL when available.
+    if (!nativeHost) {
       try {
         const webgl = new WebglAddon();
         webgl.onContextLoss(() => {
@@ -490,42 +511,47 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
       sendTerminalInput(data);
     });
 
-    if (isTauri()) {
-      const { listen } = await import('@tauri-apps/api/event');
-      if (disposed) return;
-      unlistenData = await listen<TerminalDataEvent>('terminal_data', (event) => {
+    if (nativeHost) {
+      unlistenData = nativeHost.terminal.onData((event: TerminalDataEvent) => {
         const current = sessionId();
         if (!current) {
-          queuePendingOutput(event.payload.id, event.payload.data);
+          queuePendingOutput(event.id, event.data);
           return;
         }
-        if (event.payload.id !== current) return;
-        writeTerminalData(event.payload.data);
+        if (event.id !== current) return;
+        writeTerminalData(event.data);
       });
       if (disposed) {
         unlistenData();
         unlistenData = null;
         return;
       }
-      unlistenExit = await listen<TerminalExitEvent>('terminal_exit', (event) => {
+      unlistenExit = nativeHost.terminal.onExit((event: TerminalExitEvent) => {
         const current = sessionId();
-        if (!current || event.payload.id !== current) return;
+        if (!current) {
+          if (starting()) pendingExits.set(event.id, event);
+          return;
+        }
+        if (event.id !== current) return;
         setRunning(false);
         setSessionId(null);
+        activeShell = null;
         setHasOutput(false);
-        setStatus(event.payload.signal
-          ? `Terminal exited: ${event.payload.signal}`
-          : `Terminal exited with code ${event.payload.code}`);
+        setStatus(exitMessage(event));
       });
       if (disposed) {
         unlistenExit();
         unlistenExit = null;
         return;
       }
-      unlistenError = await listen<TerminalErrorEvent>('terminal_error', (event) => {
+      unlistenError = nativeHost.terminal.onError((event: TerminalErrorEvent) => {
         const current = sessionId();
-        if (!current || event.payload.id !== current) return;
-        setError(event.payload.error);
+        if (!current) {
+          if (starting()) pendingErrors.set(event.id, event);
+          return;
+        }
+        if (event.id !== current) return;
+        setError(event.error);
         setStatus('Terminal error');
       });
       if (disposed) {
@@ -564,9 +590,11 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     disposed = true;
     terminalEventsReady = false;
     pendingOutput.clear();
+    pendingExits.clear();
+    pendingErrors.clear();
     const id = sessionId();
     if (id) {
-      void invoke('terminal_stop', { id }).catch(() => {});
+      void nativeHost?.terminal.stop(id).catch(() => {});
     }
     if (pendingFrame !== null && typeof cancelAnimationFrame === 'function') {
       cancelAnimationFrame(pendingFrame);

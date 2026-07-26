@@ -1,6 +1,10 @@
-import { render, screen } from '@solidjs/testing-library';
+import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { installNativeHostMock } from '@/services/native-host.js';
+import type { HermesStudioBridge } from '@/shared/native-bridge.js';
+
+const openExternal = vi.fn();
 
 vi.mock('@/stores/git-view.js', () => ({
   gitViewStore: {
@@ -63,7 +67,11 @@ vi.mock('@/features/workspace/WorkspaceTreeView.js', () => ({
 }));
 
 vi.mock('@/features/diff/DiffPanel.js', () => ({
-  DiffPanel: () => <div data-testid="review-view" />,
+  DiffPanel: (props: { onOpenPrUrl: (url: string) => void }) => (
+    <button data-testid="review-view" type="button" onClick={() => props.onOpenPrUrl('https://example.com/pull/42')}>
+      Open pull request
+    </button>
+  ),
 }));
 
 vi.mock('@/features/delegation/DelegationSidePanel.js', () => ({
@@ -86,15 +94,32 @@ import { previewStore } from '@/stores/preview.js';
 import { RightToolPanel } from '../RightToolPanel.js';
 
 describe('RightToolPanel', () => {
+  let restoreNativeHost = () => {};
+
   beforeEach(() => {
+    openExternal.mockReset();
+    openExternal.mockResolvedValue(undefined);
+    restoreNativeHost = installNativeHostMock({
+      system: { openExternal },
+    } as unknown as HermesStudioBridge);
     sidePanelStore.clearTabs();
     sidePanelStore.open();
   });
 
   afterEach(() => {
+    restoreNativeHost();
     previewStore.clearAll();
     sidePanelStore.close();
     sidePanelStore.clearTabs();
+  });
+
+  it('opens pull-request URLs through the native system bridge', () => {
+    sidePanelStore.openTab('review');
+    render(() => <RightToolPanel sessionId="session-1" workspacePath="/repo" />);
+
+    fireEvent.click(screen.getByTestId('review-view'));
+
+    expect(openExternal).toHaveBeenCalledWith('https://example.com/pull/42');
   });
 
   it('renders only the tool content area and empty state by default', () => {

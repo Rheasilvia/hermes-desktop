@@ -2,17 +2,21 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ContextUsageProps } from '../ContextUsageBar.js';
 import { MessageInput } from '../MessageInput.js';
 import { clearAllComposerDrafts } from '@/stores/composer-drafts.js';
+import { installNativeHostMock } from '@/services/native-host.js';
+import type { HermesStudioBridge } from '@/shared/native-bridge.js';
 
 const mocks = vi.hoisted(() => ({
   completeSlash: vi.fn(),
   completePath: vi.fn(),
   gitBranches: vi.fn(),
   gitCheckout: vi.fn(),
-  openDialog: vi.fn(),
+  selectAttachments: vi.fn(),
+  importDroppedFiles: vi.fn(),
+  readClipboardImage: vi.fn(),
   transcribe: vi.fn(),
 }));
 
@@ -21,10 +25,6 @@ vi.mock('@/stores/context.js', () => ({
     complete: { slash: mocks.completeSlash, path: mocks.completePath },
     git: { branches: mocks.gitBranches, checkout: mocks.gitCheckout },
   }),
-}));
-
-vi.mock('@tauri-apps/plugin-dialog', () => ({
-  open: mocks.openDialog,
 }));
 
 vi.mock('@/services/api/router.js', () => ({
@@ -62,7 +62,19 @@ function stubComposerResize(width: number): (nextWidth?: number) => void {
 }
 
 describe('MessageInput slash commands', () => {
+  let restoreNativeHost = () => {};
+
   beforeEach(() => {
+    restoreNativeHost();
+    restoreNativeHost = installNativeHostMock({
+      workspace: {
+        selectAttachments: mocks.selectAttachments,
+        importDroppedFiles: mocks.importDroppedFiles,
+      },
+      clipboard: {
+        readImage: mocks.readClipboardImage,
+      },
+    } as unknown as HermesStudioBridge);
     clearAllComposerDrafts();
     mocks.completeSlash.mockReset();
     mocks.completeSlash.mockResolvedValue([
@@ -77,8 +89,18 @@ describe('MessageInput slash commands', () => {
     });
     mocks.gitCheckout.mockReset();
     mocks.gitCheckout.mockResolvedValue(undefined);
-    mocks.openDialog.mockReset();
+    mocks.selectAttachments.mockReset();
+    mocks.selectAttachments.mockResolvedValue([]);
+    mocks.importDroppedFiles.mockReset();
+    mocks.importDroppedFiles.mockResolvedValue([]);
+    mocks.readClipboardImage.mockReset();
+    mocks.readClipboardImage.mockResolvedValue(null);
     mocks.transcribe.mockReset();
+  });
+
+  afterEach(() => {
+    restoreNativeHost();
+    restoreNativeHost = () => {};
   });
 
   test('requests slash completion with the current partial', async () => {
@@ -605,18 +627,130 @@ describe('MessageInput slash commands', () => {
     );
   });
 
-  test('turns dropped files into attachment chips', async () => {
-    render(() => <MessageInput sessionId="drop-session" cwd="/repo" onSend={vi.fn()} />);
+  test('imports original Electron File objects and preserves mixed bridge names on drop', async () => {
+    const onSend = vi.fn();
+    render(() => <MessageInput sessionId="drop-session" cwd="/repo" onSend={onSend} />);
     const input = screen.getByRole('textbox') as HTMLTextAreaElement;
-    const file = new File(['hello'], 'dropped.ts', { type: 'text/typescript' });
-    Object.defineProperty(file, 'path', { value: '/repo/dropped.ts' });
+    const file = new File(['hello'], 'report.txt', { type: 'text/plain' });
+    const image = new File(['image'], 'holiday.jpg', { type: 'image/jpeg' });
+    mocks.importDroppedFiles.mockResolvedValue([
+      { kind: 'file', path: 'C:\\Users\\me\\report.txt', name: 'Quarterly report.txt' },
+      { kind: 'image', path: 'C:\\staged\\08f1.jpg', name: 'Holiday photo.jpg' },
+    ]);
 
     await fireEvent.drop(input, {
-      dataTransfer: { files: [file] },
+      dataTransfer: { files: [file, image] },
     });
 
+    expect(mocks.importDroppedFiles).toHaveBeenCalledWith('drop-session', [file, image]);
     await waitFor(() => expect(screen.getByTestId('attachment-chip-bar')).toBeTruthy());
-    expect(screen.getByText('dropped.ts')).toBeTruthy();
+    expect(screen.getByText('Quarterly report.txt')).toBeTruthy();
+    expect(screen.getByText('Holiday photo.jpg')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(onSend).toHaveBeenCalledWith('', [
+      expect.objectContaining({ kind: 'file', name: 'Quarterly report.txt', path: 'C:\\Users\\me\\report.txt' }),
+      expect.objectContaining({ kind: 'image', name: 'Holiday photo.jpg', path: 'C:\\staged\\08f1.jpg' }),
+    ]);
+  });
+
+  test('uses bridge-returned attachment names instead of splitting Windows paths', async () => {
+    mocks.selectAttachments.mockResolvedValue([
+      { kind: 'image', path: 'C:\\staged\\generated-name.heic', name: 'Family Portrait.heic' },
+    ]);
+    render(() => <MessageInput sessionId="picker-session" cwd="C:\\repo" onSend={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('Add attachment'));
+    fireEvent.click(screen.getByText('Add images'));
+
+    await waitFor(() => {
+      expect(mocks.selectAttachments).toHaveBeenCalledWith({
+        sessionId: 'picker-session',
+        kind: 'image',
+        multiple: true,
+      });
+    });
+    expect(await screen.findByText('Family Portrait.heic')).toBeTruthy();
+    expect(screen.queryByText('C:\\staged\\generated-name.heic')).toBeNull();
+  });
+
+  test('reads pasted images through the native clipboard bridge', async () => {
+    mocks.readClipboardImage.mockResolvedValue({
+      path: 'C:\\staged\\clipboard.png',
+      url: 'hermes-studio-asset://asset/clipboard-image-handle',
+    });
+    render(() => <MessageInput sessionId="paste-session" onSend={vi.fn()} />);
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+
+    await fireEvent.paste(input, {
+      clipboardData: {
+        items: [{ kind: 'file', type: 'image/png' }],
+      },
+    });
+
+    expect(mocks.readClipboardImage).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('Clipboard image')).toBeTruthy();
+  });
+
+  test('discards picker results that resolve after the composer changes session', async () => {
+    let resolveSelection!: (value: Array<{ kind: 'file'; path: string; name: string }>) => void;
+    let switchSession!: (sessionId: string) => void;
+    mocks.selectAttachments.mockReturnValue(new Promise((resolve) => { resolveSelection = resolve; }));
+    const Harness = () => {
+      const [sessionId, setSessionId] = createSignal('picker-race-a');
+      switchSession = setSessionId;
+      return <MessageInput sessionId={sessionId()} cwd="/repo" onSend={vi.fn()} />;
+    };
+    render(() => <Harness />);
+
+    fireEvent.click(screen.getByLabelText('Add attachment'));
+    fireEvent.click(screen.getByText('Add files'));
+    switchSession('picker-race-b');
+    resolveSelection([{ kind: 'file', path: '/repo/old.txt', name: 'old.txt' }]);
+    await Promise.resolve();
+
+    expect(screen.queryByText('old.txt')).toBeNull();
+  });
+
+  test('discards dropped-file imports that resolve after the composer changes session', async () => {
+    let resolveImport!: (value: Array<{ kind: 'file'; path: string; name: string }>) => void;
+    let switchSession!: (sessionId: string) => void;
+    mocks.importDroppedFiles.mockReturnValue(new Promise((resolve) => { resolveImport = resolve; }));
+    const Harness = () => {
+      const [sessionId, setSessionId] = createSignal('drop-race-a');
+      switchSession = setSessionId;
+      return <MessageInput sessionId={sessionId()} cwd="/repo" onSend={vi.fn()} />;
+    };
+    render(() => <Harness />);
+    const file = new File(['old'], 'old.txt', { type: 'text/plain' });
+
+    fireEvent.drop(screen.getByRole('textbox'), { dataTransfer: { files: [file] } });
+    switchSession('drop-race-b');
+    resolveImport([{ kind: 'file', path: '/repo/old.txt', name: 'old.txt' }]);
+    await Promise.resolve();
+
+    expect(screen.queryByText('old.txt')).toBeNull();
+  });
+
+  test('discards clipboard images that resolve after the composer changes session', async () => {
+    let resolveClipboard!: (value: { path: string; url: string }) => void;
+    let switchSession!: (sessionId: string) => void;
+    mocks.readClipboardImage.mockReturnValue(new Promise((resolve) => { resolveClipboard = resolve; }));
+    const Harness = () => {
+      const [sessionId, setSessionId] = createSignal('paste-race-a');
+      switchSession = setSessionId;
+      return <MessageInput sessionId={sessionId()} cwd="/repo" onSend={vi.fn()} />;
+    };
+    render(() => <Harness />);
+
+    fireEvent.paste(screen.getByRole('textbox'), {
+      clipboardData: { items: [{ kind: 'file', type: 'image/png' }] },
+    });
+    switchSession('paste-race-b');
+    resolveClipboard({ path: '/tmp/old-clipboard.png', url: 'hermes-studio-asset://asset/old-image-handle' });
+    await Promise.resolve();
+
+    expect(screen.queryByText('old-clipboard.png')).toBeNull();
   });
 
   test('creates context chips for backend-expanded @ refs', async () => {
@@ -686,13 +820,13 @@ describe('MessageInput slash commands', () => {
     await screen.findByText('@image:');
     fireEvent.click(screen.getByText('@image:'));
     expect(input.value).toBe('@image:');
-    expect(mocks.openDialog).not.toHaveBeenCalled();
+    expect(mocks.selectAttachments).not.toHaveBeenCalled();
 
     fireEvent.input(input, { target: { value: '@' } });
     await screen.findByText('@tool:');
     fireEvent.click(screen.getByText('@tool:'));
     expect(input.value).toBe('@tool:');
-    expect(mocks.openDialog).not.toHaveBeenCalled();
+    expect(mocks.selectAttachments).not.toHaveBeenCalled();
   });
 
   test('ignores stale @ completion responses from an old session or cwd', async () => {
@@ -765,7 +899,9 @@ describe('MessageInput slash commands', () => {
   test('drops workspace-bound draft attachments when the restored cwd differs', async () => {
     let setSession!: (sessionId: string) => void;
     let setCwd!: (cwd: string) => void;
-    mocks.openDialog.mockResolvedValue(['/repo-a/src/main.ts']);
+    mocks.selectAttachments.mockResolvedValue([
+      { kind: 'file', path: '/repo-a/src/main.ts', name: 'main.ts' },
+    ]);
     mocks.completePath.mockResolvedValue({
       items: [{ text: '@diff', display: '@diff', meta: 'git diff' }],
     });

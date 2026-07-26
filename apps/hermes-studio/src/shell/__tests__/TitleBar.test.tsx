@@ -1,21 +1,17 @@
 import { render, fireEvent, screen } from '@solidjs/testing-library';
 import { createRoot, createSignal } from 'solid-js';
 import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest';
+import { installNativeHostMock } from '@/services/native-host.js';
+import type { HermesStudioBridge, NativeWindowState } from '@/shared/native-bridge.js';
 
 // --- Mock state hoisted so vi.mock factories can read it ----------------------
 const windowMock = vi.hoisted(() => {
-  const calls = { minimize: 0, startDragging: 0, toggleMaximize: 0, close: 0, isMaximized: 0 };
+  const calls = { minimize: 0, startDrag: 0, toggleMaximize: 0, close: 0, state: 0 };
   return {
     calls,
-    isMaximized: false,
-    win: {
-      minimize: async () => { calls.minimize += 1; },
-      startDragging: async () => { calls.startDragging += 1; },
-      toggleMaximize: async () => { calls.toggleMaximize += 1; },
-      close: async () => { calls.close += 1; },
-      isMaximized: async () => { calls.isMaximized += 1; return windowMock.isMaximized; },
-      onResized: async () => async () => { /* noop unlisten */ },
-    },
+    currentState: { focused: true, maximized: false, minimized: false },
+    pendingState: null as Promise<NativeWindowState> | null,
+    stateListeners: [] as Array<(state: NativeWindowState) => void>,
   };
 });
 
@@ -98,13 +94,6 @@ const {
   sidePanelRequestToolMenuOpen: vi.fn(),
 }));
 
-// isTauri is imported statically at the top of TitleBar.tsx, so the core module
-// must be mocked before the component loads.
-vi.mock('@tauri-apps/api/core', () => ({
-  isTauri: () => true,
-  invoke: async () => 'macos',
-}));
-
 vi.mock('@/stores/session.js', () => ({
   sessionStore: {
     activeSession: null,
@@ -124,36 +113,6 @@ vi.mock('@/stores/side-panel.js', () => ({
   },
 }));
 
-// Stub the Tauri internals the real @tauri-apps/api/window module reads when
-// constructing a Window. getCurrentWindow() builds `new Window(label, ...)`,
-// and the Window class delegates every IPC through __TAURI_INTERNALS__.invoke
-// with `plugin:window|<command>` names. We intercept those so the real Window
-// object is returned but its methods resolve to our spy counters.
-beforeEach(() => {
-  (globalThis as any).__TAURI_INTERNALS__ = {
-    metadata: { currentWindow: { label: 'main' } },
-    invoke: async (cmd: string) => {
-      switch (cmd) {
-        case 'plugin:window|minimize': { windowMock.calls.minimize += 1; return null; }
-        case 'plugin:window|start_dragging': { windowMock.calls.startDragging += 1; return null; }
-        case 'plugin:window|toggle_maximize': { windowMock.calls.toggleMaximize += 1; return null; }
-        case 'plugin:window|close': { windowMock.calls.close += 1; return null; }
-        case 'plugin:window|is_maximized': { windowMock.calls.isMaximized += 1; return windowMock.isMaximized; }
-        default: return null;
-      }
-    },
-    transformCallback: () => 0,
-    convertFileSrc: (p: string) => p,
-    unregisterCallback: () => {},
-  };
-  // The event module (used by Window.onResized) reads a separate internals bag
-  // when unregistering a listener at teardown. Provide it so cleanup is clean.
-  (globalThis as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
-    unregisterListener: () => {},
-  };
-});
-
-// Import AFTER mocks are registered.
 import { TitleBar } from '../TitleBar.js';
 import { uiStore } from '@/stores/ui.js';
 import { sessionStore } from '@/stores/session.js';
@@ -194,14 +153,40 @@ function renderTitleBar(overrides: Partial<Parameters<typeof TitleBar>[0]> = {})
 }
 
 describe('TitleBar', () => {
+  let restoreNativeHost = () => {};
+
   beforeEach(() => {
+    restoreNativeHost();
+    restoreNativeHost = installNativeHostMock({
+      window: {
+        minimize: async () => { windowMock.calls.minimize += 1; },
+        startDrag: async () => { windowMock.calls.startDrag += 1; },
+        toggleMaximize: async () => { windowMock.calls.toggleMaximize += 1; },
+        close: async () => { windowMock.calls.close += 1; },
+        focus: async () => {},
+        state: async () => {
+          windowMock.calls.state += 1;
+          if (windowMock.pendingState) return windowMock.pendingState;
+          return { ...windowMock.currentState };
+        },
+        onFocus: () => () => {},
+        onState: (callback: (state: NativeWindowState) => void) => {
+          windowMock.stateListeners.push(callback);
+          return () => {
+            windowMock.stateListeners = windowMock.stateListeners.filter((item) => item !== callback);
+          };
+        },
+      },
+    } as unknown as HermesStudioBridge);
     installSidePanelSignals();
     windowMock.calls.minimize = 0;
-    windowMock.calls.startDragging = 0;
+    windowMock.calls.startDrag = 0;
     windowMock.calls.toggleMaximize = 0;
     windowMock.calls.close = 0;
-    windowMock.calls.isMaximized = 0;
-    windowMock.isMaximized = false;
+    windowMock.calls.state = 0;
+    windowMock.currentState = { focused: true, maximized: false, minimized: false };
+    windowMock.pendingState = null;
+    windowMock.stateListeners = [];
     uiStore.setPlatform('unknown');
     uiStore.setSidebarCollapsed(false);
     (sessionStore as any).activeSession = null;
@@ -223,27 +208,26 @@ describe('TitleBar', () => {
   });
 
   afterEach(() => {
+    restoreNativeHost();
+    restoreNativeHost = () => {};
     disposeSidePanelSignals?.();
     disposeSidePanelSignals = undefined;
     vi.restoreAllMocks();
   });
 
-  test('the outer title bar carries the Tauri drag region attribute', () => {
-    const { container } = renderTitleBar();
-    const dragRegions = container.querySelectorAll('[data-tauri-drag-region]');
+  test('the title bar uses CSS drag regions without native drag attributes', () => {
+    renderTitleBar();
     const titleBar = screen.getByLabelText('Hermes window titlebar');
 
-    expect(dragRegions).toHaveLength(1);
-    expect(dragRegions[0]).toBe(titleBar);
-    expect(getNavigationToolbar().hasAttribute('data-tauri-drag-region')).toBe(false);
-    expect(screen.getByTitle('Toggle Sidebar').hasAttribute('data-tauri-drag-region')).toBe(false);
+    expect(titleBar.className).toContain('titleBar');
+    expect(titleBar.getAttributeNames()).toEqual(expect.arrayContaining(['class', 'aria-label']));
   });
 
   test.each(['macos', 'unknown', 'windows', 'linux'] as const)(
     '%s: renders the fixed left navigation toolbar without the text brand',
     (platform) => {
       uiStore.setPlatform(platform);
-      const { container } = renderTitleBar();
+      renderTitleBar();
       const toolbar = getNavigationToolbar();
 
       expect(toolbar.style.left).toBe('85px');
@@ -251,7 +235,6 @@ describe('TitleBar', () => {
       expect(screen.getByTitle('Back')).not.toBeNull();
       expect(screen.getByTitle('Forward')).not.toBeNull();
       expect(screen.queryByText('Hermes')).toBeNull();
-      expect(container.querySelector('[data-tauri-drag-region][aria-hidden="true"]')).toBeNull();
     },
   );
 
@@ -266,8 +249,7 @@ describe('TitleBar', () => {
 
   test.each(['windows', 'linux'] as const)('%s: renders the three custom window controls', (platform) => {
     uiStore.setPlatform(platform);
-    const { container } = renderTitleBar();
-    expect(container.querySelector('[data-tauri-drag-region][aria-hidden="true"]')).toBeNull();
+    renderTitleBar();
     expect(screen.getByTitle('Minimize')).not.toBeNull();
     expect(screen.getByTitle('Maximize')).not.toBeNull();
     expect(screen.getByTitle('Close')).not.toBeNull();
@@ -282,15 +264,13 @@ describe('TitleBar', () => {
     expect(screen.queryByTitle('Close')).toBeNull();
   });
 
-  test('dragging the titlebar starts native window dragging', async () => {
+  test('dragging the titlebar never calls the imperative startDrag bridge', async () => {
     uiStore.setPlatform('macos');
     renderTitleBar();
 
     await fireEvent.mouseDown(screen.getByLabelText('Hermes window titlebar'), { button: 0 });
 
-    await vi.waitFor(() => {
-      expect(windowMock.calls.startDragging).toBe(1);
-    });
+    expect(windowMock.calls.startDrag).toBe(0);
   });
 
   test('right-clicking the titlebar does not start native window dragging', async () => {
@@ -299,18 +279,16 @@ describe('TitleBar', () => {
 
     await fireEvent.mouseDown(screen.getByLabelText('Hermes window titlebar'), { button: 2 });
 
-    expect(windowMock.calls.startDragging).toBe(0);
+    expect(windowMock.calls.startDrag).toBe(0);
   });
 
-  test('double-clicking the titlebar toggles native maximize and restore behavior', async () => {
+  test('double-clicking the CSS drag region does not double-toggle maximize in JavaScript', async () => {
     uiStore.setPlatform('macos');
     renderTitleBar();
 
     await fireEvent.dblClick(screen.getByLabelText('Hermes window titlebar'), { button: 0 });
 
-    await vi.waitFor(() => {
-      expect(windowMock.calls.toggleMaximize).toBe(1);
-    });
+    expect(windowMock.calls.toggleMaximize).toBe(0);
   });
 
   test('double-clicking titlebar controls does not toggle maximize', async () => {
@@ -330,7 +308,7 @@ describe('TitleBar', () => {
     await fireEvent.mouseDown(screen.getByTitle('Back'), { button: 0 });
     await fireEvent.mouseDown(screen.getByTitle('Forward'), { button: 0 });
 
-    expect(windowMock.calls.startDragging).toBe(0);
+    expect(windowMock.calls.startDrag).toBe(0);
   });
 
   test('pressing custom window control buttons does not start native window dragging', async () => {
@@ -339,7 +317,7 @@ describe('TitleBar', () => {
 
     await fireEvent.mouseDown(screen.getByTitle('Minimize'), { button: 0 });
 
-    expect(windowMock.calls.startDragging).toBe(0);
+    expect(windowMock.calls.startDrag).toBe(0);
   });
 
   test('clicking titlebar navigation buttons calls the provided app callbacks', async () => {
@@ -353,7 +331,7 @@ describe('TitleBar', () => {
     expect(props.onToggleSidebar).toHaveBeenCalledTimes(1);
     expect(props.onNavigateBack).toHaveBeenCalledTimes(1);
     expect(props.onNavigateForward).toHaveBeenCalledTimes(1);
-    expect(windowMock.calls.startDragging).toBe(0);
+    expect(windowMock.calls.startDrag).toBe(0);
   });
 
   test('toggling the sidebar does not move the fixed navigation toolbar', async () => {
@@ -380,7 +358,7 @@ describe('TitleBar', () => {
     expect(getNavigationToolbar().style.left).toBe('var(--space-2)');
   });
 
-  test('clicking minimize/toggleMaximize/close drives the Tauri window handle', async () => {
+  test('clicking minimize/toggleMaximize/close drives the Electron window bridge', async () => {
     uiStore.setPlatform('windows');
     renderTitleBar();
 
@@ -388,14 +366,48 @@ describe('TitleBar', () => {
     await fireEvent.click(screen.getByTitle('Maximize'));
     await fireEvent.click(screen.getByTitle('Close'));
 
-    // Click handlers await a dynamic import of the window module before invoking
-    // the IPC, so settle the microtask queue before asserting.
     await vi.waitFor(() => {
       expect(windowMock.calls.minimize).toBe(1);
       expect(windowMock.calls.toggleMaximize).toBe(1);
       expect(windowMock.calls.close).toBe(1);
     });
-    expect(windowMock.calls.startDragging).toBe(0);
+    expect(windowMock.calls.startDrag).toBe(0);
+  });
+
+  test('reflects native maximize state changes and removes the state listener on cleanup', async () => {
+    uiStore.setPlatform('windows');
+    windowMock.currentState = { focused: true, maximized: true, minimized: false };
+    const { unmount } = renderTitleBar();
+
+    await vi.waitFor(() => {
+      expect(screen.getByTitle('Restore')).toBeTruthy();
+      expect(windowMock.calls.state).toBe(1);
+      expect(windowMock.stateListeners).toHaveLength(1);
+    });
+
+    windowMock.stateListeners[0]?.({ focused: true, maximized: false, minimized: false });
+    await vi.waitFor(() => expect(screen.getByTitle('Maximize')).toBeTruthy());
+
+    unmount();
+    expect(windowMock.stateListeners).toHaveLength(0);
+  });
+
+  test('does not let a late initial state response overwrite a newer state event', async () => {
+    let resolveInitialState!: (state: NativeWindowState) => void;
+    windowMock.pendingState = new Promise((resolve) => {
+      resolveInitialState = resolve;
+    });
+    uiStore.setPlatform('windows');
+    renderTitleBar();
+
+    await vi.waitFor(() => expect(windowMock.stateListeners).toHaveLength(1));
+    windowMock.stateListeners[0]?.({ focused: true, maximized: true, minimized: false });
+    await vi.waitFor(() => expect(screen.getByTitle('Restore')).toBeTruthy());
+
+    resolveInitialState({ focused: true, maximized: false, minimized: false });
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+
+    expect(screen.getByTitle('Restore')).toBeTruthy();
   });
 
   test('session title renders when active session has a title', () => {
@@ -420,28 +432,24 @@ describe('TitleBar', () => {
     expect(screen.queryByText('Debugging PR #42')).toBeNull();
   });
 
-  test('dragging on the session title text starts native window dragging', async () => {
+  test('dragging on session title text also relies only on the CSS drag region', async () => {
     (sessionStore as any).activeSession = { title: 'Test Session' };
     uiStore.setPlatform('macos');
     renderTitleBar();
 
     await fireEvent.mouseDown(screen.getByText('Test Session'), { button: 0 });
 
-    await vi.waitFor(() => {
-      expect(windowMock.calls.startDragging).toBe(1);
-    });
+    expect(windowMock.calls.startDrag).toBe(0);
   });
 
-  test('double-clicking on the session title toggles maximize', async () => {
+  test('double-clicking on the session title does not issue a second maximize', async () => {
     (sessionStore as any).activeSession = { title: 'Test Session' };
     uiStore.setPlatform('macos');
     renderTitleBar();
 
     await fireEvent.dblClick(screen.getByText('Test Session'), { button: 0 });
 
-    await vi.waitFor(() => {
-      expect(windowMock.calls.toggleMaximize).toBe(1);
-    });
+    expect(windowMock.calls.toggleMaximize).toBe(0);
   });
 
   

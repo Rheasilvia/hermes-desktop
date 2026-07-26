@@ -28,6 +28,13 @@
   cursor: default;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-app-region: drag;
+}
+
+.sidebar button,
+.sidebar input,
+.sidebar a {
+  -webkit-app-region: no-drag;
 }
 
 /* ── Top bar: New Chat ──────────────────────────────────────────────────────── */

@@ -2,17 +2,8 @@ import type { HttpClient } from '@/services/api/http-client.js';
 import { API_PREFIX } from './shared.js';
 
 export async function resolveEventSourceUrl(http: HttpClient): Promise<string> {
-  try {
-    const info = await (http as unknown as { info: () => Promise<{ base_url: string; token: string }> }).info?.();
-    if (info) {
-      return `${info.base_url}${API_PREFIX}/events/stream?token=${encodeURIComponent(info.token)}`;
-    }
-  } catch {
-    // Fall through to Vite env fallback below.
-  }
-  const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? 'http://127.0.0.1:18080';
-  const token = import.meta.env.VITE_SIDECAR_TOKEN ?? '';
-  return `${baseUrl}${API_PREFIX}/events/stream?token=${encodeURIComponent(token)}`;
+  const info = await http.backendInfo();
+  return `${info.base_url}${API_PREFIX}/events/stream?token=${encodeURIComponent(info.token)}`;
 }
 
 export async function openEventSource(

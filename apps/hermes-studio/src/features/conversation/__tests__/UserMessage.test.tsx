@@ -1,5 +1,7 @@
-import { fireEvent, render, screen } from '@solidjs/testing-library';
+import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { describe, test, expect, vi } from 'vitest';
+import type { HermesStudioBridge } from '@/shared/native-bridge.js';
+import { installNativeHostMock } from '@/services/native-host.js';
 import { UserMessage } from '../UserMessage.js';
 
 describe('UserMessage', () => {
@@ -50,7 +52,14 @@ describe('UserMessage', () => {
     expect(screen.queryByText('[File 1: one.ts:L1-L3] first [File 2: two.ts] second')).toBeNull();
   });
 
-  test('renders image attachments as thumbnails in the user bubble', () => {
+  test('renders image attachments through opaque native asset URLs', async () => {
+    const urlForPath = vi.fn().mockResolvedValue(
+      'hermes-studio-asset://asset/user-message-image-handle',
+    );
+    const restoreNativeHost = installNativeHostMock({
+      assets: { urlForPath },
+    } as unknown as HermesStudioBridge);
+
     render(() => (
       <UserMessage
         content="check this"
@@ -61,16 +70,20 @@ describe('UserMessage', () => {
       />
     ));
 
-    // An image attachment renders the image gallery group (always present,
-    // even before the <img> load event fires in jsdom). Non-image chips are
-    // NOT rendered into the gallery.
-    const gallery = document.querySelector('[aria-label="Attached images"]');
-    expect(gallery).not.toBeNull();
-    // The gallery preloads the image; its <img> src carries the (unconverted,
-    // since jsdom is not Tauri) attachment path.
-    const imgs = gallery?.querySelectorAll('img') ?? [];
-    expect(imgs.length).toBeGreaterThan(0);
-    expect(Array.from(imgs).some((img) => (img.getAttribute('src') ?? '').includes('clip-1.png'))).toBe(true);
+    try {
+      const gallery = document.querySelector('[aria-label="Attached images"]');
+      expect(gallery).not.toBeNull();
+      await waitFor(() => {
+        expect(urlForPath).toHaveBeenCalledWith('/tmp/clip-1.png');
+        const imgs = gallery?.querySelectorAll('img') ?? [];
+        expect(Array.from(imgs).some((img) => (
+          img.getAttribute('src') === 'hermes-studio-asset://asset/user-message-image-handle'
+        ))).toBe(true);
+      });
+      expect(gallery?.querySelector('img[src="/tmp/clip-1.png"]')).toBeNull();
+    } finally {
+      restoreNativeHost();
+    }
   });
 
   test('renders an inline editor that only submits from the confirm button', () => {

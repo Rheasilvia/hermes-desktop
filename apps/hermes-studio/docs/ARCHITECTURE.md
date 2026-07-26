@@ -5,9 +5,10 @@ desktop-owned Python sidecar. Electron main is the only privileged process.
 The sandboxed renderer reaches native capabilities through the narrow, typed
 `window.hermesStudio` API installed by preload.
 
-Task 3 implements and freezes the native host contract. Renderer call sites
-still use Tauri until Task 4 switches them to that contract; the bridge is
-therefore implemented and tested but not yet the renderer's primary path.
+The native host contract is the renderer's only production path for privileged
+operations. `src/services/native-host.ts` detects the frozen bridge and exposes
+a scoped injection seam for Vitest and Playwright; it does not recreate raw
+invoke/listen primitives. Browser preview remains native-free.
 
 ## Process and trust boundaries
 
@@ -105,6 +106,14 @@ names the exact active backend origin, a successful origin change reloads the
 renderer after delivering the lifecycle event; startup then re-subscribes and
 reads the new sidecar information.
 
+Renderer bootstrap subscribes to `backend.onReady` and
+`backend.onRestarted`, refreshes the shared authenticated `HttpClient` cache,
+and releases both subscriptions on retry or unmount. In Electron,
+`backend.info()` is authoritative: discovery failure is surfaced and never
+downgrades to a compiled URL/token. Only a bridge-absent, non-production Vite
+renderer may use explicit `VITE_SIDECAR_URL` and `VITE_SIDECAR_TOKEN` values.
+The production environment file contains neither value.
+
 Sidecar stderr is appended to
 `$HERMES_HOME/logs/hermes-studio.log` (default `~/.hermes`). Known generated
 secrets, Authorization values, URL credentials, and common token/key/password
@@ -157,6 +166,27 @@ parameters are redacted before writing.
 - Native notifications focus the existing window on interaction. Action buttons
   are enabled on macOS; other hosts show the notification without action buttons
   and report that actions are unsupported.
+
+## Renderer interaction contracts
+
+- Attachment pickers return typed `{kind,path,name}` values. The user-visible
+  chip always uses `name`; it never derives a label by splitting an opaque or
+  staged path. Mixed OS drops pass the original `File[]` to preload immediately
+  and consume the canonical/staged records returned by main.
+- Local images are rendered only after `assets.urlForPath()` resolves an opaque
+  asset URL. Remote image copy accepts HTTP(S) URLs through
+  `clipboard.copyRemoteImage()`; renderer code never treats a local path as a
+  remote URL.
+- Terminal sessions, workspace selection, notifications, external URLs,
+  clipboard access, settings files, window controls, and macOS Command Line
+  Tools installation all use named high-level bridge methods. Window dragging
+  uses CSS `-webkit-app-region`; renderer code never calls `window.startDrag()`.
+- All renderer-owned local storage lives under the centralized
+  `hermes.studio.*` namespace. Previous Tauri/Desktop keys are intentionally
+  neither read nor deleted, preventing cross-application state contamination.
+- The first Electron release has no update-check setting, updater UI, or
+  renderer updater call. Typography uses the bundled/system sans-serif stack;
+  startup makes no Google Fonts request.
 
 ## Shutdown
 

@@ -8,8 +8,8 @@ import {
   saveComposerDraft,
   type ComposerCommandPrefix,
 } from '@/stores/composer-drafts.js';
-import { open } from '@tauri-apps/plugin-dialog';
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { getNativeHost } from '@/services/native-host.js';
+import type { ImportedDroppedFile, SelectedAttachment } from '@/shared/native-bridge.js';
 import { Icon, type IconName } from '@/ui/atoms/Icon';
 import { WorkspacePicker } from './WorkspacePicker';
 import { GitBranchPicker } from './GitBranchPicker';
@@ -691,7 +691,11 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     }
 
     if (item.type === 'pathRef' && (item.kind === 'file' || item.kind === 'folder')) {
-      const chip = makePathChip(item.kind, item.path ?? item.refText.replace(REF_PREFIX_RE, '$2'));
+      const chip = makePathChip(
+        item.kind,
+        item.path ?? item.refText.replace(REF_PREFIX_RE, '$2'),
+        item.display,
+      );
       const detail = item.kind === 'file' ? parseFileRefDetail(item.refText) : item.path;
       const nextChip = { ...chip, name: item.display || chip.name, detail: detail ?? chip.detail, refText: item.refText };
       const range = referenceTokenRange();
@@ -926,8 +930,6 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     el.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
   };
 
-  const basename = (path: string): string => path.split('/').filter(Boolean).pop() ?? path;
-
   const stableId = (kind: AttachmentChip['kind'], value: string): string => `${kind}:${value}`;
 
   const quoteRefValue = (value: string): string => {
@@ -941,8 +943,12 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     return path;
   };
 
-  const makePathChip = (kind: 'file' | 'folder' | 'image', path: string): AttachmentChip => {
-    const name = basename(path);
+  const makePathChip = (
+    kind: 'file' | 'folder' | 'image',
+    path: string,
+    displayName: string,
+  ): AttachmentChip => {
+    const name = displayName;
     if (kind === 'image') {
       return { id: stableId(kind, path), kind, name, path, size: 0 };
     }
@@ -983,16 +989,15 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     };
   };
 
-  const addPaths = (kind: 'file' | 'folder' | 'image', paths: string[]) => {
+  const addSelectedAttachments = (selected: readonly (SelectedAttachment | ImportedDroppedFile)[]) => {
     setAttachments((prev) => {
       const seen = new Set(prev.map((chip) => chip.id));
       const next = [...prev];
-      for (const path of paths) {
-        const chip = makePathChip(kind, path);
-        if (!seen.has(chip.id)) {
-          seen.add(chip.id);
-          next.push(chip);
-        }
+      for (const item of selected) {
+        const chip = makePathChip(item.kind, item.path, item.name);
+        if (seen.has(chip.id)) continue;
+        seen.add(chip.id);
+        next.push(chip);
       }
       return next;
     });
@@ -1001,16 +1006,20 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
 
   const selectPaths = async (kind: 'file' | 'folder' | 'image') => {
     setAttachMenuOpen(false);
-    const selected = await open({
-      multiple: true,
-      directory: kind === 'folder',
-      filters: kind === 'image'
-        ? [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic'] }]
-        : [],
-    });
-    if (!selected) return;
-    const files = Array.isArray(selected) ? selected : [selected];
-    addPaths(kind, files);
+    const host = getNativeHost();
+    const sid = sessionKey();
+    if (!host || !sid) return;
+    try {
+      const selected = await host.workspace.selectAttachments({
+        sessionId: sid,
+        kind,
+        multiple: true,
+      });
+      if (sessionKey() !== sid) return;
+      addSelectedAttachments(selected);
+    } catch {
+      /* Cancellation and native picker errors leave the draft unchanged. */
+    }
   };
 
   const addUrlAttachment = () => {
@@ -1037,37 +1046,39 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
     const files = Array.from(event.dataTransfer?.files ?? []);
     if (files.length === 0) return;
     event.preventDefault();
-    const imagePaths: string[] = [];
-    const filePaths: string[] = [];
-    for (const file of files) {
-      const path = String((file as File & { path?: string }).path || file.webkitRelativePath || file.name || '').trim();
-      if (!path) continue;
-      if (file.type.startsWith('image/')) imagePaths.push(path);
-      else filePaths.push(path);
-    }
-    if (filePaths.length > 0) addPaths('file', filePaths);
-    if (imagePaths.length > 0) addPaths('image', imagePaths);
+    const host = getNativeHost();
+    const sid = sessionKey();
+    if (!host || !sid) return;
+    void host.workspace.importDroppedFiles(sid, files)
+      .then((imported) => {
+        if (sessionKey() !== sid) return;
+        addSelectedAttachments(imported);
+      })
+      .catch(() => {
+        /* Invalid or unbacked browser files are ignored without corrupting the draft. */
+      });
   };
 
   const removeAttachment = (id: string) => {
     setAttachments((prev) => prev.filter((chip) => chip.id !== id));
   };
 
-  /**
-   * Paste handler: when the clipboard holds an image, read it via the Rust
-   * command (which writes it to a temp file), then attach via the existing
-   * path-based `image` chip flow — zero backend changes. Text paste falls
-   * through to the default textarea behavior.
-   */
+  /** Paste native clipboard images as staged image attachments. Text paste
+   * falls through to the textarea's default behavior. */
   const handlePaste = (e: ClipboardEvent) => {
-    if (!isTauri()) return;
+    const host = getNativeHost();
+    if (!host) return;
+    const sid = sessionKey();
     const items = e.clipboardData?.items;
     if (!items) return;
     const hasImage = Array.from(items).some((item) => item.kind === 'file' && item.type.startsWith('image/'));
     if (!hasImage) return;
     e.preventDefault();
-    void invoke<string | null>('read_clipboard_image').then((path) => {
-      if (path) addPaths('image', [path]);
+    void host.clipboard.readImage().then((asset) => {
+      if (sessionKey() !== sid) return;
+      if (asset) {
+        addSelectedAttachments([{ kind: 'image', path: asset.path, name: 'Clipboard image' }]);
+      }
     }).catch(() => {
       /* best-effort — paste silently no-ops on failure */
     });
@@ -1207,7 +1218,7 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   createEffect(() => {
     const chips = fileChipQueue.pending();
     if (chips.length > 0) {
-      const asAttachments = fileChipQueue.flush().map(c => makePathChip('file', c.path));
+      const asAttachments = fileChipQueue.flush().map(c => makePathChip('file', c.path, c.name));
       setAttachments(prev => [...prev, ...asAttachments]);
     }
   });

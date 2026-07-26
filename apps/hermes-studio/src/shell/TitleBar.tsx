@@ -1,21 +1,17 @@
 /**
  * Custom frameless-window title bar.
  *
- * The window is created with `decorations: false` (see tauri.conf.json). This
+ * The Electron window is frameless. This
  * bar provides the drag surface and — on Windows/Linux — the minimize /
  * maximize-restore / close buttons. On macOS the native traffic-light cluster
- * is preserved by the Rust builder (`TitleBarStyle::Overlay` +
- * `traffic_light_position`), while the frontend keeps the left action group
- * clear of it with a fixed offset.
- *
- * All Tauri APIs are behind an `isTauri()` gate + dynamic import so the bar is
- * inert (drag/buttons no-op) in the browser/vite-preview environment — matching
- * the pattern in `services/notifications/native-notifications.ts`.
+ * is preserved by Electron, while the renderer keeps the left action group
+ * clear of it with a fixed offset. CSS app regions own dragging; browser
+ * preview remains inert because no native host is present.
  */
 
 import { Component, createSignal, onMount, onCleanup, Show, createMemo } from 'solid-js';
-import { isTauri } from '@tauri-apps/api/core';
 import { Icon } from '@/ui/atoms/Icon';
+import { getNativeHost } from '@/services/native-host.js';
 import { uiStore } from '@/stores/ui';
 import { sessionStore } from '@/stores/session';
 import { sidePanelStore } from '@/stores/side-panel';
@@ -34,86 +30,47 @@ interface TitleBarProps {
   onToggleEnvironmentPanel?: () => void;
 }
 
-/** Lazily-resolved handle to the current Tauri window, or null off-Tauri. */
-type WindowHandle = {
-  minimize: () => Promise<void>;
-  startDragging: () => Promise<void>;
-  toggleMaximize: () => Promise<void>;
-  close: () => Promise<void>;
-  isMaximized: () => Promise<boolean>;
-  onResized: (cb: () => void) => Promise<() => void>;
-};
-
-async function resolveWindow(): Promise<WindowHandle | null> {
-  if (!isTauri()) return null;
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  return getCurrentWindow() as unknown as WindowHandle;
-}
-
-/** Stop mousedown propagation so a button click doesn't start a window drag. */
-function blockDrag(event: MouseEvent) {
-  event.stopPropagation();
-}
-
-function isInteractiveTitleBarTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement
-    && target.closest('button, a, input, textarea, select, [role="button"]') != null;
-}
-
 export const TitleBar: Component<TitleBarProps> = (props) => {
+  const nativeHost = getNativeHost();
   const [maximized, setMaximized] = createSignal(false);
 
-  let unlistenResized: (() => void) | null = null;
+  let unlistenState: (() => void) | null = null;
+  let receivedStateEvent = false;
+  let disposed = false;
 
-  onMount(async () => {
-    const win = await resolveWindow();
-    if (!win) return;
+  onMount(() => {
+    if (!nativeHost) return;
+    void nativeHost.window.state()
+      .then((state) => {
+        if (!disposed && !receivedStateEvent) setMaximized(state.maximized);
+      })
+      .catch(() => {
+        /* best-effort — icon defaults to maximize */
+      });
     try {
-      setMaximized(await win.isMaximized());
-    } catch {
-      /* best-effort — icon defaults to "maximize" */
-    }
-    try {
-      unlistenResized = await win.onResized(async () => {
-        try {
-          setMaximized(await win.isMaximized());
-        } catch {
-          /* ignore — stale icon is harmless */
-        }
+      unlistenState = nativeHost.window.onState((state) => {
+        if (disposed) return;
+        receivedStateEvent = true;
+        setMaximized(state.maximized);
       });
     } catch {
-      /* no resize subscription; buttons still work */
+      /* no state subscription; buttons still work */
     }
   });
 
   onCleanup(() => {
-    try { unlistenResized?.(); } catch { /* best-effort */ }
+    disposed = true;
+    try { unlistenState?.(); } catch { /* best-effort */ }
   });
 
   const handleMinimize = async () => {
-    const win = await resolveWindow();
-    try { await win?.minimize(); } catch { /* ignore */ }
-  };
-  const handleStartDragging = async (event: MouseEvent) => {
-    if (event.button !== 0) return;
-
-    const win = await resolveWindow();
-    try { await win?.startDragging(); } catch { /* ignore */ }
+    try { await nativeHost?.window.minimize(); } catch { /* ignore */ }
   };
   const handleToggleMaximize = async () => {
-    const win = await resolveWindow();
-    try { await win?.toggleMaximize(); } catch { /* ignore */ }
-  };
-  const handleTitleBarDoubleClick = async (event: MouseEvent) => {
-    if (event.button !== 0) return;
-    if (isInteractiveTitleBarTarget(event.target)) return;
-    event.preventDefault();
-
-    await handleToggleMaximize();
+    try { await nativeHost?.window.toggleMaximize(); } catch { /* ignore */ }
   };
   const handleClose = async () => {
-    const win = await resolveWindow();
-    try { await win?.close(); } catch { /* ignore */ }
+    try { await nativeHost?.window.close(); } catch { /* ignore */ }
   };
 
   const handleToggleToolsDock = () => {
@@ -137,22 +94,15 @@ export const TitleBar: Component<TitleBarProps> = (props) => {
   return (
     <div
       class={styles.titleBar}
-      data-tauri-drag-region
       aria-label="Hermes window titlebar"
-      onMouseDown={(event) => void handleStartDragging(event)}
-      onDblClick={(event) => void handleTitleBarDoubleClick(event)}
     >
-      {/* Semi-transparent overlay behind interactive children that also serves
-          as a fallback drag target for the visual-only Tauri drag-region
-          attribute. Actual drag handling is on the parent so events bubble up
-          from non-interactive regions (e.g. the session title text). */}
+      {/* Visual overlay remains part of the CSS drag region. */}
       <div class={styles.dragSurface} />
 
       {/* Left group: nav buttons + session title. The group is anchored to the
           window, not the sidebar/layout flow, so sidebar toggles cannot move it
-          under the macOS traffic-light cluster. Individual buttons block drag;
-          the session title intentionally does not so users can drag the window
-          by grabbing the title text. */}
+          under the macOS traffic-light cluster. CSS marks individual controls
+          as no-drag; the session title remains part of the drag surface. */}
       <div
         class={styles.actionToolbar}
         role="toolbar"
@@ -164,7 +114,6 @@ export const TitleBar: Component<TitleBarProps> = (props) => {
           class={styles.actionButton}
           title="Toggle Sidebar"
           aria-label="Toggle Sidebar"
-          onMouseDown={blockDrag}
           onClick={props.onToggleSidebar}
         >
           <Icon name="panel-left" size={15} strokeWidth={1.5} />
@@ -174,7 +123,6 @@ export const TitleBar: Component<TitleBarProps> = (props) => {
           class={styles.actionButton}
           title="Back"
           aria-label="Back"
-          onMouseDown={blockDrag}
           onClick={props.onNavigateBack}
         >
           <Icon name="chevron-left" size={16} strokeWidth={1.7} />
@@ -184,7 +132,6 @@ export const TitleBar: Component<TitleBarProps> = (props) => {
           class={styles.actionButton}
           title="Forward"
           aria-label="Forward"
-          onMouseDown={blockDrag}
           onClick={props.onNavigateForward}
         >
           <Icon name="chevron-right" size={16} strokeWidth={1.7} />
@@ -196,7 +143,6 @@ export const TitleBar: Component<TitleBarProps> = (props) => {
             class={styles.actionButton}
             title="New Chat"
             aria-label="New Chat"
-            onMouseDown={blockDrag}
             onClick={props.onNewSession}
           >
             <Icon name="plus" size={16} strokeWidth={1.7} />
@@ -222,7 +168,6 @@ export const TitleBar: Component<TitleBarProps> = (props) => {
             title={props.environmentPanelOpen ? 'Hide Environment panel' : 'Show Environment panel'}
             aria-label={props.environmentPanelOpen ? 'Hide Environment panel' : 'Show Environment panel'}
             aria-pressed={Boolean(props.environmentPanelOpen)}
-            onMouseDown={blockDrag}
             onClick={props.onToggleEnvironmentPanel}
           >
             <Icon name="monitor" size={15} strokeWidth={1.5} />
@@ -234,7 +179,6 @@ export const TitleBar: Component<TitleBarProps> = (props) => {
             class={styles.actionButton}
             title="Show tools dock"
             aria-label="Show tools dock"
-            onMouseDown={blockDrag}
             onClick={handleToggleToolsDock}
           >
             <Icon name="panel-right" size={15} strokeWidth={1.5} />
@@ -248,7 +192,6 @@ export const TitleBar: Component<TitleBarProps> = (props) => {
               class={styles.controlBtn}
               title="Minimize"
               aria-label="Minimize"
-              onMouseDown={blockDrag}
               onClick={() => void handleMinimize()}
             >
               <Icon name="minus" size={15} strokeWidth={1.5} />
@@ -258,7 +201,6 @@ export const TitleBar: Component<TitleBarProps> = (props) => {
               class={styles.controlBtn}
               title={maximized() ? 'Restore' : 'Maximize'}
               aria-label={maximized() ? 'Restore' : 'Maximize'}
-              onMouseDown={blockDrag}
               onClick={() => void handleToggleMaximize()}
             >
               <Show when={maximized()} fallback={<Icon name="maximize" size={13} strokeWidth={1.5} />}>
@@ -270,7 +212,6 @@ export const TitleBar: Component<TitleBarProps> = (props) => {
               class={`${styles.controlBtn} ${styles.closeBtn}`}
               title="Close"
               aria-label="Close"
-              onMouseDown={blockDrag}
               onClick={() => void handleClose()}
             >
               <Icon name="x" size={15} strokeWidth={1.5} />

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelTransport } from '../../services/api/transports/http/model';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 
 let testApi: typeof import('../../services/api/router').api;
 
@@ -91,7 +92,7 @@ describe('models store', () => {
 
   it('hydrates cached real providers immediately while refresh is pending', async () => {
     localStorage.setItem(
-      'hermes.desktop.model.providers.v2',
+      STORAGE_KEYS.modelProviders,
       JSON.stringify([
         {
           id: 'provider_cached_openai',

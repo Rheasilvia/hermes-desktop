@@ -1,4 +1,4 @@
-import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
+import { render, fireEvent, screen } from '@solidjs/testing-library';
 import { createRoot, createSignal } from 'solid-js';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -8,10 +8,6 @@ interface MockToolTab {
   title: string;
   cwd: string | null;
 }
-
-const windowMock = vi.hoisted(() => ({
-  calls: { startDragging: 0, toggleMaximize: 0 },
-}));
 
 const {
   sidePanelState,
@@ -193,11 +189,6 @@ const {
   };
 });
 
-vi.mock('@tauri-apps/api/core', () => ({
-  isTauri: () => true,
-  invoke: async () => 'macos',
-}));
-
 vi.mock('@/stores/side-panel.js', () => ({
   sidePanelStore: {
     isOpen: () => sidePanelState.readOpen(),
@@ -240,26 +231,11 @@ function installSidePanelSignals() {
 
 describe('ToolDockToolbar', () => {
   beforeEach(() => {
-    (globalThis as any).__TAURI_INTERNALS__ = {
-      metadata: { currentWindow: { label: 'main' } },
-      invoke: async (cmd: string) => {
-        switch (cmd) {
-          case 'plugin:window|start_dragging': { windowMock.calls.startDragging += 1; return null; }
-          case 'plugin:window|toggle_maximize': { windowMock.calls.toggleMaximize += 1; return null; }
-          default: return null;
-        }
-      },
-      transformCallback: () => 0,
-      convertFileSrc: (p: string) => p,
-      unregisterCallback: () => {},
-    };
     sidePanelState.open = false;
     sidePanelState.activeTabId = null;
     sidePanelState.openTabs = [];
     sidePanelState.toolMenuOpenRequested = false;
     sidePanelState.resetTerminalCounter();
-    windowMock.calls.startDragging = 0;
-    windowMock.calls.toggleMaximize = 0;
     installSidePanelSignals();
     sidePanelToggle.mockClear();
     sidePanelOpenTab.mockClear();
@@ -293,25 +269,24 @@ describe('ToolDockToolbar', () => {
     expect(screen.getByRole('button', { name: 'Hide tools dock' })).toBeTruthy();
   });
 
-  test('right dock toolbar supports native drag and double-click maximize from empty title space', async () => {
+  test('right dock toolbar relies on its CSS app region without legacy drag attributes', async () => {
     sidePanelState.open = true;
     render(() => <ToolDockToolbar />);
 
     const toolbar = screen.getByRole('toolbar', { name: 'Tool dock toolbar' });
-    expect(toolbar.hasAttribute('data-tauri-drag-region')).toBe(true);
+    expect(toolbar.getAttributeNames()).toEqual(expect.arrayContaining([
+      'class',
+      'role',
+      'aria-label',
+      'data-testid',
+    ]));
 
     await fireEvent.mouseDown(toolbar, { button: 0 });
-    await waitFor(() => {
-      expect(windowMock.calls.startDragging).toBe(1);
-    });
-
     await fireEvent.dblClick(toolbar, { button: 0 });
-    await waitFor(() => {
-      expect(windowMock.calls.toggleMaximize).toBe(1);
-    });
+    expect(sidePanelState.open).toBe(true);
   });
 
-  test('right dock toolbar controls do not trigger native drag or maximize', async () => {
+  test('right dock toolbar controls remain interactive inside the drag region', async () => {
     const terminal = sidePanelState.makeTab('terminal', 'PreDoc', 'terminal-1');
     sidePanelState.open = true;
     sidePanelState.openTabs = [terminal];
@@ -324,8 +299,7 @@ describe('ToolDockToolbar', () => {
     await fireEvent.mouseDown(screen.getByRole('button', { name: 'Add tool tab' }), { button: 0 });
     await fireEvent.dblClick(screen.getByRole('button', { name: 'Add tool tab' }), { button: 0 });
 
-    expect(windowMock.calls.startDragging).toBe(0);
-    expect(windowMock.calls.toggleMaximize).toBe(0);
+    expect(sidePanelState.activeTabId).toBe(terminal.id);
   });
 
   test('plus menu creates multiple terminal tabs and keeps non-terminal tools singleton', () => {

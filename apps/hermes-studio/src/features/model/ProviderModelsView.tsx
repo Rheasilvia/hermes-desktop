@@ -7,6 +7,7 @@ import type { OAuthProvider } from '@/services/api/types';
 import { Button } from '@/ui/atoms/Button.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { Toggle } from '@/ui/atoms/Toggle.js';
+import { clearModelCacheEntries } from '@/lib/storage-keys.js';
 import { ConfigureProviderModal } from './ConfigureProviderModal.js';
 import { OAuthConnectModal } from './OAuthConnectModal.js';
 import styles from './ProviderModelsView.module.css';
@@ -161,13 +162,9 @@ export const ProviderModelsView: Component = () => {
       try {
         await api.overlays().patch('model', providerId, { visible: true });
       } catch { void 0; }
-      // Clear stale localStorage caches so both the add-provider list
-      // and the Model Page hub pick up the new OAuth provider immediately.
+      // Clear current Hermes Studio caches so provider views refresh immediately.
       try {
-        localStorage.removeItem('hermes.desktop.model.catalog.v1');
-        localStorage.removeItem('hermes.desktop.model.catalog.v2');
-        localStorage.removeItem('hermes.desktop.model.providers.v1');
-        localStorage.removeItem('hermes.desktop.model.providers.v2');
+        clearModelCacheEntries(localStorage);
       } catch { void 0; }
     }
     // Refresh configured providers + full catalog.

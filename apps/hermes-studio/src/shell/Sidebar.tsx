@@ -56,11 +56,8 @@ export const Sidebar: Component = () => {
   const [sessionSearch, setSessionSearch] = createSignal('');
 
   // ── Window drag region (sidebar top strip) ──────────────────────────────────
-  // The strip carries `data-tauri-drag-region`; Tauri's built-in drag script
-  // handles BOTH drag-move AND double-click → maximize/restore natively. We
-  // intentionally add no JS handlers here — a JS onDblClick → toggleMaximize()
-  // would double-toggle against the native behavior (maximize then restore =
-  // "snaps back"). All Tauri APIs stay inert off-Tauri (browser/vite preview).
+  // Electron's CSS app region owns drag and native double-click behavior. No
+  // imperative drag or maximize handler is attached here.
 
   // ── Route helpers ─────────────────────────────────────────────────────────────
 
@@ -331,19 +328,13 @@ export const Sidebar: Component = () => {
   return (
     <aside class={styles.sidebar}>
       {/* ── Window drag strip ───────────────────────────────────────────── */}
-      {/* Titlebar-height strip aligned with the workspace TitleBar so the
-          sidebar's top edge can drag-move and double-click-maximize the
-          frameless window. It carries `data-tauri-drag-region`, and Tauri's
-          built-in script handles BOTH the drag and the double-click →
-          maximize/restore natively. We deliberately do NOT add our own
-          onDblClick → toggleMaximize() here: doing so double-toggles
-          (native maximize + JS restore), which is the "maximize then snaps
-          back" bug. The strip overlays only the sidebar's top padding
+      {/* Titlebar-height CSS app region aligned with the workspace TitleBar.
+          Electron owns both drag and native double-click behavior. The strip
+          overlays only the sidebar's top padding
           (var(--titlebar-height)), so it never overlaps the New Chat button
           or the session list beneath it. */}
       <div
         class={styles.dragStrip}
-        data-tauri-drag-region
         aria-hidden="true"
       />
 

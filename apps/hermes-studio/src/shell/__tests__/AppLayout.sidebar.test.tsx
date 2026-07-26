@@ -6,6 +6,10 @@ const { navigateMock, locationState } = vi.hoisted(() => ({
   locationState: { pathname: '/conversation/test-session' },
 }));
 
+const { nativeHostState } = vi.hoisted(() => ({
+  nativeHostState: { host: null as null | { app: { platform: ReturnType<typeof vi.fn> } } },
+}));
+
 const { sidePanelState } = vi.hoisted(() => ({
   sidePanelState: {
     open: false,
@@ -23,9 +27,8 @@ vi.mock('@solidjs/router', () => ({
   useLocation: () => locationState,
 }));
 
-vi.mock('@tauri-apps/api/core', () => ({
-  isTauri: () => false,
-  invoke: vi.fn(),
+vi.mock('@/services/native-host.js', () => ({
+  getNativeHost: () => nativeHostState.host,
 }));
 
 vi.mock('@/shell/Sidebar', () => ({
@@ -211,10 +214,21 @@ describe('AppLayout sidebar titlebar controls', () => {
     sidePanelState.openTabs = [];
     sidePanelState.panelWidth = 500;
     sidePanelState.setPanelWidth.mockClear();
+    nativeHostState.host = null;
     uiStore.setSidebarCollapsed(false);
     uiStore.setSidebarWidth(240);
     uiStore.setEnvironmentPanelOpen(true);
     uiStore.setRightToolsOverlay(false);
+  });
+
+  test('hydrates platform chrome from the frozen native bridge', async () => {
+    const platform = vi.fn(async () => 'macos' as const);
+    nativeHostState.host = { app: { platform } };
+
+    render(() => <AppLayout><div>Conversation</div></AppLayout>);
+
+    await waitFor(() => expect(platform).toHaveBeenCalledOnce());
+    expect(uiStore.platform).toBe('macos');
   });
 
   afterEach(() => {

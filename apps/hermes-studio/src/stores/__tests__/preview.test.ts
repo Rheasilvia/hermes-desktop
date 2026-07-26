@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { previewStore, type FileUrlPreviewTarget } from '../preview.js';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 
 const htmlFile: FileUrlPreviewTarget = {
   kind: 'file',
@@ -71,7 +72,7 @@ describe('previewStore', () => {
       blockId: 'plan-block-1',
       messageId: '42',
     });
-    expect(window.localStorage.getItem('hermes.tauri.sessionPreviews.v2')).not.toContain('Full plan body');
+    expect(window.localStorage.getItem(STORAGE_KEYS.sessionPreviews)).not.toContain('Full plan body');
   });
 
   it('ignores invalid plan preview references', () => {

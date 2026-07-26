@@ -1,10 +1,11 @@
 # Hermes Studio Native Bridge
 
-This document is the frozen Task 3 contract for the Electron native host.
+This document is the frozen Electron native-host contract.
 `src/shared/native-bridge.ts` is the source of truth for types and channel
 names. Preload installs one deeply frozen `window.hermesStudio` object and
-unwraps main-process result envelopes. Task 4 migrates renderer call sites to
-this already implemented API.
+unwraps main-process result envelopes. Production renderer call sites consume
+this API through `src/services/native-host.ts`; browser tests may inject the
+same typed surface without adding a generic IPC escape hatch.
 
 ## Renderer API
 
@@ -31,6 +32,13 @@ unsubscribe function. Event payloads and the public object graph are frozen.
 There is no generic invoke, subscribe, shell, filesystem, process, or raw IPC
 escape hatch.
 
+Bridge presence is authoritative. In Electron, backend discovery, native
+settings, OS integrations, and lifecycle events either succeed through this
+object or surface a controlled failure; renderer code never falls back to
+legacy Tauri APIs. A bridge-absent Vite renderer may use explicit
+development-only backend configuration and otherwise keeps native features
+inert.
+
 Main handlers always return one of:
 
 ```ts
@@ -44,7 +52,7 @@ not sent to the renderer.
 
 ## Capability ledger
 
-The registered Tauri command list was frozen before implementation. The table
+The historical registered Tauri command list was frozen before implementation. The table
 records every legacy entry and its Electron disposition. “Packaged acceptance”
 is the native-runner check required before Task 3 can be treated as release
 ready; unit tests exercise the same contract without needing a packaged app.
@@ -186,7 +194,7 @@ that exact origin; renderer startup re-subscribes and calls `backend.info()`.
 Notification action buttons are a macOS capability in Electron. Other hosts
 still display the notification and return `actionsSupported: false`.
 Programmatic window movement is deliberately not emulated: `window.startDrag()`
-returns `WINDOW_DRAG_REGION_REQUIRED`; Task 4 uses a trusted CSS
+returns `WINDOW_DRAG_REGION_REQUIRED`; the renderer uses a trusted CSS
 `-webkit-app-region: drag` title-bar region.
 
 ## Verification
@@ -198,7 +206,16 @@ npm run typecheck
 npm run lint
 npm test
 npm run build
+npm run test:e2e
+rg -n "@tauri-apps|data-tauri|isTauri|Tauri|tauri:" src \
+  --glob '*.{ts,tsx}' --glob '!**/*.test.*' --glob '!**/__tests__/**'
+rg -n "\.startDrag\(" src \
+  --glob '*.{ts,tsx}' --glob '!**/*.test.*' --glob '!**/__tests__/**'
 ```
+
+The final search must report no production renderer dependency on Tauri and no
+programmatic drag call. Historical strings may remain only in explicit legacy
+isolation tests until the Task 5 source/package deletion pass.
 
 The Electron Vitest suites cover exact main-frame sender/origin checks, IPC
 schemas, shutdown admission/draining, and stable envelopes; bridge

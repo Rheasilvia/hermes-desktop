@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, createSignal, Switch, Match, onMount } from 'solid-js';
+import { Component, lazy, Suspense, createSignal, Switch, Match, onMount, onCleanup } from 'solid-js';
 import { Router, Route, useNavigate, useParams } from '@solidjs/router';
 import '@/styles/global.css';
 import { AppLayout } from '@/shell/AppLayout';
@@ -39,43 +39,87 @@ const ModuleSuspense: Component<{ moduleName: string; children: any }> = (props)
   </ModuleErrorBoundary>
 );
 
-async function waitForBackend(gateway: GatewayAdapter, timeoutMs: number): Promise<void> {
+async function waitForBackend(
+  gateway: GatewayAdapter,
+  timeoutMs: number,
+  isCurrent: () => boolean,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && isCurrent()) {
     try {
       await gateway.session.list();
-      return;
+      return isCurrent();
     } catch {
+      if (!isCurrent()) return false;
       await new Promise<void>(r => setTimeout(r, 1_000));
     }
   }
+  if (!isCurrent()) return false;
   throw new Error('Could not connect to the Hermes backend. Make sure it is running and try again.');
 }
 
 const App: Component = () => {
   const [bootState, setBootState] = createSignal<'booting' | 'ready' | 'error'>('booting');
   const [bootError, setBootError] = createSignal('');
+  let disposeBootstrap: (() => void) | null = null;
+  let activeGateway: GatewayAdapter | null = null;
+  let bootGeneration = 0;
+
+  const disconnectGateway = (gateway: GatewayAdapter): void => {
+    if (activeGateway === gateway) activeGateway = null;
+    void gateway.disconnect().catch(() => undefined);
+  };
 
   const boot = async () => {
+    const generation = ++bootGeneration;
+    const isCurrent = () => generation === bootGeneration;
+    disposeBootstrap?.();
+    disposeBootstrap = null;
+    if (activeGateway) disconnectGateway(activeGateway);
     setBootState('booting');
     setBootError('');
+    let gateway: GatewayAdapter | null = null;
     try {
-      const gateway = createHttpGateway();
+      gateway = createHttpGateway();
+      activeGateway = gateway;
       initializeStores(gateway);
-      await initBootstrap();
-      await waitForBackend(gateway, 30_000);
+      const dispose = await initBootstrap();
+      if (!isCurrent()) {
+        dispose();
+        disconnectGateway(gateway);
+        return;
+      }
+      disposeBootstrap = dispose;
+      if (!await waitForBackend(gateway, 30_000, isCurrent)) {
+        disconnectGateway(gateway);
+        return;
+      }
       await gateway.connect();
+      if (!isCurrent()) {
+        disconnectGateway(gateway);
+        return;
+      }
       // Fire-and-forget: catalog + active model load in the background so the
       // shell renders immediately. localStorage cache hydrates the picker
       // instantly; stale flag ensures a background refetch on first access.
       void Promise.all([modelsStore.load(), modelsStore.loadActive()]);
       setBootState('ready');
     } catch (e) {
+      if (gateway) disconnectGateway(gateway);
+      if (!isCurrent()) return;
+      disposeBootstrap?.();
+      disposeBootstrap = null;
       setBootError(e instanceof Error ? e.message : 'Could not connect to the Hermes backend.');
       setBootState('error');
     }
   };
   void boot();
+  onCleanup(() => {
+    bootGeneration += 1;
+    disposeBootstrap?.();
+    disposeBootstrap = null;
+    if (activeGateway) disconnectGateway(activeGateway);
+  });
 
   return (
     <Switch>

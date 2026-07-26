@@ -182,7 +182,7 @@ export const chatStore = {
       const memoryContext: MemoryContextItem[] | null = sessionId === 'sess_verify_07'
         ? [
             { category: 'User Preference', content: 'Prefers concise responses under 200 words.' },
-            { category: 'Project Context', content: 'Working on hermes-agent desktop app, Tauri v2 + SolidJS.' },
+            { category: 'Project Context', content: 'Working on the Hermes Studio Electron + SolidJS app.' },
             { category: 'Previous Decision', content: 'Chose Vitest over Jest for unit testing.' },
           ]
         : null;

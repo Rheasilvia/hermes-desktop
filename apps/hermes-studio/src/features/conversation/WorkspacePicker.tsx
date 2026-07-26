@@ -1,6 +1,7 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, createMemo, Show } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon';
+import { getNativeHost } from '@/services/native-host.js';
 import styles from './WorkspacePicker.module.css';
 
 interface WorkspacePickerProps {
@@ -61,16 +62,17 @@ export const WorkspacePicker: Component<WorkspacePickerProps> = (props) => {
     if (isEditable()) {
       const sid = props.sessionId;
       if (sid) {
+        const host = getNativeHost();
+        if (!host) {
+          startEditing();
+          return;
+        }
         try {
-          const { invoke, isTauri } = await import('@tauri-apps/api/core');
-          if (!isTauri()) {
-            startEditing();
-            return;
-          }
-          const selected = await invoke<string>('select_workspace_for_session', { sessionId: sid });
+          const selected = await host.workspace.selectForSession(sid);
+          if (props.sessionId !== sid) return;
           props.onChange?.(selected);
         } catch {
-          // Native workspace selection is the only trusted Tauri path.
+          // Cancellation and native picker failures leave the workspace unchanged.
         }
       } else {
         startEditing();

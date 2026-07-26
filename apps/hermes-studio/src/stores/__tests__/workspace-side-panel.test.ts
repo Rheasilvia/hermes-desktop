@@ -1,9 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invokeMock = vi.hoisted(() => ({ invoke: vi.fn() }));
+const nativeHostMock = vi.hoisted(() => {
+  const openExternal = vi.fn();
+  const installMacosCommandLineTools = vi.fn();
+  return {
+    openExternal,
+    installMacosCommandLineTools,
+    state: {
+      host: {
+        system: { openExternal, installMacosCommandLineTools },
+      } as null | {
+        system: {
+          openExternal: typeof openExternal;
+          installMacosCommandLineTools: typeof installMacosCommandLineTools;
+        };
+      },
+    },
+  };
+});
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: (...args: unknown[]) => invokeMock.invoke(...args),
+vi.mock('@/services/native-host.js', () => ({
+  getNativeHost: () => nativeHostMock.state.host,
 }));
 
 const mocks = vi.hoisted(() => ({
@@ -68,6 +85,14 @@ async function flushPromises() {
 const tabKinds = (tabs: Array<{ kind: string }>) => tabs.map((tab) => tab.kind);
 
 beforeEach(() => {
+  nativeHostMock.openExternal.mockReset().mockResolvedValue(undefined);
+  nativeHostMock.installMacosCommandLineTools.mockReset().mockResolvedValue(undefined);
+  nativeHostMock.state.host = {
+    system: {
+      openExternal: nativeHostMock.openExternal,
+      installMacosCommandLineTools: nativeHostMock.installMacosCommandLineTools,
+    },
+  };
   mocks.gateway.review.shipInfo.mockReset().mockResolvedValue({
     current_branch: 'feature/review',
     default_branch: 'main',
@@ -341,7 +366,6 @@ describe('gitViewStore', () => {
     mocks.gateway.review.files
       .mockReset()
       .mockRejectedValue(new Error('MACOS_DEVELOPER_TOOLS_MISSING'));
-    invokeMock.invoke.mockReset().mockResolvedValue(undefined);
     const { gitViewStore } = await import('../git-view.js');
 
     gitViewStore.setWorkspace('session-one', '/repo');
@@ -353,7 +377,7 @@ describe('gitViewStore', () => {
 
     await gitViewStore.installCommandLineTools();
 
-    expect(invokeMock.invoke).toHaveBeenCalledWith('install_macos_command_line_tools');
+    expect(nativeHostMock.installMacosCommandLineTools).toHaveBeenCalledOnce();
     expect(gitViewStore.installingTools()).toBe(false);
     // After launching the installer we no longer show the actionable code — the
     // guidance switches to "press Retry", so the install button hides.
@@ -573,7 +597,6 @@ describe('gitViewStore review actions', () => {
       can_create_pr: true,
     });
     mocks.gateway.review.createPr.mockReset().mockResolvedValue({ ok: true, url: 'https://github.com/me/repo/pull/99', detail: null });
-    invokeMock.invoke.mockReset().mockResolvedValue(undefined);
     const { gitViewStore } = await import('../git-view.js');
 
     gitViewStore.setWorkspace('session-one', '/repo');
@@ -582,7 +605,7 @@ describe('gitViewStore review actions', () => {
 
     expect(gitViewStore.reviewShipInfo()?.pr_url).toBe('https://github.com/me/repo/pull/42');
     expect(gitViewStore.createdPrUrl()).toBe('https://github.com/me/repo/pull/42');
-    expect(invokeMock.invoke).toHaveBeenCalledWith('open_external', { url: 'https://github.com/me/repo/pull/42' });
+    expect(nativeHostMock.openExternal).toHaveBeenCalledWith('https://github.com/me/repo/pull/42');
     expect(mocks.gateway.review.createPr).not.toHaveBeenCalled();
   });
 

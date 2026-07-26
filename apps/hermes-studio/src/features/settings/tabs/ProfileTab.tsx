@@ -350,7 +350,7 @@ export const ProfileTab: Component = () => {
             <div class={styles.dangerZone}>
               <div>
                 <h4>Remove from desktop</h4>
-                <p>This hides the profile from Tauri desktop. The profile directory is not deleted.</p>
+                <p>This hides the profile from Hermes Studio. The profile directory is not deleted.</p>
               </div>
               <Button
                 variant="danger"
@@ -469,7 +469,7 @@ export const ProfileTab: Component = () => {
         )}
       >
         <p class={styles.modalText}>
-          Remove {removeTarget()?.name} from Tauri desktop? The profile directory and data remain on disk.
+          Remove {removeTarget()?.name} from Hermes Studio? The profile directory and data remain on disk.
         </p>
       </Modal>
 

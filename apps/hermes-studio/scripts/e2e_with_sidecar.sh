@@ -197,4 +197,4 @@ echo "==> Seeded desktop sidecar model providers for Playwright"
 cd "$ROOT"
 VITE_SIDECAR_URL="$base_url" \
   VITE_SIDECAR_TOKEN="$TOKEN" \
-  npm run dev
+  npm run dev:renderer

@@ -5,10 +5,9 @@
 import { createSignal } from 'solid-js';
 import type { ProviderEntry, ModelOption } from '@/types/index.js';
 import type { AuxiliaryModelsResponse, StaleAuxEntry } from '@/services/api';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 import { api } from '../services/api/router';
 import type { Provider } from '../services/api/types';
-
-const MODEL_PROVIDER_CACHE_KEY = 'hermes.desktop.model.providers.v2';
 
 // ── Global default model (the "main" model, settings-only) ────────────────
 // Never mutated by session switches. Source of truth = config.yaml via
@@ -397,7 +396,7 @@ function mapCatalogProvider(apiProvider: Provider): CatalogProvider {
 function readCachedProviders(): Provider[] {
   if (typeof localStorage === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(MODEL_PROVIDER_CACHE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEYS.modelProviders);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -410,18 +409,16 @@ function readCachedProviders(): Provider[] {
 function writeCachedProviders(nextProviders: Provider[]): void {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(MODEL_PROVIDER_CACHE_KEY, JSON.stringify(nextProviders));
+    localStorage.setItem(STORAGE_KEYS.modelProviders, JSON.stringify(nextProviders));
   } catch {
     void 0;
   }
 }
 
-const CATALOG_CACHE_KEY = 'hermes.desktop.model.catalog.v2';
-
 function readCachedCatalog(): CatalogProvider[] {
   if (typeof localStorage === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(CATALOG_CACHE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEYS.modelCatalog);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -434,7 +431,7 @@ function readCachedCatalog(): CatalogProvider[] {
 function writeCachedCatalog(next: CatalogProvider[]): void {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(next));
+    localStorage.setItem(STORAGE_KEYS.modelCatalog, JSON.stringify(next));
   } catch {
     void 0;
   }

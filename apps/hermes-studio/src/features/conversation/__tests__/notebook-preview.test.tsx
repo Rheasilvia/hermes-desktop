@@ -1,5 +1,6 @@
 import { render, screen } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 
 // Stub the gateway BEFORE importing the store so notebookPreviewStore.load
 // uses our mock. The store reads getGateway() at call time.
@@ -261,7 +262,7 @@ describe('previewStore notebook target', () => {
   afterEach(() => {
     previewStore.clearAll();
     try {
-      window.localStorage.removeItem('hermes.tauri.sessionPreviews.v2');
+      window.localStorage.removeItem(STORAGE_KEYS.sessionPreviews);
     } catch {
       // ignore
     }
@@ -283,7 +284,7 @@ describe('previewStore notebook target', () => {
   it('rejects records it cannot recognize (forward-compat with v2 shape)', async () => {
     // Write a bogus record directly; load should drop it.
     window.localStorage.setItem(
-      'hermes.tauri.sessionPreviews.v2',
+      STORAGE_KEYS.sessionPreviews,
       JSON.stringify({ s1: [{ autoOpen: true, createdAt: 1, id: 'x', normalized: { kind: 'unknown' }, sessionId: 's1', source: 'notebook', target: 't' }] }),
     );
     // Re-import to trigger loadRegistry from localStorage.

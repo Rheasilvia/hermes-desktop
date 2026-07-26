@@ -1,8 +1,8 @@
 import type { Component } from 'solid-js';
-import { Show, createSignal } from 'solid-js';
-import { invoke, isTauri, convertFileSrc } from '@tauri-apps/api/core';
+import { Show, createEffect, createSignal } from 'solid-js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { Modal } from '@/ui/molecules/Modal.js';
+import { getNativeHost } from '@/services/native-host.js';
 import styles from './ImageCard.module.css';
 
 interface ImageCardProps {
@@ -15,30 +15,59 @@ interface ImageCardProps {
   compact?: boolean;
 }
 
-/**
- * Resolves an image URL for use in <img src>. Raw filesystem paths (e.g. a
- * clipboard temp file or a workspace image) do not load in the Tauri webview
- * unless wrapped via `convertFileSrc` (asset protocol). Remote http(s) URLs
- * and in-memory schemes (data:, blob:, asset:) pass through unchanged.
- */
-function resolveImgSrc(url: string): string {
-  if (!url) return url;
-  if (/^(https?:|data:|blob:|asset:)/i.test(url)) return url;
-  return isTauri() ? convertFileSrc(url) : url;
-}
+const isRemoteImage = (url: string) => /^https?:\/\//i.test(url);
+const NATIVE_ASSET_URL = /^hermes-studio-asset:\/\/asset\/[A-Za-z0-9_-]+$/i;
+const isNativeAssetImage = (url: string) => NATIVE_ASSET_URL.test(url);
+const isRendererSafeImage = (url: string) =>
+  /^(https?:|data:|blob:)/i.test(url) || isNativeAssetImage(url);
 
 export const ImageCard: Component<ImageCardProps> = (props) => {
   const [loaded, setLoaded] = createSignal(false);
   const [errored, setErrored] = createSignal(false);
   const [lightbox, setLightbox] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
+  const [src, setSrc] = createSignal('');
+  let resolution = 0;
 
   const showImage = () => loaded() && !errored();
-  const src = () => resolveImgSrc(props.url);
+
+  createEffect(() => {
+    const url = props.url;
+    const request = ++resolution;
+    setLoaded(false);
+    setErrored(false);
+    if (!url) {
+      setSrc('');
+      return;
+    }
+    if (isRendererSafeImage(url)) {
+      setSrc(url);
+      return;
+    }
+    const host = getNativeHost();
+    if (!host) {
+      setSrc('');
+      return;
+    }
+    setSrc('');
+    void host.assets.urlForPath(url)
+      .then((assetUrl) => {
+        if (request !== resolution) return;
+        if (isNativeAssetImage(assetUrl)) {
+          setSrc(assetUrl);
+        } else {
+          setErrored(true);
+        }
+      })
+      .catch(() => {
+        if (request === resolution) setErrored(true);
+      });
+  });
 
   const copyImage = () => {
-    if (!isTauri()) return;
-    void invoke('write_clipboard_image_from_url', { url: props.url })
+    const host = getNativeHost();
+    if (!host || !isRemoteImage(props.url)) return;
+    void host.clipboard.copyRemoteImage(props.url)
       .then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
@@ -67,7 +96,7 @@ export const ImageCard: Component<ImageCardProps> = (props) => {
             onLoad={() => setLoaded(true)}
             onError={() => setErrored(true)}
           />
-          <Show when={isTauri() && !props.compact}>
+          <Show when={getNativeHost() && isRemoteImage(props.url) && !props.compact}>
             <button
               type="button"
               class={styles.copyBtn}
@@ -81,7 +110,7 @@ export const ImageCard: Component<ImageCardProps> = (props) => {
         </Show>
       </div>
       {/* Hidden preloader to trigger load/error events */}
-      <Show when={!loaded() && !errored()}>
+      <Show when={!loaded() && !errored() && src()}>
         <img
           src={src()}
           alt=""

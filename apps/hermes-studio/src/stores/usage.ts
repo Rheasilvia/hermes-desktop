@@ -6,6 +6,7 @@
  */
 
 import { createStore } from 'solid-js/store';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 
 interface SessionUsage {
   contextUsed: number | null;
@@ -22,8 +23,6 @@ const emptyUsage = (): SessionUsage => ({
   costUsd: null,
   totalTokens: null,
 });
-
-const STORAGE_KEY_USAGE = 'hermes-desktop-session-usage';
 
 /** Coerce one persisted entry into a SessionUsage, or null if malformed. */
 function coerceUsage(value: unknown): SessionUsage | null {
@@ -42,7 +41,7 @@ function coerceUsage(value: unknown): SessionUsage | null {
 
 function loadPersistedUsage(): Record<string, SessionUsage> {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY_USAGE);
+    const stored = localStorage.getItem(STORAGE_KEYS.sessionUsage);
     if (!stored) return {};
     const parsed: unknown = JSON.parse(stored);
     if (typeof parsed !== 'object' || parsed === null) return {};
@@ -61,7 +60,7 @@ const [usageStates, setUsageStates] = createStore<Record<string, SessionUsage>>(
 /** Best-effort write of the whole map; persistence failures are non-fatal. */
 function persist(): void {
   try {
-    localStorage.setItem(STORAGE_KEY_USAGE, JSON.stringify(usageStates));
+    localStorage.setItem(STORAGE_KEYS.sessionUsage, JSON.stringify(usageStates));
   } catch {}
 }
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 
-const STORAGE_KEY = 'hermes-desktop-todo-panel-dismissed';
+const STORAGE_KEY = STORAGE_KEYS.todoPanelDismissed;
 
 // SolidJS effects run on a microtask; flush a couple of turns before asserting
 // on the localStorage side effect.

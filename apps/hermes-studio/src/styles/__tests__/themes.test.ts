@@ -1,8 +1,15 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const STYLES_DIR = resolve(__dirname, '..');
+const APP_ROOT = resolve(STYLES_DIR, '..', '..');
+const LOCAL_FONT_DIR = resolve(APP_ROOT, 'src', 'assets', 'fonts');
+const LOCAL_MONO_FONTS = [
+  'JetBrainsMono-Regular.woff2',
+  'JetBrainsMono-Bold.woff2',
+  'JetBrainsMono-Italic.woff2',
+];
 
 function readStyle(file: string): string {
   return readFileSync(resolve(STYLES_DIR, file), 'utf8');
@@ -21,6 +28,22 @@ const CANONICAL_TOKENS = [
 ];
 
 describe('theme tokens', () => {
+  it('packages local mono fonts without remote font connections', () => {
+    const html = readFileSync(resolve(APP_ROOT, 'index.html'), 'utf8');
+    const root = readStyle('tokens.css');
+
+    expect(html).not.toMatch(/fonts\.(?:googleapis|gstatic)\.com/i);
+    expect(html).not.toMatch(/rel=["']preconnect["']/i);
+    for (const font of LOCAL_MONO_FONTS) {
+      expect(statSync(resolve(LOCAL_FONT_DIR, font)).size).toBeGreaterThan(0);
+      expect(root).toContain(`../assets/fonts/${font}`);
+    }
+    expect(root).toContain("font-family: 'JetBrains Mono Local'");
+    expect(root).toContain("--font-mono: 'JetBrains Mono Local'");
+    expect(root).toContain('--font-serif: ui-serif');
+    expect(root).toContain('system-ui');
+  });
+
   it(':root defines the full canonical token set', () => {
     const root = readStyle('tokens.css');
     for (const token of CANONICAL_TOKENS) {

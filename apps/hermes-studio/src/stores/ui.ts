@@ -5,6 +5,7 @@
 
 import { createSignal, createEffect } from 'solid-js';
 import type { ConnectionState } from '@/services/gateway/types.js';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 
 type Theme = 'dark' | 'light';
 
@@ -14,15 +15,6 @@ type Theme = 'dark' | 'light';
  * Linux render custom window controls). Unknown until `get_platform` resolves.
  */
 type Platform = 'macos' | 'windows' | 'linux' | 'unknown';
-
-const STORAGE_KEY_THEME = 'hermes-desktop-theme';
-const STORAGE_KEY_SIDEBAR = 'hermes-desktop-sidebar-collapsed';
-const STORAGE_KEY_SIDEBAR_WIDTH = 'hermes-desktop-sidebar-width';
-const STORAGE_KEY_PINNED_OPEN = 'hermes-desktop-pinned-open';
-const STORAGE_KEY_CONVERSATIONS_OPEN = 'hermes-desktop-conversations-open';
-const STORAGE_KEY_WORKSPACE_GROUPING = 'hermes-desktop-workspace-grouping';
-const STORAGE_KEY_PINNED_SESSIONS = 'hermes-desktop-pinned-sessions';
-const STORAGE_KEY_TODO_PANEL_DISMISSED = 'hermes-desktop-todo-panel-dismissed';
 
 export const SIDEBAR_MIN_WIDTH = 200;
 export const SIDEBAR_MAX_WIDTH = 360;
@@ -34,7 +26,7 @@ export function clampSidebarWidth(width: number): number {
 
 function loadPersistedTheme(): Theme {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY_THEME);
+    const stored = localStorage.getItem(STORAGE_KEYS.theme);
     if (stored === 'dark' || stored === 'light') {
       return stored;
     }
@@ -44,7 +36,7 @@ function loadPersistedTheme(): Theme {
 
 function loadPersistedSidebar(): boolean {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY_SIDEBAR);
+    const stored = localStorage.getItem(STORAGE_KEYS.sidebarCollapsed);
     return stored === 'true';
   } catch {}
   return false;
@@ -52,7 +44,7 @@ function loadPersistedSidebar(): boolean {
 
 function loadPersistedSidebarWidth(): number {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY_SIDEBAR_WIDTH);
+    const stored = localStorage.getItem(STORAGE_KEYS.sidebarWidth);
     if (stored) {
       const width = parseInt(stored, 10);
       if (!isNaN(width) && width >= SIDEBAR_MIN_WIDTH && width <= SIDEBAR_MAX_WIDTH) {
@@ -92,46 +84,46 @@ const [environmentPanelOpen, setEnvironmentPanelOpenSignal] = createSignal(true)
 const [rightToolsOverlay, setRightToolsOverlaySignal] = createSignal(false);
 
 // Sidebar section state — persisted to localStorage
-const [pinnedSectionOpen, setPinnedSectionOpen] = createSignal(loadBool(STORAGE_KEY_PINNED_OPEN, true));
-const [conversationsSectionOpen, setConversationsSectionOpen] = createSignal(loadBool(STORAGE_KEY_CONVERSATIONS_OPEN, true));
-const [workspaceGrouping, setWorkspaceGrouping] = createSignal(loadBool(STORAGE_KEY_WORKSPACE_GROUPING, false));
-const [pinnedSessionIds, setPinnedSessionIds] = createSignal<string[]>(loadJsonArray(STORAGE_KEY_PINNED_SESSIONS));
+const [pinnedSectionOpen, setPinnedSectionOpen] = createSignal(loadBool(STORAGE_KEYS.pinnedSectionOpen, true));
+const [conversationsSectionOpen, setConversationsSectionOpen] = createSignal(loadBool(STORAGE_KEYS.conversationsSectionOpen, true));
+const [workspaceGrouping, setWorkspaceGrouping] = createSignal(loadBool(STORAGE_KEYS.workspaceGrouping, false));
+const [pinnedSessionIds, setPinnedSessionIds] = createSignal<string[]>(loadJsonArray(STORAGE_KEYS.pinnedSessions));
 
 // Per-session "floating todo panel was dismissed" state — persisted so the panel
 // restores to its pre-close visibility on restart instead of re-appearing with
 // already-completed todos.
-const [todoPanelDismissedIds, setTodoPanelDismissedIds] = createSignal<string[]>(loadJsonArray(STORAGE_KEY_TODO_PANEL_DISMISSED));
+const [todoPanelDismissedIds, setTodoPanelDismissedIds] = createSignal<string[]>(loadJsonArray(STORAGE_KEYS.todoPanelDismissed));
 
 createEffect(() => {
-  localStorage.setItem(STORAGE_KEY_THEME, theme());
+  localStorage.setItem(STORAGE_KEYS.theme, theme());
 });
 
 createEffect(() => {
-  localStorage.setItem(STORAGE_KEY_SIDEBAR, String(sidebarCollapsed()));
+  localStorage.setItem(STORAGE_KEYS.sidebarCollapsed, String(sidebarCollapsed()));
 });
 
 createEffect(() => {
-  localStorage.setItem(STORAGE_KEY_SIDEBAR_WIDTH, String(sidebarWidth()));
+  localStorage.setItem(STORAGE_KEYS.sidebarWidth, String(sidebarWidth()));
 });
 
 createEffect(() => {
-  localStorage.setItem(STORAGE_KEY_PINNED_OPEN, String(pinnedSectionOpen()));
+  localStorage.setItem(STORAGE_KEYS.pinnedSectionOpen, String(pinnedSectionOpen()));
 });
 
 createEffect(() => {
-  localStorage.setItem(STORAGE_KEY_CONVERSATIONS_OPEN, String(conversationsSectionOpen()));
+  localStorage.setItem(STORAGE_KEYS.conversationsSectionOpen, String(conversationsSectionOpen()));
 });
 
 createEffect(() => {
-  localStorage.setItem(STORAGE_KEY_WORKSPACE_GROUPING, String(workspaceGrouping()));
+  localStorage.setItem(STORAGE_KEYS.workspaceGrouping, String(workspaceGrouping()));
 });
 
 createEffect(() => {
-  localStorage.setItem(STORAGE_KEY_PINNED_SESSIONS, JSON.stringify(pinnedSessionIds()));
+  localStorage.setItem(STORAGE_KEYS.pinnedSessions, JSON.stringify(pinnedSessionIds()));
 });
 
 createEffect(() => {
-  localStorage.setItem(STORAGE_KEY_TODO_PANEL_DISMISSED, JSON.stringify(todoPanelDismissedIds()));
+  localStorage.setItem(STORAGE_KEYS.todoPanelDismissed, JSON.stringify(todoPanelDismissedIds()));
 });
 
 export const uiStore = {

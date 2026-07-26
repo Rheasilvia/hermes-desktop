@@ -37,11 +37,6 @@ vi.mock('@solidjs/router', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
-  isTauri: () => false,
-}));
-
 vi.mock('@/stores/chat.js', () => ({
   chatStore: {
     getMessages: () => state.messages,

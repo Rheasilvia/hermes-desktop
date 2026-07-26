@@ -15,6 +15,7 @@ import { modelStore } from '@/stores/models.js';
 import { uiStore } from '@/stores/ui.js';
 import { configStore } from '@/stores/config.js';
 import { getGateway } from '@/stores/context.js';
+import { getNativeHost } from '@/services/native-host.js';
 import { getVoiceRecordingLimit, isAutoTtsEnabled, isSttEnabled, isTtsAvailable } from '@/lib/voice/voice-config.js';
 import { playSpeechText } from '@/lib/voice/voice-playback.js';
 import type { CommandResult, ConnectionState } from '@/services/gateway/types.js';
@@ -31,7 +32,6 @@ import {
   normalizeDisplayPartAnchors,
   type UserDisplayPart,
 } from './display-parts.js';
-import { invoke, isTauri } from '@tauri-apps/api/core';
 import { CommandCardDock } from './cards/CommandCardDock.js';
 import { ModelSelector } from './ModelSelector.js';
 import { EmptyChatState } from './EmptyChatState.js';
@@ -448,21 +448,19 @@ export const ChatView: Component<ChatViewProps> = (props) => {
     const displayText = (display?.text ?? promptText) || attachmentLabelText;
     const gateway = getGateway();
 
-    // Persist image attachments into a durable per-session assets dir (the
-    // clipboard temp file may be purged by the OS), then carry the persisted
-    // paths as image display-parts so they survive a restart via the
-    // user_display_parts round-trip. Falls back to the raw path outside Tauri.
+    // Persist image attachments into a durable per-session assets directory,
+    // then carry only the canonical paths as display parts. Browser preview
+    // keeps the raw path because it has no native filesystem bridge.
     const persistedImages: { path: string; name: string }[] = [];
     if (imageAttachments.length > 0) {
       try {
+        const nativeHost = getNativeHost();
         for (const attachment of imageAttachments) {
           if (!attachment.path) continue;
           let imagePath = attachment.path;
-          if (isTauri()) {
-            imagePath = await invoke<string>('persist_session_image', {
-              sessionId: sid,
-              srcPath: attachment.path,
-            });
+          if (nativeHost) {
+            const persisted = await nativeHost.assets.persistSessionImage(sid, attachment.path);
+            imagePath = persisted.path;
           }
           persistedImages.push({ path: imagePath, name: attachment.name });
         }

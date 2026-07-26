@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
 import type { Component, JSX } from 'solid-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QueuedPromptEntry } from '@/stores/composer-queue.js';
+import { installNativeHostMock } from '@/services/native-host.js';
+import type { HermesStudioBridge } from '@/shared/native-bridge.js';
 
 interface SteerResult {
   status?: 'queued' | 'rejected';
@@ -20,6 +22,7 @@ const { state, chatMocks, queueMocks, cardMocks, gatewayMocks } = vi.hoisted(() 
     clearError: vi.fn(),
     cancelMessage: vi.fn(async () => undefined),
     sendMessage: vi.fn(async () => true),
+    appendUserMessage: vi.fn(),
   };
   const queueMocks = {
     enqueue: vi.fn((sid: string, payload: { text: string; attachments?: QueuedPromptEntry['attachments'] }) => {
@@ -46,17 +49,13 @@ const { state, chatMocks, queueMocks, cardMocks, gatewayMocks } = vi.hoisted(() 
   };
   const gatewayMocks = {
     steer: vi.fn(async (): Promise<SteerResult> => ({ status: 'queued' })),
+    imageAttach: vi.fn(async () => undefined),
   };
   return { state, chatMocks, queueMocks, cardMocks, gatewayMocks };
 });
 
 vi.mock('@solidjs/router', () => ({
   useNavigate: () => vi.fn(),
-}));
-
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
-  isTauri: () => false,
 }));
 
 vi.mock('@/stores/chat.js', () => ({
@@ -78,7 +77,7 @@ vi.mock('@/stores/chat.js', () => ({
     getErrorAction: () => null,
     isLoadingMessages: () => false,
     getDiagnostics: () => ({ lastEventAt: null, droppedLateEvents: 0 }),
-    appendUserMessage: vi.fn(),
+    appendUserMessage: chatMocks.appendUserMessage,
     sendMessage: chatMocks.sendMessage,
     markUserMessageFailed: vi.fn(),
     removeMessage: vi.fn(),
@@ -164,6 +163,7 @@ vi.mock('@/stores/context.js', () => ({
     ? {
       getConnectionState: () => 'connected',
       session: { steer: gatewayMocks.steer },
+      image: { attach: gatewayMocks.imageAttach },
     }
     : null,
 }));
@@ -223,13 +223,22 @@ vi.mock('../MessageBubble.js', () => ({ MessageBubble: stubComponent('message-bu
 vi.mock('../AssistantMessage.js', () => ({ AssistantMessage: stubComponent('assistant-message') }));
 vi.mock('../MessageInput.js', () => ({
   MessageInput: (props: { onSend: (text: string, attachments?: QueuedPromptEntry['attachments']) => void }) => (
-    <button
-      data-testid="queue-follow-up"
-      type="button"
-      onClick={() => props.onSend('queued follow-up', [{ id: 'file-a', kind: 'file', name: 'a.ts', path: '/repo/a.ts' }])}
-    >
-      Queue follow-up
-    </button>
+    <>
+      <button
+        data-testid="queue-follow-up"
+        type="button"
+        onClick={() => props.onSend('queued follow-up', [{ id: 'file-a', kind: 'file', name: 'a.ts', path: '/repo/a.ts' }])}
+      >
+        Queue follow-up
+      </button>
+      <button
+        data-testid="send-image"
+        type="button"
+        onClick={() => props.onSend('inspect image', [{ id: 'image-a', kind: 'image', name: 'photo.png', path: '/tmp/photo.png' }])}
+      >
+        Send image
+      </button>
+    </>
   ),
 }));
 vi.mock('../cards/CommandCardDock.js', () => ({ CommandCardDock: stubComponent('command-card-dock') }));
@@ -253,6 +262,9 @@ async function renderChatView() {
 }
 
 describe('ChatView queued follow-up UI', () => {
+  let restoreNativeHost = () => {};
+  const persistSessionImage = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
     state.messages = [];
@@ -260,6 +272,18 @@ describe('ChatView queued follow-up UI', () => {
     state.streaming = false;
     state.gatewayConnected = true;
     gatewayMocks.steer.mockResolvedValue({ status: 'queued' });
+    gatewayMocks.imageAttach.mockReset();
+    gatewayMocks.imageAttach.mockResolvedValue(undefined);
+    persistSessionImage.mockReset();
+    chatMocks.appendUserMessage.mockReset();
+    persistSessionImage.mockResolvedValue({
+      path: '/home/.hermes/assets/sess-queue/persisted.png',
+      url: 'hermes-studio-asset://asset/persisted-image-handle',
+    });
+    restoreNativeHost();
+    restoreNativeHost = installNativeHostMock({
+      assets: { persistSessionImage },
+    } as unknown as HermesStudioBridge);
 
     class ResizeObserverMock {
       observe = vi.fn();
@@ -269,8 +293,36 @@ describe('ChatView queued follow-up UI', () => {
   });
 
   afterEach(() => {
+    restoreNativeHost();
+    restoreNativeHost = () => {};
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it('persists picked images through the native bridge before attaching them', async () => {
+    await renderChatView();
+
+    fireEvent.click(screen.getByTestId('send-image'));
+
+    await vi.waitFor(() => {
+      expect(persistSessionImage).toHaveBeenCalledWith('sess-queue', '/tmp/photo.png');
+      expect(gatewayMocks.imageAttach).toHaveBeenCalledWith({
+        session_id: 'sess-queue',
+        path: '/home/.hermes/assets/sess-queue/persisted.png',
+      });
+    });
+    expect(chatMocks.appendUserMessage).toHaveBeenCalledWith(
+      'sess-queue',
+      'inspect image',
+      undefined,
+      'inspect image',
+      expect.any(Array),
+      [expect.objectContaining({
+        type: 'image',
+        path: '/home/.hermes/assets/sess-queue/persisted.png',
+        name: 'photo.png',
+      })],
+    );
   });
 
   it('enqueues follow-up messages while streaming without showing the old notice card', async () => {

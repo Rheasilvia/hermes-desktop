@@ -47,27 +47,48 @@ async function expectPersistedRuntime(
   sessionId: string,
   effort: ReasoningEffort,
 ): Promise<void> {
-  const body = await sidecarRequest<{ runtime?: { reasoningEffort?: string } }>(
-    request,
-    'GET',
-    `/desktop/api/sessions/${sessionId}`,
-  );
-  expect(body.runtime?.reasoningEffort).toBe(effort);
+  await expect.poll(async () => {
+    const body = await sidecarRequest<{ runtime?: { reasoningEffort?: string } }>(
+      request,
+      'GET',
+      `/desktop/api/sessions/${sessionId}`,
+    );
+    return body.runtime?.reasoningEffort;
+  }).toBe(effort);
 }
 
 async function setEffortInPicker(
   page: Page,
   sessionId: string,
-  effort: ReasoningEffort,
+  model: string,
   label: string,
 ): Promise<void> {
+  const sessionsHydrated = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === 'GET'
+      && url.pathname === '/desktop/api/sessions'
+      && response.ok();
+  });
   await page.goto(`/conversation/${sessionId}`);
   await expect(page).toHaveURL(new RegExp(`/conversation/${sessionId}$`));
+  await sessionsHydrated;
   const trigger = page.getByTestId('model-selector-trigger');
-  await expect(trigger).toBeVisible();
-  await trigger.click();
-  await page.getByTestId(`model-effort-${effort}`).click();
-  await expect(trigger).toContainText(label);
+  await expect(trigger).toContainText(model);
+  const effortTrigger = page.getByTestId('model-effort-trigger');
+  await expect(effortTrigger).toBeEnabled();
+
+  // The model dropdown intentionally closes when late session hydration swaps
+  // the active session model. The dedicated effort segment is the stable,
+  // keyboard-accessible surface for the same runtime setting, so cycle it and
+  // wait for each persisted transition before the next click.
+  for (let step = 0; step < 6; step += 1) {
+    const current = (await effortTrigger.textContent())?.trim();
+    if (current === label) break;
+    await effortTrigger.click();
+    await expect.poll(async () => (await effortTrigger.textContent())?.trim()).not.toBe(current);
+    await expect(effortTrigger).toBeEnabled();
+  }
+  await expect(effortTrigger).toHaveText(label);
 }
 
 test.describe('Chat model picker runtime', () => {
@@ -75,20 +96,20 @@ test.describe('Chat model picker runtime', () => {
     const highSession = await createSession(request, 'e2e-alpha', 'e2e-alpha-primary');
     const offSession = await createSession(request, 'e2e-beta', 'e2e-beta-primary');
 
-    await setEffortInPicker(page, highSession, 'high', 'High');
+    await setEffortInPicker(page, highSession, 'e2e-alpha-primary', 'High');
     await expectPersistedRuntime(request, highSession, 'high');
 
-    await setEffortInPicker(page, offSession, 'none', 'Off');
+    await setEffortInPicker(page, offSession, 'e2e-beta-primary', 'Off');
     await expectPersistedRuntime(request, offSession, 'none');
 
     await page.goto(`/conversation/${highSession}`);
-    await expect(page.getByTestId('model-selector-trigger')).toContainText('High');
+    await expect(page.getByTestId('model-effort-trigger')).toContainText('High');
     await page.reload();
-    await expect(page.getByTestId('model-selector-trigger')).toContainText('High');
+    await expect(page.getByTestId('model-effort-trigger')).toContainText('High');
 
     await page.goto(`/conversation/${offSession}`);
-    await expect(page.getByTestId('model-selector-trigger')).toContainText('Off');
+    await expect(page.getByTestId('model-effort-trigger')).toContainText('Off');
     await page.reload();
-    await expect(page.getByTestId('model-selector-trigger')).toContainText('Off');
+    await expect(page.getByTestId('model-effort-trigger')).toContainText('Off');
   });
 });

@@ -1,12 +1,12 @@
 import type { Component } from 'solid-js';
 import { createSignal, Show, Switch, Match } from 'solid-js';
-import { invoke, isTauri } from '@tauri-apps/api/core';
 import type {
   OAuthProvider,
   OAuthStartResponse,
   OAuthPollResponse,
 } from '@/services/api/types';
 import { api } from '@/services/api/router';
+import { getNativeHost } from '@/services/native-host';
 import { Modal } from '@/ui/molecules/Modal';
 import { Button } from '@/ui/atoms/Button';
 import { Input } from '@/ui/atoms/Input';
@@ -79,16 +79,15 @@ export const OAuthConnectModal: Component<OAuthConnectModalProps> = (props) => {
     props.onClose();
   };
 
-  // ── Open browser (Tauri command → web fallback) ──
-  // Mirrors the Electron app's openSignInUrl() pattern:
-  //   window.hermesDesktop.openExternal(url) → window.open(url)
+  // ── Open browser (native host → web fallback) ──
   const openBrowser = async (url: string) => {
-    if (isTauri()) {
+    const nativeHost = getNativeHost();
+    if (nativeHost) {
       try {
-        await invoke('open_external', { url });
+        await nativeHost.system.openExternal(url);
         return;
       } catch (e) {
-        console.warn('[OAuth] open_external failed, falling back to window.open:', e);
+        console.warn('[OAuth] Native browser launch failed, falling back to window.open:', e);
       }
     }
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -517,6 +516,10 @@ export const OAuthConnectModal: Component<OAuthConnectModalProps> = (props) => {
               target="_blank"
               rel="noopener noreferrer"
               class={styles.docsLink}
+              onClick={(event) => {
+                event.preventDefault();
+                void openBrowser(props.provider!.docs_url!);
+              }}
             >
               <Icon name="external-link" size={14} />
               View documentation

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 import { composerQueueStore, shouldAutoDrainOnSettle } from '../composer-queue.js';
 
 describe('composerQueueStore', () => {
@@ -32,7 +33,7 @@ describe('composerQueueStore', () => {
 
     expect(composerQueueStore.remove('sess_a', second?.id)?.text).toBe('second');
     expect(composerQueueStore.getQueuedPrompts('sess_a').map((entry) => entry.text)).toEqual(['first', 'third']);
-    const persisted = JSON.parse(window.localStorage.getItem('hermes.tauri.composerQueue.v1') ?? '{}') as { sess_a?: Array<{ text: string }> };
+    const persisted = JSON.parse(window.localStorage.getItem(STORAGE_KEYS.composerQueue) ?? '{}') as { sess_a?: Array<{ text: string }> };
     expect(persisted.sess_a?.map((entry) => entry.text)).toEqual(['first', 'third']);
     expect(composerQueueStore.dequeue('sess_a')?.id).toBe(first?.id);
     expect(composerQueueStore.dequeue('sess_a')?.id).toBe(third?.id);

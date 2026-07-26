@@ -1,6 +1,7 @@
 import { createStore, produce } from 'solid-js/store';
 import { sanitizeAttachmentChips } from '@/features/conversation/composer/attachmentSanitizer.js';
 import type { UserDisplayPart } from '@/features/conversation/display-parts.js';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 
 export interface QueuedAttachment {
   id: string;
@@ -28,8 +29,6 @@ export interface AutoDrainSettleInput {
 
 type QueueState = Record<string, QueuedPromptEntry[]>;
 
-const STORAGE_KEY = 'hermes.tauri.composerQueue.v1';
-
 function sidOf(key: string | null | undefined): string | null {
   const trimmed = key?.trim();
   return trimmed ? trimmed : null;
@@ -38,7 +37,7 @@ function sidOf(key: string | null | undefined): string | null {
 function loadQueueState(): QueueState {
   if (typeof window === 'undefined') return {};
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEYS.composerQueue);
     const parsed = raw ? JSON.parse(raw) : null;
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as QueueState : {};
   } catch {
@@ -50,9 +49,9 @@ function saveQueueState(state: QueueState): void {
   if (typeof window === 'undefined') return;
   try {
     if (Object.keys(state).length === 0) {
-      window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(STORAGE_KEYS.composerQueue);
     } else {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      window.localStorage.setItem(STORAGE_KEYS.composerQueue, JSON.stringify(state));
     }
   } catch {
     // Storage can be unavailable; the in-memory queue remains usable.

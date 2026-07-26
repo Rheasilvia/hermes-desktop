@@ -9,7 +9,7 @@ import { WorkspaceTreeView } from '@/features/workspace/WorkspaceTreeView.js';
 import { DiffPanel } from '@/features/diff/DiffPanel.js';
 import { DelegationSidePanel } from '@/features/delegation/DelegationSidePanel.js';
 import { NotebookPreview } from './NotebookPreview.js';
-import { invoke } from '@tauri-apps/api/core';
+import { getNativeHost } from '@/services/native-host.js';
 import { Icon } from '@/ui/atoms/Icon.js';
 import { MarkdownContent } from '@/ui/molecules/MarkdownContent.js';
 import { TerminalPanel } from './TerminalPanel.js';
@@ -185,7 +185,7 @@ export const RightToolPanel: Component<RightToolPanelProps> = (props) => {
                   : null}
                 createdPrUrl={gitViewStore.createdPrUrl()}
                 shipInfo={gitViewStore.reviewShipInfo()}
-                onOpenPrUrl={(url) => void invoke('open_external', { url })}
+                onOpenPrUrl={(url) => void getNativeHost()?.system.openExternal(url).catch(() => {})}
                 commitMessage={gitViewStore.commitMessage()}
                 commitMessageLoading={gitViewStore.commitMessageLoading()}
                 commitMessageError={gitViewStore.commitMessageErrorLabel()}

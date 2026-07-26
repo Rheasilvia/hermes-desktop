@@ -72,9 +72,9 @@ Then use any token as a CSS variable:
 ### Typography
 | Token | Values | Description |
 |-------|--------|-------------|
-| `--font-serif` | Newsreader, Georgia... | Serif headings |
+| `--font-serif` | ui-serif, Georgia... | Serif headings |
 | `--font-sans` | Inter, system-ui... | Sans body |
-| `--font-mono` | JetBrains Mono... | Code/mono |
+| `--font-mono` | Bundled JetBrains Mono, system mono... | Code/mono |
 | `--text-xs` | `0.75rem` | 12px |
 | `--text-sm` | `0.875rem` | 14px |
 | `--text-base` | `1rem` | 16px |

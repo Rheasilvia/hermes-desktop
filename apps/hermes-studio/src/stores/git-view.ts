@@ -6,7 +6,7 @@ import {
   REVIEW_FILE_RAIL_MAX_WIDTH,
   REVIEW_FILE_RAIL_MIN_WIDTH,
 } from '@/lib/review-split-layout.js';
-import { invoke } from '@tauri-apps/api/core';
+import { getNativeHost } from '@/services/native-host.js';
 import { getGateway } from './context.js';
 import { toastStore } from './toast.js';
 import { composerInsertionStore } from './composer-insertions.js';
@@ -548,12 +548,21 @@ async function pushReview(): Promise<void> {
   // No working-tree change; skip the refetch.
 }
 
+async function openExternal(url: string): Promise<void> {
+  const host = getNativeHost();
+  if (host) {
+    await host.system.openExternal(url);
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 async function createPullRequest(): Promise<void> {
   const sid = workspaceSessionId();
   if (!sid) return;
   const existingUrl = reviewShipInfo()?.pr_url ?? createdPrUrl();
   if (existingUrl) {
-    await invoke('open_external', { url: existingUrl });
+    await openExternal(existingUrl);
     return;
   }
   const result = await runReviewAction('pr', 'pr', async () => {
@@ -566,7 +575,7 @@ async function createPullRequest(): Promise<void> {
   setCreatedPrUrl(url);
   toastStore.success(
     'Pull request created',
-    url ? { label: 'Open', onClick: () => void invoke('open_external', { url }) } : undefined,
+    url ? { label: 'Open', onClick: () => void openExternal(url) } : undefined,
   );
   void fetchReviewShipInfo();
 }
@@ -734,17 +743,20 @@ const [installingTools, setInstallingTools] = createSignal(false);
 // True while we re-probe git after an install — drives the Retry button label.
 const [retryingReview, setRetryingReview] = createSignal(false);
 
-// Launches the native macOS Command Line Tools installer via the Tauri command,
+// Launches the native macOS Command Line Tools installer through the frozen
+// preload bridge,
 // then immediately re-probes git. `xcode-select --install` opens the macOS GUI
 // installer (the user still clicks Install there); the git shim at /usr/bin/git
 // resolves the developer path at *runtime*, so a fresh probe works as soon as
-// the tools are in place — no app restart needed. Non-Tauri (browser dev) and
+// the tools are in place — no app restart needed. Browser preview and
 // non-macOS hosts get a clear message instead of a silent no-op.
 async function installCommandLineTools(): Promise<void> {
   setInstallingTools(true);
   setReviewErrorCode(null);
   try {
-    await invoke('install_macos_command_line_tools');
+    const host = getNativeHost();
+    if (!host) throw new Error('the native installer is unavailable in browser preview');
+    await host.system.installMacosCommandLineTools();
     setReviewError(
       'The macOS installer has opened. Click Install in that prompt, then press Retry once it finishes.',
     );

@@ -7,7 +7,6 @@ import {
   onCleanup,
   onMount,
 } from 'solid-js';
-import { isTauri } from '@tauri-apps/api/core';
 import { Icon, type IconName } from '@/ui/atoms/Icon';
 import { sidePanelStore, type ToolTab, type ToolTabView } from '@/stores/side-panel';
 import styles from './TitleBar.module.css';
@@ -52,26 +51,6 @@ const toolTabItemForView = (view: ToolTabView): ToolTabItem =>
 interface ToolDockToolbarProps {
   terminalCwd?: string | null;
   terminalTitle?: string | null;
-}
-
-type WindowHandle = {
-  startDragging: () => Promise<void>;
-  toggleMaximize: () => Promise<void>;
-};
-
-async function resolveWindow(): Promise<WindowHandle | null> {
-  if (!isTauri()) return null;
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  return getCurrentWindow() as unknown as WindowHandle;
-}
-
-function blockDrag(event: MouseEvent) {
-  event.stopPropagation();
-}
-
-function isInteractiveTitleBarTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement
-    && target.closest('button, a, input, textarea, select, [role="button"], [role="tab"], [role="menuitem"]') != null;
 }
 
 export const ToolDockToolbar: Component<ToolDockToolbarProps> = (props) => {
@@ -136,22 +115,6 @@ export const ToolDockToolbar: Component<ToolDockToolbarProps> = (props) => {
       setToolMenuOpen(true);
     }
   };
-  const handleStartDragging = async (event: MouseEvent) => {
-    if (event.button !== 0) return;
-    if (isInteractiveTitleBarTarget(event.target)) return;
-
-    const win = await resolveWindow();
-    try { await win?.startDragging(); } catch { /* ignore */ }
-  };
-  const handleTitleBarDoubleClick = async (event: MouseEvent) => {
-    if (event.button !== 0) return;
-    if (isInteractiveTitleBarTarget(event.target)) return;
-    event.preventDefault();
-
-    const win = await resolveWindow();
-    try { await win?.toggleMaximize(); } catch { /* ignore */ }
-  };
-
   const activateToolTab = (item: ToolTabItem) => {
     sidePanelStore.openTab(item.view, item.view === 'terminal'
       ? { cwd: props.terminalCwd, title: props.terminalTitle }
@@ -183,7 +146,6 @@ export const ToolDockToolbar: Component<ToolDockToolbarProps> = (props) => {
         class={styles.toolTabItem}
         classList={{ [styles.toolTabActive]: selected() }}
         title={title()}
-        onMouseDown={blockDrag}
       >
         <Show
           when={editing()}
@@ -194,7 +156,6 @@ export const ToolDockToolbar: Component<ToolDockToolbarProps> = (props) => {
               class={styles.toolTab}
               aria-label={title()}
               aria-selected={selected()}
-              onMouseDown={blockDrag}
               onClick={() => sidePanelStore.setActiveTab(tab.id)}
               onDblClick={(event) => {
                 event.preventDefault();
@@ -213,7 +174,6 @@ export const ToolDockToolbar: Component<ToolDockToolbarProps> = (props) => {
             aria-label={`Rename ${title()} tab`}
             value={editingTitle()}
             onInput={(event) => setEditingTitle(event.currentTarget.value)}
-            onMouseDown={blockDrag}
             onDblClick={(event) => event.stopPropagation()}
             onBlur={() => commitRenamingTab(tab)}
             onKeyDown={(event) => {
@@ -232,7 +192,6 @@ export const ToolDockToolbar: Component<ToolDockToolbarProps> = (props) => {
           class={styles.toolTabClose}
           aria-label={closeLabel}
           title={closeLabel}
-          onMouseDown={blockDrag}
           onClick={(event) => {
             event.stopPropagation();
             if (editingTabId() === tab.id) {
@@ -254,10 +213,7 @@ export const ToolDockToolbar: Component<ToolDockToolbarProps> = (props) => {
       class={styles.toolDockToolbar}
       role="toolbar"
       aria-label="Tool dock toolbar"
-      data-tauri-drag-region
       data-testid="tool-dock-toolbar"
-      onMouseDown={(event) => void handleStartDragging(event)}
-      onDblClick={(event) => void handleTitleBarDoubleClick(event)}
     >
       <Show when={toolsDockActive()}>
         <div class={styles.toolTabs}>
@@ -270,7 +226,6 @@ export const ToolDockToolbar: Component<ToolDockToolbarProps> = (props) => {
             <button
               type="button"
               class={styles.addToolButton}
-              onMouseDown={blockDrag}
               onClick={() => setToolMenuOpen((open) => !open)}
               aria-label="Add tool tab"
               aria-haspopup="menu"
@@ -290,7 +245,6 @@ export const ToolDockToolbar: Component<ToolDockToolbarProps> = (props) => {
                         type="button"
                         role="menuitem"
                         class={styles.toolMenuItem}
-                        onMouseDown={blockDrag}
                         onClick={() => activateToolTab(item)}
                       >
                         <span class={styles.toolMenuIcon}>
@@ -318,7 +272,6 @@ export const ToolDockToolbar: Component<ToolDockToolbarProps> = (props) => {
         classList={{ [styles.toolsDockToggleActive]: toolsDockActive() }}
         title={toolsDockActive() ? 'Hide tools dock' : 'Show tools dock'}
         aria-label={toolsDockActive() ? 'Hide tools dock' : 'Show tools dock'}
-        onMouseDown={blockDrag}
         onClick={handleToggleToolsDock}
       >
         <Icon name="panel-right" size={15} strokeWidth={1.5} />

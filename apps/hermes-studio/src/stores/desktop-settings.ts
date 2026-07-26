@@ -1,7 +1,7 @@
 /**
  * Desktop-local settings store.
  *
- * This store owns SQLite-backed Tauri UI preferences only. Hermes runtime
+ * This store owns Hermes Studio UI preferences only. Hermes runtime
  * configuration belongs in config.ts.
  */
 

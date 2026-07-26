@@ -64,9 +64,15 @@ Hermes Studio uses a **Gateway Adapter Pattern** where all communication with th
 Electron main owns the sidecar, filesystem, PTY, clipboard, notifications, and
 OS integration. Preload exposes only the frozen
 [`window.hermesStudio`](./docs/NATIVE_BRIDGE.md) contract; the renderer never
-receives Node or raw Electron APIs. Renderer call sites are switched from Tauri
-to this bridge in the next migration task, so the checked-in Tauri source is
-temporarily retained as migration evidence and fallback development code.
+receives Node, raw Electron APIs, or a generic IPC primitive. The renderer uses
+a small native-host adapter for bridge detection and test injection. Browser
+development and Playwright run the Vite renderer without Electron and may use
+explicit development-only sidecar variables; a present Electron bridge is
+always authoritative and packaged builds contain no backend URL or token.
+
+The checked-in Tauri source and package entries are retained only for the
+separate Task 5 deletion pass. They are not part of the production renderer
+runtime.
 
 See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the current host
 architecture and [DESIGN.md](./DESIGN.md) for design system specifications.

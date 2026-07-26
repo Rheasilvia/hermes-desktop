@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { STORAGE_KEYS } from '@/lib/storage-keys.js';
 
-// Mirrors the literal key in usage.ts (kept module-private there, like ui.ts).
-const STORAGE_KEY = 'hermes-desktop-session-usage';
+const STORAGE_KEY = STORAGE_KEYS.sessionUsage;
 
 const EMPTY = {
   contextUsed: null,

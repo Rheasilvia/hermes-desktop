@@ -1,5 +1,6 @@
 import type { Component } from 'solid-js';
 import { createEffect, createMemo } from 'solid-js';
+import { getNativeHost } from '@/services/native-host.js';
 import { highlightCodeBlocksIn, parseMarkdown, renderMathIn } from '@/utils/markdown.js';
 import styles from './MarkdownContent.module.css';
 
@@ -22,6 +23,18 @@ export const MarkdownContent: Component<MarkdownContentProps> = (props) => {
     props.class,
   ].filter(Boolean).join(' '));
 
+  const handleClick = (event: MouseEvent) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const anchor = target?.closest<HTMLAnchorElement>('a[href]');
+    if (!anchor || !rootRef?.contains(anchor)) return;
+    const href = anchor.getAttribute('href')?.trim();
+    if (!href || !/^https?:\/\//i.test(href)) return;
+    const host = getNativeHost();
+    if (!host) return;
+    event.preventDefault();
+    void host.system.openExternal(href).catch(() => undefined);
+  };
+
   createEffect(() => {
     const rendered = html();
     if (!rendered || !rootRef) return;
@@ -37,6 +50,7 @@ export const MarkdownContent: Component<MarkdownContentProps> = (props) => {
       ref={(el) => { rootRef = el; }}
       class={className()}
       innerHTML={html()}
+      onClick={handleClick}
     />
   );
 };

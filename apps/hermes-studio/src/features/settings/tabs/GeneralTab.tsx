@@ -176,14 +176,6 @@ export const GeneralTab: Component = () => {
             options={STARTUP_OPTIONS}
             onChange={(v) => handleDesktopChange('startupBehavior', v as 'restore' | 'new')}
           />
-          <ConfigField
-            label="Check for Updates"
-            description="Automatically check for new versions"
-            type="toggle"
-            value={desktop()?.checkUpdates ?? true}
-            onChange={(v) => handleDesktopChange('checkUpdates', v as boolean)}
-          />
-
         </section>
       </div>
     </Show>
