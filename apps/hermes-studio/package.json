@@ -99,6 +99,9 @@
       }
     ],
     "mac": {
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Hermes Studio uses the microphone only when you start a voice interaction."
+      },
       "target": [
         "dmg"
       ]

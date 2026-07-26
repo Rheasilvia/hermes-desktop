@@ -1,5 +1,4 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
+import { createHermesStudioBridge } from './preload-bridge.js'
 
-// The renderer continues to use its existing API surface during this scaffold
-// phase. Native IPC routes are introduced in a follow-up migration task.
-contextBridge.exposeInMainWorld('hermesStudio', Object.freeze({}))
+contextBridge.exposeInMainWorld('hermesStudio', createHermesStudioBridge(ipcRenderer))

@@ -59,3 +59,25 @@ uv run --frozen --extra dev python -m pytest -q
 
 The sidecar build itself is intentionally excluded from ordinary unit tests;
 tests exercise its target/path/argument logic without requiring PyInstaller.
+
+## Native host acceptance
+
+The Electron package must be tested as a package, not only from the Vite
+development server. On each native runner, complete the capability-by-capability
+checklist in [NATIVE_BRIDGE.md](./NATIVE_BRIDGE.md), then confirm:
+
+- production loads from `hermes-studio://app/`, never `file://`;
+- a second launch focuses the existing window;
+- denied navigation, popups, webviews, and permissions stay denied;
+- microphone access is prompted only for an explicit voice interaction;
+- backend failure leaves the shell open in degraded mode and recovery events
+  reach the renderer;
+- quit closes all PTYs, revokes temporary handles/grants, and stops only the
+  owned sidecar process;
+- renderer DevTools expose neither Node/raw Electron APIs nor the private
+  workspace-grant token;
+- the packaged CSP contains only the exact app/sidecar origins needed at
+  runtime.
+
+There is intentionally no `check_for_updates` or `install_update` Electron
+bridge surface. Do not publish an update-control UI for this release.

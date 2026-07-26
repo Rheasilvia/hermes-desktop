@@ -558,3 +558,100 @@ describe('SidecarManager', () => {
     await manager.stop()
   })
 })
+
+describe('native bridge sidecar operations', () => {
+  it('PATCHes session cwd with API auth and the private workspace grant', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = []
+    const manager = new SidecarManager({
+      appRoot: '/studio', resourcesPath: '/resources', isPackaged: false, platform: 'linux',
+      env: { HERMES_HOME: '/tmp/hermes-studio-workspace-patch-test' },
+      spawnProcess: vi.fn(() => {
+        const child = fakeChild(51_001)
+        queueMicrotask(() => child.stdout?.emit('data', 'READY 51001\n'))
+        return child
+      }) as unknown as typeof import('node:child_process').spawn,
+      fetch: vi.fn(async (input, init) => {
+        requests.push({ url: String(input), init })
+        return new Response(JSON.stringify({ cwd: '/workspace/selected' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }),
+      setInterval: vi.fn(() => 1) as unknown as typeof globalThis.setInterval,
+      clearInterval: vi.fn() as unknown as typeof globalThis.clearInterval,
+      terminateTree: async () => undefined,
+    })
+    await manager.start()
+
+    await expect(manager.updateSessionCwd('desktop_abc/../../config', '/workspace/selected'))
+      .resolves.toBe('/workspace/selected')
+
+    const request = requests[0]
+    expect(request?.url).toBe('http://127.0.0.1:51001/desktop/api/sessions/desktop_abc%2F..%2F..%2Fconfig')
+    expect(request?.init?.method).toBe('PATCH')
+    const headers = new Headers(request?.init?.headers)
+    expect(headers.get('authorization')).toBe(`Bearer ${manager.token}`)
+    expect(headers.get('x-desktop-workspace-grant')).toBeTruthy()
+    expect(headers.get('x-desktop-workspace-grant')).not.toBe(manager.token)
+    expect(request?.init?.body).toBe(JSON.stringify({ cwd: '/workspace/selected' }))
+    expect(JSON.stringify(manager.info)).not.toContain(headers.get('x-desktop-workspace-grant'))
+    await manager.stop()
+  })
+
+  it('emits unhealthy and supports an explicit bounded restart without exposing the grant', async () => {
+    let port = 52_000
+    const manager = new SidecarManager({
+      appRoot: '/studio', resourcesPath: '/resources', isPackaged: false, platform: 'linux',
+      env: { HERMES_HOME: '/tmp/hermes-studio-manual-restart-test' },
+      spawnProcess: vi.fn(() => {
+        const child = fakeChild(port)
+        const readyPort = port
+        port += 1
+        queueMicrotask(() => child.stdout?.emit('data', `READY ${readyPort}\n`))
+        return child
+      }) as unknown as typeof import('node:child_process').spawn,
+      fetch: vi.fn(async () => new Response(null, { status: 503 })),
+      sleep: async () => undefined,
+      setInterval: vi.fn(() => 1) as unknown as typeof globalThis.setInterval,
+      clearInterval: vi.fn() as unknown as typeof globalThis.clearInterval,
+      terminateTree: async () => undefined,
+    })
+    const unhealthy = vi.fn()
+    manager.on('unhealthy', unhealthy)
+    await manager.start()
+    await manager.probeNow()
+    await manager.probeNow()
+    await manager.probeNow()
+    expect(unhealthy).toHaveBeenCalledWith({ reason: 'health probe failed three times' })
+
+    const info = await manager.restart()
+    expect(info.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:52\d{3}$/)
+    expect(Object.keys(info)).toEqual(['baseUrl', 'token'])
+    await manager.stop()
+  })
+
+  it('rejects an explicit restart when the rolling restart cap is exhausted', async () => {
+    let port = 53_000
+    const manager = new SidecarManager({
+      appRoot: '/studio', resourcesPath: '/resources', isPackaged: false, platform: 'linux',
+      env: { HERMES_HOME: '/tmp/hermes-studio-restart-cap-test' },
+      spawnProcess: vi.fn(() => {
+        const child = fakeChild(port)
+        const readyPort = port++
+        queueMicrotask(() => child.stdout?.emit('data', `READY ${readyPort}\n`))
+        return child
+      }) as unknown as typeof import('node:child_process').spawn,
+      now: () => 1_000,
+      sleep: async () => undefined,
+      setInterval: vi.fn(() => 1) as unknown as typeof globalThis.setInterval,
+      clearInterval: vi.fn() as unknown as typeof globalThis.clearInterval,
+      terminateTree: async () => undefined,
+    })
+    await manager.start()
+    for (let index = 0; index < 5; index += 1) await manager.restart()
+
+    await expect(manager.restart()).rejects.toThrow(/did not become ready/i)
+    expect(manager.info?.baseUrl).toBe('http://127.0.0.1:53005')
+    await manager.stop()
+  })
+})

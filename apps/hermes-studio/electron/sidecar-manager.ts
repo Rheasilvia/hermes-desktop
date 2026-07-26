@@ -332,8 +332,54 @@ export class SidecarManager extends EventEmitter {
     } finally {
       clearTimeout(timer)
     }
-    if (this.#failureGate.record(ok)) await this.#scheduleRestart('health probe failed three times')
+    if (this.#failureGate.record(ok)) {
+      const reason = 'health probe failed three times'
+      this.emit('unhealthy', { reason })
+      await this.#scheduleRestart(reason)
+    }
     return ok
+  }
+
+  async restart(): Promise<SidecarInfo> {
+    if (this.#stopping) throw new Error('sidecar manager is stopping')
+    const previousInfo = this.#info
+    await this.#scheduleRestart('explicit renderer restart requested')
+    if (!this.#info || this.#info === previousInfo) throw new Error('sidecar restart did not become ready')
+    return { ...this.#info }
+  }
+
+  async updateSessionCwd(sessionId: string, cwd: string): Promise<string> {
+    const info = this.#info
+    if (!info) throw new Error('sidecar is not ready')
+    if (typeof sessionId !== 'string' || sessionId.length < 1 || sessionId.length > 256 || !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(sessionId)) {
+      throw new Error('session id is invalid')
+    }
+    if (typeof cwd !== 'string' || cwd.length < 1 || cwd.length > 8_192 || cwd.includes('\0')) {
+      throw new Error('workspace cwd is invalid')
+    }
+    const url = new URL(`/desktop/api/sessions/${encodeURIComponent(sessionId)}`, info.baseUrl)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    try {
+      const response = await this.#fetch(url, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          'Content-Type': 'application/json',
+          'X-Desktop-Workspace-Grant': this.#workspaceGrant,
+        },
+        body: JSON.stringify({ cwd }),
+        signal: controller.signal,
+      })
+      if (!response.ok) throw new Error(`workspace update failed with HTTP ${response.status}`)
+      const payload = await response.json() as { cwd?: unknown }
+      if (typeof payload.cwd !== 'string' || payload.cwd.length < 1) {
+        throw new Error('workspace update response did not include cwd')
+      }
+      return payload.cwd
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
   #startHealthChecks(): void {
