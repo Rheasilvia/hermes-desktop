@@ -41,6 +41,7 @@ export interface SidecarManagerOptions extends SidecarPaths {
   terminateTree?: (child: ChildProcess, platform: NodeJS.Platform) => Promise<void>
   readyTimeoutMs?: number
   healthIntervalMs?: number
+  logReporter?: (message: string) => void
 }
 
 export interface SidecarLogIo {
@@ -167,6 +168,7 @@ export function createSidecarLogWriter(
     mkdir: (directory) => mkdirSync(directory, { recursive: true }),
     append: (file, contents) => appendFileSync(file, contents, { encoding: 'utf8', mode: 0o600 }),
   },
+  reportDisabled: (message: string) => void = (message) => console.warn(message),
 ): (line: string) => void {
   let ready = false
   let disabled = false
@@ -182,6 +184,11 @@ export function createSidecarLogWriter(
       // Logging must never interrupt process supervision. Do not echo the
       // original line to stderr/console because it may contain a secret.
       disabled = true
+      try {
+        reportDisabled('Hermes Studio sidecar file logging disabled')
+      } catch {
+        // A diagnostic reporter is best-effort and must also be fail-safe.
+      }
     }
   }
 }
@@ -253,6 +260,7 @@ export class SidecarManager extends EventEmitter {
   #restart?: Promise<void>
   #cleanup?: Promise<void>
   #cleanupChild?: ChildProcess
+  #cancelBackoff?: () => void
   #stopping = false
   #intentionalStops = new WeakSet<ChildProcess>()
 
@@ -269,7 +277,12 @@ export class SidecarManager extends EventEmitter {
     this.#clearInterval = options.clearInterval ?? globalThis.clearInterval
     this.#terminateTree = options.terminateTree ?? terminateOwnedProcessTree
     const logPath = path.join(resolveHermesHome(this.#env), 'logs', 'hermes-studio.log')
-    this.#log = createSidecarLogWriter(logPath, [this.token, this.#workspaceGrant])
+    this.#log = createSidecarLogWriter(
+      logPath,
+      [this.token, this.#workspaceGrant],
+      undefined,
+      options.logReporter,
+    )
   }
 
   get info(): SidecarInfo | undefined {
@@ -290,6 +303,7 @@ export class SidecarManager extends EventEmitter {
 
   async stop(): Promise<void> {
     this.#stopping = true
+    this.#cancelBackoff?.()
     if (this.#healthTimer) {
       this.#clearInterval(this.#healthTimer)
       this.#healthTimer = undefined
@@ -445,7 +459,19 @@ export class SidecarManager extends EventEmitter {
     return cleanup
   }
 
+  async #waitForBackoff(delay: number): Promise<void> {
+    let wake!: () => void
+    const stopped = new Promise<void>((resolve) => { wake = resolve })
+    this.#cancelBackoff = wake
+    try {
+      await Promise.race([this.#sleep(delay), stopped])
+    } finally {
+      if (this.#cancelBackoff === wake) this.#cancelBackoff = undefined
+    }
+  }
+
   async #restartAfterFailure(reason: string): Promise<void> {
+    if (this.#stopping) return
     const delay = this.#restartWindow.nextDelay(this.#now())
     if (delay === undefined) {
       const error = new Error('sidecar restart cap reached (5 attempts in 60 seconds)')
@@ -457,7 +483,7 @@ export class SidecarManager extends EventEmitter {
     const child = this.#child
     this.#info = undefined
     if (child) await this.#terminateChild(child)
-    await this.#sleep(delay)
+    await this.#waitForBackoff(delay)
     if (this.#stopping) return
     try {
       await this.#spawnAndWait()
@@ -465,6 +491,7 @@ export class SidecarManager extends EventEmitter {
       this.emit('restarted', this.info)
     } catch (error) {
       this.#log(`sidecar restart failed: ${error instanceof Error ? error.message : String(error)}`)
+      if (this.#stopping) return
       await this.#restartAfterFailure('sidecar restart failed')
     }
   }

@@ -125,18 +125,24 @@ describe('sidecar protocol and secrets', () => {
 
   it('disables a failing log sink without throwing or echoing secrets', () => {
     const append = vi.fn()
+    const reporter = vi.fn()
     const mkdirFailure = createSidecarLogWriter('/invalid/log', ['secret'], {
       mkdir: () => { throw new Error('read only') },
       append,
-    })
+    }, reporter)
     expect(() => mkdirFailure('Authorization: Bearer secret')).not.toThrow()
+    expect(() => mkdirFailure('Authorization: Bearer another-secret')).not.toThrow()
     expect(append).not.toHaveBeenCalled()
+    expect(reporter).toHaveBeenCalledOnce()
+    expect(reporter).toHaveBeenCalledWith('Hermes Studio sidecar file logging disabled')
+    expect(JSON.stringify(reporter.mock.calls)).not.toContain('secret')
+    expect(JSON.stringify(reporter.mock.calls)).not.toContain('read only')
 
     const appendFailure = vi.fn(() => { throw new Error('disk full') })
     const writer = createSidecarLogWriter('/invalid/log', ['secret'], {
       mkdir: vi.fn(),
       append: appendFailure,
-    })
+    }, () => { throw new Error('reporter unavailable') })
     expect(() => writer('token=secret')).not.toThrow()
     expect(() => writer('token=secret-again')).not.toThrow()
     expect(appendFailure).toHaveBeenCalledTimes(1)
@@ -201,6 +207,7 @@ describe('SidecarManager', () => {
     const invalidHome = path.join(temporary, 'not-a-directory')
     writeFileSync(invalidHome, 'blocked')
     let spawned = 0
+    const logReporter = vi.fn()
     const manager = new SidecarManager({
       appRoot: '/studio', resourcesPath: '/resources', isPackaged: false, platform: 'linux',
       env: { HERMES_HOME: invalidHome },
@@ -218,6 +225,7 @@ describe('SidecarManager', () => {
       setInterval: vi.fn(() => 1) as unknown as typeof globalThis.setInterval,
       clearInterval: vi.fn() as unknown as typeof globalThis.clearInterval,
       terminateTree: async () => undefined,
+      logReporter,
     })
     try {
       await expect(manager.start()).resolves.toMatchObject({ baseUrl: 'http://127.0.0.1:45001' })
@@ -225,6 +233,7 @@ describe('SidecarManager', () => {
       await manager.probeNow()
       await expect(manager.probeNow()).resolves.toBe(false)
       expect(spawned).toBe(2)
+      expect(logReporter).toHaveBeenCalledOnce()
       await manager.stop()
     } finally {
       rmSync(temporary, { recursive: true, force: true })
@@ -294,6 +303,36 @@ describe('SidecarManager', () => {
 
     expect(spawnProcess).toHaveBeenCalledTimes(2)
     expect(manager.info?.baseUrl).toBe('http://127.0.0.1:45202')
+    await manager.stop()
+  })
+
+  it('recovers in the background when the initial spawn throws synchronously', async () => {
+    const retryDelay = deferred()
+    let attempts = 0
+    const spawnProcess = vi.fn(() => {
+      attempts += 1
+      if (attempts === 1) throw new Error('spawn unavailable')
+      const child = fakeChild(22_000)
+      queueMicrotask(() => child.stdout?.emit('data', 'READY 45203\n'))
+      return child
+    }) as unknown as typeof import('node:child_process').spawn
+    const manager = new SidecarManager({
+      appRoot: '/studio', resourcesPath: '/resources', isPackaged: false, platform: 'linux',
+      env: { HERMES_HOME: '/tmp/hermes-studio-initial-spawn-test' },
+      spawnProcess,
+      sleep: async () => retryDelay.promise,
+      setInterval: vi.fn(() => 1) as unknown as typeof globalThis.setInterval,
+      clearInterval: vi.fn() as unknown as typeof globalThis.clearInterval,
+      terminateTree: async () => undefined,
+    })
+
+    await expect(manager.start()).rejects.toThrow('spawn unavailable')
+    const recovered = once(manager, 'restarted')
+    retryDelay.resolve()
+    await recovered
+
+    expect(spawnProcess).toHaveBeenCalledTimes(2)
+    expect(manager.info?.baseUrl).toBe('http://127.0.0.1:45203')
     await manager.stop()
   })
 
@@ -410,6 +449,82 @@ describe('SidecarManager', () => {
     await Promise.all([restartingProbe, stopping])
     expect(stopResolved).toBe(true)
     expect(spawned).toBe(1)
+  })
+
+  it('wakes a deferred restart backoff on stop without respawning', async () => {
+    const backoff = deferred()
+    const sleep = vi.fn(async () => backoff.promise)
+    let spawned = 0
+    const manager = new SidecarManager({
+      appRoot: '/studio', resourcesPath: '/resources', isPackaged: false, platform: 'linux',
+      env: { HERMES_HOME: '/tmp/hermes-studio-stop-backoff-test' },
+      spawnProcess: vi.fn(() => {
+        const child = fakeChild(32_000 + spawned)
+        spawned += 1
+        queueMicrotask(() => child.stdout?.emit('data', `READY ${48_000 + spawned}\n`))
+        return child
+      }) as unknown as typeof import('node:child_process').spawn,
+      fetch: vi.fn(async () => new Response(null, { status: 503 })),
+      sleep,
+      setInterval: vi.fn(() => 1) as unknown as typeof globalThis.setInterval,
+      clearInterval: vi.fn() as unknown as typeof globalThis.clearInterval,
+      terminateTree: async () => undefined,
+    })
+    await manager.start()
+    await manager.probeNow()
+    await manager.probeNow()
+    const restartingProbe = manager.probeNow()
+    await vi.waitFor(() => expect(sleep).toHaveBeenCalledOnce())
+
+    await manager.stop()
+    await restartingProbe
+
+    expect(spawned).toBe(1)
+    expect(manager.info).toBeUndefined()
+  })
+
+  it('stops a replacement waiting for READY without another backoff', async () => {
+    const replacementCleanup = deferred()
+    const children: ChildProcess[] = []
+    const sleep = vi.fn(async () => undefined)
+    const terminateTree = vi.fn(async (child: ChildProcess) => {
+      if (child !== children[1]) return
+      await replacementCleanup.promise
+      Object.assign(child, { exitCode: 1 })
+      child.emit('exit', 1, null)
+    })
+    const manager = new SidecarManager({
+      appRoot: '/studio', resourcesPath: '/resources', isPackaged: false, platform: 'linux',
+      env: { HERMES_HOME: '/tmp/hermes-studio-stop-ready-test' },
+      spawnProcess: vi.fn(() => {
+        const child = fakeChild(33_000 + children.length)
+        children.push(child)
+        if (children.length === 1) queueMicrotask(() => child.stdout?.emit('data', 'READY 49001\n'))
+        return child
+      }) as unknown as typeof import('node:child_process').spawn,
+      fetch: vi.fn(async () => new Response(null, { status: 503 })),
+      sleep,
+      setInterval: vi.fn(() => 1) as unknown as typeof globalThis.setInterval,
+      clearInterval: vi.fn() as unknown as typeof globalThis.clearInterval,
+      terminateTree,
+    })
+    await manager.start()
+    await manager.probeNow()
+    await manager.probeNow()
+    const restartingProbe = manager.probeNow()
+    await vi.waitFor(() => expect(children).toHaveLength(2))
+
+    let stopped = false
+    const stopping = manager.stop().then(() => { stopped = true })
+    await vi.waitFor(() => expect(terminateTree).toHaveBeenCalledWith(children[1], 'linux'))
+    expect(stopped).toBe(false)
+    replacementCleanup.resolve()
+    await Promise.all([stopping, restartingProbe])
+
+    expect(stopped).toBe(true)
+    expect(children).toHaveLength(2)
+    expect(sleep).toHaveBeenCalledTimes(1)
+    expect(manager.info).toBeUndefined()
   })
 
   it('restarts after an unexpected exit immediately after READY handoff', async () => {

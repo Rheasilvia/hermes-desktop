@@ -30,7 +30,8 @@ exponential (1, 2, 4, 8, 16 seconds, capped at 30 seconds), with no more than
 five attempts in a rolling 60-second window. An initial spawn, READY timeout,
 or pre-READY exit opens the shell in degraded mode and enters that same bounded
 background recovery policy. Shutdown waits for any in-flight restart cleanup
-and prevents a delayed restart from spawning a new child. It targets only the
+while waking a pending backoff immediately, and prevents a stopped READY wait
+from recursing into another delay or spawning a new child. It targets only the
 child created by the manager: a detached process group on POSIX or `taskkill
 /PID <owned-pid> /T /F` on Windows. No process-name-wide kill is used.
 
