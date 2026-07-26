@@ -29,7 +29,7 @@ untrusted/remote content
 
 | Boundary | Contract |
 | --- | --- |
-| Renderer to preload | `contextBridge` exposes one deeply frozen object. No `ipcRenderer`, Node, filesystem, shell, or process primitive crosses the boundary. |
+| Renderer to preload | `contextBridge` exposes one deeply frozen object. No `ipcRenderer`, Node, filesystem, shell, raw `webUtils`, or process primitive crosses the boundary. The one OS-drop method accepts original `File` objects and synchronously resolves them inside preload. |
 | Preload to main | Named channels from `src/shared/native-bridge.ts`; one request payload; `{ok,value}` or `{ok:false,error:{code,message}}` response. |
 | IPC sender to handler | Sender must be the current main window's exact `webContents.mainFrame` and its URL must be exactly `hermes-studio://app` or the validated development origin. Same-origin subframes are rejected. |
 | Main to sidecar | `127.0.0.1` only, random API bearer token, random separate workspace-grant token. |
@@ -51,8 +51,9 @@ other ports, paths, queries, and fragments are rejected.
 Navigation, redirects, new windows, and webview attachment are denied. Both
 permission request and permission check handlers default-deny everything except
 audio-only media requested by the trusted app main frame. Video is rejected.
-Windows alone accepts Electron 40's omitted media-detail shape after every
-other trust check passes; macOS/Linux fail closed. The macOS package declares
+Windows alone accepts Electron 40's absent, empty, or `unknown` media-detail
+shapes after every other trust check passes; explicit video remains denied and
+macOS/Linux fail closed. The macOS package declares
 the microphone usage description plus explicit audio/JIT/native-library
 entitlements.
 
@@ -68,8 +69,9 @@ origin. Object, base, ancestor, and form capabilities are disabled.
 
 1. Register privileged app and asset schemes before Electron is ready.
 2. Claim the single-instance lock; a second launch focuses the existing window.
-3. Select a Studio-specific Electron `userData` directory and configure the
-   default session's permissions and security headers.
+3. Select a Studio-specific Electron `userData` directory, validate/prune the
+   bounded persistent attachment staging inventory, and configure the default
+   session's permissions and security headers.
 4. Register protocols, native services, validated IPC handlers, and lifecycle
    event forwarding.
 5. Create and show the window independently of backend readiness.
@@ -112,22 +114,39 @@ parameters are redacted before writing.
 
 - Hermes Home reads, writes, and listings accept relative paths only, resolve
   symlinks, enforce containment, cap content, require UTF-8 text, and write
-  atomically. Reads use verified descriptors; writes and listings compare
-  canonical directory identity immediately around use. Node has no portable
+  atomically. Reads use a bounded descriptor loop through `maxBytes + 1`;
+  listings stop `opendir()` iteration at `maxEntries + 1`; writes and listings
+  compare canonical directory identity immediately around use. Node has no portable
   cross-platform `openat`, so this is a fail-closed race detector rather than
   an absolute same-user filesystem sandbox.
 - Workspace selection uses Electron's native directory dialog. Main retains a
   private grant and sends the canonical cwd to the sidecar with both API and
   workspace-grant authentication; the grant never appears in bridge state.
-- Attachment selection is limited to file/folder/image modes. Main owns the
-  fixed image filter, canonicalizes file/folder results, and descriptor-copies
-  external images into a session-specific staging root. A different session
-  cannot persist a known staged path, and shutdown removes staged files.
-- Clipboard and persisted image services validate image type and size. Remote
+- Attachment selection is limited to file/folder/image modes and returns typed
+  `{kind,path,name}` records so a random staged path never replaces the source
+  display name. Main owns the fixed image filter, canonicalizes file/folder
+  results, and descriptor-copies external images into a session-specific root.
+  OS drag/drop uses a separate high-level method: preload applies Electron 40
+  `webUtils.getPathForFile` synchronously to at most 64 original `File` objects,
+  and main repeats metadata/path validation before canonicalizing or staging.
+  Raw `webUtils` and generic path resolution are not exposed.
+- Image staging is serialized and has per-session and process-wide file/byte
+  caps. A batch rolls back on any failure; any post-create write or rollback
+  cleanup failure invalidates the in-memory inventory so disk is reconstructed
+  before another admission. Valid staged images persist across clean shutdown/
+  restart so localStorage composer drafts remain usable. Startup canonically
+  scans a hard-bounded number of entries, reads at most 4 KiB of signature from
+  each stable descriptor, and prunes illegal, expired, or over-quota crash
+  remainders before rebuilding inventory. Scan overflow rotates through one
+  known, startup-swept quarantine rather than creating unbounded siblings. A
+  different session cannot persist a known staged path.
+- One image-format table controls picker extensions, magic validation,
+  persistence, and MIME responses for PNG, JPG/JPEG, GIF, WebP, BMP, TIFF/TIF,
+  HEIC/HEIF, and ICO; ISO-BMFF `ftyp` inspection is capped at 4 KiB. Clipboard and persisted image services also cap size. Remote
   clipboard downloads resolve and pin public IP addresses, reject private or
   reserved networks, revalidate redirects, time out, and enforce byte limits.
-- PTYs are keyed by random IDs, use bounded dimensions/input and streaming UTF-8
-  decoding, route data/exit/error events by ID, and are all stopped during
+- PTYs are keyed by random IDs, use bounded dimensions/input and direct
+  byte-preserving `Buffer` writes, route data/exit/error events by ID, and are all stopped during
   shutdown. They are user-authorized arbitrary login shells, not sandboxes, and
   preserve the user's environment/API keys; only npm/color noise and private
   Studio/sidecar variables are removed. POSIX repairs node-pty `spawn-helper`
@@ -142,9 +161,11 @@ parameters are redacted before writing.
 ## Shutdown
 
 Every `before-quit` event is prevented while one shared cleanup promise is in
-progress. Main saves window state best-effort, independently closes PTYs and
-notifications, revokes opaque handles/workspace grants/staged attachments, and
-awaits sidecar shutdown before one final allowed quit. Failure in one cleanup
+progress. Cleanup first closes native IPC admission synchronously and drains
+every already-admitted handler. Main then saves window state best-effort,
+independently closes PTYs and notifications, revokes ephemeral opaque handles
+and workspace grants, closes attachment staging without deleting valid draft
+images or rescanning their contents, and awaits sidecar shutdown before one final allowed quit. Failure in one cleanup
 step is reported but cannot skip later steps. Sidecar shutdown wakes any
 pending restart backoff, waits for in-flight cleanup, and targets only the child
 created by this manager: its detached process group on POSIX or the owned PID's

@@ -31,17 +31,40 @@ describe('native shutdown', () => {
     const calls: string[] = []
     const report = vi.fn()
     await runNativeCleanup({
+      closeAndDrainIpc: async () => { calls.push('ipc') },
       saveWindowState: () => { calls.push('save'); throw new Error('disk full') },
       shutdownTerminals: () => { calls.push('terminal') },
       shutdownNotifications: () => { calls.push('notification'); throw new Error('notification failure') },
       clearAssetHandles: () => { calls.push('assets') },
       clearWorkspaceGrants: () => { calls.push('grants') },
-      clearAttachmentStaging: async () => { calls.push('staging') },
+      closeAttachmentStaging: async () => { calls.push('staging') },
       stopSidecar: async () => { calls.push('sidecar') },
       report,
     })
 
-    expect(calls).toEqual(['save', 'terminal', 'notification', 'assets', 'grants', 'staging', 'sidecar'])
+    expect(calls).toEqual(['ipc', 'save', 'terminal', 'notification', 'assets', 'grants', 'staging', 'sidecar'])
     expect(report).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not begin resource cleanup until admitted IPC has drained', async () => {
+    let finishDrain!: () => void
+    const drain = new Promise<void>((resolve) => { finishDrain = resolve })
+    const calls: string[] = []
+    const cleanup = runNativeCleanup({
+      closeAndDrainIpc: async () => { calls.push('ipc'); await drain },
+      saveWindowState: () => { calls.push('save') },
+      shutdownTerminals: () => { calls.push('terminal') },
+      shutdownNotifications: () => { calls.push('notification') },
+      clearAssetHandles: () => { calls.push('assets') },
+      clearWorkspaceGrants: () => { calls.push('grants') },
+      closeAttachmentStaging: () => { calls.push('staging') },
+      stopSidecar: () => { calls.push('sidecar') },
+    })
+
+    await Promise.resolve()
+    expect(calls).toEqual(['ipc'])
+    finishDrain()
+    await cleanup
+    expect(calls).toEqual(['ipc', 'save', 'terminal', 'notification', 'assets', 'grants', 'staging', 'sidecar'])
   })
 })

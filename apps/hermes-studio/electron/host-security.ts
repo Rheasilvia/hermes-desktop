@@ -58,12 +58,20 @@ export function configureSessionSecurity(session: SessionSecurityLike, options: 
   }
   // Electron 40 documents MediaAccessPermissionRequest.mediaTypes and
   // PermissionCheckHandlerHandlerDetails.mediaType as optional. Chromium on Windows
-  // can omit them for a microphone-only request, so compatibility is allowed only
-  // after the exact webContents, main-frame, origin, and `media` checks succeed.
+  // can omit them or report empty/unknown metadata for a microphone-only request,
+  // so compatibility is allowed only after the exact webContents, main-frame,
+  // origin, and `media` checks succeed.
   // https://www.electronjs.org/docs/latest/api/session#sessetpermissionrequesthandlerhandler
   const mediaTypesWithWindowsCompatibility = (
     mediaTypes: readonly string[] | undefined,
-  ): readonly string[] => mediaTypes === undefined && platform === 'win32' ? ['audio'] : (mediaTypes ?? [])
+  ): readonly string[] => {
+    if (platform !== 'win32') return mediaTypes ?? []
+    if (!mediaTypes?.length) return ['audio']
+    const normalized = mediaTypes.map((mediaType) => mediaType.trim().toLowerCase())
+    return normalized.every((mediaType) => mediaType === '' || mediaType === 'unknown')
+      ? ['audio']
+      : normalized
+  }
 
   session.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const requestingOrigin = details.securityOrigin ?? details.requestingUrl ?? ''
@@ -76,9 +84,9 @@ export function configureSessionSecurity(session: SessionSecurityLike, options: 
       ))
   })
   session.setPermissionCheckHandler((webContents, permission, origin, details) => {
-    const mediaTypes = details.mediaType === undefined
-      ? mediaTypesWithWindowsCompatibility(undefined)
-      : [details.mediaType]
+    const mediaTypes = mediaTypesWithWindowsCompatibility(
+      details.mediaType === undefined ? undefined : [details.mediaType],
+    )
     return isTrustedMainFrame(webContents, details.isMainFrame)
       && isMicrophonePermission(
         details.securityOrigin ?? details.requestingUrl ?? origin,

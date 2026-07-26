@@ -8,11 +8,11 @@ import { TerminalManager, type PtyProcessLike, type PtySpawner } from './termina
 
 class FakePty extends EventEmitter implements PtyProcessLike {
   pid = 42
-  writes: string[] = []
+  writes: Array<string | Buffer> = []
   resizes: Array<[number, number]> = []
   killed = false
 
-  write(data: string): void { this.writes.push(data) }
+  write(data: string | Buffer): void { this.writes.push(data) }
   resize(cols: number, rows: number): void { this.resizes.push([cols, rows]) }
   kill(): void { this.killed = true }
   onData(listener: (data: string) => void): { dispose(): void } {
@@ -58,7 +58,7 @@ describe('TerminalManager', () => {
 
     manager.write({ id: started.id, data: [0xe4, 0xbd, 0xa0] })
     manager.resize({ id: started.id, cols: 120, rows: 40 })
-    expect(pty.writes).toEqual([Buffer.from([0xe4, 0xbd, 0xa0]).toString()])
+    expect(pty.writes).toEqual([Buffer.from([0xe4, 0xbd, 0xa0])])
     expect(pty.resizes).toEqual([[120, 40]])
 
     pty.emit('exit', { exitCode: 0, signal: 15 })
@@ -141,18 +141,21 @@ describe('TerminalManager', () => {
     expect(environment.NO_COLOR).toBeUndefined()
   })
 
-  it('decodes UTF-8 input across write boundaries and finalizes pending input on stop', async () => {
-    const cwd = mkdtempSync(path.join(tmpdir(), 'studio-pty-streaming-utf8-'))
+  it('writes every renderer byte directly without UTF-8 decoding or stop-time replacement', async () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), 'studio-pty-byte-preserving-'))
     const pty = new FakePty()
     const manager = new TerminalManager({ spawn: () => pty })
     const started = await manager.start({ cwd, cols: 80, rows: 24 })
 
     manager.write({ id: started.id, data: [0xe4] })
-    expect(pty.writes).toEqual([])
     manager.write({ id: started.id, data: [0xbd, 0xa0] })
-    expect(pty.writes).toEqual(['你'])
-    manager.write({ id: started.id, data: [0xe4] })
+    manager.write({ id: started.id, data: [0xff, 0x00, 0x1b, 0x9b] })
+    expect(pty.writes).toEqual([
+      Buffer.from([0xe4]),
+      Buffer.from([0xbd, 0xa0]),
+      Buffer.from([0xff, 0x00, 0x1b, 0x9b]),
+    ])
     manager.stop(started.id)
-    expect(pty.writes).toEqual(['你', '�'])
+    expect(pty.writes).toHaveLength(3)
   })
 })

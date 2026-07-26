@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../src/shared/native-bridge.js'
 import { registerNativeBridge, type NativeBridgeMainOptions } from './native-bridge-main.js'
-import type { IpcEventLike, IpcMainLike } from './ipc-router.js'
+import { IpcAdmissionController, type IpcEventLike, type IpcMainLike } from './ipc-router.js'
 
 describe('registered native capability ledger', () => {
   it('routes every retained legacy capability through the narrow high-level bridge', async () => {
@@ -16,7 +16,8 @@ describe('registered native capability ledger', () => {
       sidecar: { info: { baseUrl: 'http://127.0.0.1:43123', token: 'api' }, restart: vi.fn(async () => ({ baseUrl: 'http://127.0.0.1:43124', token: 'api' })) },
       hermesHome: { getPath: vi.fn(async () => '/home/.hermes'), readText: vi.fn(async () => 'text'), writeText: vi.fn(async () => undefined), list: vi.fn(async () => ['a']) },
       selectWorkspace: vi.fn(async () => '/workspace'),
-      selectAttachments: vi.fn(async () => ['/managed/image.png']),
+      selectAttachments: vi.fn(async () => [{ kind: 'image' as const, path: '/managed/image.png', name: 'photo.png' }]),
+      importDroppedFiles: vi.fn(async () => [{ kind: 'image' as const, path: '/managed/photo.png', name: 'photo.png' }]),
       clipboard: { read: vi.fn(async () => null), copyRemote: vi.fn(async () => undefined) },
       assets: { issue: vi.fn(async () => 'hermes-studio-asset://asset/opaque') },
       assetStore: { persist: vi.fn(async () => ({ path: '/asset.png', url: 'hermes-studio-asset://asset/opaque' })) },
@@ -26,6 +27,7 @@ describe('registered native capability ledger', () => {
     }
     registerNativeBridge({
       ipcMain,
+      admission: new IpcAdmissionController(),
       isTrustedSender: () => true,
       app: { isPackaged: true, getVersion: () => '1.2.3' },
       platform: 'linux',
@@ -34,6 +36,7 @@ describe('registered native capability ledger', () => {
       hermesHome: services.hermesHome,
       selectWorkspaceForSession: services.selectWorkspace,
       selectAttachments: services.selectAttachments,
+      importDroppedFiles: services.importDroppedFiles,
       clipboard: services.clipboard,
       assetRegistry: services.assets,
       assetStore: services.assetStore,
@@ -58,7 +61,10 @@ describe('registered native capability ledger', () => {
     await invoke(IPC_CHANNELS.hermesHome.list, { path: '.' })
     await invoke(IPC_CHANNELS.workspace.selectForSession, { sessionId: 'desktop_1' })
     await expect(invoke(IPC_CHANNELS.workspace.selectAttachments, { sessionId: 'desktop_1', kind: 'image', multiple: true }))
-      .resolves.toEqual({ ok: true, value: ['/managed/image.png'] })
+      .resolves.toEqual({
+        ok: true,
+        value: [{ kind: 'image', path: '/managed/image.png', name: 'photo.png' }],
+      })
     expect(services.selectAttachments).toHaveBeenCalledWith({ sessionId: 'desktop_1', kind: 'image', multiple: true })
     await expect(invoke(IPC_CHANNELS.workspace.selectAttachments, {
       sessionId: 'desktop_1', kind: 'anything', multiple: true,
@@ -66,6 +72,29 @@ describe('registered native capability ledger', () => {
     await expect(invoke(IPC_CHANNELS.workspace.selectAttachments, {
       sessionId: '../escape', kind: 'file', multiple: false,
     })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_SESSION_ID' } })
+    const droppedFiles = [{ path: '/Users/example/photo.png', name: 'photo.png', type: 'image/png', size: 42 }]
+    await expect(invoke(IPC_CHANNELS.workspace.importDroppedFiles, {
+      sessionId: 'desktop_1', files: droppedFiles,
+    })).resolves.toEqual({
+      ok: true,
+      value: [{ kind: 'image', path: '/managed/photo.png', name: 'photo.png' }],
+    })
+    expect(services.importDroppedFiles).toHaveBeenCalledWith('desktop_1', droppedFiles)
+    await expect(invoke(IPC_CHANNELS.workspace.importDroppedFiles, {
+      sessionId: '../escape', files: droppedFiles,
+    })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_SESSION_ID' } })
+    for (const payload of [
+      { sessionId: 'desktop_1', files: [] },
+      { sessionId: 'desktop_1', files: Array.from({ length: 65 }, () => droppedFiles[0]) },
+      { sessionId: 'desktop_1', files: [{ ...droppedFiles[0], path: 'bad\0path' }] },
+      { sessionId: 'desktop_1', files: [{ ...droppedFiles[0], name: '../photo.png' }] },
+      { sessionId: 'desktop_1', files: [{ ...droppedFiles[0], type: `image/${'x'.repeat(256)}` }] },
+      { sessionId: 'desktop_1', files: [{ ...droppedFiles[0], size: -1 }] },
+      { sessionId: 'desktop_1', files: [{ ...droppedFiles[0], size: 1.5 }] },
+    ]) {
+      await expect(invoke(IPC_CHANNELS.workspace.importDroppedFiles, payload))
+        .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    }
     await invoke(IPC_CHANNELS.clipboard.readImage)
     await invoke(IPC_CHANNELS.clipboard.copyRemoteImage, { url: 'https://example.com/image.png' })
     await invoke(IPC_CHANNELS.assets.persistSessionImage, { sessionId: 'desktop_1', sourcePath: '/clip.png' })

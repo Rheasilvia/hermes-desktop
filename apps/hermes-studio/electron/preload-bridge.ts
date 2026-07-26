@@ -1,5 +1,7 @@
 import {
   IPC_CHANNELS,
+  MAX_DROPPED_FILES,
+  type DroppedFileDescriptor,
   type HermesStudioBridge,
   type IpcResult,
   type NativeError,
@@ -9,6 +11,10 @@ export interface IpcRendererLike {
   invoke(channel: string, payload?: unknown): Promise<unknown>
   on(channel: string, listener: (event: unknown, payload: unknown) => void): unknown
   off(channel: string, listener: (event: unknown, payload: unknown) => void): unknown
+}
+
+export interface WebUtilsLike {
+  getPathForFile(file: File): string
 }
 
 export class HermesStudioNativeError extends Error {
@@ -21,6 +27,67 @@ export class HermesStudioNativeError extends Error {
   }
 }
 
+function invalidDroppedFiles(message: string): never {
+  throw new HermesStudioNativeError({ code: 'INVALID_ARGUMENT', message })
+}
+
+function droppedFileDescriptors(
+  files: readonly File[],
+  webUtils: WebUtilsLike | undefined,
+): DroppedFileDescriptor[] {
+  if (!Array.isArray(files) || files.length < 1 || files.length > MAX_DROPPED_FILES) {
+    return invalidDroppedFiles(`Dropped files must contain between 1 and ${MAX_DROPPED_FILES} entries`)
+  }
+  if (!webUtils) {
+    throw new HermesStudioNativeError({
+      code: 'DROPPED_FILE_UNBACKED',
+      message: 'Dropped file is not backed by an operating-system path',
+    })
+  }
+
+  const metadata: Array<{ file: File; name: string; type: string; size: number }> = []
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index]
+    let name: unknown
+    let type: unknown
+    let size: unknown
+    try {
+      name = file?.name
+      type = file?.type
+      size = file?.size
+    } catch {
+      return invalidDroppedFiles(`Dropped file ${index} metadata is invalid`)
+    }
+    if (typeof name !== 'string' || name.length < 1 || name.length > 512 || name.includes('\0')) {
+      return invalidDroppedFiles(`Dropped file ${index} name is invalid`)
+    }
+    if (typeof type !== 'string' || type.length > 255 || type.includes('\0')) {
+      return invalidDroppedFiles(`Dropped file ${index} type is invalid`)
+    }
+    if (!Number.isSafeInteger(size) || Number(size) < 0) {
+      return invalidDroppedFiles(`Dropped file ${index} size is invalid`)
+    }
+    metadata.push({ file, name, type, size: Number(size) })
+  }
+
+  return metadata.map(({ file, name, type, size }) => {
+    let sourcePath = ''
+    try {
+      sourcePath = webUtils.getPathForFile(file)
+    } catch {
+      // Electron rejects synthetic File objects. Keep the renderer-facing
+      // failure stable and do not invoke a privileged main-process path.
+    }
+    if (!sourcePath) {
+      throw new HermesStudioNativeError({
+        code: 'DROPPED_FILE_UNBACKED',
+        message: 'Dropped file is not backed by an operating-system path',
+      })
+    }
+    return { path: sourcePath, name, type, size }
+  })
+}
+
 function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
   const kind = typeof value
   if ((kind !== 'object' && kind !== 'function') || value === null || seen.has(value as object)) return value
@@ -29,7 +96,7 @@ function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
   return Object.freeze(value)
 }
 
-export function createHermesStudioBridge(ipc: IpcRendererLike): HermesStudioBridge {
+export function createHermesStudioBridge(ipc: IpcRendererLike, webUtils?: WebUtilsLike): HermesStudioBridge {
   const invoke = async <T>(channel: string, payload?: unknown): Promise<T> => {
     const result = await ipc.invoke(channel, payload) as IpcResult<T>
     if (!result || typeof result !== 'object' || !('ok' in result)) {
@@ -73,6 +140,10 @@ export function createHermesStudioBridge(ipc: IpcRendererLike): HermesStudioBrid
     workspace: {
       selectForSession: (sessionId) => invoke(IPC_CHANNELS.workspace.selectForSession, { sessionId }),
       selectAttachments: (options) => invoke(IPC_CHANNELS.workspace.selectAttachments, options),
+      importDroppedFiles: async (sessionId, files) => {
+        const descriptors = droppedFileDescriptors(files, webUtils)
+        return invoke(IPC_CHANNELS.workspace.importDroppedFiles, { sessionId, files: descriptors })
+      },
     },
     clipboard: {
       readImage: () => invoke(IPC_CHANNELS.clipboard.readImage),

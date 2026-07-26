@@ -62,4 +62,70 @@ describe('preload bridge', () => {
     unsubscribe()
     expect(off).toHaveBeenCalledTimes(1)
   })
+
+  it('imports real OS-dropped Files through webUtils without exposing a raw path API', async () => {
+    const invoke = vi.fn(async (): Promise<IpcResult<unknown>> => ({
+      ok: true,
+      value: [{ kind: 'image', path: '/managed/photo.png', name: 'photo.png' }],
+    }))
+    const dropped = { name: 'photo.png', type: 'image/png', size: 42 } as File
+    const getPathForFile = vi.fn((file: File) => file === dropped ? '/Users/example/photo.png' : '')
+    const bridge = createHermesStudioBridge(
+      { invoke, on: () => undefined, off: () => undefined },
+      { getPathForFile },
+    )
+
+    const importing = bridge.workspace.importDroppedFiles('desktop_1', [dropped])
+    expect(getPathForFile).toHaveBeenCalledWith(dropped)
+    await expect(importing).resolves.toEqual([
+      { kind: 'image', path: '/managed/photo.png', name: 'photo.png' },
+    ])
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.workspace.importDroppedFiles, {
+      sessionId: 'desktop_1',
+      files: [{ path: '/Users/example/photo.png', name: 'photo.png', type: 'image/png', size: 42 }],
+    })
+    expect('webUtils' in bridge).toBe(false)
+    expect('getPathForFile' in bridge.workspace).toBe(false)
+  })
+
+  it('rejects synthetic or empty-path dropped Files before invoking main', async () => {
+    const invoke = vi.fn(async (): Promise<IpcResult<unknown>> => ({ ok: true, value: [] }))
+    const bridge = createHermesStudioBridge(
+      { invoke, on: () => undefined, off: () => undefined },
+      { getPathForFile: () => '' },
+    )
+
+    await expect(bridge.workspace.importDroppedFiles('desktop_1', [
+      { name: 'synthetic.png', type: 'image/png', size: 1 } as File,
+    ])).rejects.toMatchObject({
+      name: 'HermesStudioNativeError',
+      code: 'DROPPED_FILE_UNBACKED',
+    })
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('bounds and validates dropped File metadata before path extraction or IPC', async () => {
+    const invoke = vi.fn(async (): Promise<IpcResult<unknown>> => ({ ok: true, value: [] }))
+    const getPathForFile = vi.fn(() => '/Users/example/file.txt')
+    const bridge = createHermesStudioBridge(
+      { invoke, on: () => undefined, off: () => undefined },
+      { getPathForFile },
+    )
+    const valid = { name: 'file.txt', type: 'text/plain', size: 1 } as File
+
+    for (const files of [
+      [],
+      Array.from({ length: 65 }, () => valid),
+      [{ name: '', type: 'text/plain', size: 1 } as File],
+      [{ name: 'file.txt', type: 1, size: 1 } as unknown as File],
+      [{ name: 'file.txt', type: 'text/plain', size: 1.5 } as File],
+    ]) {
+      await expect(bridge.workspace.importDroppedFiles('desktop_1', files)).rejects.toMatchObject({
+        name: 'HermesStudioNativeError',
+        code: 'INVALID_ARGUMENT',
+      })
+    }
+    expect(getPathForFile).not.toHaveBeenCalled()
+    expect(invoke).not.toHaveBeenCalled()
+  })
 })

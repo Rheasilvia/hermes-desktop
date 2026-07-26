@@ -27,6 +27,7 @@ export interface FileIdentity {
 export interface VerifiedFile {
   path: string
   bytes: Buffer
+  size: number
   identity: FileIdentity
   extension: string
 }
@@ -39,6 +40,17 @@ export interface VerifiedFileErrors {
   typeNotAllowed?: string
 }
 
+export interface ReadFileHandleLike {
+  stat(): Promise<Stats>
+  read(
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number | null,
+  ): Promise<{ bytesRead: number; buffer: Buffer }>
+  close(): Promise<void>
+}
+
 export interface ReadVerifiedFileOptions {
   allowedRoots: () => readonly string[] | Promise<readonly string[]>
   maxBytes: number
@@ -48,6 +60,10 @@ export interface ReadVerifiedFileOptions {
   hooks?: SafeFileHooks
   errors?: VerifiedFileErrors
   readBytes?: boolean
+  /** Read only this stable prefix while still verifying the descriptor's full size and identity. */
+  readPrefixBytes?: number
+  /** Injectable only so bounded descriptor reads can be exercised deterministically. */
+  openFile?: (path: string, flags: number) => Promise<ReadFileHandleLike>
 }
 
 export interface WriteVerifiedFileOptions {
@@ -91,7 +107,11 @@ async function assertAllowed(canonical: string, rootsProvider: ReadVerifiedFileO
   }
 }
 
-async function currentPathIdentity(canonicalPath: string): Promise<{ canonical: string; identity: FileIdentity }> {
+async function currentPathIdentity(canonicalPath: string): Promise<{
+  canonical: string
+  identity: FileIdentity
+  size: number
+}> {
   let rebound: string
   try {
     rebound = await realpath(canonicalPath)
@@ -105,7 +125,61 @@ async function currentPathIdentity(canonicalPath: string): Promise<{ canonical: 
   } catch {
     return changed()
   }
-  return { canonical: rebound, identity: identityOf(metadata) }
+  return { canonical: rebound, identity: identityOf(metadata), size: metadata.size }
+}
+
+async function readBounded(
+  handle: ReadFileHandleLike,
+  maxBytes: number,
+  initialSize: number,
+): Promise<Buffer> {
+  const maximumCapacity = maxBytes + 1
+  const initialCapacity = initialSize + 1
+  if (
+    !Number.isSafeInteger(maximumCapacity)
+    || maximumCapacity < 1
+    || !Number.isSafeInteger(initialCapacity)
+    || initialCapacity < 1
+  ) {
+    throw new RangeError('maxBytes and initialSize must be non-negative safe integers')
+  }
+  const capacity = Math.min(maximumCapacity, initialCapacity)
+  const buffer = Buffer.allocUnsafe(capacity)
+  let offset = 0
+  while (offset < capacity) {
+    const length = capacity - offset
+    const result = await handle.read(buffer, offset, length, null)
+    if (!Number.isInteger(result.bytesRead) || result.bytesRead < 0 || result.bytesRead > length) {
+      return changed()
+    }
+    if (result.bytesRead === 0) break
+    offset += result.bytesRead
+  }
+  return buffer.subarray(0, offset)
+}
+
+async function readPrefix(
+  handle: ReadFileHandleLike,
+  initialSize: number,
+  prefixBytes: number,
+): Promise<Buffer> {
+  if (!Number.isSafeInteger(prefixBytes) || prefixBytes < 0) {
+    throw new RangeError('readPrefixBytes must be a non-negative safe integer')
+  }
+  const capacity = Math.min(initialSize, prefixBytes)
+  const buffer = Buffer.allocUnsafe(capacity)
+  let offset = 0
+  while (offset < capacity) {
+    const length = capacity - offset
+    const result = await handle.read(buffer, offset, length, null)
+    if (!Number.isInteger(result.bytesRead) || result.bytesRead < 0 || result.bytesRead > length) {
+      return changed()
+    }
+    if (result.bytesRead === 0) break
+    offset += result.bytesRead
+  }
+  if (offset !== capacity) changed()
+  return buffer
 }
 
 export async function readVerifiedFile(rawPath: string, options: ReadVerifiedFileOptions): Promise<VerifiedFile> {
@@ -120,7 +194,7 @@ export async function readVerifiedFile(rawPath: string, options: ReadVerifiedFil
 
   let handle
   try {
-    handle = await open(canonical, constants.O_RDONLY | noFollowFlag)
+    handle = await (options.openFile ?? open)(canonical, constants.O_RDONLY | noFollowFlag)
   } catch {
     throw nativeError(errors.notFound ?? 'FILE_NOT_FOUND', 'File could not be opened securely')
   }
@@ -142,13 +216,32 @@ export async function readVerifiedFile(rawPath: string, options: ReadVerifiedFil
 
     const rebound = await currentPathIdentity(canonical)
     if (!sameFileIdentity(descriptorIdentity, rebound.identity)) changed()
+    if (descriptorMetadata.size !== rebound.size) changed()
     await assertAllowed(rebound.canonical, options.allowedRoots, errors.outsideRoots ?? 'FILE_PATH_NOT_ALLOWED')
 
-    const bytes = options.readBytes === false ? Buffer.alloc(0) : await handle.readFile()
-    if (bytes.byteLength > options.maxBytes) {
+    const shouldRead = options.readBytes !== false
+    const bytes = shouldRead
+      ? options.readPrefixBytes === undefined
+        ? await readBounded(handle, options.maxBytes, descriptorMetadata.size)
+        : await readPrefix(handle, descriptorMetadata.size, options.readPrefixBytes)
+      : Buffer.alloc(0)
+    const finalDescriptorMetadata = await handle.stat()
+    if (!finalDescriptorMetadata.isFile()) changed()
+    if (!sameFileIdentity(descriptorIdentity, identityOf(finalDescriptorMetadata))) changed()
+    if (finalDescriptorMetadata.size > options.maxBytes || bytes.byteLength > options.maxBytes) {
       throw nativeError(errors.tooLarge ?? 'FILE_TOO_LARGE', 'File exceeds the maximum allowed size')
     }
-    return { path: canonical, bytes, identity: descriptorIdentity, extension }
+    if (finalDescriptorMetadata.size !== descriptorMetadata.size) changed()
+    const expectedBytes = options.readPrefixBytes === undefined
+      ? finalDescriptorMetadata.size
+      : Math.min(finalDescriptorMetadata.size, options.readPrefixBytes)
+    if (shouldRead && bytes.byteLength !== expectedBytes) changed()
+
+    const finalRebound = await currentPathIdentity(canonical)
+    if (!sameFileIdentity(descriptorIdentity, finalRebound.identity)) changed()
+    if (finalDescriptorMetadata.size !== finalRebound.size) changed()
+    await assertAllowed(finalRebound.canonical, options.allowedRoots, errors.outsideRoots ?? 'FILE_PATH_NOT_ALLOWED')
+    return { path: canonical, bytes, size: finalDescriptorMetadata.size, identity: descriptorIdentity, extension }
   } finally {
     await handle.close()
   }

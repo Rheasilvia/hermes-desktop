@@ -70,18 +70,27 @@ checklist in [NATIVE_BRIDGE.md](./NATIVE_BRIDGE.md), then confirm:
 - a second launch focuses the existing window;
 - denied navigation, popups, webviews, and permissions stay denied;
 - microphone access is prompted only for an explicit voice interaction;
+- Windows microphone capture succeeds for Electron 40's absent/empty/unknown
+  media metadata while explicit camera and mixed audio/video remain denied;
 - the signed macOS app contains the Studio main/inherit audio-input,
   JIT/unsigned-executable-memory, and native-library entitlements, and packaged
   microphone capture succeeds;
 - Windows notifications use AppUserModelID `com.hermes-agent.studio` and a
   packaged toast is visibly delivered;
 - a packaged macOS/Linux PTY starts successfully from the unpacked node-pty
-  helper;
+  helper, and raw byte input (including NUL/control/invalid UTF-8) is preserved;
+- picker and OS drag/drop flows preserve the source display name, handle mixed
+  file/image drops, and preview TIFF/TIF and HEIC selections on every supported
+  native runner;
+- an unsent draft image selected before a clean app restart remains available
+  afterwards, while expired/illegal/over-quota staging remainders are pruned and
+  scan overflow recovers without accumulating quarantine directories;
 - backend failure leaves the shell open in degraded mode and recovery events
   reach the renderer;
-- repeated quit requests remain blocked until cleanup closes all PTYs, revokes
-  temporary handles/grants/staged attachments, and stops only the owned sidecar
-  process;
+- repeated quit requests remain blocked while IPC admission is closed and
+  in-flight handlers drain, then cleanup closes all PTYs, revokes ephemeral
+  handles/grants, preserves valid draft staging, and stops only the owned
+  sidecar process;
 - renderer DevTools expose neither Node/raw Electron APIs nor the private
   workspace-grant token;
 - the packaged CSP contains only the exact app/sidecar origins needed at

@@ -43,6 +43,27 @@ export interface AttachmentSelectionOptions {
   multiple: boolean
 }
 
+export interface SelectedAttachment {
+  kind: AttachmentKind
+  path: string
+  name: string
+}
+
+export interface DroppedFileDescriptor {
+  path: string
+  name: string
+  type: string
+  size: number
+}
+
+export interface ImportedDroppedFile {
+  kind: 'file' | 'image'
+  path: string
+  name: string
+}
+
+export const MAX_DROPPED_FILES = 64
+
 export interface TerminalStartOptions {
   cwd?: string | null
   cols: number
@@ -128,7 +149,8 @@ export interface HermesStudioBridge {
   }
   workspace: {
     selectForSession(sessionId: string): Promise<string>
-    selectAttachments(options: AttachmentSelectionOptions): Promise<string[]>
+    selectAttachments(options: AttachmentSelectionOptions): Promise<SelectedAttachment[]>
+    importDroppedFiles(sessionId: string, files: readonly File[]): Promise<ImportedDroppedFile[]>
   }
   clipboard: {
     readImage(): Promise<AssetReference | null>
@@ -191,6 +213,7 @@ export const IPC_CHANNELS = {
   workspace: {
     selectForSession: 'studio:workspace:select-for-session',
     selectAttachments: 'studio:workspace:select-attachments',
+    importDroppedFiles: 'studio:workspace:import-dropped-files',
   },
   clipboard: {
     readImage: 'studio:clipboard:read-image',

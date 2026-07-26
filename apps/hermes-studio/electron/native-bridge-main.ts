@@ -1,22 +1,31 @@
 import type {
   AttachmentSelectionOptions,
+  DroppedFileDescriptor,
+  ImportedDroppedFile,
   NativeAppState,
   NativeNotificationOptions,
   NativePlatform,
+  SelectedAttachment,
   NativeWindowState,
   SidecarInfo,
   TerminalStartOptions,
 } from '../src/shared/native-bridge.js'
-import { IPC_CHANNELS } from '../src/shared/native-bridge.js'
+import path from 'node:path'
+import { IPC_CHANNELS, MAX_DROPPED_FILES } from '../src/shared/native-bridge.js'
 import type { AssetRegistry, SessionAssetStore } from './assets.js'
 import type { ClipboardImages } from './clipboard-images.js'
 import type { HermesHomeFiles } from './hermes-home.js'
-import { registerValidatedHandler, type IpcEventLike, type IpcMainLike } from './ipc-router.js'
+import {
+  registerValidatedHandler,
+  type IpcAdmissionController,
+  type IpcEventLike,
+  type IpcMainLike,
+} from './ipc-router.js'
 import { nativeError } from './native-errors.js'
 import type { NotificationManager } from './notification-manager.js'
 import type { SystemOperations } from './system-ops.js'
 import type { TerminalManager } from './terminal-manager.js'
-import { expectRecord, expectSessionId, expectString } from './validation.js'
+import { expectInteger, expectRecord, expectSessionId, expectString } from './validation.js'
 
 export interface BridgeAppLike {
   isPackaged: boolean
@@ -43,6 +52,7 @@ export interface BridgeSidecarLike {
 
 export interface NativeBridgeMainOptions {
   ipcMain: IpcMainLike
+  admission: IpcAdmissionController
   isTrustedSender: (event: IpcEventLike) => boolean
   app: BridgeAppLike
   platform?: NodeJS.Platform
@@ -50,7 +60,11 @@ export interface NativeBridgeMainOptions {
   sidecar: BridgeSidecarLike
   hermesHome: HermesHomeFiles
   selectWorkspaceForSession: (sessionId: string) => Promise<string>
-  selectAttachments: (options: AttachmentSelectionOptions) => Promise<string[]>
+  selectAttachments: (options: AttachmentSelectionOptions) => Promise<SelectedAttachment[]>
+  importDroppedFiles: (
+    sessionId: string,
+    files: readonly DroppedFileDescriptor[],
+  ) => Promise<ImportedDroppedFile[]>
   clipboard: ClipboardImages
   assetRegistry: AssetRegistry
   assetStore: SessionAssetStore
@@ -79,6 +93,41 @@ function attachmentSelectionArguments(payload: unknown): AttachmentSelectionOpti
   return { sessionId: expectSessionId(sessionId), kind, multiple }
 }
 
+function droppedFileArguments(payload: unknown): {
+  sessionId: string
+  files: DroppedFileDescriptor[]
+} {
+  const { sessionId, files } = expectRecord(payload)
+  const validatedSessionId = expectSessionId(sessionId)
+  if (!Array.isArray(files) || files.length < 1 || files.length > MAX_DROPPED_FILES) {
+    throw nativeError('INVALID_ARGUMENT', `files must contain between 1 and ${MAX_DROPPED_FILES} entries`)
+  }
+  return {
+    sessionId: validatedSessionId,
+    files: files.map((value, index) => {
+      const descriptor = expectRecord(value, `files[${index}]`)
+      const sourcePath = expectString(descriptor.path, `files[${index}].path`, { min: 1, max: 8_192 })
+      if (!path.isAbsolute(sourcePath) && !path.win32.isAbsolute(sourcePath)) {
+        throw nativeError('INVALID_ARGUMENT', `files[${index}].path must be absolute`)
+      }
+      const name = expectString(descriptor.name, `files[${index}].name`, { min: 1, max: 512 })
+      if (name === '.' || name === '..' || /[\\/]/.test(name)) {
+        throw nativeError('INVALID_ARGUMENT', `files[${index}].name must be a file name`)
+      }
+      const type = expectString(descriptor.type, `files[${index}].type`, { max: 255 })
+      if (type && !/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(type)) {
+        throw nativeError('INVALID_ARGUMENT', `files[${index}].type must be a MIME type`)
+      }
+      return {
+        path: sourcePath,
+        name,
+        type,
+        size: expectInteger(descriptor.size, `files[${index}].size`, 0, Number.MAX_SAFE_INTEGER),
+      }
+    }),
+  }
+}
+
 function windowOrThrow(options: NativeBridgeMainOptions): BridgeWindowLike {
   const window = options.getWindow()
   if (!window || window.isDestroyed()) throw nativeError('WINDOW_UNAVAILABLE', 'Hermes Studio window is unavailable')
@@ -101,6 +150,7 @@ export function registerNativeBridge(options: NativeBridgeMainOptions): void {
     parse: (payload: unknown) => TInput,
     handle: (input: TInput, event: IpcEventLike) => TOutput | Promise<TOutput>,
   ) => registerValidatedHandler(options.ipcMain, channel, {
+    admission: options.admission,
     isTrustedSender: options.isTrustedSender,
     parse,
     handle,
@@ -131,6 +181,8 @@ export function registerNativeBridge(options: NativeBridgeMainOptions): void {
     options.selectWorkspaceForSession(expectSessionId(sessionId)))
   register(IPC_CHANNELS.workspace.selectAttachments, attachmentSelectionArguments, (selection) =>
     options.selectAttachments(selection))
+  register(IPC_CHANNELS.workspace.importDroppedFiles, droppedFileArguments, ({ sessionId, files }) =>
+    options.importDroppedFiles(sessionId, files))
 
   register(IPC_CHANNELS.clipboard.readImage, noArguments, () => options.clipboard.read())
   register(IPC_CHANNELS.clipboard.copyRemoteImage, recordArguments, async ({ url }) => {

@@ -227,4 +227,41 @@ describe('opaque Studio assets', () => {
     await expect(store.persist('session-one', imageOne)).resolves.toMatchObject({ path: expect.any(String) })
     await expect(store.persist('session-two', managedImage)).resolves.toMatchObject({ path: expect.any(String) })
   })
+
+  it('validates persisted image bytes with the canonical sniffer instead of an injected decoder', async () => {
+    const hermesHome = mkdtempSync(path.join(tmpdir(), 'studio-session-sniffer-home-'))
+    const sourceRoot = mkdtempSync(path.join(tmpdir(), 'studio-session-sniffer-source-'))
+    const fakePng = path.join(sourceRoot, 'fake.png')
+    writeFileSync(fakePng, Buffer.from('not-a-png'))
+    const registry = new AssetRegistry({ allowedRoots: () => [hermesHome] })
+    const store = new SessionAssetStore({
+      hermesHome,
+      registry,
+      managedSourceRoots: () => [sourceRoot],
+      sessionSourceRoots: () => [],
+      validateImage: () => true,
+    })
+
+    await expect(store.persist('desktop_1', fakePng)).rejects.toMatchObject({ code: 'ASSET_IMAGE_INVALID' })
+  })
+
+  it('persists TIFF and serves its MIME type from the canonical image table', async () => {
+    const hermesHome = mkdtempSync(path.join(tmpdir(), 'studio-session-tiff-home-'))
+    const sourceRoot = mkdtempSync(path.join(tmpdir(), 'studio-session-tiff-source-'))
+    const tiff = path.join(sourceRoot, 'scan.tiff')
+    writeFileSync(tiff, Buffer.from([0x4d, 0x4d, 0x00, 0x2a]))
+    const registry = new AssetRegistry({ allowedRoots: () => [hermesHome] })
+    const store = new SessionAssetStore({
+      hermesHome,
+      registry,
+      managedSourceRoots: () => [sourceRoot],
+      sessionSourceRoots: () => [],
+      validateImage: () => false,
+    })
+
+    const asset = await store.persist('desktop_1', tiff)
+    const response = await createAssetProtocolResponse(asset.url, registry)
+
+    expect(response.headers.get('content-type')).toBe('image/tiff')
+  })
 })

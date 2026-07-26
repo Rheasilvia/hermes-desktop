@@ -1,10 +1,11 @@
 export interface NativeCleanupTasks {
+  closeAndDrainIpc(): void | Promise<void>
   saveWindowState(): void
   shutdownTerminals(): void
   shutdownNotifications(): void
   clearAssetHandles(): void
   clearWorkspaceGrants(): void
-  clearAttachmentStaging(): void | Promise<void>
+  closeAttachmentStaging(): void | Promise<void>
   stopSidecar(): void | Promise<void>
   report?(step: string, error: unknown): void
 }
@@ -17,12 +18,13 @@ export async function runNativeCleanup(tasks: NativeCleanupTasks): Promise<void>
       tasks.report?.(step, error)
     }
   }
+  await run('ipc-admission', tasks.closeAndDrainIpc)
   await run('window-state', tasks.saveWindowState)
   await run('terminals', tasks.shutdownTerminals)
   await run('notifications', tasks.shutdownNotifications)
   await run('assets', tasks.clearAssetHandles)
   await run('workspace-grants', tasks.clearWorkspaceGrants)
-  await run('attachment-staging', tasks.clearAttachmentStaging)
+  await run('attachment-staging', tasks.closeAttachmentStaging)
   await run('sidecar', tasks.stopSidecar)
 }
 

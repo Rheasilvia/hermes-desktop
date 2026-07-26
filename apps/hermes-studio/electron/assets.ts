@@ -2,27 +2,19 @@ import { randomBytes as nodeRandomBytes } from 'node:crypto'
 import { mkdir, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { AssetReference } from '../src/shared/native-bridge.js'
+import { IMAGE_FILE_EXTENSIONS, imageMimeType, sniffImageFormat } from './image-formats.js'
 import { nativeError } from './native-errors.js'
 import {
   readVerifiedFile,
   type FileIdentity,
   type SafeFileHooks,
-  verifyFile,
   writeVerifiedExclusiveFile,
 } from './safe-file-access.js'
 import { isPathInside } from './validation.js'
 
 const MAX_ASSET_BYTES = 32 * 1024 * 1024
 const ASSET_SCHEME = 'hermes-studio-asset:'
-const IMAGE_CONTENT_TYPES: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.bmp': 'image/bmp',
-  '.ico': 'image/x-icon',
-}
+const IMAGE_EXTENSION_SET = new Set(IMAGE_FILE_EXTENSIONS.map((extension) => `.${extension}`))
 
 interface AssetHandle {
   path: string
@@ -99,21 +91,7 @@ export class AssetRegistry {
     const { handle, entry } = this.#entry(rawUrl)
     this.#sweepExpired()
     try {
-      const verified = await readVerifiedFile(entry.path, {
-        allowedRoots: this.#allowedRoots,
-        maxBytes: MAX_ASSET_BYTES,
-        allowedExtensions: new Set(Object.keys(IMAGE_CONTENT_TYPES)),
-        expectedIdentity: entry.identity,
-        purpose: 'asset-protocol-read',
-        hooks: this.#hooks,
-        errors: {
-          notFound: 'ASSET_PATH_NOT_FOUND',
-          outsideRoots: 'ASSET_PATH_NOT_ALLOWED',
-          notFile: 'ASSET_PATH_INVALID',
-          tooLarge: 'ASSET_TOO_LARGE',
-          typeNotAllowed: 'ASSET_TYPE_NOT_ALLOWED',
-        },
-      })
+      const verified = await this.#validateAllowedImage(entry.path, entry.identity, 'asset-protocol-read')
       return { path: verified.path, bytes: verified.bytes }
     } catch (error) {
       this.#handles.delete(handle)
@@ -156,16 +134,20 @@ export class AssetRegistry {
     }
   }
 
-  async #validateAllowedImage(rawPath: string, expectedIdentity?: FileIdentity) {
+  async #validateAllowedImage(
+    rawPath: string,
+    expectedIdentity?: FileIdentity,
+    purpose = expectedIdentity ? 'asset-handle-resolve' : 'asset-handle-issue',
+  ) {
     if (typeof rawPath !== 'string' || rawPath.length < 1 || rawPath.length > 8_192 || rawPath.includes('\0')) {
       throw nativeError('ASSET_PATH_INVALID', 'Asset path is invalid')
     }
-    return verifyFile(rawPath, {
+    const verified = await readVerifiedFile(rawPath, {
       allowedRoots: this.#allowedRoots,
       maxBytes: MAX_ASSET_BYTES,
-      allowedExtensions: new Set(Object.keys(IMAGE_CONTENT_TYPES)),
+      allowedExtensions: IMAGE_EXTENSION_SET,
       expectedIdentity,
-      purpose: expectedIdentity ? 'asset-handle-resolve' : 'asset-handle-issue',
+      purpose,
       hooks: this.#hooks,
       errors: {
         notFound: 'ASSET_PATH_NOT_FOUND',
@@ -175,6 +157,10 @@ export class AssetRegistry {
         typeNotAllowed: 'ASSET_TYPE_NOT_ALLOWED',
       },
     })
+    if (!sniffImageFormat(verified.bytes, verified.extension)) {
+      throw nativeError('ASSET_IMAGE_INVALID', 'Asset signature does not match its file type')
+    }
+    return verified
   }
 }
 
@@ -183,7 +169,8 @@ export interface SessionAssetStoreOptions {
   registry: AssetRegistry
   managedSourceRoots: () => readonly string[]
   sessionSourceRoots: (sessionId: string) => readonly string[]
-  validateImage: (bytes: Buffer, canonicalPath: string) => Promise<boolean> | boolean
+  /** @deprecated Image validation is always performed by the canonical format sniffer. */
+  validateImage?: (bytes: Buffer, canonicalPath: string) => Promise<boolean> | boolean
   randomBytes?: (size: number) => Buffer
   hooks?: SafeFileHooks
 }
@@ -193,7 +180,6 @@ export class SessionAssetStore {
   readonly #registry: AssetRegistry
   readonly #managedSourceRoots: () => readonly string[]
   readonly #sessionSourceRoots: (sessionId: string) => readonly string[]
-  readonly #validateImage: (bytes: Buffer, canonicalPath: string) => Promise<boolean> | boolean
   readonly #randomBytes: (size: number) => Buffer
   readonly #hooks: SafeFileHooks | undefined
 
@@ -202,7 +188,6 @@ export class SessionAssetStore {
     this.#registry = options.registry
     this.#managedSourceRoots = options.managedSourceRoots
     this.#sessionSourceRoots = options.sessionSourceRoots
-    this.#validateImage = options.validateImage
     this.#randomBytes = options.randomBytes ?? nodeRandomBytes
     this.#hooks = options.hooks
   }
@@ -221,7 +206,7 @@ export class SessionAssetStore {
     const verified = await readVerifiedFile(rawSource, {
       allowedRoots: () => sourceRoots,
       maxBytes: MAX_ASSET_BYTES,
-      allowedExtensions: new Set(Object.keys(IMAGE_CONTENT_TYPES)),
+      allowedExtensions: IMAGE_EXTENSION_SET,
       purpose: 'session-asset-source',
       hooks: this.#hooks,
       errors: {
@@ -232,8 +217,8 @@ export class SessionAssetStore {
         typeNotAllowed: 'ASSET_TYPE_NOT_ALLOWED',
       },
     })
-    if (!await this.#validateImage(verified.bytes, verified.path)) {
-      throw nativeError('ASSET_IMAGE_INVALID', 'Source image could not be decoded')
+    if (!sniffImageFormat(verified.bytes, verified.extension)) {
+      throw nativeError('ASSET_IMAGE_INVALID', 'Source image signature does not match its file type')
     }
 
     await mkdir(this.#hermesHome, { recursive: true, mode: 0o700 })
@@ -267,7 +252,8 @@ export class SessionAssetStore {
 
 export async function createAssetProtocolResponse(rawUrl: string, registry: AssetRegistry): Promise<Response> {
   const { path: assetPath, bytes: body } = await registry.read(rawUrl)
-  const contentType = IMAGE_CONTENT_TYPES[path.extname(assetPath).toLowerCase()] ?? 'application/octet-stream'
+  const contentType = imageMimeType(body, path.extname(assetPath))
+  if (!contentType) throw nativeError('ASSET_IMAGE_INVALID', 'Asset signature does not match its file type')
   return new Response(Uint8Array.from(body), {
     status: 200,
     headers: {

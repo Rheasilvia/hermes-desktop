@@ -126,6 +126,36 @@ describe('HermesHomeFiles', () => {
     await expect(files.list('.')).rejects.toMatchObject({ code: 'DIRECTORY_TOO_LARGE' })
   })
 
+  it('stops directory iteration immediately after maxEntries + 1 during growth', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'studio-home-list-growth-'))
+    let pulls = 0
+    let returned = false
+    const names = ['a', 'b', 'grown', 'must-not-be-read']
+    const files = new HermesHomeFiles(root, {
+      maxEntries: 2,
+      openDirectory: async () => ({
+        [Symbol.asyncIterator]() {
+          let index = 0
+          return {
+            async next() {
+              pulls += 1
+              if (index === 1) writeFileSync(path.join(root, 'concurrent-growth'), '')
+              return { done: false as const, value: { name: names[index++] ?? 'unexpected' } }
+            },
+            async return() {
+              returned = true
+              return { done: true as const, value: undefined }
+            },
+          }
+        },
+      }),
+    })
+
+    await expect(files.list('.')).rejects.toMatchObject({ code: 'DIRECTORY_TOO_LARGE' })
+    expect(pulls).toBe(3)
+    expect(returned).toBe(true)
+  })
+
   it('fails closed when a listed directory is swapped before readdir', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'studio-home-list-race-'))
     const outside = mkdtempSync(path.join(tmpdir(), 'studio-home-list-race-outside-'))

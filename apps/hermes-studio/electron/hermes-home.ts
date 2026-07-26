@@ -1,4 +1,4 @@
-import { mkdir, readdir, realpath, rename, stat, unlink } from 'node:fs/promises'
+import { mkdir, opendir, realpath, rename, stat, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { nativeError } from './native-errors.js'
@@ -15,6 +15,12 @@ export interface HermesHomeFilesOptions {
   maxTextBytes?: number
   maxEntries?: number
   hooks?: SafeFileHooks
+  /** Injectable only so bounded directory iteration can be exercised deterministically. */
+  openDirectory?: (path: string) => Promise<DirectoryHandleLike>
+}
+
+export interface DirectoryHandleLike extends AsyncIterable<{ name: string }> {
+  close?: () => Promise<void>
 }
 
 export class HermesHomeFiles {
@@ -22,12 +28,14 @@ export class HermesHomeFiles {
   readonly #maxTextBytes: number
   readonly #maxEntries: number
   readonly #hooks: SafeFileHooks | undefined
+  readonly #openDirectory: (path: string) => Promise<DirectoryHandleLike>
 
   constructor(root: string, options: HermesHomeFilesOptions = {}) {
     this.#root = path.resolve(root)
     this.#maxTextBytes = options.maxTextBytes ?? 1024 * 1024
     this.#maxEntries = options.maxEntries ?? 1_000
     this.#hooks = options.hooks
+    this.#openDirectory = options.openDirectory ?? (directory => opendir(directory))
   }
 
   async getPath(): Promise<string> {
@@ -124,12 +132,25 @@ export class HermesHomeFiles {
     if (!metadata.isDirectory()) throw nativeError('HERMES_HOME_NOT_DIRECTORY', 'Requested path is not a directory')
     const root = await this.#canonicalRoot()
     const directoryIdentity = await captureStableDirectory(target, root)
-    await this.#hooks?.afterOpen?.({ purpose: 'hermes-home-list', path: target })
-    await assertStableDirectory(target, root, directoryIdentity)
-    const entries = await readdir(target)
-    await this.#hooks?.afterDirectoryRead?.({ purpose: 'hermes-home-list', path: target })
-    await assertStableDirectory(target, root, directoryIdentity)
-    if (entries.length > this.#maxEntries) throw nativeError('DIRECTORY_TOO_LARGE', 'Directory contains too many entries')
+    const directory = await this.#openDirectory(target)
+    const entries: string[] = []
+    let overLimit = false
+    try {
+      await this.#hooks?.afterOpen?.({ purpose: 'hermes-home-list', path: target })
+      await assertStableDirectory(target, root, directoryIdentity)
+      for await (const entry of directory) {
+        entries.push(entry.name)
+        if (entries.length > this.#maxEntries) {
+          overLimit = true
+          break
+        }
+      }
+      await this.#hooks?.afterDirectoryRead?.({ purpose: 'hermes-home-list', path: target })
+      await assertStableDirectory(target, root, directoryIdentity)
+    } finally {
+      try { await directory.close?.() } catch { /* async iteration normally closes the handle */ }
+    }
+    if (overLimit) throw nativeError('DIRECTORY_TOO_LARGE', 'Directory contains too many entries')
     return entries.sort((a, b) => a.localeCompare(b))
   }
 

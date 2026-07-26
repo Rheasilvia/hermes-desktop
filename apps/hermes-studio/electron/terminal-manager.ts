@@ -15,7 +15,7 @@ export interface DisposableLike { dispose(): void }
 
 export interface PtyProcessLike {
   readonly pid: number
-  write(data: string): void
+  write(data: string | Buffer): void
   resize(cols: number, rows: number): void
   kill(signal?: string): void
   onData(listener: (data: string) => void): DisposableLike
@@ -35,7 +35,6 @@ export type PtySpawner = (file: string, args: string[], options: PtySpawnOptions
 interface TerminalSession {
   process: PtyProcessLike
   subscriptions: DisposableLike[]
-  inputDecoder: TextDecoder
 }
 
 export interface TerminalManagerOptions {
@@ -132,7 +131,7 @@ export class TerminalManager extends EventEmitter {
       throw nativeError('TERMINAL_START_FAILED', `Failed to start terminal: ${error instanceof Error ? error.message : 'unknown error'}`)
     }
     const id = `terminal-${this.#randomBytes(18).toString('base64url')}`
-    const session: TerminalSession = { process: processHandle, subscriptions: [], inputDecoder: new TextDecoder() }
+    const session: TerminalSession = { process: processHandle, subscriptions: [] }
     this.#sessions.set(id, session)
     const retainSubscription = (subscription: DisposableLike): void => {
       if (this.#sessions.get(id) === session) session.subscriptions.push(subscription)
@@ -159,8 +158,7 @@ export class TerminalManager extends EventEmitter {
       throw nativeError('TERMINAL_INPUT_INVALID', 'Terminal input must contain bytes')
     }
     try {
-      const decoded = session.inputDecoder.decode(Uint8Array.from(request.data), { stream: true })
-      if (decoded) session.process.write(decoded)
+      session.process.write(Buffer.from(request.data))
     } catch (error) {
       const message = `Terminal write failed: ${error instanceof Error ? error.message : 'unknown error'}`
       const event: TerminalErrorEvent = { id: request.id as string, error: message }
@@ -203,11 +201,7 @@ export class TerminalManager extends EventEmitter {
     if (!session) return
     this.#sessions.delete(id)
     for (const subscription of session.subscriptions) subscription.dispose()
-    const pending = session.inputDecoder.decode()
     if (kill) {
-      if (pending) {
-        try { session.process.write(pending) } catch { /* best-effort decoder flush */ }
-      }
       try { session.process.kill() } catch { /* best-effort shutdown */ }
     }
   }

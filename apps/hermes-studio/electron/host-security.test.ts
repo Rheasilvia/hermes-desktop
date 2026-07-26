@@ -55,7 +55,7 @@ describe('Electron host security wiring', () => {
     ['win32', true],
     ['darwin', false],
     ['linux', false],
-  ] as const)('handles Electron 40 missing media metadata on %s', (platform, expected) => {
+  ] as const)('handles Electron 40 missing, empty, and unknown media metadata on %s', (platform, expected) => {
     let requestHandler: ((webContents: unknown, permission: string, callback: (allowed: boolean) => void, details: { requestingUrl?: string; securityOrigin?: string; mediaTypes?: string[]; isMainFrame?: boolean }) => void) | undefined
     let checkHandler: ((webContents: unknown, permission: string, origin: string, details: { securityOrigin?: string; mediaType?: string; isMainFrame?: boolean }) => boolean) | undefined
     const trustedWebContents = {}
@@ -70,20 +70,29 @@ describe('Electron host security wiring', () => {
     })
     const callback = vi.fn()
 
-    requestHandler?.(trustedWebContents, 'media', callback, {
-      requestingUrl: 'hermes-studio://app/',
-      isMainFrame: true,
-    })
-    expect(callback).toHaveBeenCalledWith(expected)
-    expect(checkHandler?.(trustedWebContents, 'media', 'hermes-studio://app/', { isMainFrame: true })).toBe(expected)
+    for (const mediaTypes of [undefined, [], ['unknown']] as const) {
+      requestHandler?.(trustedWebContents, 'media', callback, {
+        requestingUrl: 'hermes-studio://app/',
+        ...(mediaTypes === undefined ? {} : { mediaTypes: [...mediaTypes] }),
+        isMainFrame: true,
+      })
+    }
+    expect(callback.mock.calls.map(([allowed]) => allowed)).toEqual([expected, expected, expected])
+    for (const mediaType of [undefined, '', 'unknown'] as const) {
+      expect(checkHandler?.(trustedWebContents, 'media', 'hermes-studio://app/', {
+        ...(mediaType === undefined ? {} : { mediaType }),
+        isMainFrame: true,
+      })).toBe(expected)
+    }
   })
 
   it('does not apply the Windows missing-metadata compatibility to untrusted frames', () => {
     let requestHandler: ((webContents: unknown, permission: string, callback: (allowed: boolean) => void, details: { requestingUrl?: string; mediaTypes?: string[]; isMainFrame?: boolean }) => void) | undefined
+    let checkHandler: ((webContents: unknown, permission: string, origin: string, details: { securityOrigin?: string; mediaType?: string; isMainFrame?: boolean }) => boolean) | undefined
     const trustedWebContents = {}
     configureSessionSecurity({
       setPermissionRequestHandler: (handler) => { requestHandler = handler },
-      setPermissionCheckHandler: vi.fn(),
+      setPermissionCheckHandler: (handler) => { checkHandler = handler },
       webRequest: { onHeadersReceived: vi.fn() },
     }, {
       platform: 'win32',
@@ -92,10 +101,15 @@ describe('Electron host security wiring', () => {
     })
     const callback = vi.fn()
 
-    requestHandler?.({}, 'media', callback, { requestingUrl: 'hermes-studio://app/', isMainFrame: true })
-    requestHandler?.(trustedWebContents, 'media', callback, { requestingUrl: 'https://evil.example/', isMainFrame: true })
-    requestHandler?.(trustedWebContents, 'media', callback, { requestingUrl: 'hermes-studio://app/', isMainFrame: false })
-    expect(callback.mock.calls.map(([allowed]) => allowed)).toEqual([false, false, false])
+    requestHandler?.({}, 'media', callback, { requestingUrl: 'hermes-studio://app/', mediaTypes: [], isMainFrame: true })
+    requestHandler?.(trustedWebContents, 'media', callback, { requestingUrl: 'https://evil.example/', mediaTypes: ['unknown'], isMainFrame: true })
+    requestHandler?.(trustedWebContents, 'media', callback, { requestingUrl: 'hermes-studio://app/', mediaTypes: [], isMainFrame: false })
+    requestHandler?.(trustedWebContents, 'media', callback, { requestingUrl: 'hermes-studio://app/', mediaTypes: ['video'], isMainFrame: true })
+    requestHandler?.(trustedWebContents, 'media', callback, { requestingUrl: 'hermes-studio://app/', mediaTypes: ['audio', 'video'], isMainFrame: true })
+    expect(callback.mock.calls.map(([allowed]) => allowed)).toEqual([false, false, false, false, false])
+    expect(checkHandler?.({}, 'media', 'hermes-studio://app/', { mediaType: 'unknown', isMainFrame: true })).toBe(false)
+    expect(checkHandler?.(trustedWebContents, 'media', 'https://evil.example/', { mediaType: 'unknown', isMainFrame: true })).toBe(false)
+    expect(checkHandler?.(trustedWebContents, 'media', 'hermes-studio://app/', { mediaType: 'unknown', isMainFrame: false })).toBe(false)
   })
 
   it('sets strict CSP, no-referrer, nosniff, and denies navigation/window/webview escape hatches', () => {

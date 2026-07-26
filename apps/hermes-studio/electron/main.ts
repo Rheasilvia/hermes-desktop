@@ -28,6 +28,7 @@ import {
   type SessionSecurityLike,
 } from './host-security.js'
 import { registerNativeBridge } from './native-bridge-main.js'
+import { IpcAdmissionController } from './ipc-router.js'
 import { toNativeError } from './native-errors.js'
 import { NotificationManager } from './notification-manager.js'
 import { buildContentSecurityPolicy, parseDevServerUrl } from './security-policy.js'
@@ -59,6 +60,7 @@ let attachmentStaging: AttachmentStagingService | undefined
 let windowStateStore: WindowStateStore | undefined
 let saveWindowStateTimer: ReturnType<typeof setTimeout> | undefined
 let rendererBackendOrigin: string | undefined
+const ipcAdmission = new IpcAdmissionController()
 
 function sendToRenderer(channel: string, payload: unknown): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
@@ -228,6 +230,7 @@ async function initialize(): Promise<void> {
   })
   const hermesHome = new HermesHomeFiles(hermesHomePath)
   attachmentStaging = new AttachmentStagingService({ managedRoot: attachmentRoot })
+  await attachmentStaging.initialize()
   const assetStore = new SessionAssetStore({
     hermesHome: hermesHomePath,
     registry: assetRegistry,
@@ -236,7 +239,6 @@ async function initialize(): Promise<void> {
       ...(workspaceGrants?.rootsForSession(sessionId) ?? []),
       attachmentStaging!.sessionRoot(sessionId),
     ],
-    validateImage: (bytes) => !nativeImage.createFromBuffer(bytes).isEmpty(),
   })
   const clipboardImages = new ClipboardImages({
     managedRoot: clipboardRoot,
@@ -275,6 +277,7 @@ async function initialize(): Promise<void> {
   wireRuntimeEvents()
   registerNativeBridge({
     ipcMain,
+    admission: ipcAdmission,
     isTrustedSender: (event) => isTrustedMainFrameSender(event, mainWindow, devOrigin),
     app,
     getWindow: () => mainWindow,
@@ -310,6 +313,7 @@ async function initialize(): Promise<void> {
       })
       return result.canceled ? undefined : result.filePaths
     }),
+    importDroppedFiles: (sessionId, files) => attachmentStaging!.importDroppedFiles(sessionId, files),
     clipboard: clipboardImages,
     assetRegistry,
     assetStore,
@@ -326,6 +330,7 @@ async function initialize(): Promise<void> {
 async function cleanup(): Promise<void> {
   if (saveWindowStateTimer) clearTimeout(saveWindowStateTimer)
   await runNativeCleanup({
+    closeAndDrainIpc: () => ipcAdmission.closeAndDrain(),
     saveWindowState: () => {
       if (mainWindow && !mainWindow.isDestroyed() && windowStateStore) windowStateStore.save(mainWindow)
     },
@@ -333,7 +338,7 @@ async function cleanup(): Promise<void> {
     shutdownNotifications: () => notifications?.shutdown(),
     clearAssetHandles: () => assetRegistry?.clear(),
     clearWorkspaceGrants: () => workspaceGrants?.clear(),
-    clearAttachmentStaging: async () => { await attachmentStaging?.clear() },
+    closeAttachmentStaging: async () => { await attachmentStaging?.close() },
     stopSidecar: async () => sidecar?.stop(),
     report: (step, error) => console.error(`Hermes Studio cleanup failed during ${step}`, error),
   })
