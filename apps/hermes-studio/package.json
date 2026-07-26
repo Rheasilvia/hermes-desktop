@@ -1,5 +1,5 @@
 {
-  "name": "@hermes/hermes-studio",
+  "name": "@hermes/studio",
   "productName": "Hermes Studio",
   "version": "0.1.0",
   "private": true,
@@ -72,7 +72,7 @@
     "wait-on": "^9.0.5"
   },
   "build": {
-    "appId": "com.nousresearch.hermes-studio",
+    "appId": "com.hermes-agent.studio",
     "productName": "Hermes Studio",
     "executableName": "Hermes Studio",
     "artifactName": "Hermes-Studio-${version}-${os}-${arch}.${ext}",
