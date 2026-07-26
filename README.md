@@ -6,7 +6,7 @@
 
 A desktop-first fork of [Hermes Agent](https://github.com/NousResearch/hermes-agent), bringing the agent runtime into a native desktop workbench.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE) [![Built on Hermes Agent](https://img.shields.io/badge/Built%20on-Hermes%20Agent-FFD700?style=flat-square)](https://github.com/NousResearch/hermes-agent) [![Platform: macOS](https://img.shields.io/badge/Platform-macOS-000000?style=flat-square&logo=apple&logoColor=white)](#) [![Tauri v2](https://img.shields.io/badge/Tauri-v2-blueviolet?style=flat-square)](https://v2.tauri.app) [![SolidJS](https://img.shields.io/badge/SolidJS-frontend-2c4f7c?style=flat-square)](https://www.solidjs.com) [![Python Sidecar](https://img.shields.io/badge/Python-sidecar-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE) [![Built on Hermes Agent](https://img.shields.io/badge/Built%20on-Hermes%20Agent-FFD700?style=flat-square)](https://github.com/NousResearch/hermes-agent) [![Targets](https://img.shields.io/badge/Targets-macOS%20%7C%20Windows%20%7C%20Linux-4b5563?style=flat-square)](apps/hermes-studio/docs/RELEASE.md) [![Electron](https://img.shields.io/badge/Electron-host-47848F?style=flat-square&logo=electron&logoColor=white)](https://www.electronjs.org/) [![SolidJS](https://img.shields.io/badge/SolidJS-frontend-2c4f7c?style=flat-square)](https://www.solidjs.com) [![Python Sidecar](https://img.shields.io/badge/Python-sidecar-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
 
 </div>
 
@@ -40,15 +40,14 @@ runtime.
 
 ## 🚀 Quick Start
 
-> ⚠️ **Platform support:** Hermes Studio currently runs on **macOS only**.
-> Windows and Linux packaging is configured but not yet tested or supported.
-> For upstream Hermes runtime or CLI use on Windows, use the PowerShell
-> installer at `scripts/install.ps1`; that is separate from this Electron desktop
-> packaging status.
+> **Platform packaging:** Hermes Studio has host-native targets for macOS,
+> Windows, and Linux. Build each target on its matching operating system and
+> complete the packaged smoke and native acceptance gates in
+> [the release guide](apps/hermes-studio/docs/RELEASE.md) before publication.
 
-**Prerequisites** (macOS)
+**Prerequisites**
 
-- macOS 11 (Big Sur) or newer
+- A macOS, Windows, or Linux host for its matching package target
 - Node.js
 - `uv` and Python 3.11 for the sidecar environment
 
@@ -72,11 +71,13 @@ Run these from `apps/hermes-studio/`:
 | `npm run dev` | Start the Vite frontend and Electron shell |
 | `npm run backend` | Start the Python sidecar daemon |
 | `npm run build` | Build the renderer and Electron processes |
+| `npm run pack` | Build an unpacked application for local smoke testing |
 | `npm run dist` | Build the packaged Electron application |
 | `npm run typecheck` | Run renderer and Electron TypeScript checks |
 | `npm run lint` | Run ESLint for the renderer and Electron sources |
 | `npm run test` | Run Vitest unit tests |
 | `npm run test:e2e` | Run Playwright end-to-end tests |
+| `npm run docs:check` | Validate canonical documentation, links, and commands |
 
 ## 📁 Repository Layout
 
@@ -85,12 +86,13 @@ Run these from `apps/hermes-studio/`:
 | `apps/hermes-studio/` | Hermes Studio: Electron shell, SolidJS frontend, sidecar daemon, tests, and design docs |
 | `apps/hermes-studio/src` | Studio frontend features, stores, shell layout, services, and UI primitives |
 | `apps/hermes-studio/sidecar` | Python daemon used by Hermes Studio |
-| `apps/hermes-studio/src-tauri` | Temporary Tauri parity reference |
 | `run_agent.py`, `model_tools.py`, `toolsets.py` | Upstream Hermes agent runtime surfaces retained by this fork |
 | `skills/`, `plugins/`, `tools/` | Hermes extension surfaces inherited from upstream |
 
-For desktop-specific architecture notes, see
-[apps/hermes-studio/README.md](apps/hermes-studio/README.md) and [apps/hermes-studio/DESIGN.md](apps/hermes-studio/DESIGN.md).
+For Studio-specific architecture notes, see
+[apps/hermes-studio/README.md](apps/hermes-studio/README.md),
+[apps/hermes-studio/DESIGN.md](apps/hermes-studio/DESIGN.md), and
+[ADR-001](apps/hermes-studio/docs/decisions/ADR-001-electron-shell.md).
 
 ## 🔗 Relationship to Upstream Hermes Agent
 

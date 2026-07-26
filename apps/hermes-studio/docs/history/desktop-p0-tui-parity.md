@@ -1,5 +1,8 @@
 # Desktop P0 TUI Parity — Architecture Validation & Implementation Plan
 
+> **Status: Superseded.** See
+> [ADR-001](../decisions/ADR-001-electron-shell.md).
+
 > **Status**: Architecture validation & protocol reconnaissance complete  
 > **Scope**: Restore deleted settings tabs, implement Inline Todo Panel, implement Subagent/Delegation Tree Viewer  
 > **Design Authority**: `@desktop/DESIGN.md` (Claude-inspired warm editorial system)

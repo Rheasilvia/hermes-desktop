@@ -1,8 +1,8 @@
 # Hermes Desktop Bridge Architecture Design
 
-> **Superseded historical design.** This Tauri-era proposal is retained for
-> history. The active Electron architecture is documented in
-> [ARCHITECTURE.md](./ARCHITECTURE.md).
+> **Status: Superseded.** See
+> [ADR-001](../decisions/ADR-001-electron-shell.md). The current architecture
+> is documented in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 > **修订状态**：v3（2026-04-24 更新）
 > **设计决策**：Q1=A 删除 LocalLLMBridge / Q2=A 内嵌 Python sidecar / Q3=A 新增 `client.tool.*` 协议 / Q4=C Capability Grant 模型 / Q5=A TUI 无 Bridge / Q6=A 直接覆盖原文 / **Q7=UDS Transport 插件化**（替代 WebSocket）

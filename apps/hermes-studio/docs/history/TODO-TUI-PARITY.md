@@ -1,5 +1,8 @@
 # Desktop TUI Parity Todo Plan
 
+> **Status: Superseded.** See
+> [ADR-001](../decisions/ADR-001-electron-shell.md).
+
 Last updated: 2026-06-01
 
 This plan ranks the missing Desktop capabilities against the current TUI by importance and urgency. Priority means product risk first: broken core chat flows and hidden failures outrank broader parity work.

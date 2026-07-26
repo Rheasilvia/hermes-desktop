@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Usage Analytics feature provides comprehensive model usage statistics and cost tracking for the Hermes Desktop application. It replaces the previous Models tab with a full-featured analytics dashboard that helps users understand their AI model consumption patterns and associated costs.
+The Usage Analytics feature provides comprehensive model usage statistics and cost tracking for Hermes Studio. It replaces the previous Models tab with a full-featured analytics dashboard that helps users understand their AI model consumption patterns and associated costs.
 
 ## Architecture
 

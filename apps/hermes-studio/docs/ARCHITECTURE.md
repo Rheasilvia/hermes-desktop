@@ -5,6 +5,9 @@ desktop-owned Python sidecar. Electron main is the only privileged process.
 The sandboxed renderer reaches native capabilities through the narrow, typed
 `window.hermesStudio` API installed by preload.
 
+The shell choice and alternatives are recorded in
+[ADR-001](./decisions/ADR-001-electron-shell.md).
+
 The native host contract is the renderer's only production path for privileged
 operations. `src/services/native-host.ts` detects the frozen bridge and exposes
 a scoped injection seam for Vitest and Playwright; it does not recreate raw
@@ -182,8 +185,8 @@ parameters are redacted before writing.
   Tools installation all use named high-level bridge methods. Window dragging
   uses CSS `-webkit-app-region`; renderer code never calls `window.startDrag()`.
 - All renderer-owned local storage lives under the centralized
-  `hermes.studio.*` namespace. Previous Tauri/Desktop keys are intentionally
-  neither read nor deleted, preventing cross-application state contamination.
+  `hermes.studio.*` namespace. Previous host-era keys are intentionally neither
+  read nor deleted, preventing cross-application state contamination.
 - The first Electron release has no update-check setting, updater UI, or
   renderer updater call. Typography uses the bundled/system sans-serif stack;
   startup makes no Google Fonts request.

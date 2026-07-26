@@ -1,6 +1,6 @@
-# Hermes Desktop — Design Tokens
+# Hermes Studio — Design Tokens
 
-CSS custom properties for the Hermes Desktop App. All tokens are defined as CSS custom properties on `:root` and can be overridden per-theme using `[data-theme="..."]` selectors.
+CSS custom properties for Hermes Studio. All tokens are defined as CSS custom properties on `:root` and can be overridden per-theme using `[data-theme="..."]` selectors.
 
 ## File Structure
 

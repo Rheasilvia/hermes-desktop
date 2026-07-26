@@ -1,9 +1,10 @@
-# Hermes Tauri Desktop Design System
+# Hermes Studio Design System
 
-This document is the design authority for the Tauri desktop app in `desktop/`.
-It does not apply to the Electron app in `apps/desktop/`.
+This document is the design authority for Hermes Studio in
+`apps/hermes-studio/`. It does not apply to the separate React application in
+`apps/desktop/`.
 
-Hermes Desktop is a dense developer tool for running and inspecting an AI agent.
+Hermes Studio is a dense developer tool for running and inspecting an AI agent.
 The UI should feel native, quiet, precise, and repeatable. Do not treat it as a
 marketing site, editorial page, or Claude clone.
 
@@ -53,8 +54,8 @@ or mark it as unavailable in the menu with a clear disabled state.
 
 ## 3. Token Model
 
-CSS modules must use tokens from `desktop/src/styles/tokens.css` and theme
-overrides from `desktop/src/styles/themes/*.css`.
+CSS modules must use tokens from `apps/hermes-studio/src/styles/tokens.css` and
+theme overrides from `apps/hermes-studio/src/styles/themes/*.css`.
 
 Some token names are historical and do not match the current visual direction.
 Treat them semantically:
@@ -230,8 +231,8 @@ subagent identity, and actionable failure/complete states over illustration.
 
 ### PTY Terminal
 
-Terminal is an embedded Tauri PTY, rendered by xterm.js and backed by Rust
-`portable-pty`.
+Terminal is an embedded xterm.js surface backed by Electron main's narrow PTY
+bridge and `node-pty`.
 
 Behavior:
 
@@ -355,11 +356,11 @@ Before shipping a UI change:
 
 ## 12. Agent Prompt Guide
 
-When asking an agent to build Hermes Desktop UI, specify:
+When asking an agent to build Hermes Studio UI, specify:
 
-- "Target `desktop/` Tauri only."
-- "Use the Hermes Desktop design system, not Claude marketing/editorial style."
+- "Target `apps/hermes-studio/` only."
+- "Use the Hermes Studio design system, not Claude marketing/editorial style."
 - "Keep operational density; no hero, no nested cards, no decorative gradients."
 - "Use 6-8px radius for normal controls; pill only for status/badges."
-- "Use existing tokens from `desktop/src/styles/tokens.css`."
+- "Use existing tokens from `apps/hermes-studio/src/styles/tokens.css`."
 - "For terminal work, preserve PTY lifecycle: switch/close hides, Stop kills."

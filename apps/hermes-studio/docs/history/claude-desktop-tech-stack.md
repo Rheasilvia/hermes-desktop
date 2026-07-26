@@ -1,5 +1,9 @@
 # Claude Desktop 技术栈调研报告
 
+> **Status: Superseded.** See
+> [ADR-001](../decisions/ADR-001-electron-shell.md). This survey is retained as
+> historical product research, not current Hermes Studio guidance.
+
 ## 调研方法
 
 通过逆向分析 macOS 上的 Claude Desktop App (`/Applications/Claude.app`)，提取 `app.asar` 包内容，解析 `package.json` 和构建产物，获取精确的技术栈信息。

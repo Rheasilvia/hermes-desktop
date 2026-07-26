@@ -1,5 +1,8 @@
 # Electron → Tauri Desktop 移植路线图
 
+> **Status: Superseded.** See
+> [ADR-001](../decisions/ADR-001-electron-shell.md).
+
 > 由 Electron(`apps/desktop/`) 与 Tauri(`desktop/`) 深度对比生成的参考蓝图。本文档用于挑选要移植的 features/bug 修复，**不代表已实现**。
 
 ## Context（背景）

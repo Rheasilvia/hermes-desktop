@@ -1,6 +1,12 @@
 # Plan: Desktop Conversation — Mock → Real Data
 
-> **Status:** Approved. To be executed by downstream agents (likely split across backend Python and frontend TS specialists).
+> **Status: Superseded.** Hermes Studio now uses Electron; see
+> [ADR-001](../apps/hermes-studio/docs/decisions/ADR-001-electron-shell.md),
+> the current [sidecar API contracts](../apps/hermes-studio/docs/API_CONTRACTS.md),
+> and the current [native bridge contract](../apps/hermes-studio/docs/NATIVE_BRIDGE.md).
+>
+> **Historical status:** Approved for downstream execution under the former
+> application layout.
 
 ---
 

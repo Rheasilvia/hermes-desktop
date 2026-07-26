@@ -42,6 +42,7 @@ npm run test:watch    # Run Vitest in watch mode
 npm run test:coverage # Run tests with Istanbul coverage
 npm run test:e2e      # Run Playwright E2E tests
 npm run test:e2e:ui   # Run Playwright tests with UI
+npm run docs:check    # Validate canonical docs, links, and commands
 ```
 
 ## Type Checking & Linting
@@ -70,18 +71,19 @@ development and Playwright run the Vite renderer without Electron and may use
 explicit development-only sidecar variables; a present Electron bridge is
 always authoritative and packaged builds contain no backend URL or token.
 
-The checked-in Tauri source and package entries are retained only for the
-separate Task 5 deletion pass. They are not part of the production renderer
-runtime.
-
 See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the current host
 architecture and [DESIGN.md](./DESIGN.md) for design system specifications.
+The host choice and alternatives are recorded in
+[ADR-001](./docs/decisions/ADR-001-electron-shell.md).
 
 ## Documentation
 
-- [CLAUDE.md](./CLAUDE.md) - Superseded Tauri migration reference (not current guidance)
+- [AGENTS.md](./AGENTS.md) - Scoped contributor guidance and verification commands
+- [CLAUDE.md](./CLAUDE.md) - Short pointer to canonical contributor guidance
 - [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) - Electron host architecture and trust boundaries
 - [docs/NATIVE_BRIDGE.md](./docs/NATIVE_BRIDGE.md) - Frozen renderer bridge contract and capability ledger
+- [docs/API_CONTRACTS.md](./docs/API_CONTRACTS.md) - Sidecar REST and SSE contract
+- [docs/decisions/ADR-001-electron-shell.md](./docs/decisions/ADR-001-electron-shell.md) - Electron shell decision and consequences
 - [docs/RELEASE.md](./docs/RELEASE.md) - Host-native build and release verification
 - [DESIGN.md](./DESIGN.md) - Design system and UI specifications
 - [docs/ANALYTICS.md](./docs/ANALYTICS.md) - Usage analytics feature documentation

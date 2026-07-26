@@ -1,7 +1,10 @@
 # Git Diff Panel — Design Specification
 
+> **Status: Superseded.** Hermes Studio now uses Electron; see
+> [ADR-001](../../apps/hermes-studio/docs/decisions/ADR-001-electron-shell.md).
+
 **Date:** 2026-05-11
-**Status:** Design Complete (not for execution)
+**Historical status:** Design Complete (not for execution)
 **Scope:** Hermes Desktop (`desktop/`) — SolidJS + Tauri
 
 ---

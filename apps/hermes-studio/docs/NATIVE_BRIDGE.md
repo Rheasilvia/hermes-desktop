@@ -57,7 +57,7 @@ records every legacy entry and its Electron disposition. â€œPackaged acceptanceâ
 is the native-runner check required before Task 3 can be treated as release
 ready; unit tests exercise the same contract without needing a packaged app.
 
-| Legacy registered entry | Electron renderer API | Main validation/ownership | Automated evidence | Packaged acceptance |
+| Legacy registered entry | Electron renderer API | Main validation/ownership | Unit/automated evidence | Packaged acceptance |
 | --- | --- | --- | --- | --- |
 | `get_app_version` | `app.version()` | Electron app metadata; trusted sender | bridge routing + envelope | Value matches packaged app version |
 | `get_platform` | `app.platform()` | Normalized `macos/windows/linux` | bridge routing | Matches native runner |
