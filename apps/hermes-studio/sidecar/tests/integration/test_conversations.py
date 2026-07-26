@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -367,6 +368,61 @@ class TestSessionCRUD:
             "reasoningEffort": "high",
             "collaborationMode": "plan",
         }
+
+    def test_session_runtime_patch_remains_responsive_during_prewarm(self, client):
+        from daemon.services.agent_pool import AgentPool
+
+        build_started = threading.Event()
+        release_build = threading.Event()
+        patch_done = threading.Event()
+        fake_agent = MagicMock()
+        fake_agent.reasoning_config = None
+        response = {}
+        patch_errors = []
+
+        def slow_build(_session_id):
+            build_started.set()
+            assert release_build.wait(2), "test did not release the background prewarm"
+            return fake_agent, "gpt-4", "openai", None
+
+        def patch_runtime(session_id):
+            try:
+                response["value"] = client.patch(
+                    f"/desktop/api/sessions/{session_id}/runtime",
+                    json={"reasoningEffort": "high"},
+                )
+            except BaseException as exc:
+                patch_errors.append(exc)
+            finally:
+                patch_done.set()
+
+        with patch.object(AgentPool, "_build_agent", side_effect=slow_build):
+            created = client.post(
+                "/desktop/api/sessions",
+                json={"provider": "openai", "model": "gpt-4"},
+            )
+            assert created.status_code == 200
+            sid = created.json()["id"]
+            pool = client.app.state.agent_pool
+            assert build_started.wait(1)
+
+            patch_thread = threading.Thread(target=patch_runtime, args=(sid,))
+            patch_thread.start()
+            completed_while_building = patch_done.wait(1)
+
+            release_build.set()
+            patch_thread.join(2)
+
+            deadline = time.monotonic() + 2
+            while pool.get_pooled_entry(sid) is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        assert completed_while_building, "runtime PATCH blocked behind agent prewarm"
+        assert not patch_thread.is_alive()
+        assert patch_errors == []
+        assert response["value"].status_code == 200
+        assert response["value"].json()["runtime"]["reasoningEffort"] == "high"
+        assert fake_agent.reasoning_config == {"enabled": True, "effort": "high"}
 
     def test_session_runtime_patch_rejects_empty_and_invalid_values(self, client):
         created = client.post("/desktop/api/sessions", json={})

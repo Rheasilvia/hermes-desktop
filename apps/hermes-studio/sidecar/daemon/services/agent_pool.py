@@ -81,7 +81,19 @@ class AgentPool:
         self._bus = event_bus
         self._session_db = session_db
         self._lock = threading.RLock()
+        # Agent construction can take several seconds. Serialize builds without
+        # holding the state lock so lightweight status/runtime operations stay
+        # responsive while a background prewarm is in progress.
+        self._build_lock = threading.RLock()
         self._agents: Dict[str, PooledAgent] = {}
+        self._building_sessions: set[str] = set()
+        self._invalidated_builds: set[str] = set()
+        self._pending_runtime_updates: Dict[str, dict[str, Any]] = {}
+        self._pending_stale_checks: Dict[
+            str,
+            tuple[str | None, str | None, str | None],
+        ] = {}
+        self._shutdown_requested = False
         self._missing_turn_warnings: set[tuple[str, str]] = set()
 
     def get_or_create(self, session_id: str) -> PooledAgent:
@@ -91,34 +103,87 @@ class AgentPool:
             if entry is not None:
                 entry.last_used = time.time()
                 return entry
+            if self._shutdown_requested:
+                raise RuntimeError("agent pool is shutting down")
 
-            # Build a new agent
-            built = self._build_agent(session_id)
-            if not isinstance(built, tuple):
-                agent = built
-                built_model = getattr(agent, "model", None)
-                built_provider = getattr(agent, "provider", None)
-                session = self._session_db.get_session(session_id) if self._session_db else None
-                built_cwd = (session or {}).get("cwd")
-            elif len(built) == 3:
-                agent, built_model, built_provider = built
-                session = self._session_db.get_session(session_id) if self._session_db else None
-                built_cwd = (session or {}).get("cwd")
-            else:
-                agent, built_model, built_provider, built_cwd = built
-            entry = PooledAgent(
-                agent=agent,
-                session_id=session_id,
-                built_model=built_model or None,
-                built_provider=built_provider or None,
-                built_cwd=built_cwd or None,
-            )
-            self._agents[session_id] = entry
+        # Keep builds serialized, as before, but do not hold _lock around the
+        # expensive constructor. Runtime PATCH/status endpoints only need
+        # _lock and must not wait for model/tool initialization to finish.
+        with self._build_lock:
+            with self._lock:
+                entry = self._agents.get(session_id)
+                if entry is not None:
+                    entry.last_used = time.time()
+                    return entry
+                if self._shutdown_requested:
+                    raise RuntimeError("agent pool is shutting down")
+                self._building_sessions.add(session_id)
+                self._invalidated_builds.discard(session_id)
 
-            # Evict if over capacity
-            self._evict_if_needed()
+            try:
+                built = self._build_agent(session_id)
+                entry = self._entry_from_build(session_id, built)
+            except BaseException:
+                with self._lock:
+                    self._building_sessions.discard(session_id)
+                    self._invalidated_builds.discard(session_id)
+                    self._pending_runtime_updates.pop(session_id, None)
+                    self._pending_stale_checks.pop(session_id, None)
+                raise
 
-            return entry
+            with self._lock:
+                self._building_sessions.discard(session_id)
+                if self._shutdown_requested:
+                    self._invalidated_builds.discard(session_id)
+                    self._pending_runtime_updates.pop(session_id, None)
+                    self._pending_stale_checks.pop(session_id, None)
+                    raise RuntimeError("agent pool shut down during agent build")
+                if session_id in self._invalidated_builds:
+                    self._invalidated_builds.discard(session_id)
+                    self._pending_runtime_updates.pop(session_id, None)
+                    self._pending_stale_checks.pop(session_id, None)
+                    raise RuntimeError(f"agent build invalidated for {session_id}")
+
+                stale_check = self._pending_stale_checks.pop(session_id, None)
+                if stale_check and self._entry_is_stale(entry, *stale_check):
+                    self._pending_runtime_updates.pop(session_id, None)
+                    raise RuntimeError(f"agent build became stale for {session_id}")
+
+                pending_runtime = self._pending_runtime_updates.pop(session_id, None)
+                if pending_runtime:
+                    if "reasoning_config" in pending_runtime:
+                        entry.agent.reasoning_config = pending_runtime["reasoning_config"]
+                    if "collaboration_mode" in pending_runtime:
+                        entry.agent._desktop_collaboration_mode = pending_runtime["collaboration_mode"]
+
+                self._agents[session_id] = entry
+
+                # Evict if over capacity
+                self._evict_if_needed()
+
+                return entry
+
+    def _entry_from_build(self, session_id: str, built: Any) -> PooledAgent:
+        """Normalize legacy _build_agent return shapes into one pool entry."""
+        if not isinstance(built, tuple):
+            agent = built
+            built_model = getattr(agent, "model", None)
+            built_provider = getattr(agent, "provider", None)
+            session = self._session_db.get_session(session_id) if self._session_db else None
+            built_cwd = (session or {}).get("cwd")
+        elif len(built) == 3:
+            agent, built_model, built_provider = built
+            session = self._session_db.get_session(session_id) if self._session_db else None
+            built_cwd = (session or {}).get("cwd")
+        else:
+            agent, built_model, built_provider, built_cwd = built
+        return PooledAgent(
+            agent=agent,
+            session_id=session_id,
+            built_model=built_model or None,
+            built_provider=built_provider or None,
+            built_cwd=built_cwd or None,
+        )
 
     def mark_running(self, session_id: str, turn_id: str | None = None) -> None:
         with self._lock:
@@ -170,6 +235,12 @@ class AgentPool:
             entry = self._agents.get(session_id)
             if entry and not entry.running:
                 del self._agents[session_id]
+                self._pending_runtime_updates.pop(session_id, None)
+                self._pending_stale_checks.pop(session_id, None)
+            elif entry is None and session_id in self._building_sessions:
+                self._invalidated_builds.add(session_id)
+                self._pending_runtime_updates.pop(session_id, None)
+                self._pending_stale_checks.pop(session_id, None)
 
     def force_reset(self, session_id: str) -> bool:
         """Forcibly free a session, even if it is still 'running'.
@@ -186,12 +257,19 @@ class AgentPool:
         with self._lock:
             entry = self._agents.get(session_id)
             if entry is None:
+                if session_id in self._building_sessions:
+                    self._invalidated_builds.add(session_id)
+                    self._pending_runtime_updates.pop(session_id, None)
+                    self._pending_stale_checks.pop(session_id, None)
+                    return True
                 return False
             try:
                 entry.agent.interrupt()
             except Exception:
                 log.exception("force_reset interrupt failed for %s", session_id)
             del self._agents[session_id]
+            self._pending_runtime_updates.pop(session_id, None)
+            self._pending_stale_checks.pop(session_id, None)
             log.info("[agent_pool] force-reset session %s (was running=%s)", session_id, entry.running)
             return True
 
@@ -210,12 +288,17 @@ class AgentPool:
         """
         with self._lock:
             entry = self._agents.get(session_id)
-            if entry is None or entry.running:
+            if entry is None:
+                if session_id in self._building_sessions:
+                    # A create-session prewarm may still be constructing this
+                    # exact provider/model/cwd. Defer the comparison until its
+                    # build metadata is known so a matching first prompt reuses
+                    # the prewarm instead of always paying for a second build.
+                    self._pending_stale_checks[session_id] = (provider, model, cwd)
                 return False
-            provider_stale = bool(provider) and entry.built_provider != provider
-            model_stale = bool(model) and entry.built_model != model
-            cwd_stale = bool(cwd) and entry.built_cwd != cwd
-            if provider_stale or model_stale or cwd_stale:
+            if entry.running:
+                return False
+            if self._entry_is_stale(entry, provider, model, cwd):
                 log.info(
                     "[agent_pool] evicting stale agent for %s: built=(%r,%r,%r) requested=(%r,%r,%r)",
                     session_id,
@@ -234,6 +317,19 @@ class AgentPool:
                         log.debug("failed to clear cached system prompt for %s", session_id, exc_info=True)
                 return True
             return False
+
+    @staticmethod
+    def _entry_is_stale(
+        entry: PooledAgent,
+        provider: str | None,
+        model: str | None,
+        cwd: str | None,
+    ) -> bool:
+        return bool(
+            (provider and entry.built_provider != provider)
+            or (model and entry.built_model != model)
+            or (cwd and entry.built_cwd != cwd)
+        )
 
     def apply_runtime(self, session_id: str, runtime: dict[str, Any]) -> bool:
         """Apply persisted runtime settings to an idle pooled agent.
@@ -263,7 +359,15 @@ class AgentPool:
 
         with self._lock:
             entry = self._agents.get(session_id)
-            if entry is None or entry.running:
+            if entry is None:
+                if session_id in self._building_sessions:
+                    pending = self._pending_runtime_updates.setdefault(session_id, {})
+                    if parsed is not None:
+                        pending["reasoning_config"] = parsed
+                    if normalized_collaboration_mode is not None:
+                        pending["collaboration_mode"] = normalized_collaboration_mode
+                return False
+            if entry.running:
                 return False
             if parsed is not None:
                 entry.agent.reasoning_config = parsed
@@ -275,6 +379,7 @@ class AgentPool:
     def shutdown(self) -> None:
         """Interrupt all running agents and clear the pool."""
         with self._lock:
+            self._shutdown_requested = True
             for sid, entry in list(self._agents.items()):
                 if entry.running:
                     try:
@@ -282,6 +387,9 @@ class AgentPool:
                     except Exception:
                         pass
             self._agents.clear()
+            self._pending_runtime_updates.clear()
+            self._pending_stale_checks.clear()
+            self._invalidated_builds.update(self._building_sessions)
 
     def refresh_tool_snapshots(self) -> int:
         """Refresh cached agents after explicit runtime tool changes."""

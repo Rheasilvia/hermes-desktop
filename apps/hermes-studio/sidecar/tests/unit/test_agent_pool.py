@@ -1,6 +1,7 @@
 """Unit tests for AgentPool eviction, pinning, and tool callback mechanics."""
 from __future__ import annotations
 
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -238,6 +239,219 @@ class TestAgentPoolEviction:
 
         assert applied is False
         assert entry.agent.reasoning_config == {"enabled": True, "effort": "low"}
+
+    def test_runtime_update_does_not_wait_for_background_build(self, tmp_path):
+        build_started = threading.Event()
+        release_build = threading.Event()
+        update_done = threading.Event()
+        built_agent = _FakeAIAgent("s1")
+        build_results = []
+        build_errors = []
+        runtime_result = {}
+
+        def slow_build(_session_id):
+            build_started.set()
+            assert release_build.wait(2), "test did not release the background build"
+            return built_agent, "model-a", "provider-a", str(tmp_path)
+
+        pool = AgentPool(tmp_path, EventBus(), session_db=None)
+
+        def build_agent():
+            try:
+                build_results.append(pool.get_or_create("s1"))
+            except BaseException as exc:
+                build_errors.append(exc)
+
+        def update_runtime():
+            runtime_result["running"] = pool.is_running("s1")
+            runtime_result["applied"] = pool.apply_runtime(
+                "s1",
+                {"reasoningEffort": "high"},
+            )
+            update_done.set()
+
+        with patch.object(pool, "_build_agent", side_effect=slow_build) as build_mock:
+            build_thread = threading.Thread(target=build_agent)
+            build_thread.start()
+            assert build_started.wait(1)
+
+            update_thread = threading.Thread(target=update_runtime)
+            update_thread.start()
+            completed_while_building = update_done.wait(1)
+
+            release_build.set()
+            build_thread.join(2)
+            update_thread.join(2)
+
+        assert completed_while_building, "runtime update blocked behind agent construction"
+        assert not build_thread.is_alive()
+        assert not update_thread.is_alive()
+        assert build_errors == []
+        assert len(build_results) == 1
+        assert build_mock.call_count == 1
+        assert runtime_result == {"running": False, "applied": False}
+        assert built_agent.reasoning_config == {"enabled": True, "effort": "high"}
+
+    def test_matching_first_prompt_reuses_in_progress_prewarm(self, tmp_path):
+        build_started = threading.Event()
+        release_build = threading.Event()
+        built_agent = _FakeAIAgent("s1")
+        build_results = []
+        build_errors = []
+
+        def slow_build(_session_id):
+            build_started.set()
+            assert release_build.wait(2), "test did not release the background build"
+            return built_agent, "model-a", "provider-a", str(tmp_path)
+
+        pool = AgentPool(tmp_path, EventBus(), session_db=None)
+
+        def build_agent():
+            try:
+                build_results.append(pool.get_or_create("s1"))
+            except BaseException as exc:
+                build_errors.append(exc)
+
+        with patch.object(pool, "_build_agent", side_effect=slow_build) as build_mock:
+            build_thread = threading.Thread(target=build_agent)
+            build_thread.start()
+            assert build_started.wait(1)
+
+            evicted = pool.evict_if_stale(
+                "s1",
+                "provider-a",
+                "model-a",
+                str(tmp_path),
+            )
+            release_build.set()
+            build_thread.join(2)
+
+        assert evicted is False
+        assert not build_thread.is_alive()
+        assert build_errors == []
+        assert len(build_results) == 1
+        assert build_mock.call_count == 1
+        assert pool.get_pooled_entry("s1") is build_results[0]
+
+    def test_changed_first_prompt_discards_stale_prewarm(self, tmp_path):
+        build_started = threading.Event()
+        release_build = threading.Event()
+        built_agent = _FakeAIAgent("s1")
+        build_errors = []
+
+        def slow_build(_session_id):
+            build_started.set()
+            assert release_build.wait(2), "test did not release the background build"
+            return built_agent, "model-a", "provider-a", str(tmp_path)
+
+        pool = AgentPool(tmp_path, EventBus(), session_db=None)
+
+        def build_agent():
+            try:
+                pool.get_or_create("s1")
+            except BaseException as exc:
+                build_errors.append(exc)
+
+        with patch.object(pool, "_build_agent", side_effect=slow_build):
+            build_thread = threading.Thread(target=build_agent)
+            build_thread.start()
+            assert build_started.wait(1)
+
+            pool.evict_if_stale("s1", "provider-b", "model-b", str(tmp_path))
+            release_build.set()
+            build_thread.join(2)
+
+        assert not build_thread.is_alive()
+        assert len(build_errors) == 1
+        assert "became stale" in str(build_errors[0])
+        assert pool.get_pooled_entry("s1") is None
+
+    def test_concurrent_get_or_create_builds_session_once(self, tmp_path):
+        build_started = threading.Event()
+        second_started = threading.Event()
+        release_build = threading.Event()
+        built_agent = _FakeAIAgent("s1")
+        results = []
+        errors = []
+
+        def slow_build(_session_id):
+            build_started.set()
+            assert release_build.wait(2), "test did not release the background build"
+            return built_agent, "model-a", "provider-a", str(tmp_path)
+
+        pool = AgentPool(tmp_path, EventBus(), session_db=None)
+
+        def get_agent(started=None):
+            if started is not None:
+                started.set()
+            try:
+                results.append(pool.get_or_create("s1"))
+            except BaseException as exc:
+                errors.append(exc)
+
+        with patch.object(pool, "_build_agent", side_effect=slow_build) as build_mock:
+            first_thread = threading.Thread(target=get_agent)
+            second_thread = threading.Thread(target=get_agent, args=(second_started,))
+            first_thread.start()
+            assert build_started.wait(1)
+            second_thread.start()
+            assert second_started.wait(1)
+
+            release_build.set()
+            first_thread.join(2)
+            second_thread.join(2)
+
+        assert not first_thread.is_alive()
+        assert not second_thread.is_alive()
+        assert errors == []
+        assert len(results) == 2
+        assert results[0] is results[1]
+        assert build_mock.call_count == 1
+
+    def test_failed_build_clears_pending_concurrent_state(self, tmp_path):
+        build_started = threading.Event()
+        release_build = threading.Event()
+        build_errors = []
+
+        def failing_build(_session_id):
+            build_started.set()
+            assert release_build.wait(2), "test did not release the background build"
+            raise RuntimeError("build failed")
+
+        pool = AgentPool(tmp_path, EventBus(), session_db=None)
+
+        def build_agent():
+            try:
+                pool.get_or_create("s1")
+            except BaseException as exc:
+                build_errors.append(exc)
+
+        with patch.object(pool, "_build_agent", side_effect=failing_build):
+            build_thread = threading.Thread(target=build_agent)
+            build_thread.start()
+            assert build_started.wait(1)
+
+            pool.apply_runtime("s1", {"reasoningEffort": "high"})
+            pool.evict_if_stale("s1", "provider-b", "model-b", str(tmp_path))
+            release_build.set()
+            build_thread.join(2)
+
+        assert not build_thread.is_alive()
+        assert len(build_errors) == 1
+        assert str(build_errors[0]) == "build failed"
+        with pool._lock:
+            assert "s1" not in pool._building_sessions
+            assert "s1" not in pool._invalidated_builds
+            assert "s1" not in pool._pending_runtime_updates
+            assert "s1" not in pool._pending_stale_checks
+
+        replacement = _FakeAIAgent("s1")
+        with patch.object(pool, "_build_agent", return_value=replacement) as build_mock:
+            entry = pool.get_or_create("s1")
+
+        assert entry.agent is replacement
+        assert entry.agent.reasoning_config is None
+        assert build_mock.call_count == 1
 
 
 class TestToolCallbacks:
