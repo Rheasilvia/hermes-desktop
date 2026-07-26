@@ -1,100 +1,139 @@
-# Hermes Studio Release Process
+# Hermes Studio release process
 
-Hermes Studio packages Electron plus a host-native PyInstaller sidecar. There
-is no automatic updater in the first Electron release.
+Hermes Studio packages Electron 40.10.2, a target-native `node-pty`, and a
+host-native PyInstaller sidecar. Build each target on its own operating system
+and CPU architecture. The package hook fails closed for cross-platform,
+cross-architecture, and macOS universal builds because the Python sidecar
+cannot be cross-compiled safely.
 
-## Host-native build
+## Quality gate
 
-Run each distribution build on its target operating system; PyInstaller output
-is not cross-platform. From the repository root:
-
-```bash
-cd apps/hermes-studio
-npm run backend:build
-npm run build
-npm run pack
-```
-
-`npm run backend:build` invokes the cross-platform Python entry
-`sidecar/scripts/build_dist.py`. It synchronizes the frozen sidecar build
-environment, runs PyInstaller, stages
-`sidecar/dist/electron/daemon` (`daemon.exe` on Windows), preserves executable
-bits on macOS/Linux, removes stale staging output from other platforms, and
-smoke-tests `READY <port>` plus the loopback health endpoint. `npm run pack`
-repeats the sidecar build before producing an unpacked electron-builder
-application. `npm run dist` builds the configured installers.
-
-The active electron-builder targets are DMG on macOS, NSIS on Windows, and
-AppImage/deb/rpm on Linux. Artifacts use:
-
-```text
-Hermes-Studio-${version}-${os}-${arch}.${ext}
-```
-
-CI should use native macOS, Windows, and Linux runners. A path calculation unit
-test covers all three staging layouts without claiming to cross-build them.
-
-## Signing status
-
-The current migration configuration does not provide production signing or
-notarization credentials. Local unsigned packages are suitable for smoke tests,
-not release distribution. A release pipeline must add platform-specific
-signing/notarization and verify the staged sidecar signature as part of the
-final app before publishing.
-
-## Verification
-
-Before publishing from a native runner:
+Run from `apps/hermes-studio`:
 
 ```bash
-cd apps/hermes-studio
-npm run typecheck
-npm run lint
-npm test
-npm run build
+npm run check
+```
+
+`check` runs both TypeScript projects, ESLint, Vitest, the packaging-script
+tests, and the canonical documentation checker. The sidecar suite is separate:
+
+```bash
 cd sidecar
 uv sync --frozen --extra dev
 uv run --frozen --extra dev python -m pytest -q
 ```
 
-The sidecar build itself is intentionally excluded from ordinary unit tests;
-tests exercise its target/path/argument logic without requiring PyInstaller.
+## Native build and package
 
-## Native host acceptance
+The common current-host flow is:
 
-The Electron package must be tested as a package, not only from the Vite
-development server. On each native runner, complete the capability-by-capability
-checklist in [NATIVE_BRIDGE.md](./NATIVE_BRIDGE.md), then confirm:
+```bash
+npm run backend:build
+npm run build
+npm run pack
+```
 
-- production loads from `hermes-studio://app/`, never `file://`;
-- a second launch focuses the existing window;
-- denied navigation, popups, webviews, and permissions stay denied;
-- microphone access is prompted only for an explicit voice interaction;
-- Windows microphone capture succeeds for Electron 40's absent/empty/unknown
-  media metadata while explicit camera and mixed audio/video remain denied;
-- the signed macOS app contains the Studio main/inherit audio-input,
-  JIT/unsigned-executable-memory, and native-library entitlements, and packaged
-  microphone capture succeeds;
-- Windows notifications use AppUserModelID `com.hermes-agent.studio` and a
-  packaged toast is visibly delivered;
-- a packaged macOS/Linux PTY starts successfully from the unpacked node-pty
-  helper, and raw byte input (including NUL/control/invalid UTF-8) is preserved;
-- picker and OS drag/drop flows preserve the source display name, handle mixed
-  file/image drops, and preview TIFF/TIF and HEIC selections on every supported
-  native runner;
-- an unsent draft image selected before a clean app restart remains available
-  afterwards, while expired/illegal/over-quota staging remainders are pruned and
-  scan overflow recovers without accumulating quarantine directories;
-- backend failure leaves the shell open in degraded mode and recovery events
-  reach the renderer;
-- repeated quit requests remain blocked while IPC admission is closed and
-  in-flight handlers drain, then cleanup closes all PTYs, revokes ephemeral
-  handles/grants, preserves valid draft staging, and stops only the owned
-  sidecar process;
-- renderer DevTools expose neither Node/raw Electron APIs nor the private
-  workspace-grant token;
-- the packaged CSP contains only the exact app/sidecar origins needed at
-  runtime.
+`backend:build` runs PyInstaller, stages exactly one executable at
+`sidecar/dist/electron/daemon` (`daemon.exe` on Windows), preserves POSIX
+execute bits, and verifies the real frozen executable's `READY <port>` stdout
+protocol plus authenticated loopback health. The Windows executable retains a
+console subsystem so stdout remains pipeable; Electron launches it with
+`windowsHide: true`, so no console window is shown.
 
-There is intentionally no `check_for_updates` or `install_update` Electron
-bridge surface. Do not publish an update-control UI for this release.
+`build` bundles the renderer/main/preload and stages only the matching
+`node-pty` runtime into `dist/node_modules/node-pty`. A matching prebuild is
+used when available; otherwise `@electron/rebuild` rebuilds the exact host
+architecture for Electron 40.10.2. The target-aware `beforePack` hook repeats
+the staging for electron-builder's actual platform/architecture and rejects a
+host mismatch. Packaged native files live under
+`resources/app.asar.unpacked/dist/node_modules/node-pty`; POSIX
+`spawn-helper` files must remain executable.
+
+Use the platform-specific distribution commands on matching runners:
+
+```bash
+npm run dist:mac    # DMG
+npm run dist:win    # NSIS
+npm run dist:linux  # AppImage, deb, rpm
+```
+
+Artifacts use the exact name:
+
+```text
+Hermes-Studio-${version}-${os}-${arch}.${ext}
+```
+
+Application icons are owned by `build/assets`, independently of the retained
+former-host reference tree.
+
+## Signing and notarization
+
+Signing is conditional, and release intent is always explicit. Every normal
+build is stamped with `resources/INTERNAL-BUILD.txt` even if signing credentials
+happen to be present. Set `HERMES_STUDIO_RELEASE=1` only on a release job; macOS
+and Windows then make incomplete credentials a hard failure instead of silently
+producing an internal build.
+
+For macOS, configure either `CSC_LINK` or `CSC_NAME` and one notarization mode:
+
+- `APPLE_NOTARY_PROFILE`, or
+- `APPLE_API_KEY`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER` together.
+
+`APPLE_API_KEY` may be a `.p8` path or inline private-key content. Inline
+content is written to a mode-0600 temporary file and removed after submission.
+electron-builder signs `Contents/Resources/sidecar/daemon` explicitly through
+`mac.binaries`. The `afterSign` hook verifies that nested executable directly,
+verifies the complete app with `codesign --deep --strict`, submits it with
+`notarytool`, staples the ticket, and validates the staple.
+
+For Windows, configure `WIN_CSC_LINK`, `CSC_LINK`, or `CSC_NAME` using the
+electron-builder signing mechanism. `.exe` is an explicit signing extension,
+and `afterSign` requires valid Authenticode signatures on both Hermes Studio
+and `resources/sidecar/daemon.exe`.
+
+Linux has no nested code-signing requirement in this builder. Normal Linux
+packages remain marked internal; an explicit `HERMES_STUDIO_RELEASE=1` build is
+allowed so CI can publish artifacts after its independently reviewed
+package/repository signing step.
+
+## Packaged smoke gate
+
+The canonical native acceptance command is:
+
+```bash
+npm run test:packaged
+```
+
+It builds the sidecar and app, creates the current-host unpacked package, then
+launches the packaged executable through Playwright's Electron driver. The
+smoke gate verifies:
+
+- the renderer loads from `hermes-studio://app/`;
+- the frozen preload bridge is present and `app.nativeState()` reports a
+  packaged process;
+- the packaged sidecar reaches authenticated loopback health;
+- `node-pty` starts and returns a unique sentinel through the frozen bridge;
+- the packaged sidecar and PTY payloads are in their exact resource paths;
+- the POSIX sidecar and `spawn-helper` are executable; and
+- closing Electron completes coordinated cleanup and the sidecar health
+  endpoint stops responding.
+
+To re-run only the validation/launch step against an existing unpacked output:
+
+```bash
+npm run test:packaged:existing
+```
+
+Linux runners need a graphical session (normally Xvfb). The smoke is
+current-host only and intentionally does not claim cross-target coverage.
+
+## Manual native acceptance
+
+Before publication, also complete the capability checklist in
+[NATIVE_BRIDGE.md](./NATIVE_BRIDGE.md) on every native runner. In particular,
+confirm microphone permission, notifications, pickers and drag/drop, restart
+recovery, denied navigation/webviews/permissions, single-instance behavior,
+and clean quit behavior in the signed installer output. Renderer DevTools must
+expose neither Node/raw Electron APIs nor the private workspace-grant token.
+
+There is intentionally no updater bridge or update-control UI in this release.

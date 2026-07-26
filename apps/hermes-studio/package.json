@@ -10,12 +10,17 @@
     "dev:renderer": "vite --host 127.0.0.1 --port 1420",
     "dev:electron": "npm run build:electron -- --dev && wait-on http://127.0.0.1:1420 && cross-env HERMES_STUDIO_DEV_SERVER=http://127.0.0.1:1420 electron .",
     "backend": "cross-env DESKTOP_BACKEND_PORT=18080 DESKTOP_BACKEND_TOKEN=dev-secret uv run --directory sidecar python -m daemon",
-    "build": "npm run build:renderer && npm run build:electron",
+    "build": "npm run build:renderer && npm run build:electron && npm run build:native",
     "build:renderer": "vite build",
     "build:electron": "node scripts/bundle-electron.mjs",
+    "build:native": "node scripts/stage-native-deps.mjs",
     "start": "npm run build && electron .",
-    "pack": "npm run backend:build && npm run build && electron-builder --dir",
-    "dist": "npm run backend:build && npm run build && electron-builder",
+    "builder": "electron-builder",
+    "pack": "npm run backend:build && npm run build && npm run builder -- --dir",
+    "dist": "npm run backend:build && npm run build && npm run builder",
+    "dist:mac": "npm run backend:build && npm run build && npm run builder -- --mac dmg",
+    "dist:win": "npm run backend:build && npm run build && npm run builder -- --win nsis",
+    "dist:linux": "npm run backend:build && npm run build && npm run builder -- --linux AppImage deb rpm",
     "tauri": "tauri",
     "backend:build": "uv run --directory sidecar python scripts/build_dist.py",
     "tauri:dev": "npm run backend:build && tauri dev",
@@ -24,11 +29,16 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "lint": "eslint src/ electron/",
     "lint:css-tokens": "bash scripts/check-css-tokens.sh",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:packaging",
+    "test:packaging": "node --test scripts/stage-native-deps.test.mjs scripts/before-pack.test.mjs scripts/signing.test.mjs scripts/packaged-smoke.test.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:packaged": "npm run pack && npm run test:packaged:existing",
+    "test:packaged:existing": "node scripts/packaged-smoke.mjs",
+    "docs:check": "node scripts/check-docs.mjs",
+    "check": "npm run typecheck && npm run lint && npm test && npm run docs:check"
   },
   "dependencies": {
     "@shikijs/engine-javascript": "^4.2.0",
@@ -52,6 +62,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.6",
     "@playwright/test": "^1.60.0",
     "@solidjs/testing-library": "^0.8.10",
     "@tauri-apps/cli": "^2.11.2",
@@ -72,10 +83,12 @@
     "wait-on": "^9.0.5"
   },
   "build": {
+    "electronVersion": "40.10.2",
     "appId": "com.hermes-agent.studio",
     "productName": "Hermes Studio",
     "executableName": "Hermes Studio",
     "artifactName": "Hermes-Studio-${version}-${os}-${arch}.${ext}",
+    "icon": "build/assets/icon",
     "directories": {
       "output": "release"
     },
@@ -84,9 +97,13 @@
       "public/**",
       "package.json"
     ],
+    "beforeBuild": "scripts/before-build.mjs",
+    "beforePack": "scripts/before-pack.mjs",
+    "afterPack": "scripts/after-pack.mjs",
+    "afterSign": "scripts/after-sign.mjs",
     "asar": true,
     "asarUnpack": [
-      "node_modules/node-pty/**"
+      "dist/node_modules/node-pty/**"
     ],
     "extraResources": [
       {
@@ -105,21 +122,36 @@
         "NSMicrophoneUsageDescription": "Hermes Studio uses the microphone only when you start a voice interaction."
       },
       "hardenedRuntime": true,
+      "binaries": [
+        "Contents/Resources/sidecar/daemon"
+      ],
       "target": [
         "dmg"
       ]
     },
     "win": {
+      "signExts": [
+        ".exe"
+      ],
       "target": [
         "nsis"
       ]
     },
     "linux": {
+      "category": "Development",
+      "maintainer": "Nous Research <support@nousresearch.com>",
       "target": [
         "AppImage",
         "deb",
         "rpm"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "shortcutName": "Hermes Studio",
+      "uninstallDisplayName": "Hermes Studio"
     }
   }
 }

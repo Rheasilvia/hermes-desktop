@@ -6,8 +6,64 @@ import { describe, expect, it } from 'vitest'
 
 const studioRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = JSON.parse(readFileSync(path.join(studioRoot, 'package.json'), 'utf8')) as {
-  build?: { mac?: Record<string, unknown> }
+  scripts?: Record<string, string>
+  devDependencies?: Record<string, string>
+  build?: {
+    electronVersion?: string
+    artifactName?: string
+    icon?: string
+    beforePack?: string
+    afterPack?: string
+    afterSign?: string
+    asarUnpack?: string[]
+    extraResources?: Array<Record<string, unknown>>
+    mac?: Record<string, unknown>
+    win?: Record<string, unknown>
+    linux?: Record<string, unknown>
+  }
 }
+
+describe('native package contract', () => {
+  it('pins Electron and stages node-pty through target-aware package hooks', () => {
+    expect(manifest.devDependencies?.electron).toBe('40.10.2')
+    expect(manifest.devDependencies?.['@electron/rebuild']).toBe('^4.0.6')
+    expect(manifest.build).toMatchObject({
+      electronVersion: '40.10.2',
+      icon: 'build/assets/icon',
+      beforePack: 'scripts/before-pack.mjs',
+      afterPack: 'scripts/after-pack.mjs',
+      afterSign: 'scripts/after-sign.mjs',
+      artifactName: 'Hermes-Studio-${version}-${os}-${arch}.${ext}',
+    })
+    expect(manifest.build?.asarUnpack).toContain('dist/node_modules/node-pty/**')
+  })
+
+  it('packages the host-native sidecar and all required platform targets', () => {
+    expect(manifest.build?.extraResources).toContainEqual({
+      from: 'sidecar/dist/electron',
+      to: 'sidecar',
+      filter: ['daemon', 'daemon.exe'],
+    })
+    expect(manifest.build?.mac).toMatchObject({
+      target: ['dmg'],
+      binaries: ['Contents/Resources/sidecar/daemon'],
+    })
+    expect(manifest.build?.win).toMatchObject({ target: ['nsis'] })
+    expect(manifest.build?.linux).toMatchObject({ target: ['AppImage', 'deb', 'rpm'] })
+  })
+
+  it('exposes quality, platform distribution, and packaged-smoke commands', () => {
+    expect(manifest.scripts).toMatchObject({
+      check: 'npm run typecheck && npm run lint && npm test && npm run docs:check',
+      'docs:check': 'node scripts/check-docs.mjs',
+      'dist:mac': expect.stringContaining('--mac dmg'),
+      'dist:win': expect.stringContaining('--win nsis'),
+      'dist:linux': expect.stringContaining('--linux AppImage deb rpm'),
+      'test:packaged': expect.stringContaining('test:packaged:existing'),
+      'test:packaged:existing': 'node scripts/packaged-smoke.mjs',
+    })
+  })
+})
 
 describe('macOS packaging security', () => {
   it('enables hardened runtime and references Studio-owned entitlement files', () => {

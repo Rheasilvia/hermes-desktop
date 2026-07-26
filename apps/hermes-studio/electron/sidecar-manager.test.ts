@@ -202,6 +202,36 @@ describe('owned process lifecycle', () => {
 })
 
 describe('SidecarManager', () => {
+  it('hides the packaged Windows daemon while preserving piped READY stdout', async () => {
+    let observedCommand = ''
+    let observedOptions: SpawnOptions | undefined
+    const spawnProcess = vi.fn((command: string, _args: readonly string[], options: SpawnOptions) => {
+      observedCommand = command
+      observedOptions = options
+      const child = fakeChild(18_000)
+      queueMicrotask(() => child.stdout?.emit('data', 'READY 45180\n'))
+      return child
+    }) as unknown as typeof import('node:child_process').spawn
+    const manager = new SidecarManager({
+      appRoot: '/studio', resourcesPath: '/resources', isPackaged: true, platform: 'win32',
+      env: { HERMES_HOME: '/tmp/hermes-studio-windows-ready-test' },
+      spawnProcess,
+      setInterval: vi.fn(() => 1) as unknown as typeof globalThis.setInterval,
+      clearInterval: vi.fn() as unknown as typeof globalThis.clearInterval,
+      terminateTree: async () => undefined,
+    })
+
+    await expect(manager.start()).resolves.toMatchObject({ baseUrl: 'http://127.0.0.1:45180' })
+    expect(observedCommand).toMatch(/sidecar[\\/]daemon\.exe$/)
+    expect(observedOptions).toMatchObject({
+      windowsHide: true,
+      detached: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: expect.objectContaining({ DESKTOP_BACKEND_PORT: '0' }),
+    })
+    await manager.stop()
+  })
+
   it('keeps startup, probes, and restart supervision alive when log I/O fails', async () => {
     const temporary = mkdtempSync(path.join(tmpdir(), 'hermes-studio-log-io-test-'))
     const invalidHome = path.join(temporary, 'not-a-directory')

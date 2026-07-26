@@ -5,6 +5,13 @@ import pytest
 from build_support import BuildLayout, executable_name, stage_executable
 
 
+def test_pyinstaller_keeps_windows_stdout_for_the_ready_protocol():
+    spec = (Path(__file__).resolve().parents[2] / "daemon.spec").read_text()
+
+    assert "console=True" in spec
+    assert "console=not sys.platform.startswith" not in spec
+
+
 def test_build_layout_stages_the_host_executable_for_electron_builder(tmp_path: Path):
     for platform, expected in (
         ("darwin", "daemon"),

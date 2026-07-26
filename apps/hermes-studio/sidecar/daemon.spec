@@ -41,5 +41,8 @@ exe = EXE(
     debug=False, bootloader_ignore_signals=False,
     strip=not sys.platform.startswith("win"),
     upx=False,
-    console=not sys.platform.startswith("win"),
+    # READY is a stdout protocol consumed through Electron's pipe. A Windows
+    # noconsole executable sets sys.stdout/sys.stderr to None, so retain the
+    # console subsystem and hide its window at spawn time with windowsHide.
+    console=True,
 )
