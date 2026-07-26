@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { packagingDisposition } from './before-pack.mjs'
@@ -98,10 +98,27 @@ async function notarizeMac(appPath, environment) {
   }
 }
 
-async function verifyWindowsSignatures(context) {
+export function windowsExecutablePaths(appOutDir) {
+  const executables = []
+  function visit(directory) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const candidate = path.join(directory, entry.name)
+      if (entry.isDirectory()) visit(candidate)
+      else if (entry.isFile() && /\.exe$/i.test(entry.name)) executables.push(candidate)
+    }
+  }
+  visit(appOutDir)
+  return executables.sort()
+}
+
+export async function verifyWindowsSignatures(context, runCommand = run) {
   const product = context.packager?.appInfo?.productFilename ?? 'Hermes Studio'
   const executable = path.join(context.appOutDir, `${product}.exe`)
   const sidecar = path.join(context.appOutDir, 'resources', 'sidecar', 'daemon.exe')
+  for (const required of [executable, sidecar]) {
+    if (!existsSync(required)) throw new Error(`Required Windows executable is missing: ${required}`)
+  }
+  const executables = windowsExecutablePaths(context.appOutDir)
   const command = [
     '$ErrorActionPreference = "Stop";',
     'foreach ($p in $args) {',
@@ -109,7 +126,7 @@ async function verifyWindowsSignatures(context) {
     '  if ($s.Status -ne "Valid") { throw "Invalid Authenticode signature" }',
     '}',
   ].join(' ')
-  await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command, executable, sidecar])
+  await runCommand('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command, ...executables])
 }
 
 export default async function afterSign(context) {

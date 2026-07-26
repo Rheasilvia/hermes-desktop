@@ -9,6 +9,8 @@ import {
   appleNotaryCredentials,
   redactCommandFailure,
   resolveAppleApiKey,
+  verifyWindowsSignatures,
+  windowsExecutablePaths,
 } from './after-sign.mjs'
 
 test('selects a keychain profile or complete API-key notarization credentials', () => {
@@ -67,6 +69,32 @@ test('writes an explicit marker for an unsigned package and removes it for relea
       WIN_CSC_LINK: 'certificate',
     })
     assert.equal(fs.existsSync(path.join(root, 'resources', INTERNAL_BUILD_MARKER)), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('recursively verifies every packaged Windows executable and excludes DLLs by policy', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-studio-windows-signing-'))
+  const main = path.join(root, 'Hermes Studio.exe')
+  const sidecar = path.join(root, 'resources', 'sidecar', 'daemon.exe')
+  const winpty = path.join(root, 'resources', 'app.asar.unpacked', 'dist', 'node_modules', 'node-pty', 'winpty-agent.exe')
+  const helper = path.join(root, 'resources', 'nested', 'OpenConsole.EXE')
+  const dll = path.join(root, 'resources', 'app.asar.unpacked', 'dist', 'node_modules', 'node-pty', 'winpty.dll')
+  for (const file of [main, sidecar, winpty, helper, dll]) {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, '')
+  }
+  try {
+    assert.deepEqual(windowsExecutablePaths(root), [main, helper, sidecar, winpty].sort())
+    let invocation
+    await verifyWindowsSignatures(
+      { appOutDir: root, packager: { appInfo: { productFilename: 'Hermes Studio' } } },
+      async (command, args) => { invocation = { command, args } },
+    )
+    assert.equal(invocation.command, 'powershell.exe')
+    assert.deepEqual(invocation.args.slice(4), [main, helper, sidecar, winpty].sort())
+    assert.equal(invocation.args.includes(dll), false)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

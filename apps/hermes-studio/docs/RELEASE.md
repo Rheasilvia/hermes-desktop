@@ -1,8 +1,9 @@
 # Hermes Studio release process
 
-Hermes Studio packages Electron 40.10.2, a target-native `node-pty`, and a
-host-native PyInstaller sidecar. Build each target on its own operating system
-and CPU architecture. The package hook fails closed for cross-platform,
+Hermes Studio packages Electron 40.10.2 with electron-builder pinned exactly to
+26.8.1, a target-native `node-pty`, and a host-native PyInstaller sidecar. Build
+each target on its own operating system and CPU architecture. The package hook
+fails closed for cross-platform,
 cross-architecture, and macOS universal builds because the Python sidecar
 cannot be cross-compiled safely.
 
@@ -88,6 +89,10 @@ Artifacts use the exact name:
 Hermes-Studio-${version}-${os}-${arch}.${ext}
 ```
 
+Linux package metadata uses the explicit `hermes-studio` package name for both
+deb and rpm; CI install/uninstall checks do not infer it from the scoped npm
+package name.
+
 Application icons are owned by `build/assets`; no retired native source tree is
 kept as a packaging input or reference copy.
 
@@ -110,11 +115,18 @@ electron-builder signs `Contents/Resources/sidecar/daemon` explicitly through
 `mac.binaries`. The `afterSign` hook verifies that nested executable directly,
 verifies the complete app with `codesign --deep --strict`, submits it with
 `notarytool`, staples the ticket, and validates the staple.
+`mac.notarize` is explicitly `false`: electron-builder's built-in notarization
+is disabled so API-key material is handled only by this audited `afterSign`
+path, never by two competing submitters.
 
 For Windows, configure `WIN_CSC_LINK`, `CSC_LINK`, or `CSC_NAME` using the
 electron-builder signing mechanism. `.exe` is an explicit signing extension,
-and `afterSign` requires valid Authenticode signatures on both Hermes Studio
-and `resources/sidecar/daemon.exe`.
+and `afterSign` recursively requires a valid Authenticode signature on every
+packaged executable, including Hermes Studio, `resources/sidecar/daemon.exe`,
+`winpty-agent.exe`, `OpenConsole.exe`, and any future `.exe` helper. DLLs are
+not part of the Authenticode release gate: electron-builder is configured to
+sign `.exe`, while packaged DLL and `.node` payloads are independently checked
+for their exact target platform and CPU architecture before launch.
 
 Linux has no nested code-signing requirement in this builder. Normal Linux
 packages remain marked internal; an explicit `HERMES_STUDIO_RELEASE=1` build is
@@ -134,12 +146,20 @@ launches the packaged executable through Playwright's Electron driver. The
 smoke gate verifies:
 
 - the renderer loads from `hermes-studio://app/`;
-- the frozen preload bridge is present and `app.nativeState()` reports a
-  packaged process;
+- the deeply frozen preload bridge is present, Node globals are absent, and
+  `app.nativeState()` reports a packaged process;
 - the packaged sidecar reaches authenticated loopback health;
+- restricted Hermes Home write/read/list operations work;
+- an image loads only through a signed opaque asset handle;
+- session create/list/delete and the SSE connection work without model
+  credentials;
+- notifications either succeed or return the stable
+  `NOTIFICATIONS_UNAVAILABLE` capability result;
+- an explicit backend restart reaches health through the renderer reload;
 - `node-pty` starts and returns a unique sentinel through the frozen bridge;
 - the packaged sidecar and PTY payloads are in their exact resource paths;
-- the POSIX sidecar and `spawn-helper` are executable; and
+- every executable/native payload matches the runner platform and CPU, and the
+  POSIX sidecar and `spawn-helper` are executable; and
 - closing Electron completes coordinated cleanup and the sidecar health
   endpoint stops responding.
 
@@ -148,6 +168,22 @@ To re-run only the validation/launch step against an existing unpacked output:
 ```bash
 npm run test:packaged:existing
 ```
+
+Installer smoke jobs pass the installed application explicitly, avoiding any
+stale unpacked output in `release/`:
+
+```bash
+npm run test:packaged:existing -- --app-path "/absolute/path/to/Hermes Studio.app"
+npm run test:packaged:existing -- --app-path "C:\absolute\install\Hermes Studio"
+npm run test:packaged:existing -- --app-path /absolute/install/root
+```
+
+On macOS the path may be the `.app` bundle or its main executable. On Windows
+and Linux it may be the installation directory or the Hermes Studio executable.
+The path must be absolute, and the smoke runner rejects a package whose actual
+binary architecture differs from the native runner. Default discovery uses the
+current platform/architecture output directory and fails on ambiguous fallback
+candidates instead of selecting one by traversal order.
 
 Linux runners need a graphical session (normally Xvfb). The smoke is
 current-host only and intentionally does not claim cross-target coverage.
