@@ -1,5 +1,8 @@
 # Tauri Desktop Workspace Sandbox Implementation Plan
 
+> **Status: Superseded.** Hermes Studio now uses Electron; see
+> [ADR-001](../../apps/hermes-studio/docs/decisions/ADR-001-electron-shell.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Tauri Desktop enforce a real workspace boundary for file, terminal, process, delegation, and code execution paths.

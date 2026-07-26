@@ -24,6 +24,7 @@ ci_review_files = _mod.ci_review_files
 DEFAULT = {
     "python": True,
     "frontend": True,
+    "studio_native": True,
     "docker_meta": True,
     "site": True,
     "scan": True,
@@ -34,10 +35,22 @@ DEFAULT = {
 }
 
 
-def _lanes(python=False, frontend=False, site=False, scan=False, deps=False, npm_lock=False, mcp_catalog=False, docker_meta=False, ci_review=False) -> dict[str, bool]:
+def _lanes(
+    python=False,
+    frontend=False,
+    studio_native=False,
+    site=False,
+    scan=False,
+    deps=False,
+    npm_lock=False,
+    mcp_catalog=False,
+    docker_meta=False,
+    ci_review=False,
+) -> dict[str, bool]:
     return {
         "python": python,
         "frontend": frontend,
+        "studio_native": studio_native,
         "docker_meta": docker_meta,
         "site": site,
         "scan": scan,
@@ -49,27 +62,91 @@ def _lanes(python=False, frontend=False, site=False, scan=False, deps=False, npm
 
 
 CASES = {
-    "docs-only → nothing heavy": (["README.md", "docs/guide.md"], _lanes()),
-    "python source → python": (["run_agent.py"], _lanes(python=True, scan=True)),
-    "dep manifest → python": (["pyproject.toml"], _lanes(python=True, scan=True, deps=True)),
-    "uv.lock → python": (["uv.lock"], _lanes(python=True)),
+    "generic docs-only → nothing heavy": (["docs/guide.md"], _lanes()),
+    "root Studio entry docs → frontend docs gate only": (
+        ["README.md", "AGENTS.md"],
+        _lanes(frontend=True),
+    ),
+    "superseded Studio plans → frontend docs gate only": (
+        [
+            "docs/plans/2026-05-11-git-diff-panel-design.md",
+            "docs/plans/2026-06-10-tauri-desktop-workspace-sandbox-v2.md",
+            "docs/plans/2026-06-10-tauri-desktop-workspace-sandbox.md",
+            "plans/desktop-conversation-real-data.md",
+        ],
+        _lanes(frontend=True),
+    ),
+    "python source → python only on PR": (
+        ["run_agent.py"],
+        _lanes(python=True, scan=True),
+    ),
+    "dep manifest → python + Studio native": (
+        ["pyproject.toml"],
+        _lanes(python=True, studio_native=True, scan=True, deps=True),
+    ),
+    "uv.lock → python + Studio native": (
+        ["uv.lock"],
+        _lanes(python=True, studio_native=True),
+    ),
     "ts package → frontend": (["apps/desktop/src/app.tsx"], _lanes(frontend=True)),
+    "Studio renderer → frontend + Studio native": (
+        ["apps/hermes-studio/src/App.tsx"],
+        _lanes(frontend=True, studio_native=True),
+    ),
+    "Studio markdown → frontend only": (
+        ["apps/hermes-studio/README.md", "apps/hermes-studio/AGENTS.md"],
+        _lanes(frontend=True),
+    ),
+    "Studio docs tree → frontend only": (
+        ["apps/hermes-studio/docs/architecture.drawio"],
+        _lanes(frontend=True),
+    ),
+    "Studio sidecar Python → Python + frontend + Studio native": (
+        ["apps/hermes-studio/sidecar/daemon/app.py"],
+        _lanes(python=True, frontend=True, studio_native=True, scan=True),
+    ),
+    "Studio sidecar lock → Python + frontend + Studio native": (
+        ["apps/hermes-studio/sidecar/uv.lock"],
+        _lanes(python=True, frontend=True, studio_native=True),
+    ),
     "ui-tui → frontend": (["ui-tui/src/entry.ts"], _lanes(frontend=True)),
     # Lockfile bump shifts every TS package's tree, but not the Python suite.
-    "root lockfile → frontend, not python": (["package-lock.json"], _lanes(frontend=True, npm_lock=True)),
+    "root lockfile → frontend + Studio native, not python": (
+        ["package-lock.json"],
+        _lanes(frontend=True, studio_native=True, npm_lock=True),
+    ),
+    "root npm manifest → frontend + Studio native, not python": (
+        ["package.json"],
+        _lanes(frontend=True, studio_native=True),
+    ),
     "nested lockfile → npm_lock": (["website/package-lock.json"], _lanes(site=True, npm_lock=True)),
     "website → site": (["website/docs/intro.md"], _lanes(site=True)),
     # SKILL.md reads like docs, but the skill-doc tests read skills/, so a
     # skill edit must still run Python.
-    "skill md → python + site": (["skills/github/SKILL.md"], _lanes(python=True, site=True)),
+    "skill md → python + site": (
+        ["skills/github/SKILL.md"],
+        _lanes(python=True, site=True),
+    ),
     "dockerfile → docker meta": (["Dockerfile"], _lanes(docker_meta=True)),
     # Unknown top-level file keeps Python on rather than risk a silent skip.
-    "unknown toplevel → python": (["Makefile"], _lanes(python=True)),
-    "mixed docs+python → python": (["README.md", "agent/x.py"], _lanes(python=True, scan=True)),
+    "unknown toplevel → python only on PR": (
+        ["Makefile"],
+        _lanes(python=True),
+    ),
+    "mixed Studio entry docs+python → frontend + python": (
+        ["README.md", "agent/x.py"],
+        _lanes(python=True, frontend=True, scan=True),
+    ),
     "mixed docs+frontend → frontend": (["README.md", "apps/x.tsx"], _lanes(frontend=True)),
     # Supply-chain lanes
-    ".pth file → scan": (["evil.pth"], _lanes(python=True, scan=True)),
-    "setup.py → scan": (["setup.py"], _lanes(python=True, scan=True)),
+    ".pth file → scan": (
+        ["evil.pth"],
+        _lanes(python=True, scan=True),
+    ),
+    "setup.py → scan": (
+        ["setup.py"],
+        _lanes(python=True, scan=True),
+    ),
     "mcp catalog manifest → mcp_catalog": (
         ["optional-mcps/foo/manifest.yaml"],
         _lanes(python=True, mcp_catalog=True),
@@ -106,6 +183,14 @@ CASES = {
     "prettier config → ci_review": (
         [".prettierrc"],
         _lanes(python=True, ci_review=True),
+    ),
+    "Studio classifier → Python + Studio native": (
+        ["scripts/ci/classify_changes.py"],
+        _lanes(python=True, studio_native=True, scan=True),
+    ),
+    "Studio classifier tests → Python + Studio native": (
+        ["tests/ci/test_classify_changes.py"],
+        _lanes(python=True, studio_native=True, scan=True),
     ),
     "workflow yml → ci_review (also fail-open all)": (
         [".github/workflows/typecheck.yml"],

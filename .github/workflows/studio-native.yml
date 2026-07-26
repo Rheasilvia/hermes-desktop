@@ -1,0 +1,439 @@
+name: Hermes Studio Native
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  native-package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            runner: macos-15
+            platform: mac
+            arch: arm64
+            dist_script: dist:mac
+          - name: macOS x64
+            runner: macos-15-intel
+            platform: mac
+            arch: x64
+            dist_script: dist:mac
+          - name: Windows x64
+            runner: windows-2025
+            platform: win
+            arch: x64
+            dist_script: dist:win
+          - name: Linux x64
+            runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+            dist_script: dist:linux
+    env:
+      CI: "true"
+      # This workflow produces PR/internal-test packages only. Signing and
+      # release publication belong to a separate trusted release workflow.
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Linux packaging and Electron dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            fakeroot rpm xvfb \
+            libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 \
+            xdg-utils libatspi2.0-0 libdrm2 libgbm1 libasound2t64
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm workspace dependencies
+        uses: ./.github/actions/retry
+        with:
+          command: npm ci
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # 8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            apps/hermes-studio/sidecar/uv.lock
+            pyproject.toml
+            uv.lock
+
+      - name: Verify native runner architecture
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          actual_arch="$(node -p 'process.arch')"
+          if [ "$actual_arch" != "$EXPECTED_ARCH" ]; then
+            echo "::error::Expected $EXPECTED_ARCH runner, received $actual_arch"
+            exit 1
+          fi
+          python -c "import platform; print('Python host:', platform.platform(), platform.machine())"
+
+      - name: Install Studio sidecar dependencies
+        uses: ./.github/actions/retry
+        with:
+          working-directory: apps/hermes-studio/sidecar
+          command: uv sync --frozen --python 3.12 --extra dev --extra build
+
+      - name: Lint Studio
+        run: npm run lint --workspace @hermes/studio
+
+      - name: Check Studio CSS tokens
+        run: npm run lint:css-tokens --workspace @hermes/studio
+
+      - name: Type-check Studio
+        run: npm run typecheck --workspace @hermes/studio
+
+      - name: Run Studio unit tests
+        run: npm test --workspace @hermes/studio
+
+      - name: Build Studio renderer and Electron host
+        run: npm run build --workspace @hermes/studio
+
+      - name: Check sidecar source boundaries
+        working-directory: apps/hermes-studio/sidecar
+        shell: bash
+        run: bash scripts/check_boundaries.sh
+
+      - name: Run Studio sidecar tests
+        working-directory: apps/hermes-studio/sidecar
+        run: uv run --frozen --python 3.12 --extra dev --extra build pytest -q
+
+      - name: Install Playwright Chromium
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/retry
+        with:
+          working-directory: apps/hermes-studio
+          command: npx playwright install --with-deps chromium
+
+      - name: Run Studio browser E2E
+        if: runner.os == 'Linux'
+        working-directory: apps/hermes-studio
+        env:
+          OPENROUTER_API_KEY: ""
+          OPENAI_API_KEY: ""
+          NOUS_API_KEY: ""
+        run: npm run test:e2e
+
+      - name: Upload Studio browser E2E evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hermes-studio-browser-e2e-linux-x64-${{ github.sha }}
+          path: |
+            apps/hermes-studio/playwright-report
+            apps/hermes-studio/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # test:packaged performs the host-native PyInstaller build and READY /
+      # health smoke, rebuilds/stages node-pty for Electron, creates the
+      # unpacked application, validates its resources, and launches it.
+      - name: Build and smoke-test packaged Studio (Linux)
+        if: runner.os == 'Linux'
+        working-directory: apps/hermes-studio
+        run: >-
+          xvfb-run -a --server-args="-screen 0 1280x1024x24"
+          npm run test:packaged
+
+      - name: Build and smoke-test packaged Studio
+        if: runner.os != 'Linux'
+        working-directory: apps/hermes-studio
+        run: npm run test:packaged
+
+      - name: Build current-host installers
+        working-directory: apps/hermes-studio
+        env:
+          DIST_SCRIPT: ${{ matrix.dist_script }}
+        shell: bash
+        run: npm run "$DIST_SCRIPT"
+
+      - name: Verify macOS artifact filename
+        if: runner.os == 'macOS'
+        working-directory: apps/hermes-studio
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          shopt -s nullglob
+          artifacts=(release/Hermes-Studio-*-mac-"$EXPECTED_ARCH".dmg)
+          if [ "${#artifacts[@]}" -ne 1 ]; then
+            printf 'Expected one macOS DMG, found %s\n' "${#artifacts[@]}" >&2
+            find release -maxdepth 1 -type f -print || true
+            exit 1
+          fi
+          test -s "${artifacts[0]}"
+
+      - name: Verify Windows artifact filename
+        if: runner.os == 'Windows'
+        working-directory: apps/hermes-studio
+        shell: bash
+        run: |
+          shopt -s nullglob
+          artifacts=(release/Hermes-Studio-*-win-x64.exe)
+          if [ "${#artifacts[@]}" -ne 1 ]; then
+            printf 'Expected one Windows NSIS installer, found %s\n' "${#artifacts[@]}" >&2
+            find release -maxdepth 1 -type f -print || true
+            exit 1
+          fi
+          test -s "${artifacts[0]}"
+
+      - name: Verify Linux artifact filenames
+        if: runner.os == 'Linux'
+        working-directory: apps/hermes-studio
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for extension in AppImage deb rpm; do
+            artifacts=(release/Hermes-Studio-*-linux-x64."$extension")
+            if [ "${#artifacts[@]}" -ne 1 ]; then
+              printf 'Expected one Linux %s artifact, found %s\n' \
+                "$extension" "${#artifacts[@]}" >&2
+              find release -maxdepth 1 -type f -print || true
+              exit 1
+            fi
+            test -s "${artifacts[0]}"
+            if [ "$extension" = AppImage ] && [ ! -x "${artifacts[0]}" ]; then
+              echo "Expected ${artifacts[0]} to retain its executable bit" >&2
+              exit 1
+            fi
+          done
+
+      # Exercise the final installer, not only electron-builder's --dir output.
+      # The shared packaged smoke launches the installed app, waits for READY
+      # and authenticated health, exercises PTY, exits, and checks sidecar cleanup.
+      - name: Install, smoke-test, and uninstall macOS DMG
+        if: runner.os == 'macOS'
+        working-directory: apps/hermes-studio
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(release/Hermes-Studio-*-mac-"$EXPECTED_ARCH".dmg)
+          mount_root="$(mktemp -d "$RUNNER_TEMP/hermes-studio-dmg.XXXXXX")"
+          install_root="$(mktemp -d "$RUNNER_TEMP/hermes-studio-install.XXXXXX")"
+          mounted=0
+          cleanup() {
+            set +e
+            if [ "$mounted" -eq 1 ]; then
+              hdiutil detach "$mount_root" -force >/dev/null
+            fi
+            rm -rf "$install_root" "$mount_root"
+          }
+          trap cleanup EXIT
+
+          hdiutil attach "${artifacts[0]}" -nobrowse -readonly -mountpoint "$mount_root"
+          mounted=1
+          source_app="$mount_root/Hermes Studio.app"
+          installed_app="$install_root/Hermes Studio.app"
+          test -d "$source_app"
+          bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$source_app/Contents/Info.plist")"
+          test "$bundle_id" = "com.hermes-agent.studio"
+          ditto "$source_app" "$installed_app"
+          hdiutil detach "$mount_root"
+          mounted=0
+
+          test -x "$installed_app/Contents/MacOS/Hermes Studio"
+          npm run test:packaged:existing -- --app-path "$installed_app"
+
+          rm -rf "$installed_app"
+          test ! -e "$installed_app"
+
+      - name: Install, smoke-test, and uninstall Windows NSIS package
+        if: runner.os == 'Windows'
+        working-directory: apps/hermes-studio
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Get-StudioUninstallEntries {
+            @(
+              Get-ItemProperty `
+                -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' `
+                -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -eq 'Hermes Studio' }
+            )
+          }
+          $installer = @(Get-ChildItem release/Hermes-Studio-*-win-x64.exe)
+          if ($installer.Count -ne 1) {
+            throw "Expected one Windows NSIS installer, found $($installer.Count)"
+          }
+          $installRoot = Join-Path $env:RUNNER_TEMP "hermes-studio-install-$([guid]::NewGuid())"
+          $uninstaller = $null
+          try {
+            $install = Start-Process `
+              -FilePath $installer[0].FullName `
+              -ArgumentList '/S', "/D=$installRoot" `
+              -Wait -PassThru
+            if ($install.ExitCode -ne 0) {
+              throw "NSIS installer exited with code $($install.ExitCode)"
+            }
+
+            $app = Join-Path $installRoot 'Hermes Studio.exe'
+            if (-not (Test-Path -LiteralPath $app -PathType Leaf)) {
+              throw "Installed Hermes Studio executable is missing: $app"
+            }
+            if ((Get-Item -LiteralPath $app).VersionInfo.ProductName -ne 'Hermes Studio') {
+              throw 'Installed executable has the wrong ProductName'
+            }
+            if (-not (Test-Path -LiteralPath (Join-Path $installRoot 'resources/INTERNAL-BUILD.txt'))) {
+              throw 'Installed internal package marker is missing'
+            }
+            $uninstaller = @(Get-ChildItem -LiteralPath $installRoot -Filter 'Uninstall*.exe')
+            if ($uninstaller.Count -ne 1) {
+              throw "Expected one Studio uninstaller, found $($uninstaller.Count)"
+            }
+            $uninstallEntries = @(Get-StudioUninstallEntries)
+            if ($uninstallEntries.Count -ne 1) {
+              throw "Expected one Hermes Studio uninstall entry, found $($uninstallEntries.Count)"
+            }
+            if ($uninstallEntries[0].UninstallString -notlike "*$installRoot*") {
+              throw 'Hermes Studio uninstall entry points at a different installation'
+            }
+
+            & npm.cmd run test:packaged:existing -- --app-path $installRoot
+            if ($LASTEXITCODE -ne 0) {
+              throw "Installed application smoke exited with code $LASTEXITCODE"
+            }
+
+            $uninstall = Start-Process -FilePath $uninstaller[0].FullName -ArgumentList '/S' -Wait -PassThru
+            if ($uninstall.ExitCode -ne 0) {
+              throw "NSIS uninstaller exited with code $($uninstall.ExitCode)"
+            }
+            $deadline = [DateTime]::UtcNow.AddSeconds(60)
+            while (
+              (
+                (Test-Path -LiteralPath $installRoot) -or
+                @(Get-StudioUninstallEntries).Count -ne 0
+              ) -and
+              [DateTime]::UtcNow -lt $deadline
+            ) {
+              Start-Sleep -Milliseconds 250
+            }
+            if (Test-Path -LiteralPath $installRoot) {
+              throw "NSIS uninstall left the installation directory behind: $installRoot"
+            }
+            if (@(Get-StudioUninstallEntries).Count -ne 0) {
+              throw 'NSIS uninstall left the Hermes Studio uninstall entry behind'
+            }
+          }
+          finally {
+            if (Test-Path -LiteralPath $installRoot) {
+              if (
+                $null -ne $uninstaller -and
+                $uninstaller.Count -eq 1 -and
+                (Test-Path -LiteralPath $uninstaller[0].FullName)
+              ) {
+                try {
+                  Start-Process -FilePath $uninstaller[0].FullName -ArgumentList '/S' -Wait | Out-Null
+                }
+                catch {
+                  Write-Warning "Best-effort NSIS cleanup failed: $($_.Exception.Message)"
+                }
+              }
+              if (Test-Path -LiteralPath $installRoot) {
+                Remove-Item -LiteralPath $installRoot -Recurse -Force
+              }
+            }
+          }
+
+      - name: Install, smoke-test, and uninstall Linux deb package
+        if: runner.os == 'Linux'
+        working-directory: apps/hermes-studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(release/Hermes-Studio-*-linux-x64.deb)
+          package_name="$(dpkg-deb -f "${artifacts[0]}" Package)"
+          if [ "$package_name" != "hermes-studio" ]; then
+            echo "Unexpected Debian package identity: $package_name" >&2
+            exit 1
+          fi
+          cleanup() {
+            set +e
+            sudo dpkg --purge "$package_name" >/dev/null 2>&1
+          }
+          trap cleanup EXIT
+
+          sudo apt-get install -y "$PWD/${artifacts[0]}"
+          dpkg-query -W -f='${Status}\n' "$package_name" | grep -qx 'install ok installed'
+          mapfile -t app_asars < <(dpkg -L "$package_name" | grep '/resources/app\.asar$')
+          if [ "${#app_asars[@]}" -ne 1 ]; then
+            printf 'Expected one installed app.asar, found %s\n' "${#app_asars[@]}" >&2
+            dpkg -L "$package_name"
+            exit 1
+          fi
+          install_root="$(dirname "$(dirname "${app_asars[0]}")")"
+          test -f "$install_root/resources/INTERNAL-BUILD.txt"
+
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" \
+            npm run test:packaged:existing -- --app-path "$install_root"
+
+          sudo dpkg --purge "$package_name"
+          if dpkg-query -W "$package_name" >/dev/null 2>&1; then
+            echo "Debian package remains installed after purge: $package_name" >&2
+            exit 1
+          fi
+          test ! -e "$install_root"
+          trap - EXIT
+
+      - name: Preserve Linux installer modes for artifact download
+        if: runner.os == 'Linux'
+        working-directory: apps/hermes-studio
+        shell: bash
+        run: |
+          shopt -s nullglob
+          installers=(release/Hermes-Studio-*-linux-x64.{AppImage,deb,rpm})
+          names=("${installers[@]#release/}")
+          version="$(node -p "require('./package.json').version")"
+          archive="$PWD/release/Hermes-Studio-$version-linux-x64.tar"
+          tar -C release -cf "$archive" "${names[@]}"
+
+      - name: Record unsigned internal-build semantics
+        shell: bash
+        env:
+          TARGET_NAME: ${{ matrix.name }}
+        run: |
+          {
+            echo "## Hermes Studio — $TARGET_NAME"
+            echo
+            echo "These are unsigned internal-test artifacts, not a distributable release."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unsigned Studio installers
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hermes-studio-unsigned-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            apps/hermes-studio/release/Hermes-Studio-*.dmg
+            apps/hermes-studio/release/Hermes-Studio-*.exe
+            apps/hermes-studio/release/Hermes-Studio-*.AppImage
+            apps/hermes-studio/release/Hermes-Studio-*.deb
+            apps/hermes-studio/release/Hermes-Studio-*.rpm
+            apps/hermes-studio/release/Hermes-Studio-*.tar
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

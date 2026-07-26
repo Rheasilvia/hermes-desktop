@@ -1,0 +1,137 @@
+import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
+import { describe, test, expect, vi } from 'vitest';
+import type { HermesStudioBridge } from '@/shared/native-bridge.js';
+import { installNativeHostMock } from '@/services/native-host.js';
+import { UserMessage } from '../UserMessage.js';
+
+describe('UserMessage', () => {
+  test('renders plain content when not a slash command', () => {
+    render(() => <UserMessage content="hello world" />);
+    expect(screen.getByText('hello world')).toBeDefined();
+  });
+
+  test('renders the command label + args (not the expanded content) for a slash command', () => {
+    // `content` simulates the huge expanded skill prompt that the LLM received.
+    render(() => (
+      <UserMessage
+        content="[IMPORTANT: the user invoked the arxiv skill] --- name: arxiv ... (huge dump)"
+        slashCommand={{ command: 'arxiv', args: '这是什么命令？' }}
+      />
+    ));
+    // Shows the compact command + the typed args.
+    expect(screen.getByText('/arxiv')).toBeDefined();
+    expect(screen.getByText('这是什么命令？')).toBeDefined();
+    // Does NOT leak the expanded prompt into the bubble.
+    expect(screen.queryByText(/huge dump/)).toBeNull();
+  });
+
+  test('renders just the command label when there are no args', () => {
+    render(() => (
+      <UserMessage content="/status" slashCommand={{ command: 'status', args: '' }} />
+    ));
+    expect(screen.getByText('/status')).toBeDefined();
+  });
+
+  test('renders ordered inline file display parts inside the user bubble', () => {
+    render(() => (
+      <UserMessage
+        content="[File 1: one.ts:L1-L3] first [File 2: two.ts] second"
+        displayParts={[
+          { type: 'file_ref', refText: '@file:docs/one.ts:1-3', name: 'one.ts', detail: 'docs/one.ts:1-3', anchor: 'File 1', lineStart: 1, lineEnd: 3 },
+          { type: 'text', text: ' first ' },
+          { type: 'file_ref', refText: '@file:src/two.ts', name: 'two.ts', detail: 'src/two.ts', anchor: 'File 2' },
+          { type: 'text', text: ' second' },
+        ]}
+      />
+    ));
+
+    expect(screen.getByText('one.ts:L1-L3')).toBeDefined();
+    expect(screen.getByText('two.ts')).toBeDefined();
+    expect(screen.getByText('first')).toBeDefined();
+    expect(screen.getByText('second')).toBeDefined();
+    expect(screen.queryByText('[File 1: one.ts:L1-L3] first [File 2: two.ts] second')).toBeNull();
+  });
+
+  test('renders image attachments through opaque native asset URLs', async () => {
+    const urlForPath = vi.fn().mockResolvedValue(
+      'hermes-studio-asset://asset/user-message-image-handle',
+    );
+    const restoreNativeHost = installNativeHostMock({
+      assets: { urlForPath },
+    } as unknown as HermesStudioBridge);
+
+    render(() => (
+      <UserMessage
+        content="check this"
+        attachments={[
+          { id: 'img1', kind: 'image', name: 'screenshot.png', path: '/tmp/clip-1.png' },
+          { id: 'file1', kind: 'file', name: 'note.md', path: '/tmp/note.md' },
+        ]}
+      />
+    ));
+
+    try {
+      const gallery = document.querySelector('[aria-label="Attached images"]');
+      expect(gallery).not.toBeNull();
+      await waitFor(() => {
+        expect(urlForPath).toHaveBeenCalledWith('/tmp/clip-1.png');
+        const imgs = gallery?.querySelectorAll('img') ?? [];
+        expect(Array.from(imgs).some((img) => (
+          img.getAttribute('src') === 'hermes-studio-asset://asset/user-message-image-handle'
+        ))).toBe(true);
+      });
+      expect(gallery?.querySelector('img[src="/tmp/clip-1.png"]')).toBeNull();
+    } finally {
+      restoreNativeHost();
+    }
+  });
+
+  test('renders an inline editor that only submits from the confirm button', () => {
+    const onDraft = vi.fn();
+    const onCancel = vi.fn();
+    const onConfirm = vi.fn();
+    render(() => (
+      <UserMessage
+        content="old text"
+        isEditing
+        editDraft="old text"
+        onEditDraftChange={onDraft}
+        onEditCancel={onCancel}
+        onEditConfirm={onConfirm}
+      />
+    ));
+
+    const textarea = screen.getByLabelText('Edit user message') as HTMLTextAreaElement;
+    fireEvent.input(textarea, { target: { value: 'new text' } });
+    expect(onDraft).toHaveBeenCalledWith('new text');
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(textarea, { key: 'Escape' });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByText('Restore & rerun'));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  test('disables restore when the inline edit draft is empty or blocked', () => {
+    const { unmount } = render(() => (
+      <UserMessage content="old text" isEditing editDraft="   " onEditConfirm={vi.fn()} />
+    ));
+    expect((screen.getByText('Restore & rerun').closest('button') as HTMLButtonElement).disabled).toBe(true);
+    unmount();
+
+    render(() => (
+      <UserMessage
+        content="old text"
+        isEditing
+        editDraft="new text"
+        editDisabledReason="Historical image messages cannot be restored yet."
+        onEditConfirm={vi.fn()}
+      />
+    ));
+    expect(screen.getByRole('alert').textContent).toContain('Historical image messages');
+    expect((screen.getByText('Restore & rerun').closest('button') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
