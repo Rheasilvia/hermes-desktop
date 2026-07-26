@@ -14,6 +14,8 @@ describe('preload bridge', () => {
 
     await expect(bridge.app.version()).resolves.toBe('1.2.3')
     await expect(bridge.app.platform()).resolves.toBe('linux')
+    await bridge.workspace.selectAttachments({ sessionId: 'desktop_1', kind: 'file', multiple: false })
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.workspace.selectAttachments, { sessionId: 'desktop_1', kind: 'file', multiple: false })
     expect(Object.keys(bridge).sort()).toEqual([
       'app', 'assets', 'backend', 'clipboard', 'hermesHome', 'notifications',
       'system', 'terminal', 'window', 'workspace',
@@ -25,6 +27,8 @@ describe('preload bridge', () => {
     expect(Object.isFrozen(bridge)).toBe(true)
     expect(Object.isFrozen(bridge.backend)).toBe(true)
     expect(Object.isFrozen(bridge.terminal)).toBe(true)
+    expect(Object.isFrozen(bridge.app.version)).toBe(true)
+    expect(Object.isFrozen(bridge.backend.onReady)).toBe(true)
   })
 
   it('throws stable native errors from failure envelopes', async () => {

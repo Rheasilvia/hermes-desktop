@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -47,7 +47,8 @@ describe('opaque Studio assets', () => {
     const store = new SessionAssetStore({
       hermesHome,
       registry,
-      sourceRoots: () => [clipboardRoot],
+      managedSourceRoots: () => [clipboardRoot],
+      sessionSourceRoots: () => [],
       validateImage: async () => true,
     })
 
@@ -88,7 +89,8 @@ describe('opaque Studio assets', () => {
     const store = new SessionAssetStore({
       hermesHome,
       registry,
-      sourceRoots: () => [sourceRoot],
+      managedSourceRoots: () => [sourceRoot],
+      sessionSourceRoots: () => [],
       validateImage: () => true,
     })
 
@@ -106,5 +108,123 @@ describe('opaque Studio assets', () => {
     const registry = new AssetRegistry({ allowedRoots: () => [root], randomBytes })
 
     expect(await registry.issue(imagePath)).not.toBe(await registry.issue(imagePath))
+  })
+
+  it('sweeps expired handles opportunistically and never exceeds the hard cap', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'studio-assets-cap-'))
+    let now = 100
+    const registry = new AssetRegistry({ allowedRoots: () => [root], now: () => now, ttlMs: 10, maxHandles: 2 })
+    for (const name of ['one.png', 'two.png', 'three.png']) writeFileSync(path.join(root, name), PNG)
+
+    const first = await registry.issue(path.join(root, 'one.png'))
+    now = 111
+    await registry.issue(path.join(root, 'two.png'))
+    expect(registry.size).toBe(1)
+    await expect(registry.resolve(first)).rejects.toMatchObject({ code: 'ASSET_HANDLE_INVALID' })
+
+    await registry.issue(path.join(root, 'three.png'))
+    await registry.issue(path.join(root, 'one.png'))
+    expect(registry.size).toBe(2)
+  })
+
+  it('invalidates a handle when its file is swapped after descriptor open', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'studio-assets-race-'))
+    const outside = mkdtempSync(path.join(tmpdir(), 'studio-assets-race-outside-'))
+    const imagePath = path.join(root, 'image.png')
+    const outsidePath = path.join(outside, 'outside.png')
+    writeFileSync(imagePath, PNG)
+    writeFileSync(outsidePath, Buffer.concat([PNG, Buffer.from('outside')]))
+    let opens = 0
+    const registry = new AssetRegistry({
+      allowedRoots: () => [root],
+      hooks: {
+        afterOpen: () => {
+          opens += 1
+          if (opens !== 2) return
+          renameSync(imagePath, `${imagePath}.original`)
+          symlinkSync(outsidePath, imagePath)
+        },
+      },
+    })
+    const url = await registry.issue(imagePath)
+
+    await expect(registry.resolve(url)).rejects.toMatchObject({ code: 'FILE_CHANGED_DURING_ACCESS' })
+  })
+
+  it('reads protocol bytes from the verified descriptor and fails closed on a path swap', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'studio-protocol-race-'))
+    const outside = mkdtempSync(path.join(tmpdir(), 'studio-protocol-race-outside-'))
+    const imagePath = path.join(root, 'image.png')
+    const outsidePath = path.join(outside, 'outside.png')
+    writeFileSync(imagePath, PNG)
+    writeFileSync(outsidePath, Buffer.concat([PNG, Buffer.from('outside')]))
+    let opens = 0
+    const registry = new AssetRegistry({
+      allowedRoots: () => [root],
+      hooks: {
+        afterOpen: () => {
+          opens += 1
+          if (opens !== 2) return
+          renameSync(imagePath, `${imagePath}.original`)
+          symlinkSync(outsidePath, imagePath)
+        },
+      },
+    })
+    const url = await registry.issue(imagePath)
+
+    await expect(createAssetProtocolResponse(url, registry))
+      .rejects.toMatchObject({ code: 'FILE_CHANGED_DURING_ACCESS' })
+  })
+
+  it('copies session images from a verified descriptor and rejects a source swap', async () => {
+    const hermesHome = mkdtempSync(path.join(tmpdir(), 'studio-session-race-home-'))
+    const sourceRoot = mkdtempSync(path.join(tmpdir(), 'studio-session-race-source-'))
+    const outside = mkdtempSync(path.join(tmpdir(), 'studio-session-race-outside-'))
+    const source = path.join(sourceRoot, 'source.png')
+    const outsidePath = path.join(outside, 'outside.png')
+    writeFileSync(source, PNG)
+    writeFileSync(outsidePath, Buffer.concat([PNG, Buffer.from('outside')]))
+    const registry = new AssetRegistry({ allowedRoots: () => [hermesHome] })
+    const store = new SessionAssetStore({
+      hermesHome,
+      registry,
+      managedSourceRoots: () => [sourceRoot],
+      sessionSourceRoots: () => [],
+      validateImage: () => true,
+      hooks: {
+        afterOpen: ({ purpose }) => {
+          if (purpose !== 'session-asset-source') return
+          renameSync(source, `${source}.original`)
+          symlinkSync(outsidePath, source)
+        },
+      },
+    })
+
+    await expect(store.persist('desktop_1', source))
+      .rejects.toMatchObject({ code: 'FILE_CHANGED_DURING_ACCESS' })
+  })
+
+  it('authorizes workspace source roots for only the matching session', async () => {
+    const hermesHome = mkdtempSync(path.join(tmpdir(), 'studio-session-isolation-home-'))
+    const managed = mkdtempSync(path.join(tmpdir(), 'studio-session-isolation-managed-'))
+    const workspaceOne = mkdtempSync(path.join(tmpdir(), 'studio-session-isolation-one-'))
+    const workspaceTwo = mkdtempSync(path.join(tmpdir(), 'studio-session-isolation-two-'))
+    const managedImage = path.join(managed, 'managed.png')
+    const imageOne = path.join(workspaceOne, 'one.png')
+    const imageTwo = path.join(workspaceTwo, 'two.png')
+    for (const image of [managedImage, imageOne, imageTwo]) writeFileSync(image, PNG)
+    const registry = new AssetRegistry({ allowedRoots: () => [hermesHome] })
+    const roots = new Map([['session-one', [workspaceOne]], ['session-two', [workspaceTwo]]])
+    const store = new SessionAssetStore({
+      hermesHome,
+      registry,
+      managedSourceRoots: () => [managed],
+      sessionSourceRoots: (sessionId) => roots.get(sessionId) ?? [],
+      validateImage: () => true,
+    })
+
+    await expect(store.persist('session-one', imageTwo)).rejects.toMatchObject({ code: 'ASSET_SOURCE_NOT_ALLOWED' })
+    await expect(store.persist('session-one', imageOne)).resolves.toMatchObject({ path: expect.any(String) })
+    await expect(store.persist('session-two', managedImage)).resolves.toMatchObject({ path: expect.any(String) })
   })
 })

@@ -26,7 +26,7 @@ type PermissionCheckHandler = (
   webContents: unknown,
   permission: string,
   requestingOrigin: string,
-  details: { securityOrigin?: string; mediaType?: string; isMainFrame?: boolean },
+  details: { securityOrigin?: string; requestingUrl?: string; mediaType?: string; isMainFrame?: boolean },
 ) => boolean
 
 type HeadersHandler = (
@@ -42,19 +42,50 @@ export interface SessionSecurityLike {
 
 export interface SessionSecurityOptions {
   devOrigin?: string
+  platform?: NodeJS.Platform
+  getTrustedWebContents?: () => unknown
   getBackendOrigin: () => string | undefined
 }
 
 export function configureSessionSecurity(session: SessionSecurityLike, options: SessionSecurityOptions): void {
-  session.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+  const platform = options.platform ?? process.platform
+  const isTrustedMainFrame = (webContents: unknown, isMainFrame: boolean | undefined): boolean => {
+    const trustedWebContents = options.getTrustedWebContents?.()
+    return trustedWebContents !== undefined
+      && trustedWebContents !== null
+      && webContents === trustedWebContents
+      && isMainFrame === true
+  }
+  // Electron 40 documents MediaAccessPermissionRequest.mediaTypes and
+  // PermissionCheckHandlerHandlerDetails.mediaType as optional. Chromium on Windows
+  // can omit them for a microphone-only request, so compatibility is allowed only
+  // after the exact webContents, main-frame, origin, and `media` checks succeed.
+  // https://www.electronjs.org/docs/latest/api/session#sessetpermissionrequesthandlerhandler
+  const mediaTypesWithWindowsCompatibility = (
+    mediaTypes: readonly string[] | undefined,
+  ): readonly string[] => mediaTypes === undefined && platform === 'win32' ? ['audio'] : (mediaTypes ?? [])
+
+  session.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const requestingOrigin = details.securityOrigin ?? details.requestingUrl ?? ''
-    callback(details.isMainFrame === true
-      && isMicrophonePermission(requestingOrigin, permission, details.mediaTypes ?? [], options.devOrigin))
+    callback(isTrustedMainFrame(webContents, details.isMainFrame)
+      && isMicrophonePermission(
+        requestingOrigin,
+        permission,
+        mediaTypesWithWindowsCompatibility(details.mediaTypes),
+        options.devOrigin,
+      ))
   })
-  session.setPermissionCheckHandler((_webContents, permission, origin, details) => {
-    const mediaTypes = details.mediaType ? [details.mediaType] : []
-    return details.isMainFrame === true
-      && isMicrophonePermission(details.securityOrigin ?? origin, permission, mediaTypes, options.devOrigin)
+  session.setPermissionCheckHandler((webContents, permission, origin, details) => {
+    const mediaTypes = details.mediaType === undefined
+      ? mediaTypesWithWindowsCompatibility(undefined)
+      : [details.mediaType]
+    return isTrustedMainFrame(webContents, details.isMainFrame)
+      && isMicrophonePermission(
+        details.securityOrigin ?? details.requestingUrl ?? origin,
+        permission,
+        mediaTypes,
+        options.devOrigin,
+      )
   })
   session.webRequest.onHeadersReceived((details, callback) => {
     const responseHeaders: Record<string, string[]> = {}
@@ -99,6 +130,15 @@ const CONTENT_TYPES: Record<string, string> = {
   '.wasm': 'application/wasm',
 }
 
+function hasContentHashFilename(relativePath: string): boolean {
+  if (!relativePath.startsWith('assets/')) return false
+  const filename = path.posix.basename(relativePath)
+  const hexHash = /-([a-f\d]{8,64})(?=\.[^.]+$)/i.exec(filename)?.[1]
+  if (hexHash) return true
+  const viteHash = /-([A-Za-z\d_-]{8})(?=\.[^.]+$)/.exec(filename)?.[1]
+  return Boolean(viteHash && /[A-Z\d_-]/.test(viteHash))
+}
+
 export async function createAppProtocolResponse(rawUrl: string, rendererRoot: string): Promise<Response> {
   const relative = safeRendererAssetPath(rawUrl)
   const canonicalRoot = await realpath(rendererRoot)
@@ -117,7 +157,9 @@ export async function createAppProtocolResponse(rawUrl: string, rendererRoot: st
     status: 200,
     headers: {
       'Content-Type': CONTENT_TYPES[path.extname(canonical).toLowerCase()] ?? 'application/octet-stream',
-      'Cache-Control': path.extname(canonical).toLowerCase() === '.html' ? 'no-store' : 'public, max-age=31536000, immutable',
+      'Cache-Control': hasContentHashFilename(relative)
+        ? 'public, max-age=31536000, immutable'
+        : 'no-cache',
       'Referrer-Policy': 'no-referrer',
       'X-Content-Type-Options': 'nosniff',
     },

@@ -73,7 +73,7 @@ architecture and [DESIGN.md](./DESIGN.md) for design system specifications.
 
 ## Documentation
 
-- [CLAUDE.md](./CLAUDE.md) - Developer guide and architecture overview
+- [CLAUDE.md](./CLAUDE.md) - Superseded Tauri migration reference (not current guidance)
 - [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) - Electron host architecture and trust boundaries
 - [docs/NATIVE_BRIDGE.md](./docs/NATIVE_BRIDGE.md) - Frozen renderer bridge contract and capability ledger
 - [docs/RELEASE.md](./docs/RELEASE.md) - Host-native build and release verification

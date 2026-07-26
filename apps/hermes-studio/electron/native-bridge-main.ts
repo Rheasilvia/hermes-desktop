@@ -1,4 +1,5 @@
 import type {
+  AttachmentSelectionOptions,
   NativeAppState,
   NativeNotificationOptions,
   NativePlatform,
@@ -49,6 +50,7 @@ export interface NativeBridgeMainOptions {
   sidecar: BridgeSidecarLike
   hermesHome: HermesHomeFiles
   selectWorkspaceForSession: (sessionId: string) => Promise<string>
+  selectAttachments: (options: AttachmentSelectionOptions) => Promise<string[]>
   clipboard: ClipboardImages
   assetRegistry: AssetRegistry
   assetStore: SessionAssetStore
@@ -64,6 +66,17 @@ function noArguments(payload: unknown): undefined {
 
 function recordArguments(payload: unknown): Record<string, unknown> {
   return expectRecord(payload)
+}
+
+function attachmentSelectionArguments(payload: unknown): AttachmentSelectionOptions {
+  const { sessionId, kind, multiple } = expectRecord(payload)
+  if (kind !== 'file' && kind !== 'folder' && kind !== 'image') {
+    throw nativeError('ATTACHMENT_KIND_INVALID', 'Attachment kind must be file, folder, or image')
+  }
+  if (typeof multiple !== 'boolean') {
+    throw nativeError('ATTACHMENT_MULTIPLE_INVALID', 'Attachment multiple must be a boolean')
+  }
+  return { sessionId: expectSessionId(sessionId), kind, multiple }
 }
 
 function windowOrThrow(options: NativeBridgeMainOptions): BridgeWindowLike {
@@ -116,6 +129,8 @@ export function registerNativeBridge(options: NativeBridgeMainOptions): void {
 
   register(IPC_CHANNELS.workspace.selectForSession, recordArguments, ({ sessionId }) =>
     options.selectWorkspaceForSession(expectSessionId(sessionId)))
+  register(IPC_CHANNELS.workspace.selectAttachments, attachmentSelectionArguments, (selection) =>
+    options.selectAttachments(selection))
 
   register(IPC_CHANNELS.clipboard.readImage, noArguments, () => options.clipboard.read())
   register(IPC_CHANNELS.clipboard.copyRemoteImage, recordArguments, async ({ url }) => {

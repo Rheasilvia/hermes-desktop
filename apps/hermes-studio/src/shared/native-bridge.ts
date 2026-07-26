@@ -35,6 +35,14 @@ export interface AssetReference {
   url: string
 }
 
+export type AttachmentKind = 'file' | 'folder' | 'image'
+
+export interface AttachmentSelectionOptions {
+  sessionId: string
+  kind: AttachmentKind
+  multiple: boolean
+}
+
 export interface TerminalStartOptions {
   cwd?: string | null
   cols: number
@@ -120,6 +128,7 @@ export interface HermesStudioBridge {
   }
   workspace: {
     selectForSession(sessionId: string): Promise<string>
+    selectAttachments(options: AttachmentSelectionOptions): Promise<string[]>
   }
   clipboard: {
     readImage(): Promise<AssetReference | null>
@@ -179,7 +188,10 @@ export const IPC_CHANNELS = {
     writeText: 'studio:hermes-home:write-text',
     list: 'studio:hermes-home:list',
   },
-  workspace: { selectForSession: 'studio:workspace:select-for-session' },
+  workspace: {
+    selectForSession: 'studio:workspace:select-for-session',
+    selectAttachments: 'studio:workspace:select-attachments',
+  },
   clipboard: {
     readImage: 'studio:clipboard:read-image',
     copyRemoteImage: 'studio:clipboard:copy-remote-image',

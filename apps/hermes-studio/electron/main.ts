@@ -12,9 +12,12 @@ import {
   shell,
 } from 'electron'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import * as pty from 'node-pty'
 import { IPC_CHANNELS, type NativeWindowState, type SidecarInfo } from '../src/shared/native-bridge.js'
+import { configureEarlyAppIdentity } from './app-identity.js'
 import { AssetRegistry, SessionAssetStore, createAssetProtocolResponse } from './assets.js'
+import { AttachmentStagingService } from './attachment-picker.js'
 import { ClipboardImages } from './clipboard-images.js'
 import { HermesHomeFiles } from './hermes-home.js'
 import {
@@ -27,14 +30,18 @@ import {
 import { registerNativeBridge } from './native-bridge-main.js'
 import { toNativeError } from './native-errors.js'
 import { NotificationManager } from './notification-manager.js'
-import { buildContentSecurityPolicy, isTrustedStudioUrl, parseDevServerUrl } from './security-policy.js'
+import { buildContentSecurityPolicy, parseDevServerUrl } from './security-policy.js'
+import { isTrustedMainFrameSender } from './ipc-trust.js'
+import { NativeShutdownCoordinator, runNativeCleanup } from './shutdown-coordinator.js'
 import { SidecarManager, resolveHermesHome } from './sidecar-manager.js'
 import { SystemOperations } from './system-ops.js'
 import { TerminalManager } from './terminal-manager.js'
+import { createEnsuredPtySpawner } from './spawn-helper-perms.js'
 import { focusExistingWindow, resolveStudioUserData, WindowStateStore } from './window-state.js'
 import { selectWorkspaceForSession, WorkspaceGrants } from './workspace-grants.js'
 
 protocol.registerSchemesAsPrivileged([...STUDIO_SCHEMES])
+configureEarlyAppIdentity(app)
 
 const rawDevServerUrl = process.env.HERMES_STUDIO_DEV_SERVER
 const devOrigin = rawDevServerUrl ? parseDevServerUrl(rawDevServerUrl) : undefined
@@ -48,9 +55,9 @@ let terminal: TerminalManager | undefined
 let notifications: NotificationManager | undefined
 let assetRegistry: AssetRegistry | undefined
 let workspaceGrants: WorkspaceGrants | undefined
+let attachmentStaging: AttachmentStagingService | undefined
 let windowStateStore: WindowStateStore | undefined
 let saveWindowStateTimer: ReturnType<typeof setTimeout> | undefined
-let cleanupStarted = false
 let rendererBackendOrigin: string | undefined
 
 function sendToRenderer(channel: string, payload: unknown): void {
@@ -84,8 +91,17 @@ function refreshRendererForBackend(info: SidecarInfo | undefined): void {
 function scheduleWindowStateSave(): void {
   if (saveWindowStateTimer) clearTimeout(saveWindowStateTimer)
   saveWindowStateTimer = setTimeout(() => {
-    if (mainWindow && windowStateStore) windowStateStore.save(mainWindow)
+    saveWindowStateBestEffort(mainWindow)
   }, 250)
+}
+
+function saveWindowStateBestEffort(window: BrowserWindow | undefined): void {
+  if (!window || window.isDestroyed() || !windowStateStore) return
+  try {
+    windowStateStore.save(window)
+  } catch (error) {
+    console.error('Hermes Studio could not save window state', error)
+  }
 }
 
 function displayBounds(): Array<{ x: number; y: number; width: number; height: number }> {
@@ -136,7 +152,7 @@ function createWindow(): BrowserWindow {
   window.on('restore', emitWindowState)
   window.on('move', scheduleWindowStateSave)
   window.on('resize', scheduleWindowStateSave)
-  window.on('close', () => windowStateStore?.save(window))
+  window.on('close', () => saveWindowStateBestEffort(window))
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = undefined
   })
@@ -205,16 +221,22 @@ function wireRuntimeEvents(): void {
 async function initialize(): Promise<void> {
   const hermesHomePath = resolveHermesHome(process.env)
   const clipboardRoot = path.join(userData, 'clipboard-assets')
+  const attachmentRoot = path.join(userData, 'attachment-staging')
   workspaceGrants = new WorkspaceGrants()
   assetRegistry = new AssetRegistry({
-    allowedRoots: () => [hermesHomePath, clipboardRoot, ...(workspaceGrants?.roots() ?? [])],
+    allowedRoots: () => [hermesHomePath, clipboardRoot],
   })
   const hermesHome = new HermesHomeFiles(hermesHomePath)
+  attachmentStaging = new AttachmentStagingService({ managedRoot: attachmentRoot })
   const assetStore = new SessionAssetStore({
     hermesHome: hermesHomePath,
     registry: assetRegistry,
-    sourceRoots: () => [hermesHomePath, clipboardRoot, ...(workspaceGrants?.roots() ?? [])],
-    validateImage: (imagePath) => !nativeImage.createFromPath(imagePath).isEmpty(),
+    managedSourceRoots: () => [clipboardRoot],
+    sessionSourceRoots: (sessionId) => [
+      ...(workspaceGrants?.rootsForSession(sessionId) ?? []),
+      attachmentStaging!.sessionRoot(sessionId),
+    ],
+    validateImage: (bytes) => !nativeImage.createFromBuffer(bytes).isEmpty(),
   })
   const clipboardImages = new ClipboardImages({
     managedRoot: clipboardRoot,
@@ -223,8 +245,12 @@ async function initialize(): Promise<void> {
     writeImage: (image) => clipboard.writeImage(image as Electron.NativeImage),
     createImage: (bytes) => nativeImage.createFromBuffer(bytes),
   })
+  const rawPtySpawn: import('./terminal-manager.js').PtySpawner = (file, args, options) =>
+    pty.spawn(file, args, options) as unknown as import('./terminal-manager.js').PtyProcessLike
   terminal = new TerminalManager({
-    spawn: (file, args, options) => pty.spawn(file, args, options) as unknown as import('./terminal-manager.js').PtyProcessLike,
+    spawn: createEnsuredPtySpawner(rawPtySpawn, {
+      nodePtyRoot: path.dirname(createRequire(import.meta.url).resolve('node-pty/package.json')),
+    }),
   })
   sidecar = new SidecarManager({
     appRoot: app.getAppPath(),
@@ -241,18 +267,15 @@ async function initialize(): Promise<void> {
 
   configureSessionSecurity(session.defaultSession as unknown as SessionSecurityLike, {
     devOrigin,
+    platform: process.platform,
+    getTrustedWebContents: () => mainWindow?.webContents,
     getBackendOrigin: () => sidecar?.info?.baseUrl,
   })
   await registerProtocols()
   wireRuntimeEvents()
   registerNativeBridge({
     ipcMain,
-    isTrustedSender: (event) => Boolean(
-      mainWindow
-      && !mainWindow.isDestroyed()
-      && event.sender === mainWindow.webContents
-      && isTrustedStudioUrl(event.senderFrame?.url ?? '', devOrigin),
-    ),
+    isTrustedSender: (event) => isTrustedMainFrameSender(event, mainWindow, devOrigin),
     app,
     getWindow: () => mainWindow,
     sidecar,
@@ -270,6 +293,23 @@ async function initialize(): Promise<void> {
       },
       updateSessionCwd: (id, cwd) => sidecar!.updateSessionCwd(id, cwd),
     }),
+    selectAttachments: (selection) => attachmentStaging!.selectAttachments(selection, async (picker) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return undefined
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: picker.kind === 'folder' ? 'Select Folder' : 'Select Attachment',
+        properties: [
+          picker.kind === 'folder' ? 'openDirectory' : 'openFile',
+          ...(picker.multiple ? ['multiSelections' as const] : []),
+        ],
+        ...(picker.filters ? {
+          filters: picker.filters.map((filter) => ({
+            name: filter.name,
+            extensions: [...filter.extensions],
+          })),
+        } : {}),
+      })
+      return result.canceled ? undefined : result.filePaths
+    }),
     clipboard: clipboardImages,
     assetRegistry,
     assetStore,
@@ -284,16 +324,26 @@ async function initialize(): Promise<void> {
 }
 
 async function cleanup(): Promise<void> {
-  if (cleanupStarted) return
-  cleanupStarted = true
   if (saveWindowStateTimer) clearTimeout(saveWindowStateTimer)
-  if (mainWindow && windowStateStore) windowStateStore.save(mainWindow)
-  terminal?.shutdown()
-  notifications?.shutdown()
-  assetRegistry?.clear()
-  workspaceGrants?.clear()
-  await sidecar?.stop()
+  await runNativeCleanup({
+    saveWindowState: () => {
+      if (mainWindow && !mainWindow.isDestroyed() && windowStateStore) windowStateStore.save(mainWindow)
+    },
+    shutdownTerminals: () => terminal?.shutdown(),
+    shutdownNotifications: () => notifications?.shutdown(),
+    clearAssetHandles: () => assetRegistry?.clear(),
+    clearWorkspaceGrants: () => workspaceGrants?.clear(),
+    clearAttachmentStaging: async () => { await attachmentStaging?.clear() },
+    stopSidecar: async () => sidecar?.stop(),
+    report: (step, error) => console.error(`Hermes Studio cleanup failed during ${step}`, error),
+  })
 }
+
+const shutdownCoordinator = new NativeShutdownCoordinator(
+  cleanup,
+  () => app.quit(),
+  (error) => console.error('Hermes Studio cleanup failed', error),
+)
 
 const ownsInstance = app.requestSingleInstanceLock()
 if (!ownsInstance) {
@@ -309,9 +359,7 @@ if (!ownsInstance) {
     else focusExistingWindow(mainWindow)
   })
   app.on('before-quit', (event) => {
-    if (cleanupStarted) return
-    event.preventDefault()
-    void cleanup().finally(() => app.quit())
+    shutdownCoordinator.handleBeforeQuit(event)
   })
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()

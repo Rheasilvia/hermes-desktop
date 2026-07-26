@@ -10,8 +10,9 @@ export class WorkspaceGrants {
     this.#roots.set(sessionId, root)
   }
 
-  roots(): string[] {
-    return [...new Set(this.#roots.values())]
+  rootsForSession(sessionId: string): string[] {
+    const root = this.#roots.get(sessionId)
+    return root ? [root] : []
   }
 
   clear(): void {

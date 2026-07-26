@@ -1,6 +1,7 @@
 import { nativeError } from './native-errors.js'
 
 const DEV_HOSTS = new Set(['127.0.0.1', 'localhost'])
+const CLEARTEXT_EXTERNAL_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
 
 function hasNoCredentials(url: URL): boolean {
   return url.username === '' && url.password === ''
@@ -47,7 +48,8 @@ export function isAllowedExternalUrl(raw: string): boolean {
     const url = new URL(raw)
     if (!hasNoCredentials(url)) return false
     if (url.protocol === 'https:') return true
-    return url.protocol === 'http:' && DEV_HOSTS.has(url.hostname)
+    const hostname = url.hostname.replace(/^\[|\]$/g, '')
+    return url.protocol === 'http:' && CLEARTEXT_EXTERNAL_HOSTS.has(hostname)
   } catch {
     return false
   }

@@ -23,8 +23,11 @@ describe('native bridge service adapters', () => {
 
     expect(result).toContain('studio-workspace-')
     expect(updateSessionCwd).toHaveBeenCalledWith('desktop_1', result)
-    expect(grants.roots()).toEqual([result])
+    expect(grants.rootsForSession('desktop_1')).toEqual([result])
+    expect(grants.rootsForSession('desktop_2')).toEqual([])
     expect(JSON.stringify({ result })).not.toContain('grant')
+    grants.clear()
+    expect(grants.rootsForSession('desktop_1')).toEqual([])
     await expect(selectWorkspaceForSession({
       sessionId: 'desktop_1', pickDirectory: async () => undefined, updateSessionCwd, grants,
     })).rejects.toMatchObject({ code: 'WORKSPACE_SELECTION_CANCELLED' })

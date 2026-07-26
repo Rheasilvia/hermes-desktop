@@ -16,6 +16,7 @@ describe('registered native capability ledger', () => {
       sidecar: { info: { baseUrl: 'http://127.0.0.1:43123', token: 'api' }, restart: vi.fn(async () => ({ baseUrl: 'http://127.0.0.1:43124', token: 'api' })) },
       hermesHome: { getPath: vi.fn(async () => '/home/.hermes'), readText: vi.fn(async () => 'text'), writeText: vi.fn(async () => undefined), list: vi.fn(async () => ['a']) },
       selectWorkspace: vi.fn(async () => '/workspace'),
+      selectAttachments: vi.fn(async () => ['/managed/image.png']),
       clipboard: { read: vi.fn(async () => null), copyRemote: vi.fn(async () => undefined) },
       assets: { issue: vi.fn(async () => 'hermes-studio-asset://asset/opaque') },
       assetStore: { persist: vi.fn(async () => ({ path: '/asset.png', url: 'hermes-studio-asset://asset/opaque' })) },
@@ -32,6 +33,7 @@ describe('registered native capability ledger', () => {
       sidecar: services.sidecar,
       hermesHome: services.hermesHome,
       selectWorkspaceForSession: services.selectWorkspace,
+      selectAttachments: services.selectAttachments,
       clipboard: services.clipboard,
       assetRegistry: services.assets,
       assetStore: services.assetStore,
@@ -55,6 +57,15 @@ describe('registered native capability ledger', () => {
     await invoke(IPC_CHANNELS.hermesHome.writeText, { path: 'config.yaml', content: 'x' })
     await invoke(IPC_CHANNELS.hermesHome.list, { path: '.' })
     await invoke(IPC_CHANNELS.workspace.selectForSession, { sessionId: 'desktop_1' })
+    await expect(invoke(IPC_CHANNELS.workspace.selectAttachments, { sessionId: 'desktop_1', kind: 'image', multiple: true }))
+      .resolves.toEqual({ ok: true, value: ['/managed/image.png'] })
+    expect(services.selectAttachments).toHaveBeenCalledWith({ sessionId: 'desktop_1', kind: 'image', multiple: true })
+    await expect(invoke(IPC_CHANNELS.workspace.selectAttachments, {
+      sessionId: 'desktop_1', kind: 'anything', multiple: true,
+    })).resolves.toMatchObject({ ok: false, error: { code: 'ATTACHMENT_KIND_INVALID' } })
+    await expect(invoke(IPC_CHANNELS.workspace.selectAttachments, {
+      sessionId: '../escape', kind: 'file', multiple: false,
+    })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_SESSION_ID' } })
     await invoke(IPC_CHANNELS.clipboard.readImage)
     await invoke(IPC_CHANNELS.clipboard.copyRemoteImage, { url: 'https://example.com/image.png' })
     await invoke(IPC_CHANNELS.assets.persistSessionImage, { sessionId: 'desktop_1', sourcePath: '/clip.png' })

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { existsSync, mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -51,5 +51,118 @@ describe('HermesHomeFiles', () => {
     await expect(files.writeText('safe/escape/created/file', 'nope'))
       .rejects.toMatchObject({ code: 'PATH_OUTSIDE_HERMES_HOME' })
     expect(existsSync(path.join(outside, 'created'))).toBe(false)
+  })
+
+  it('fails closed when a text file is swapped after its descriptor is opened', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'studio-home-read-race-'))
+    const outside = mkdtempSync(path.join(tmpdir(), 'studio-home-read-race-outside-'))
+    const target = path.join(root, 'note.txt')
+    writeFileSync(target, 'safe')
+    writeFileSync(path.join(outside, 'secret.txt'), 'secret')
+    const files = new HermesHomeFiles(root, {
+      hooks: {
+        afterOpen: ({ purpose }) => {
+          if (purpose !== 'hermes-home-read') return
+          renameSync(target, `${target}.original`)
+          symlinkSync(path.join(outside, 'secret.txt'), target)
+        },
+      },
+    })
+
+    await expect(files.readText('note.txt')).rejects.toMatchObject({ code: 'FILE_CHANGED_DURING_ACCESS' })
+  })
+
+  it('revalidates the destination directory immediately before writing', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'studio-home-write-race-'))
+    const outside = mkdtempSync(path.join(tmpdir(), 'studio-home-write-race-outside-'))
+    const config = path.join(root, 'config')
+    mkdirSync(config)
+    const files = new HermesHomeFiles(root, {
+      hooks: {
+        beforeWriteRevalidation: () => {
+          renameSync(config, `${config}.original`)
+          symlinkSync(outside, config)
+        },
+      },
+    })
+
+    await expect(files.writeText('config/settings.json', '{}'))
+      .rejects.toMatchObject({ code: 'FILE_CHANGED_DURING_ACCESS' })
+    expect(existsSync(path.join(outside, 'settings.json'))).toBe(false)
+    expect(readdirSync(outside)).toEqual([])
+  })
+
+  it.each(['beforeWriteCommit', 'afterWriteCommit'] as const)(
+    'revalidates the destination directory at %s',
+    async (phase) => {
+      const root = mkdtempSync(path.join(tmpdir(), `studio-home-${phase}-`))
+      const outside = mkdtempSync(path.join(tmpdir(), `studio-home-${phase}-outside-`))
+      const config = path.join(root, 'config')
+      mkdirSync(config)
+      const swap = () => {
+        renameSync(config, `${config}.original`)
+        symlinkSync(outside, config)
+      }
+      const files = new HermesHomeFiles(root, {
+        hooks: phase === 'beforeWriteCommit'
+          ? { beforeWriteCommit: swap }
+          : { afterWriteCommit: swap },
+      })
+
+      await expect(files.writeText('config/settings.json', '{}'))
+        .rejects.toMatchObject({ code: 'FILE_CHANGED_DURING_ACCESS' })
+      expect(readdirSync(outside)).toEqual([])
+    },
+  )
+
+  it('allows exactly the configured list limit and rejects one entry more', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'studio-home-list-limit-'))
+    writeFileSync(path.join(root, 'a'), '')
+    writeFileSync(path.join(root, 'b'), '')
+    const files = new HermesHomeFiles(root, { maxEntries: 2 })
+
+    expect(await files.list('.')).toEqual(['a', 'b'])
+    writeFileSync(path.join(root, 'c'), '')
+    await expect(files.list('.')).rejects.toMatchObject({ code: 'DIRECTORY_TOO_LARGE' })
+  })
+
+  it('fails closed when a listed directory is swapped before readdir', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'studio-home-list-race-'))
+    const outside = mkdtempSync(path.join(tmpdir(), 'studio-home-list-race-outside-'))
+    const listed = path.join(root, 'listed')
+    mkdirSync(listed)
+    writeFileSync(path.join(listed, 'safe'), '')
+    writeFileSync(path.join(outside, 'secret'), '')
+    const files = new HermesHomeFiles(root, {
+      hooks: {
+        afterOpen: ({ purpose }) => {
+          if (purpose !== 'hermes-home-list') return
+          renameSync(listed, `${listed}.original`)
+          symlinkSync(outside, listed)
+        },
+      },
+    })
+
+    await expect(files.list('listed')).rejects.toMatchObject({ code: 'FILE_CHANGED_DURING_ACCESS' })
+  })
+
+  it('fails closed when a listed directory is swapped immediately after readdir', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'studio-home-list-post-race-'))
+    const outside = mkdtempSync(path.join(tmpdir(), 'studio-home-list-post-race-outside-'))
+    const listed = path.join(root, 'listed')
+    mkdirSync(listed)
+    writeFileSync(path.join(listed, 'safe'), '')
+    writeFileSync(path.join(outside, 'secret'), '')
+    const files = new HermesHomeFiles(root, {
+      hooks: {
+        afterDirectoryRead: ({ purpose }) => {
+          if (purpose !== 'hermes-home-list') return
+          renameSync(listed, `${listed}.original`)
+          symlinkSync(outside, listed)
+        },
+      },
+    })
+
+    await expect(files.list('listed')).rejects.toMatchObject({ code: 'FILE_CHANGED_DURING_ACCESS' })
   })
 })

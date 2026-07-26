@@ -1,24 +1,33 @@
-import { constants } from 'node:fs'
-import { mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, realpath, rename, stat, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { nativeError } from './native-errors.js'
+import {
+  assertStableDirectory,
+  captureStableDirectory,
+  readVerifiedFile,
+  type SafeFileHooks,
+  writeVerifiedExclusiveFile,
+} from './safe-file-access.js'
 import { assertRelativePath, isPathInside } from './validation.js'
 
 export interface HermesHomeFilesOptions {
   maxTextBytes?: number
   maxEntries?: number
+  hooks?: SafeFileHooks
 }
 
 export class HermesHomeFiles {
   readonly #root: string
   readonly #maxTextBytes: number
   readonly #maxEntries: number
+  readonly #hooks: SafeFileHooks | undefined
 
   constructor(root: string, options: HermesHomeFilesOptions = {}) {
     this.#root = path.resolve(root)
     this.#maxTextBytes = options.maxTextBytes ?? 1024 * 1024
     this.#maxEntries = options.maxEntries ?? 1_000
+    this.#hooks = options.hooks
   }
 
   async getPath(): Promise<string> {
@@ -27,10 +36,19 @@ export class HermesHomeFiles {
 
   async readText(relativePath: unknown): Promise<string> {
     const target = await this.#resolveExisting(relativePath)
-    const metadata = await stat(target)
-    if (!metadata.isFile()) throw nativeError('HERMES_HOME_NOT_FILE', 'Requested path is not a file')
-    if (metadata.size > this.#maxTextBytes) throw nativeError('TEXT_TOO_LARGE', 'Text file exceeds the maximum allowed size')
-    const bytes = await readFile(target)
+    const root = await this.#canonicalRoot()
+    const { bytes } = await readVerifiedFile(target, {
+      allowedRoots: () => [root],
+      maxBytes: this.#maxTextBytes,
+      purpose: 'hermes-home-read',
+      hooks: this.#hooks,
+      errors: {
+        notFound: 'HERMES_HOME_PATH_NOT_FOUND',
+        outsideRoots: 'PATH_OUTSIDE_HERMES_HOME',
+        notFile: 'HERMES_HOME_NOT_FILE',
+        tooLarge: 'TEXT_TOO_LARGE',
+      },
+    })
     try {
       return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
     } catch {
@@ -46,6 +64,7 @@ export class HermesHomeFiles {
     const relative = assertRelativePath(relativePath)
     const root = await this.#canonicalRoot()
     const canonicalParent = await this.#ensureDirectory(root, path.dirname(relative))
+    const parentIdentity = await captureStableDirectory(canonicalParent, root)
     const target = path.join(canonicalParent, path.basename(relative))
     try {
       const existing = await realpath(target)
@@ -54,11 +73,47 @@ export class HermesHomeFiles {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
     const temporary = path.join(canonicalParent, `.studio-${randomBytes(12).toString('hex')}.tmp`)
-    await writeFile(temporary, content, { encoding: 'utf8', mode: 0o600, flag: constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY })
+    const bytes = Buffer.from(content, 'utf8')
+    let renamed = false
     try {
+      await writeVerifiedExclusiveFile(temporary, bytes, {
+        allowedRoot: root,
+        maxBytes: this.#maxTextBytes,
+        purpose: 'hermes-home-write',
+        hooks: this.#hooks,
+      })
+      const temporaryMetadata = await stat(temporary)
+      const temporaryIdentity = { dev: temporaryMetadata.dev, ino: temporaryMetadata.ino }
+      await this.#hooks?.beforeWriteCommit?.({ purpose: 'hermes-home-write', path: target })
+      await assertStableDirectory(canonicalParent, root, parentIdentity)
       await rename(temporary, target)
+      renamed = true
+      await this.#hooks?.afterWriteCommit?.({ purpose: 'hermes-home-write', path: target })
+      await assertStableDirectory(canonicalParent, root, parentIdentity)
+      const written = await readVerifiedFile(target, {
+        allowedRoots: () => [root],
+        maxBytes: this.#maxTextBytes,
+        expectedIdentity: temporaryIdentity,
+        purpose: 'hermes-home-write-verify',
+        hooks: this.#hooks,
+        errors: {
+          outsideRoots: 'PATH_OUTSIDE_HERMES_HOME',
+          notFile: 'HERMES_HOME_NOT_FILE',
+          tooLarge: 'TEXT_TOO_LARGE',
+        },
+      })
+      if (!written.bytes.equals(bytes)) {
+        throw nativeError('FILE_CHANGED_DURING_ACCESS', 'File changed during secure access')
+      }
     } catch (error) {
-      await unlink(temporary).catch(() => undefined)
+      if (!renamed) {
+        try {
+          await assertStableDirectory(canonicalParent, root, parentIdentity)
+          await unlink(temporary)
+        } catch {
+          // The directory changed; do not follow a now-untrusted cleanup path.
+        }
+      }
       throw error
     }
   }
@@ -67,7 +122,13 @@ export class HermesHomeFiles {
     const target = await this.#resolveExisting(relativePath)
     const metadata = await stat(target)
     if (!metadata.isDirectory()) throw nativeError('HERMES_HOME_NOT_DIRECTORY', 'Requested path is not a directory')
+    const root = await this.#canonicalRoot()
+    const directoryIdentity = await captureStableDirectory(target, root)
+    await this.#hooks?.afterOpen?.({ purpose: 'hermes-home-list', path: target })
+    await assertStableDirectory(target, root, directoryIdentity)
     const entries = await readdir(target)
+    await this.#hooks?.afterDirectoryRead?.({ purpose: 'hermes-home-list', path: target })
+    await assertStableDirectory(target, root, directoryIdentity)
     if (entries.length > this.#maxEntries) throw nativeError('DIRECTORY_TOO_LARGE', 'Directory contains too many entries')
     return entries.sort((a, b) => a.localeCompare(b))
   }

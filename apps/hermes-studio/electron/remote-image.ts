@@ -31,19 +31,42 @@ function ipv4Number(address: string): number | undefined {
   return (((numbers[0]! << 24) >>> 0) + (numbers[1]! << 16) + (numbers[2]! << 8) + numbers[3]!) >>> 0
 }
 
+// Default-deny list from the IANA IPv4 Special-Purpose Address Registry,
+// supplemented with multicast. Last reconciled with the 2025-10-09 registry.
+// https://www.iana.org/assignments/iana-ipv4-special-registry/
+const SPECIAL_IPV4_PREFIXES = [
+  ['0.0.0.0', 8],
+  ['10.0.0.0', 8],
+  ['100.64.0.0', 10],
+  ['127.0.0.0', 8],
+  ['169.254.0.0', 16],
+  ['172.16.0.0', 12],
+  ['192.0.0.0', 24],
+  ['192.0.2.0', 24],
+  ['192.31.196.0', 24],
+  ['192.52.193.0', 24],
+  ['192.88.99.0', 24],
+  ['192.168.0.0', 16],
+  ['192.175.48.0', 24],
+  ['198.18.0.0', 15],
+  ['198.51.100.0', 24],
+  ['203.0.113.0', 24],
+  ['224.0.0.0', 4],
+  ['240.0.0.0', 4],
+] as const
+
+function ipv4MatchesPrefix(value: number, network: string, prefixLength: number): boolean {
+  const networkValue = ipv4Number(network)
+  if (networkValue === undefined) return false
+  return (value >>> (32 - prefixLength)) === (networkValue >>> (32 - prefixLength))
+}
+
 function isPublicIpv4(address: string): boolean {
   const value = ipv4Number(address)
   if (value === undefined) return false
-  const first = value >>> 24
-  const second = (value >>> 16) & 0xff
-  if (first === 0 || first === 10 || first === 127 || first >= 224) return false
-  if (first === 100 && second >= 64 && second <= 127) return false
-  if (first === 169 && second === 254) return false
-  if (first === 172 && second >= 16 && second <= 31) return false
-  if (first === 192 && (second === 168 || second === 0)) return false
-  if (first === 198 && (second === 18 || second === 19 || (second === 51 && ((value >>> 8) & 0xff) === 100))) return false
-  if (first === 203 && second === 0 && ((value >>> 8) & 0xff) === 113) return false
-  return !(first === 192 && second === 0 && ((value >>> 8) & 0xff) === 2)
+  return !SPECIAL_IPV4_PREFIXES.some(([network, prefixLength]) => (
+    ipv4MatchesPrefix(value, network, prefixLength)
+  ))
 }
 
 function parseIpv6(address: string): bigint | undefined {
@@ -67,18 +90,47 @@ function parseIpv6(address: string): bigint | undefined {
   return groups.reduce((result, group) => (result << 16n) | BigInt(Number.parseInt(group, 16)), 0n)
 }
 
+// Default-deny list from the IANA IPv6 Special-Purpose Address Registry,
+// supplemented with legacy transition/site-local and multicast prefixes.
+// Last reconciled with the 2025-10-09 registry.
+// https://www.iana.org/assignments/iana-ipv6-special-registry/
+const SPECIAL_IPV6_PREFIXES = [
+  ['::', 96], // IPv4-compatible addresses, including unspecified and loopback.
+  ['::ffff:0:0', 96], // IPv4-mapped addresses.
+  ['::ffff:0:0:0', 96], // IPv4-translated addresses.
+  ['64:ff9b::', 96], // NAT64 well-known prefix.
+  ['64:ff9b:1::', 48], // NAT64 local-use prefix.
+  ['100::', 64], // Discard-only.
+  ['100:0:0:1::', 64], // Dummy IPv6 prefix.
+  ['2001::', 23], // IETF protocol assignments, including Teredo and benchmarking.
+  ['2001:db8::', 32], // Documentation.
+  ['2002::', 16], // 6to4 transition addresses.
+  ['2620:4f:8000::', 48], // Direct Delegation AS112 service.
+  ['3fff::', 20], // Documentation.
+  ['5f00::', 16], // Segment Routing SIDs.
+  ['fc00::', 7], // Unique-local.
+  ['fe80::', 10], // Link-local.
+  ['fec0::', 10], // Deprecated site-local.
+  ['ff00::', 8], // Multicast.
+] as const
+
+function ipv6MatchesPrefix(value: bigint, network: string, prefixLength: number): boolean {
+  const networkValue = parseIpv6(network)
+  if (networkValue === undefined) return false
+  const shift = 128n - BigInt(prefixLength)
+  return (value >> shift) === (networkValue >> shift)
+}
+
 function isPublicIpv6(address: string): boolean {
   const value = parseIpv6(address)
-  if (value === undefined || value === 0n || value === 1n) return false
-  if ((value >> 120n) === 0xffn) return false
-  if ((value >> 121n) === 0x7en) return false // fc00::/7
-  if ((value >> 118n) === 0x3fan) return false // fe80::/10
-  if ((value >> 96n) === 0x20010db8n) return false
-  if ((value >> 32n) === 0xffffn) {
-    const ipv4 = Number(value & 0xffff_ffffn)
-    return isPublicIpv4(`${ipv4 >>> 24}.${(ipv4 >>> 16) & 0xff}.${(ipv4 >>> 8) & 0xff}.${ipv4 & 0xff}`)
-  }
-  return true
+  if (value === undefined) return false
+  // IANA currently allocates globally routable unicast space from 2000::/3.
+  // Reject everything outside it so future/syntactically-valid space is not
+  // accidentally treated as public until deliberately reviewed.
+  if (!ipv6MatchesPrefix(value, '2000::', 3)) return false
+  return !SPECIAL_IPV6_PREFIXES.some(([network, prefixLength]) => (
+    ipv6MatchesPrefix(value, network, prefixLength)
+  ))
 }
 
 export function isPublicIpAddress(address: string): boolean {

@@ -13,7 +13,7 @@ window.hermesStudio = {
   app: { version, platform, nativeState },
   backend: { info, restart, onReady, onUnhealthy, onRestarted, onFailed },
   hermesHome: { path, readText, writeText, list },
-  workspace: { selectForSession },
+  workspace: { selectForSession, selectAttachments },
   clipboard: { readImage, copyRemoteImage },
   assets: { persistSessionImage, urlForPath },
   terminal: { start, write, resize, stop, onData, onExit, onError },
@@ -63,7 +63,8 @@ ready; unit tests exercise the same contract without needing a packaged app.
 | `write_clipboard_image_from_url` | `clipboard.copyRemoteImage(url)` | Public HTTP(S) only, DNS/IP pinning, redirect revalidation, timeout, MIME/size caps | SSRF, redirect, MIME, size tests | Copy a public image; reject loopback URL |
 | `persist_session_image` | `assets.persistSessionImage(sessionId, sourcePath)` | Valid session ID, permitted source root, image/size cap, random destination | asset store tests | Persist selected/clipboard image and reload opaque URL |
 | `select_workspace_for_session` | `workspace.selectForSession(sessionId)` | Native directory dialog; canonical grant private to main; authenticated sidecar PATCH | grant privacy/auth tests | Select a folder and verify session cwd changes |
-| `terminal_start` | `terminal.start(options)` | Existing cwd, bounded dimensions, scrubbed env, random terminal ID | PTY routing tests | Start shell in chosen cwd |
+| MessageInput dialog migration (no registered Rust command) | `workspace.selectAttachments({sessionId, kind, multiple})` | Fixed file/folder/image modes; fixed image filter; per-session staging; cancellation returns `[]` | picker/filter/cancellation/session-isolation tests | Select one/many files and folders; select/persist an external image |
+| `terminal_start` | `terminal.start(options)` | Existing cwd, bounded dimensions, user environment minus Studio secrets/noise, random terminal ID | PTY routing/env/helper tests | Start shell in chosen cwd |
 | `terminal_write` | `terminal.write(id, bytes)` | Known terminal ID; validated bytes and 1 MiB input cap | PTY validation/routing tests | Type and receive output |
 | `terminal_resize` | `terminal.resize(id, cols, rows)` | Known ID; bounded dimensions | PTY validation/routing tests | Resize without losing session |
 | `terminal_stop` | `terminal.stop(id)` | Known ID; idempotent cleanup | exit/stop/shutdown tests | Close terminal and confirm exit event |
@@ -75,7 +76,7 @@ Legacy Tauri plugins are represented as follows:
 
 | Legacy plugin surface | Electron bridge/host behavior |
 | --- | --- |
-| dialog | `workspace.selectForSession()` owns the only required native directory picker |
+| dialog | `workspace.selectForSession()` owns cwd selection; `workspace.selectAttachments({sessionId, kind, multiple})` owns the file/folder/image picker. Image filters are fixed by main, cancellation returns `[]`, and external images are descriptor-read into per-session Studio staging before their paths cross IPC. |
 | clipboard manager | `clipboard.readImage()` and `clipboard.copyRemoteImage()` |
 | notification | `notifications.show/onClick/onAction` |
 | window/window-state | `window.*`, focus/state events, persisted visible bounds, single-instance focus |
@@ -88,22 +89,36 @@ renderer-controlled workspace grant.
 
 ## Request validation
 
-- The IPC event must come from the current main window's `webContents` and an
-  exact trusted app URL.
+- The IPC event must come from the current main window's `webContents`, its
+  exact `mainFrame` object (same-origin subframes are rejected), and an exact
+  trusted app URL.
 - Handlers parse one object payload or require no payload. Unknown/malformed
   values fail before service code runs.
 - Strings, session IDs, terminal IDs, dimensions, byte arrays, notification
   fields, paths, and URLs have explicit type and length/range rules.
-- Hermes Home access takes relative paths only. Canonical root and target paths
-  are compared after symlink resolution; writes validate the canonical parent.
-- Workspace and asset access is capability based: roots are granted in main;
-  asset URLs contain a 256-bit random expiring handle instead of a file path.
+- Hermes Home access takes relative paths only. Reads and image copies use
+  `O_NOFOLLOW` where available, descriptor `fstat`, descriptor reads, canonical
+  containment, and `dev`/`ino` identity checks. Exclusive temporary writes
+  revalidate the destination directory immediately before and after rename.
+  Directory listings revalidate identity immediately before and after the
+  path-based `readdir`.
+- Workspace and asset access is capability based: workspace roots and image
+  staging roots are scoped to the requesting session. Asset URLs contain a
+  256-bit random expiring handle instead of a file path; expired handles are
+  swept opportunistically and the registry has a hard capacity limit.
 - Remote image fetches reject URL credentials and non-HTTP(S) schemes, resolve
-  every hostname, reject any private/link-local/reserved/documentation/mapped
-  address, pin a selected public IP, preserve Host/SNI, manually revalidate
-  redirects, and cap time and bytes.
+  every hostname, reject all answers in the IANA IPv4/IPv6 special-purpose
+  ranges (including transition and embedded-address forms), default-deny IPv6
+  outside allocated `2000::/3`, pin a selected public IP, preserve Host/SNI,
+  manually revalidate redirects, and cap time and bytes. The address policy is
+  checked against the [IANA IPv4 registry](https://www.iana.org/assignments/iana-ipv4-special-registry/)
+  and [IANA IPv6 registry](https://www.iana.org/assignments/iana-ipv6-special-registry/).
 - PTY operations address only processes created by `TerminalManager`; renderer
-  input cannot name an executable or supply an arbitrary environment.
+  input cannot name an executable or supply a replacement environment. A PTY
+  is nevertheless an explicit, user-authorized arbitrary login shell, not a
+  security sandbox. It intentionally inherits the user's environment,
+  including user-configured API keys. Main removes only npm/color noise and
+  Studio/sidecar internal URLs, bearer tokens, and workspace-grant variables.
 - External URL opening preserves the legacy HTTPS/localhost-only policy.
 
 ## Host policy and lifecycle events
@@ -111,8 +126,27 @@ renderer-controlled workspace grant.
 Production renderer content is `hermes-studio://app/`; local files are never
 loaded with `file://`. The only permitted development origins are the exact
 Vite origins on port 1420. Navigation, redirects, popups, webviews, and all
-permissions except trusted-origin audio are denied. CSP, referrer, and MIME
-headers are installed both on app responses and the session.
+permissions except trusted-main-frame audio are denied. Video is always
+rejected. Electron 40 permission callbacks that omit media metadata are
+accepted only on Windows after webContents, main-frame, origin, and `media`
+checks succeed; macOS and Linux fail closed. CSP, referrer, and MIME headers
+are installed both on app responses and the session.
+
+The macOS package owns explicit main/inherit entitlement files for audio input
+and Electron's JIT/native-library requirements. Windows sets
+`com.hermes-agent.studio` as its AppUserModelID before notifications are used.
+On POSIX, main performs a best-effort executable-bit repair of node-pty's
+`spawn-helper` before the first spawn, including `app.asar.unpacked` paths.
+
+### Filesystem race boundary
+
+Node does not expose one portable `openat`/directory-fd-relative API across all
+three supported hosts. Studio therefore binds reads and copies to verified
+descriptors and makes writes fail closed when immediate canonical and
+`dev`/`ino` revalidation observes a swap. Path-based directory listing and the
+small gap around an atomic rename cannot be described as an absolute defense
+against a concurrent same-user process. Consumers of returned file/folder
+picker paths must re-authorize and revalidate them at the point of use.
 
 The bridge emits:
 
@@ -142,13 +176,15 @@ npm test
 npm run build
 ```
 
-The Electron Vitest suites cover trusted sender/origin checks, IPC schemas and
+The Electron Vitest suites cover exact main-frame sender/origin checks, IPC schemas and
 stable envelopes, bridge freezing/unsubscribe behavior, Hermes Home traversal
-and symlink containment, asset-handle forgery/expiry/protocol responses, remote
-image SSRF/redirect/content/size policy, PTY routing and shutdown, permission
+and deterministic path-swap behavior, attachment filters/cancellation/session
+isolation, asset-handle forgery/expiry/sweep/cap/protocol responses, remote
+image special-range/redirect/content/size policy, PTY helper/env/UTF-8/early-exit/shutdown, permission
 and navigation denial, CSP/referrer policy, window state and single-instance
-focus, workspace grant privacy/authentication, notifications, sidecar recovery,
-and explicit non-exposure of retired/unregistered capabilities.
+focus, repeated-quit cleanup and failure isolation, workspace grant
+privacy/authentication/lifetime, notifications, sidecar recovery, macOS
+entitlement references, and explicit non-exposure of retired/unregistered capabilities.
 
 Before release, perform the packaged acceptance item in every capability-ledger
 row on a signed native macOS, Windows, and Linux runner as applicable. Also

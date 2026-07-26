@@ -35,6 +35,7 @@ export type PtySpawner = (file: string, args: string[], options: PtySpawnOptions
 interface TerminalSession {
   process: PtyProcessLike
   subscriptions: DisposableLike[]
+  inputDecoder: TextDecoder
 }
 
 export interface TerminalManagerOptions {
@@ -77,6 +78,8 @@ function terminalEnvironment(source: NodeJS.ProcessEnv): Record<string, string> 
     if (value === undefined) continue
     if (['NO_COLOR', 'FORCE_COLOR', 'COLORFGBG'].includes(key)) continue
     if (key === 'npm_config_prefix' || key.startsWith('npm_config_') || key.startsWith('npm_package_')) continue
+    if (key.startsWith('DESKTOP_BACKEND_') || key.startsWith('DESKTOP_WORKSPACE_GRANT_')) continue
+    if (key.startsWith('HERMES_STUDIO_') || key.startsWith('VITE_SIDECAR_')) continue
     result[key] = value
   }
   return {
@@ -129,17 +132,21 @@ export class TerminalManager extends EventEmitter {
       throw nativeError('TERMINAL_START_FAILED', `Failed to start terminal: ${error instanceof Error ? error.message : 'unknown error'}`)
     }
     const id = `terminal-${this.#randomBytes(18).toString('base64url')}`
-    const subscriptions: DisposableLike[] = []
-    subscriptions.push(processHandle.onData((data) => {
+    const session: TerminalSession = { process: processHandle, subscriptions: [], inputDecoder: new TextDecoder() }
+    this.#sessions.set(id, session)
+    const retainSubscription = (subscription: DisposableLike): void => {
+      if (this.#sessions.get(id) === session) session.subscriptions.push(subscription)
+      else subscription.dispose()
+    }
+    retainSubscription(processHandle.onData((data) => {
       const event: TerminalDataEvent = { id, data: Array.from(Buffer.from(data, 'utf8')) }
       this.emit('data', event)
     }))
-    subscriptions.push(processHandle.onExit(({ exitCode, signal }) => {
+    retainSubscription(processHandle.onExit(({ exitCode, signal }) => {
       this.#disposeSession(id, false)
       const event: TerminalExitEvent = { id, code: exitCode, signal: signal == null ? null : String(signal) }
       this.emit('exit', event)
     }))
-    this.#sessions.set(id, { process: processHandle, subscriptions })
     return { id, pid: processHandle.pid || null, shell, cwd, reused: false }
   }
 
@@ -152,7 +159,8 @@ export class TerminalManager extends EventEmitter {
       throw nativeError('TERMINAL_INPUT_INVALID', 'Terminal input must contain bytes')
     }
     try {
-      session.process.write(Buffer.from(request.data).toString('utf8'))
+      const decoded = session.inputDecoder.decode(Uint8Array.from(request.data), { stream: true })
+      if (decoded) session.process.write(decoded)
     } catch (error) {
       const message = `Terminal write failed: ${error instanceof Error ? error.message : 'unknown error'}`
       const event: TerminalErrorEvent = { id: request.id as string, error: message }
@@ -195,7 +203,11 @@ export class TerminalManager extends EventEmitter {
     if (!session) return
     this.#sessions.delete(id)
     for (const subscription of session.subscriptions) subscription.dispose()
+    const pending = session.inputDecoder.decode()
     if (kill) {
+      if (pending) {
+        try { session.process.write(pending) } catch { /* best-effort decoder flush */ }
+      }
       try { session.process.kill() } catch { /* best-effort shutdown */ }
     }
   }

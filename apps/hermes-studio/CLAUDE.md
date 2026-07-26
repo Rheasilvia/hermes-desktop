@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+> **Superseded:** This file describes the retired Tauri host and is retained
+> only as migration evidence. Use the repository `AGENTS.md`,
+> [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), and
+> [`docs/NATIVE_BRIDGE.md`](./docs/NATIVE_BRIDGE.md) for current Electron
+> development guidance.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview

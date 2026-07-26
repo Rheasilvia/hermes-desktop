@@ -25,6 +25,20 @@ class FakePty extends EventEmitter implements PtyProcessLike {
   }
 }
 
+class ImmediateExitPty extends FakePty {
+  disposed = 0
+
+  override onData(listener: (data: string) => void): { dispose(): void } {
+    this.on('data', listener)
+    return { dispose: () => { this.disposed += 1; this.off('data', listener) } }
+  }
+
+  override onExit(listener: (event: { exitCode: number; signal?: number }) => void): { dispose(): void } {
+    listener({ exitCode: 127 })
+    return { dispose: () => { this.disposed += 1 } }
+  }
+}
+
 describe('TerminalManager', () => {
   it('routes PTY data/write/resize/exit by opaque terminal id', async () => {
     const cwd = mkdtempSync(path.join(tmpdir(), 'studio-pty-'))
@@ -83,5 +97,62 @@ describe('TerminalManager', () => {
     manager.shutdown()
     expect(ptys[1]?.killed).toBe(true)
     expect(manager.size).toBe(0)
+  })
+
+  it('does not retain a PTY that exits synchronously while listeners are registered', async () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), 'studio-pty-early-exit-'))
+    const pty = new ImmediateExitPty()
+    const manager = new TerminalManager({ spawn: () => pty })
+    const exited = vi.fn()
+    manager.on('exit', exited)
+
+    const started = await manager.start({ cwd, cols: 80, rows: 24 })
+
+    expect(manager.size).toBe(0)
+    expect(pty.disposed).toBe(2)
+    expect(exited).toHaveBeenCalledWith({ id: started.id, code: 127, signal: null })
+  })
+
+  it('preserves user environment but removes Studio sidecar secrets and npm/color noise', async () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), 'studio-pty-env-'))
+    const spawn = vi.fn<PtySpawner>(() => new FakePty())
+    const manager = new TerminalManager({
+      spawn,
+      env: {
+        SHELL: '/bin/zsh',
+        OPENAI_API_KEY: 'user-owned-key',
+        HERMES_HOME: '/home/user/.hermes',
+        DESKTOP_BACKEND_TOKEN: 'sidecar-secret',
+        DESKTOP_WORKSPACE_GRANT_TOKEN: 'grant-secret',
+        VITE_SIDECAR_TOKEN: 'vite-secret',
+        npm_config_prefix: '/npm',
+        NO_COLOR: '1',
+      },
+    })
+
+    await manager.start({ cwd, cols: 80, rows: 24 })
+    const environment = spawn.mock.calls[0]?.[2]?.env
+    expect(environment.OPENAI_API_KEY).toBe('user-owned-key')
+    expect(environment.HERMES_HOME).toBe('/home/user/.hermes')
+    expect(environment.DESKTOP_BACKEND_TOKEN).toBeUndefined()
+    expect(environment.DESKTOP_WORKSPACE_GRANT_TOKEN).toBeUndefined()
+    expect(environment.VITE_SIDECAR_TOKEN).toBeUndefined()
+    expect(environment.npm_config_prefix).toBeUndefined()
+    expect(environment.NO_COLOR).toBeUndefined()
+  })
+
+  it('decodes UTF-8 input across write boundaries and finalizes pending input on stop', async () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), 'studio-pty-streaming-utf8-'))
+    const pty = new FakePty()
+    const manager = new TerminalManager({ spawn: () => pty })
+    const started = await manager.start({ cwd, cols: 80, rows: 24 })
+
+    manager.write({ id: started.id, data: [0xe4] })
+    expect(pty.writes).toEqual([])
+    manager.write({ id: started.id, data: [0xbd, 0xa0] })
+    expect(pty.writes).toEqual(['你'])
+    manager.write({ id: started.id, data: [0xe4] })
+    manager.stop(started.id)
+    expect(pty.writes).toEqual(['你', '�'])
   })
 })

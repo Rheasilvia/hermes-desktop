@@ -22,9 +22,10 @@ export class HermesStudioNativeError extends Error {
 }
 
 function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
-  if (typeof value !== 'object' || value === null || seen.has(value)) return value
-  seen.add(value)
-  for (const nested of Object.values(value)) deepFreeze(nested, seen)
+  const kind = typeof value
+  if ((kind !== 'object' && kind !== 'function') || value === null || seen.has(value as object)) return value
+  seen.add(value as object)
+  for (const nested of Object.values(value as object)) deepFreeze(nested, seen)
   return Object.freeze(value)
 }
 
@@ -71,6 +72,7 @@ export function createHermesStudioBridge(ipc: IpcRendererLike): HermesStudioBrid
     },
     workspace: {
       selectForSession: (sessionId) => invoke(IPC_CHANNELS.workspace.selectForSession, { sessionId }),
+      selectAttachments: (options) => invoke(IPC_CHANNELS.workspace.selectAttachments, options),
     },
     clipboard: {
       readImage: () => invoke(IPC_CHANNELS.clipboard.readImage),

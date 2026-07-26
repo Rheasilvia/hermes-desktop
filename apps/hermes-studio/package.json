@@ -99,9 +99,12 @@
       }
     ],
     "mac": {
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Hermes Studio uses the microphone only when you start a voice interaction."
       },
+      "hardenedRuntime": true,
       "target": [
         "dmg"
       ]
