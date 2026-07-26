@@ -68,6 +68,12 @@ interface MessageInputProps {
   consumePendingVoiceResponse?: () => void;
   maxVoiceRecordingSeconds?: number;
   sttEnabled?: boolean;
+  /**
+   * Lets a parent (e.g. ChatView) reuse this composer's file-drop handler for
+   * an app-level drop overlay. The composer owns attachment state, so drops
+   * captured anywhere in the chat area are routed back here.
+   */
+  onRegisterDrop?: (handler: (event: DragEvent) => void) => void;
 }
 
 interface MessageInputEditPayload {
@@ -117,6 +123,40 @@ function shouldUseCompactComposer(width: number, currentCompact: boolean): boole
     ? width < COMPACT_COMPOSER_EXIT_WIDTH
     : width <= COMPACT_COMPOSER_ENTER_WIDTH;
 }
+
+/**
+ * Classify dropped entries into folder / image / plain-file path buckets.
+ *
+ * A dropped directory is detected via the `DataTransferItem` entry API
+ * (`webkitGetAsEntry().isDirectory`) so it becomes an `@folder:` ref rather
+ * than being treated as a plain file. The `items` list is index-aligned with
+ * `files` for dropped entries; when the entry API is unavailable the item
+ * falls back to image/file classification by MIME type.
+ */
+export function classifyDroppedEntries(
+  files: readonly File[],
+  items: readonly DataTransferItem[],
+): { folderPaths: string[]; imagePaths: string[]; filePaths: string[] } {
+  const folderPaths: string[] = [];
+  const imagePaths: string[] = [];
+  const filePaths: string[] = [];
+  files.forEach((file, index) => {
+    const path = String(
+      (file as File & { path?: string }).path || file.webkitRelativePath || file.name || '',
+    ).trim();
+    if (!path) return;
+    const entry = items[index]?.webkitGetAsEntry?.();
+    if (entry?.isDirectory) {
+      folderPaths.push(path);
+    } else if (file.type.startsWith('image/')) {
+      imagePaths.push(path);
+    } else {
+      filePaths.push(path);
+    }
+  });
+  return { folderPaths, imagePaths, filePaths };
+}
+
 
 export const MessageInput: Component<MessageInputProps> = (props) => {
   const [text, setText] = createSignal('');
@@ -1034,20 +1074,18 @@ export const MessageInput: Component<MessageInputProps> = (props) => {
   };
 
   const handleDrop = (event: DragEvent) => {
+    const items = Array.from(event.dataTransfer?.items ?? []);
     const files = Array.from(event.dataTransfer?.files ?? []);
     if (files.length === 0) return;
     event.preventDefault();
-    const imagePaths: string[] = [];
-    const filePaths: string[] = [];
-    for (const file of files) {
-      const path = String((file as File & { path?: string }).path || file.webkitRelativePath || file.name || '').trim();
-      if (!path) continue;
-      if (file.type.startsWith('image/')) imagePaths.push(path);
-      else filePaths.push(path);
-    }
+    const { folderPaths, imagePaths, filePaths } = classifyDroppedEntries(files, items);
+    if (folderPaths.length > 0) addPaths('folder', folderPaths);
     if (filePaths.length > 0) addPaths('file', filePaths);
     if (imagePaths.length > 0) addPaths('image', imagePaths);
   };
+
+  // Expose the drop handler so a parent can route app-level drops here.
+  props.onRegisterDrop?.(handleDrop);
 
   const removeAttachment = (id: string) => {
     setAttachments((prev) => prev.filter((chip) => chip.id !== id));
