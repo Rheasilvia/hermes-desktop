@@ -11,6 +11,7 @@ Lanes:
 * ``python``      — pytest / ruff / ty / footguns.
 * ``docker_meta`` — Dockerfiles etc.
 * ``frontend``    — TS typecheck matrix + desktop build.
+* ``studio_native`` — host-native Hermes Studio sidecar + Electron packages.
 * ``site``        — Docusaurus + generated skill docs.
 * ``scan``        — supply-chain scan (Python files, .pth, setup hooks).
 * ``deps``        — pyproject.toml dependency bounds check.
@@ -37,7 +38,16 @@ import os
 import sys
 
 _FRONTEND = ("ui-tui/", "web/", "apps/")  # TS typecheck-matrix packages
+_STUDIO = "apps/hermes-studio/"
+_STUDIO_SIDECAR = f"{_STUDIO}sidecar/"
+_STUDIO_DOCS = f"{_STUDIO}docs/"
 _ROOT_NPM = {"package.json", "package-lock.json"}  # shifts every package's tree
+_STUDIO_NATIVE_FILES = _ROOT_NPM | {
+    "pyproject.toml",
+    "uv.lock",
+    "scripts/ci/classify_changes.py",
+    "tests/ci/test_classify_changes.py",
+}
 _DOCKER_META = ("docker/", ".hadolint.yml", "Dockerfile") # docker setup
 _SITE = ("website/", "skills/", "optional-skills/")  # docs site + skill pages
 # Prose/frontend trees that can't touch Python. skills/ is excluded on purpose.
@@ -71,7 +81,19 @@ def _is_docs(p: str) -> bool:
 
 
 def _py_irrelevant(p: str) -> bool:
+    # apps/** is normally a frontend-only tree, but Hermes Studio's sidecar is
+    # Python and packages the root hermes-agent project.  Keep its changes in
+    # the Python lane instead of letting the broad apps/ exception hide them.
+    if p.startswith(_STUDIO_SIDECAR):
+        return _is_docs(p)
     return _is_docs(p) or p in _ROOT_NPM or p.startswith(_PY_SKIP) or p.startswith(_DOCKER_META)
+
+
+def _is_studio_docs(p: str) -> bool:
+    """Return whether a Studio path is documentation-only for native CI."""
+    return p.startswith(_STUDIO_DOCS) or (
+        p.startswith(_STUDIO) and p.endswith((".md", ".mdx"))
+    )
 
 
 def _is_scan(p: str) -> bool:
@@ -102,6 +124,15 @@ def classify(files: list[str]) -> dict[str, bool]:
         "python": any(not _py_irrelevant(f) for f in files),
         "docker_meta":  any(f.startswith(_DOCKER_META) for f in files),
         "frontend": any(f.startswith(_FRONTEND) or f in _ROOT_NPM for f in files),
+        # Keep the four-runner native matrix focused on Studio and the root
+        # manifests that determine its JS/Python dependency graphs. Main pushes
+        # still fail open and run this lane, providing integration coverage for
+        # broader core changes without charging every Python PR four runners.
+        "studio_native": any(
+            (f.startswith(_STUDIO) and not _is_studio_docs(f))
+            or f in _STUDIO_NATIVE_FILES
+            for f in files
+        ),
         "site": any(f.startswith(_SITE) for f in files),
         "scan": any(_is_scan(f) for f in files),
         "deps": any(f == "pyproject.toml" for f in files),
@@ -113,6 +144,7 @@ def classify(files: list[str]) -> dict[str, bool]:
         ret["python"] = True
         ret["docker_meta"] = True
         ret["frontend"] = True
+        ret["studio_native"] = True
         ret["site"] = True
         ret["scan"] = True
         ret["deps"] = True

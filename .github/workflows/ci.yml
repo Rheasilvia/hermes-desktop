@@ -43,6 +43,7 @@ jobs:
     outputs:
       python: ${{ steps.classify.outputs.python }}
       frontend: ${{ steps.classify.outputs.frontend }}
+      studio_native: ${{ steps.classify.outputs.studio_native }}
       site: ${{ steps.classify.outputs.site }}
       scan: ${{ steps.classify.outputs.scan }}
       deps: ${{ steps.classify.outputs.deps }}
@@ -91,6 +92,12 @@ jobs:
     needs: detect
     if: needs.detect.outputs.python == 'true' || needs.detect.outputs.frontend == 'true'
     uses: ./.github/workflows/e2e-desktop.yml
+
+  studio-native:
+    name: Hermes Studio native packages
+    needs: detect
+    if: needs.detect.outputs.studio_native == 'true'
+    uses: ./.github/workflows/studio-native.yml
 
   docs-site:
     name: Docs Site
@@ -256,6 +263,7 @@ jobs:
       - lint
       - js-tests
       - e2e-desktop
+      - studio-native
       - docs-site
       - history-check
       - contributor-check
