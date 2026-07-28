@@ -238,6 +238,7 @@ export function appendComposerInline(value: string) {
 
 export function clearComposerDraft() {
   $composerDraft.set('')
+
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('hermes:composer-clear-draft'))
   }
